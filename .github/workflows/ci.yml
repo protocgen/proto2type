@@ -85,6 +85,9 @@ jobs:
       - name: Setup Buf
         uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1
 
+      - name: Install protoc-gen-go
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+
       - name: Build plugin
         run: go build -o protoc-gen-proto2type .
 
@@ -138,6 +141,9 @@ jobs:
           done
         env:
           FIRESTORE_EMULATOR_HOST: localhost:8080
+
+      - name: Install protoc-gen-go
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 
       - name: Build plugin
         run: go build -o protoc-gen-proto2type .
