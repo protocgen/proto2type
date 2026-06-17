@@ -35,6 +35,7 @@ func main() {
 	flags.StringVar(&opts.OutputFile, "output_file", "", "override output filename")
 	flags.BoolVar(&opts.EnumAsString, "enum_as_string", false, "store enums as string names")
 	flags.BoolVar(&opts.OmitemptyDefault, "omitempty_default", true, "default omitempty for optional fields")
+	flags.StringVar(&opts.GoPackage, "go_package", "", "override Go package for generated types (import path;package_name)")
 
 	protogen.Options{
 		ParamFunc: flags.Set,

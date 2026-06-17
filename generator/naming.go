@@ -57,3 +57,16 @@ func outputFilename(protoPath, suffix string) string {
 	base := strings.TrimSuffix(protoPath, ".proto")
 	return base + suffix
 }
+
+// parseGoPackage parses a go_package string in the format "import/path;package_name"
+// or just "import/path" (in which case the package name is the last path element).
+func parseGoPackage(pkg string) (importPath, packageName string) {
+	if i := strings.Index(pkg, ";"); i >= 0 {
+		return pkg[:i], pkg[i+1:]
+	}
+	// Use last path element as package name
+	if i := strings.LastIndex(pkg, "/"); i >= 0 {
+		return pkg, pkg[i+1:]
+	}
+	return pkg, pkg
+}

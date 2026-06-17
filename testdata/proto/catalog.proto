@@ -4,7 +4,7 @@ package test.v1;
 import "google/protobuf/timestamp.proto";
 import "proto2type/options.proto";
 
-option go_package = "github.com/protocgen/proto2type/testdata/golden/go";
+option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
 
 // ModelCatalogEntry represents a model in the catalog.
 message ModelCatalogEntry {

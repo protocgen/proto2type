@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	gen "github.com/protocgen/proto2type/testdata/golden/go"
+	gen "github.com/protocgen/proto2type/testdata/golden/go/gen"
 )
 
 func TestFirestoreRoundTrip_ModelCatalogEntry(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	gen "github.com/protocgen/proto2type/testdata/golden/go"
+	gen "github.com/protocgen/proto2type/testdata/golden/go/gen"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 

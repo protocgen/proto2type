@@ -20,4 +20,9 @@ type Options struct {
 
 	// OmitemptyDefault controls whether optional/zero-value fields get omitempty by default.
 	OmitemptyDefault bool
+
+	// GoPackage overrides the Go package name for generated types.
+	// When set, generated types use this as their Go import path and the converters
+	// import the proto types from the original go_package in the .proto file.
+	GoPackage string
 }

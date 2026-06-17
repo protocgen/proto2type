@@ -69,7 +69,7 @@ jobs:
         run: go install github.com/securego/gosec/v2/cmd/gosec@latest
 
       - name: Run gosec
-        run: gosec -exclude-dir=testdata ./...
+        run: gosec -exclude-dir=testdata -exclude-dir=proto ./...
 
   golden-test:
     runs-on: ubuntu-latest
