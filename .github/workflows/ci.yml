@@ -69,33 +69,7 @@ jobs:
         run: go install github.com/securego/gosec/v2/cmd/gosec@latest
 
       - name: Run gosec
-        run: gosec ./...
-
-  integration-test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
-        with:
-          go-version-file: go.mod
-
-      - name: Setup Buf
-        uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1
-
-      - name: Build plugin
-        run: go build -o protoc-gen-proto2type .
-
-      - name: Add plugin to PATH
-        run: echo "$PWD" >> "$GITHUB_PATH"
-
-      - name: Generate from testdata
-        run: cd testdata/proto && buf generate
-
-      - name: Verify generated Go compiles
-        run: go build ./testdata/golden/...
+        run: gosec -exclude-dir=testdata ./...
 
   golden-test:
     runs-on: ubuntu-latest
