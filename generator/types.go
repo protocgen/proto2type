@@ -27,7 +27,7 @@ func goType(kind protoreflect.Kind) string {
 	case protoreflect.BytesKind:
 		return "[]byte"
 	default:
-		return "interface{}"
+		return "any"
 	}
 }
 
@@ -66,4 +66,92 @@ func isWellKnownDuration(field *protogen.Field) bool {
 		return false
 	}
 	return string(field.Desc.Message().FullName()) == "google.protobuf.Duration"
+}
+
+// isWellKnownWrapper returns true if the field is a google.protobuf wrapper type
+// (e.g., StringValue, BoolValue, Int32Value, etc.).
+func isWellKnownWrapper(field *protogen.Field) bool {
+	if field.Desc.Kind() != protoreflect.MessageKind {
+		return false
+	}
+	switch string(field.Desc.Message().FullName()) {
+	case "google.protobuf.StringValue",
+		"google.protobuf.BoolValue",
+		"google.protobuf.Int32Value",
+		"google.protobuf.Int64Value",
+		"google.protobuf.UInt32Value",
+		"google.protobuf.UInt64Value",
+		"google.protobuf.FloatValue",
+		"google.protobuf.DoubleValue",
+		"google.protobuf.BytesValue":
+		return true
+	}
+	return false
+}
+
+// wrapperGoType returns the Go pointer type for a well-known wrapper field.
+func wrapperGoType(field *protogen.Field) string {
+	switch string(field.Desc.Message().FullName()) {
+	case "google.protobuf.StringValue":
+		return "*string"
+	case "google.protobuf.BoolValue":
+		return "*bool"
+	case "google.protobuf.Int32Value":
+		return "*int32"
+	case "google.protobuf.Int64Value":
+		return "*int64"
+	case "google.protobuf.UInt32Value":
+		return "*uint32"
+	case "google.protobuf.UInt64Value":
+		return "*uint64"
+	case "google.protobuf.FloatValue":
+		return "*float32"
+	case "google.protobuf.DoubleValue":
+		return "*float64"
+	case "google.protobuf.BytesValue":
+		return "*[]byte"
+	default:
+		return "any"
+	}
+}
+
+// wrapperPbFuncName returns the wrapperspb constructor function name for a wrapper type.
+// e.g., "google.protobuf.StringValue" -> "String"
+func wrapperPbFuncName(field *protogen.Field) string {
+	switch string(field.Desc.Message().FullName()) {
+	case "google.protobuf.StringValue":
+		return "String"
+	case "google.protobuf.BoolValue":
+		return "Bool"
+	case "google.protobuf.Int32Value":
+		return "Int32"
+	case "google.protobuf.Int64Value":
+		return "Int64"
+	case "google.protobuf.UInt32Value":
+		return "UInt32"
+	case "google.protobuf.UInt64Value":
+		return "UInt64"
+	case "google.protobuf.FloatValue":
+		return "Float"
+	case "google.protobuf.DoubleValue":
+		return "Double"
+	case "google.protobuf.BytesValue":
+		return "Bytes"
+	default:
+		return "String"
+	}
+}
+
+// isNestedMessage returns true if the field is a non-WKT message type that is not a list or map.
+func isNestedMessage(field *protogen.Field) bool {
+	if field.Desc.Kind() != protoreflect.MessageKind {
+		return false
+	}
+	if field.Desc.IsList() || field.Desc.IsMap() {
+		return false
+	}
+	if isWellKnownTimestamp(field) || isWellKnownDuration(field) || isWellKnownWrapper(field) {
+		return false
+	}
+	return true
 }

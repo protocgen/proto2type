@@ -13,80 +13,83 @@ import "time"
 //
 // ModelCatalogEntry represents a model in the catalog.
 type ModelCatalogEntry struct {
-	ModelID          string    `json:"model_id"`
-	Provider         string    `json:"provider"`
-	DisplayName      string    `json:"display_name"`
-	InputPerMillion  float64   `json:"input_per_million"`
-	OutputPerMillion float64   `json:"output_per_million"`
-	Enabled          bool      `json:"enabled"`
-	Category         string    `json:"category"`
-	ContextWindow    int64     `json:"context_window"`
-	DiscountPercent  float64   `json:"discount_percent"`
+	ModelID          string    `json:"model_id,omitempty"`
+	Provider         string    `json:"provider,omitempty"`
+	DisplayName      string    `json:"display_name,omitempty"`
+	InputPerMillion  float64   `json:"input_per_million,omitempty"`
+	OutputPerMillion float64   `json:"output_per_million,omitempty"`
+	Enabled          bool      `json:"enabled,omitempty"`
+	Category         string    `json:"category,omitempty"`
+	ContextWindow    int64     `json:"context_window,omitempty"`
+	DiscountPercent  float64   `json:"discount_percent,omitempty"`
 	Aliases          []string  `json:"aliases,omitempty"`
-	ProviderModelID  string    `json:"provider_model_id"`
+	ProviderModelID  string    `json:"provider_model_id,omitempty"`
 	CreatedAt        time.Time `json:"created_at,omitempty"`
 	UpdatedAt        time.Time `json:"updated_at,omitempty"`
 	Notes            string    `json:"notes,omitempty"`
-	Region           string    `json:"region"`
+	Region           string    `json:"region,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
-func (d *ModelCatalogEntry) ToProto() *ModelCatalogEntry {
-	if d == nil {
+func (m *ModelCatalogEntry) ToProto() *ModelCatalogEntry {
+	if m == nil {
 		return nil
 	}
 	pb := &ModelCatalogEntry{
-		ModelId:          d.ModelID,
-		Provider:         d.Provider,
-		DisplayName:      d.DisplayName,
-		InputPerMillion:  d.InputPerMillion,
-		OutputPerMillion: d.OutputPerMillion,
-		Enabled:          d.Enabled,
-		Category:         d.Category,
-		ContextWindow:    d.ContextWindow,
-		DiscountPercent:  d.DiscountPercent,
-		Aliases:          d.Aliases,
-		ProviderModelId:  d.ProviderModelID,
-		Notes:            d.Notes,
-		Region:           d.Region,
+		ModelId:          m.ModelID,
+		Provider:         m.Provider,
+		DisplayName:      m.DisplayName,
+		InputPerMillion:  m.InputPerMillion,
+		OutputPerMillion: m.OutputPerMillion,
+		Enabled:          m.Enabled,
+		Category:         m.Category,
+		ContextWindow:    m.ContextWindow,
+		DiscountPercent:  m.DiscountPercent,
+		Aliases:          m.Aliases,
+		ProviderModelId:  m.ProviderModelID,
+		Notes:            m.Notes,
+		Region:           m.Region,
 	}
-	if !d.CreatedAt.IsZero() {
-		pb.CreatedAt = timestamppb.New(d.CreatedAt)
+	if !m.CreatedAt.IsZero() {
+		pb.CreatedAt = timestamppb.New(m.CreatedAt)
 	}
-	if !d.UpdatedAt.IsZero() {
-		pb.UpdatedAt = timestamppb.New(d.UpdatedAt)
+	if !m.UpdatedAt.IsZero() {
+		pb.UpdatedAt = timestamppb.New(m.UpdatedAt)
 	}
 	return pb
 }
 
 // FromProto populates from a protobuf message.
-func (d *ModelCatalogEntry) FromProto(pb *ModelCatalogEntry) {
+func (m *ModelCatalogEntry) FromProto(pb *ModelCatalogEntry) {
 	if pb == nil {
 		return
 	}
-	d.ModelID = pb.ModelId
-	d.Provider = pb.Provider
-	d.DisplayName = pb.DisplayName
-	d.InputPerMillion = pb.InputPerMillion
-	d.OutputPerMillion = pb.OutputPerMillion
-	d.Enabled = pb.Enabled
-	d.Category = pb.Category
-	d.ContextWindow = pb.ContextWindow
-	d.DiscountPercent = pb.DiscountPercent
-	d.Aliases = pb.Aliases
-	d.ProviderModelID = pb.ProviderModelId
+	m.ModelID = pb.ModelId
+	m.Provider = pb.Provider
+	m.DisplayName = pb.DisplayName
+	m.InputPerMillion = pb.InputPerMillion
+	m.OutputPerMillion = pb.OutputPerMillion
+	m.Enabled = pb.Enabled
+	m.Category = pb.Category
+	m.ContextWindow = pb.ContextWindow
+	m.DiscountPercent = pb.DiscountPercent
+	m.Aliases = pb.Aliases
+	m.ProviderModelID = pb.ProviderModelId
 	if pb.CreatedAt != nil {
-		d.CreatedAt = pb.CreatedAt.AsTime()
+		m.CreatedAt = pb.CreatedAt.AsTime()
 	}
 	if pb.UpdatedAt != nil {
-		d.UpdatedAt = pb.UpdatedAt.AsTime()
+		m.UpdatedAt = pb.UpdatedAt.AsTime()
 	}
-	d.Notes = pb.Notes
-	d.Region = pb.Region
+	m.Notes = pb.Notes
+	m.Region = pb.Region
 }
 
 // ApplyFieldMaskModelCatalogEntry copies fields from src to dst based on the given paths.
 func ApplyFieldMaskModelCatalogEntry(dst, src *ModelCatalogEntry, paths []string) {
+	if dst == nil || src == nil {
+		return
+	}
 	for _, path := range paths {
 		switch path {
 		case "model_id":

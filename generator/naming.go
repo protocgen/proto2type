@@ -42,6 +42,15 @@ func storageFieldName(protoName string) string {
 	return protoName
 }
 
+// receiverName returns the lowercase first letter of a type name for use as a method receiver.
+// e.g., "UserFirestore" -> "u", "Address" -> "a"
+func receiverName(typeName string) string {
+	if len(typeName) == 0 {
+		return "x"
+	}
+	return strings.ToLower(typeName[:1])
+}
+
 // outputFilename returns the output filename for a given proto file.
 func outputFilename(protoPath, suffix string) string {
 	// Strip .proto extension

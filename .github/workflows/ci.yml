@@ -89,7 +89,7 @@ jobs:
         run: go build -o protoc-gen-proto2type .
 
       - name: Add plugin to PATH
-        run: echo "$PWD" >> $GITHUB_PATH
+        run: echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Generate from testdata
         run: cd testdata/proto && buf generate
@@ -115,7 +115,7 @@ jobs:
         run: go build -o protoc-gen-proto2type .
 
       - name: Add plugin to PATH
-        run: echo "$PWD" >> $GITHUB_PATH
+        run: echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Regenerate golden files
         run: cd testdata/proto && buf generate
@@ -158,7 +158,7 @@ jobs:
         run: |
           firebase emulators:start --only firestore --project demo-test &
           # Wait for emulator to be ready
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             curl -s http://localhost:8080 > /dev/null && break
             sleep 1
           done

@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"fmt"
+
 	"google.golang.org/protobuf/compiler/protogen"
 
 	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
@@ -34,14 +36,14 @@ func generateGoMongo(gen *protogen.Plugin, file *protogen.File, opts *Options) e
 	}
 
 	for _, msg := range file.Messages {
-		generateGoMongoMessage(g, msg, opts)
+		generateGoMongoMessage(gen, g, msg, opts)
 	}
 
 	return nil
 }
 
 // generateGoMongoMessage generates a MongoDB storage struct for a message.
-func generateGoMongoMessage(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) {
+func generateGoMongoMessage(gen *protogen.Plugin, g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) {
 	if isMessageSkipped(msg) {
 		return
 	}
@@ -60,7 +62,7 @@ func generateGoMongoMessage(g *protogen.GeneratedFile, msg *protogen.Message, op
 		}
 
 		fieldName := toPascalCase(string(field.Desc.Name()))
-		fieldType := goDomainFieldType(field)
+		fieldType := goStorageFieldType(field, "Mongo")
 
 		// Build bson tag
 		var bsonTag string
@@ -71,6 +73,11 @@ func generateGoMongoMessage(g *protogen.GeneratedFile, msg *protogen.Message, op
 		} else {
 			bsonName := storageFieldName(string(field.Desc.Name()))
 			if override := fieldNameOverride(field); override != "" {
+				// Validate the override name (SEC-2)
+				if errMsg := validateFieldNameOverride(override); errMsg != "" {
+					gen.Error(fmt.Errorf("field %s in %s: %s", field.Desc.Name(), msg.Desc.FullName(), errMsg))
+					continue
+				}
 				bsonName = override
 			}
 			bsonTag = bsonName
@@ -105,6 +112,6 @@ func generateGoMongoMessage(g *protogen.GeneratedFile, msg *protogen.Message, op
 		if nested.Desc.IsMapEntry() {
 			continue
 		}
-		generateGoMongoMessage(g, nested, opts)
+		generateGoMongoMessage(gen, g, nested, opts)
 	}
 }

@@ -12,116 +12,117 @@ import "time"
 
 // ModelCatalogEntryFirestore is the Firestore storage representation of test.v1.ModelCatalogEntry.
 type ModelCatalogEntryFirestore struct {
-	Provider         string    `firestore:"provider"`
-	DisplayName      string    `firestore:"display_name"`
-	InputPerMillion  float64   `firestore:"input_per_million"`
-	OutputPerMillion float64   `firestore:"output_per_million"`
-	Enabled          bool      `firestore:"enabled"`
-	Category         string    `firestore:"category"`
-	ContextWindow    int64     `firestore:"context_window"`
-	DiscountPercent  float64   `firestore:"discount_percent"`
+	Provider         string    `firestore:"provider,omitempty"`
+	DisplayName      string    `firestore:"display_name,omitempty"`
+	InputPerMillion  float64   `firestore:"input_per_million,omitempty"`
+	OutputPerMillion float64   `firestore:"output_per_million,omitempty"`
+	Enabled          bool      `firestore:"enabled,omitempty"`
+	Category         string    `firestore:"category,omitempty"`
+	ContextWindow    int64     `firestore:"context_window,omitempty"`
+	DiscountPercent  float64   `firestore:"discount_percent,omitempty"`
 	Aliases          []string  `firestore:"aliases,omitempty"`
-	ProviderModelID  string    `firestore:"provider_model_id"`
+	ProviderModelID  string    `firestore:"provider_model_id,omitempty"`
 	CreatedAt        time.Time `firestore:"created_at,omitempty"`
 	UpdatedAt        time.Time `firestore:"updated_at,serverTimestamp"`
 	Notes            string    `firestore:"notes,omitempty"`
-	Region           string    `firestore:"region"`
+	Region           string    `firestore:"region,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
-func (d *ModelCatalogEntryFirestore) ToProto() *ModelCatalogEntry {
-	if d == nil {
+func (m *ModelCatalogEntryFirestore) ToProto() *ModelCatalogEntry {
+	if m == nil {
 		return nil
 	}
 	pb := &ModelCatalogEntry{
-		Provider:         d.Provider,
-		DisplayName:      d.DisplayName,
-		InputPerMillion:  d.InputPerMillion,
-		OutputPerMillion: d.OutputPerMillion,
-		Enabled:          d.Enabled,
-		Category:         d.Category,
-		ContextWindow:    d.ContextWindow,
-		DiscountPercent:  d.DiscountPercent,
-		Aliases:          d.Aliases,
-		ProviderModelId:  d.ProviderModelID,
-		Notes:            d.Notes,
-		Region:           d.Region,
+		Provider:         m.Provider,
+		DisplayName:      m.DisplayName,
+		InputPerMillion:  m.InputPerMillion,
+		OutputPerMillion: m.OutputPerMillion,
+		Enabled:          m.Enabled,
+		Category:         m.Category,
+		ContextWindow:    m.ContextWindow,
+		DiscountPercent:  m.DiscountPercent,
+		Aliases:          m.Aliases,
+		ProviderModelId:  m.ProviderModelID,
+		Notes:            m.Notes,
+		Region:           m.Region,
 	}
-	if !d.CreatedAt.IsZero() {
-		pb.CreatedAt = timestamppb.New(d.CreatedAt)
+	if !m.CreatedAt.IsZero() {
+		pb.CreatedAt = timestamppb.New(m.CreatedAt)
 	}
-	if !d.UpdatedAt.IsZero() {
-		pb.UpdatedAt = timestamppb.New(d.UpdatedAt)
+	if !m.UpdatedAt.IsZero() {
+		pb.UpdatedAt = timestamppb.New(m.UpdatedAt)
 	}
 	return pb
 }
 
 // FromProto populates from a protobuf message.
-func (d *ModelCatalogEntryFirestore) FromProto(pb *ModelCatalogEntry) {
+func (m *ModelCatalogEntryFirestore) FromProto(pb *ModelCatalogEntry) {
 	if pb == nil {
 		return
 	}
-	d.Provider = pb.Provider
-	d.DisplayName = pb.DisplayName
-	d.InputPerMillion = pb.InputPerMillion
-	d.OutputPerMillion = pb.OutputPerMillion
-	d.Enabled = pb.Enabled
-	d.Category = pb.Category
-	d.ContextWindow = pb.ContextWindow
-	d.DiscountPercent = pb.DiscountPercent
-	d.Aliases = pb.Aliases
-	d.ProviderModelID = pb.ProviderModelId
+	m.Provider = pb.Provider
+	m.DisplayName = pb.DisplayName
+	m.InputPerMillion = pb.InputPerMillion
+	m.OutputPerMillion = pb.OutputPerMillion
+	m.Enabled = pb.Enabled
+	m.Category = pb.Category
+	m.ContextWindow = pb.ContextWindow
+	m.DiscountPercent = pb.DiscountPercent
+	m.Aliases = pb.Aliases
+	m.ProviderModelID = pb.ProviderModelId
 	if pb.CreatedAt != nil {
-		d.CreatedAt = pb.CreatedAt.AsTime()
+		m.CreatedAt = pb.CreatedAt.AsTime()
 	}
 	if pb.UpdatedAt != nil {
-		d.UpdatedAt = pb.UpdatedAt.AsTime()
+		m.UpdatedAt = pb.UpdatedAt.AsTime()
 	}
-	d.Notes = pb.Notes
-	d.Region = pb.Region
+	m.Notes = pb.Notes
+	m.Region = pb.Region
 }
 
 // ToDomain converts to the domain type.
-func (s *ModelCatalogEntryFirestore) ToDomain() *ModelCatalogEntry {
-	if s == nil {
+func (m *ModelCatalogEntryFirestore) ToDomain(documentID string) *ModelCatalogEntry {
+	if m == nil {
 		return nil
 	}
 	d := &ModelCatalogEntry{
-		Provider:         s.Provider,
-		DisplayName:      s.DisplayName,
-		InputPerMillion:  s.InputPerMillion,
-		OutputPerMillion: s.OutputPerMillion,
-		Enabled:          s.Enabled,
-		Category:         s.Category,
-		ContextWindow:    s.ContextWindow,
-		DiscountPercent:  s.DiscountPercent,
-		Aliases:          s.Aliases,
-		ProviderModelID:  s.ProviderModelID,
-		CreatedAt:        s.CreatedAt,
-		UpdatedAt:        s.UpdatedAt,
-		Notes:            s.Notes,
-		Region:           s.Region,
+		Provider:         m.Provider,
+		DisplayName:      m.DisplayName,
+		InputPerMillion:  m.InputPerMillion,
+		OutputPerMillion: m.OutputPerMillion,
+		Enabled:          m.Enabled,
+		Category:         m.Category,
+		ContextWindow:    m.ContextWindow,
+		DiscountPercent:  m.DiscountPercent,
+		Aliases:          m.Aliases,
+		ProviderModelID:  m.ProviderModelID,
+		CreatedAt:        m.CreatedAt,
+		UpdatedAt:        m.UpdatedAt,
+		Notes:            m.Notes,
+		Region:           m.Region,
 	}
+	d.ModelID = documentID
 	return d
 }
 
 // FromDomain populates from the domain type.
-func (s *ModelCatalogEntryFirestore) FromDomain(d *ModelCatalogEntry) {
+func (m *ModelCatalogEntryFirestore) FromDomain(d *ModelCatalogEntry) {
 	if d == nil {
 		return
 	}
-	s.Provider = d.Provider
-	s.DisplayName = d.DisplayName
-	s.InputPerMillion = d.InputPerMillion
-	s.OutputPerMillion = d.OutputPerMillion
-	s.Enabled = d.Enabled
-	s.Category = d.Category
-	s.ContextWindow = d.ContextWindow
-	s.DiscountPercent = d.DiscountPercent
-	s.Aliases = d.Aliases
-	s.ProviderModelID = d.ProviderModelID
-	s.CreatedAt = d.CreatedAt
-	s.UpdatedAt = d.UpdatedAt
-	s.Notes = d.Notes
-	s.Region = d.Region
+	m.Provider = d.Provider
+	m.DisplayName = d.DisplayName
+	m.InputPerMillion = d.InputPerMillion
+	m.OutputPerMillion = d.OutputPerMillion
+	m.Enabled = d.Enabled
+	m.Category = d.Category
+	m.ContextWindow = d.ContextWindow
+	m.DiscountPercent = d.DiscountPercent
+	m.Aliases = d.Aliases
+	m.ProviderModelID = d.ProviderModelID
+	m.CreatedAt = d.CreatedAt
+	m.UpdatedAt = d.UpdatedAt
+	m.Notes = d.Notes
+	m.Region = d.Region
 }

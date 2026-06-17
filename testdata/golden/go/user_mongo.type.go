@@ -13,162 +13,172 @@ import "time"
 
 // UserMongo is the MongoDB storage representation of test.v1.User.
 type UserMongo struct {
-	ID             string            `bson:"id"`
-	Email          string            `bson:"email"`
-	DisplayName    string            `bson:"display_name"`
-	Active         bool              `bson:"active"`
-	Age            int32             `bson:"age"`
+	ID             string            `bson:"id,omitempty"`
+	Email          string            `bson:"email,omitempty"`
+	DisplayName    string            `bson:"display_name,omitempty"`
+	Active         bool              `bson:"active,omitempty"`
+	Age            int32             `bson:"age,omitempty"`
 	Roles          []string          `bson:"roles,omitempty"`
 	Metadata       map[string]string `bson:"metadata,omitempty"`
-	Address        *Address          `bson:"address,omitempty"`
+	Address        *AddressMongo     `bson:"address,omitempty"`
 	CreatedAt      time.Time         `bson:"created_at,omitempty"`
 	SessionTimeout time.Duration     `bson:"session_timeout,omitempty"`
-	Phone          string            `bson:"phone,omitempty"`
+	Phone          *string           `bson:"phone,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
-func (d *UserMongo) ToProto() *User {
-	if d == nil {
+func (u *UserMongo) ToProto() *User {
+	if u == nil {
 		return nil
 	}
 	pb := &User{
-		Id:          d.ID,
-		Email:       d.Email,
-		DisplayName: d.DisplayName,
-		Active:      d.Active,
-		Age:         d.Age,
-		Roles:       d.Roles,
-		Metadata:    d.Metadata,
-		Address:     d.Address,
-		Phone:       d.Phone,
+		Id:          u.ID,
+		Email:       u.Email,
+		DisplayName: u.DisplayName,
+		Active:      u.Active,
+		Age:         u.Age,
+		Roles:       u.Roles,
+		Metadata:    u.Metadata,
 	}
-	if !d.CreatedAt.IsZero() {
-		pb.CreatedAt = timestamppb.New(d.CreatedAt)
+	if u.Address != nil {
+		pb.Address = u.Address.ToProto()
 	}
-	pb.SessionTimeout = durationpb.New(d.SessionTimeout)
+	if !u.CreatedAt.IsZero() {
+		pb.CreatedAt = timestamppb.New(u.CreatedAt)
+	}
+	pb.SessionTimeout = durationpb.New(u.SessionTimeout)
+	pb.Phone = u.Phone
 	return pb
 }
 
 // FromProto populates from a protobuf message.
-func (d *UserMongo) FromProto(pb *User) {
+func (u *UserMongo) FromProto(pb *User) {
 	if pb == nil {
 		return
 	}
-	d.ID = pb.Id
-	d.Email = pb.Email
-	d.DisplayName = pb.DisplayName
-	d.Active = pb.Active
-	d.Age = pb.Age
-	d.Roles = pb.Roles
-	d.Metadata = pb.Metadata
-	d.Address = pb.Address
+	u.ID = pb.Id
+	u.Email = pb.Email
+	u.DisplayName = pb.DisplayName
+	u.Active = pb.Active
+	u.Age = pb.Age
+	u.Roles = pb.Roles
+	u.Metadata = pb.Metadata
+	if pb.Address != nil {
+		u.Address = &AddressMongo{}
+		u.Address.FromProto(pb.Address)
+	}
 	if pb.CreatedAt != nil {
-		d.CreatedAt = pb.CreatedAt.AsTime()
+		u.CreatedAt = pb.CreatedAt.AsTime()
 	}
 	if pb.SessionTimeout != nil {
-		d.SessionTimeout = pb.SessionTimeout.AsDuration()
+		u.SessionTimeout = pb.SessionTimeout.AsDuration()
 	}
-	d.Phone = pb.Phone
+	u.Phone = pb.Phone
 }
 
 // ToDomain converts to the domain type.
-func (s *UserMongo) ToDomain() *User {
-	if s == nil {
+func (u *UserMongo) ToDomain() *User {
+	if u == nil {
 		return nil
 	}
 	d := &User{
-		ID:             s.ID,
-		Email:          s.Email,
-		DisplayName:    s.DisplayName,
-		Active:         s.Active,
-		Age:            s.Age,
-		Roles:          s.Roles,
-		Metadata:       s.Metadata,
-		Address:        s.Address,
-		CreatedAt:      s.CreatedAt,
-		SessionTimeout: s.SessionTimeout,
-		Phone:          s.Phone,
+		ID:             u.ID,
+		Email:          u.Email,
+		DisplayName:    u.DisplayName,
+		Active:         u.Active,
+		Age:            u.Age,
+		Roles:          u.Roles,
+		Metadata:       u.Metadata,
+		CreatedAt:      u.CreatedAt,
+		SessionTimeout: u.SessionTimeout,
+		Phone:          u.Phone,
+	}
+	if u.Address != nil {
+		d.Address = u.Address.ToDomain()
 	}
 	return d
 }
 
 // FromDomain populates from the domain type.
-func (s *UserMongo) FromDomain(d *User) {
+func (u *UserMongo) FromDomain(d *User) {
 	if d == nil {
 		return
 	}
-	s.ID = d.ID
-	s.Email = d.Email
-	s.DisplayName = d.DisplayName
-	s.Active = d.Active
-	s.Age = d.Age
-	s.Roles = d.Roles
-	s.Metadata = d.Metadata
-	s.Address = d.Address
-	s.CreatedAt = d.CreatedAt
-	s.SessionTimeout = d.SessionTimeout
-	s.Phone = d.Phone
+	u.ID = d.ID
+	u.Email = d.Email
+	u.DisplayName = d.DisplayName
+	u.Active = d.Active
+	u.Age = d.Age
+	u.Roles = d.Roles
+	u.Metadata = d.Metadata
+	if d.Address != nil {
+		u.Address = &AddressMongo{}
+		u.Address.FromDomain(d.Address)
+	}
+	u.CreatedAt = d.CreatedAt
+	u.SessionTimeout = d.SessionTimeout
+	u.Phone = d.Phone
 }
 
 // AddressMongo is the MongoDB storage representation of test.v1.Address.
 type AddressMongo struct {
-	Street  string `bson:"street"`
-	City    string `bson:"city"`
-	State   string `bson:"state"`
-	Zip     string `bson:"zip"`
-	Country string `bson:"country"`
+	Street  string `bson:"street,omitempty"`
+	City    string `bson:"city,omitempty"`
+	State   string `bson:"state,omitempty"`
+	Zip     string `bson:"zip,omitempty"`
+	Country string `bson:"country,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
-func (d *AddressMongo) ToProto() *Address {
-	if d == nil {
+func (a *AddressMongo) ToProto() *Address {
+	if a == nil {
 		return nil
 	}
 	pb := &Address{
-		Street:  d.Street,
-		City:    d.City,
-		State:   d.State,
-		Zip:     d.Zip,
-		Country: d.Country,
+		Street:  a.Street,
+		City:    a.City,
+		State:   a.State,
+		Zip:     a.Zip,
+		Country: a.Country,
 	}
 	return pb
 }
 
 // FromProto populates from a protobuf message.
-func (d *AddressMongo) FromProto(pb *Address) {
+func (a *AddressMongo) FromProto(pb *Address) {
 	if pb == nil {
 		return
 	}
-	d.Street = pb.Street
-	d.City = pb.City
-	d.State = pb.State
-	d.Zip = pb.Zip
-	d.Country = pb.Country
+	a.Street = pb.Street
+	a.City = pb.City
+	a.State = pb.State
+	a.Zip = pb.Zip
+	a.Country = pb.Country
 }
 
 // ToDomain converts to the domain type.
-func (s *AddressMongo) ToDomain() *Address {
-	if s == nil {
+func (a *AddressMongo) ToDomain() *Address {
+	if a == nil {
 		return nil
 	}
 	d := &Address{
-		Street:  s.Street,
-		City:    s.City,
-		State:   s.State,
-		Zip:     s.Zip,
-		Country: s.Country,
+		Street:  a.Street,
+		City:    a.City,
+		State:   a.State,
+		Zip:     a.Zip,
+		Country: a.Country,
 	}
 	return d
 }
 
 // FromDomain populates from the domain type.
-func (s *AddressMongo) FromDomain(d *Address) {
+func (a *AddressMongo) FromDomain(d *Address) {
 	if d == nil {
 		return
 	}
-	s.Street = d.Street
-	s.City = d.City
-	s.State = d.State
-	s.Zip = d.Zip
-	s.Country = d.Country
+	a.Street = d.Street
+	a.City = d.City
+	a.State = d.State
+	a.Zip = d.Zip
+	a.Country = d.Country
 }

@@ -10,6 +10,9 @@ func generateGoFieldMask(g *protogen.GeneratedFile, msg *protogen.Message) {
 
 	g.P("// ApplyFieldMask", name, " copies fields from src to dst based on the given paths.")
 	g.P("func ApplyFieldMask", name, "(dst, src *", name, ", paths []string) {")
+	g.P("\tif dst == nil || src == nil {")
+	g.P("\t\treturn")
+	g.P("\t}")
 	g.P("\tfor _, path := range paths {")
 	g.P("\t\tswitch path {")
 

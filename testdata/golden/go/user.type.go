@@ -14,66 +14,74 @@ import "time"
 //
 // User represents a user account.
 type User struct {
-	ID             string            `json:"id"`
-	Email          string            `json:"email"`
-	DisplayName    string            `json:"display_name"`
-	Active         bool              `json:"active"`
-	Age            int32             `json:"age"`
+	ID             string            `json:"id,omitempty"`
+	Email          string            `json:"email,omitempty"`
+	DisplayName    string            `json:"display_name,omitempty"`
+	Active         bool              `json:"active,omitempty"`
+	Age            int32             `json:"age,omitempty"`
 	Roles          []string          `json:"roles,omitempty"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
 	Address        *Address          `json:"address,omitempty"`
 	CreatedAt      time.Time         `json:"created_at,omitempty"`
 	SessionTimeout time.Duration     `json:"session_timeout,omitempty"`
-	Phone          string            `json:"phone,omitempty"`
+	Phone          *string           `json:"phone,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
-func (d *User) ToProto() *User {
-	if d == nil {
+func (u *User) ToProto() *User {
+	if u == nil {
 		return nil
 	}
 	pb := &User{
-		Id:          d.ID,
-		Email:       d.Email,
-		DisplayName: d.DisplayName,
-		Active:      d.Active,
-		Age:         d.Age,
-		Roles:       d.Roles,
-		Metadata:    d.Metadata,
-		Address:     d.Address,
-		Phone:       d.Phone,
+		Id:          u.ID,
+		Email:       u.Email,
+		DisplayName: u.DisplayName,
+		Active:      u.Active,
+		Age:         u.Age,
+		Roles:       u.Roles,
+		Metadata:    u.Metadata,
 	}
-	if !d.CreatedAt.IsZero() {
-		pb.CreatedAt = timestamppb.New(d.CreatedAt)
+	if u.Address != nil {
+		pb.Address = u.Address.ToProto()
 	}
-	pb.SessionTimeout = durationpb.New(d.SessionTimeout)
+	if !u.CreatedAt.IsZero() {
+		pb.CreatedAt = timestamppb.New(u.CreatedAt)
+	}
+	pb.SessionTimeout = durationpb.New(u.SessionTimeout)
+	pb.Phone = u.Phone
 	return pb
 }
 
 // FromProto populates from a protobuf message.
-func (d *User) FromProto(pb *User) {
+func (u *User) FromProto(pb *User) {
 	if pb == nil {
 		return
 	}
-	d.ID = pb.Id
-	d.Email = pb.Email
-	d.DisplayName = pb.DisplayName
-	d.Active = pb.Active
-	d.Age = pb.Age
-	d.Roles = pb.Roles
-	d.Metadata = pb.Metadata
-	d.Address = pb.Address
+	u.ID = pb.Id
+	u.Email = pb.Email
+	u.DisplayName = pb.DisplayName
+	u.Active = pb.Active
+	u.Age = pb.Age
+	u.Roles = pb.Roles
+	u.Metadata = pb.Metadata
+	if pb.Address != nil {
+		u.Address = &Address{}
+		u.Address.FromProto(pb.Address)
+	}
 	if pb.CreatedAt != nil {
-		d.CreatedAt = pb.CreatedAt.AsTime()
+		u.CreatedAt = pb.CreatedAt.AsTime()
 	}
 	if pb.SessionTimeout != nil {
-		d.SessionTimeout = pb.SessionTimeout.AsDuration()
+		u.SessionTimeout = pb.SessionTimeout.AsDuration()
 	}
-	d.Phone = pb.Phone
+	u.Phone = pb.Phone
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
 func ApplyFieldMaskUser(dst, src *User, paths []string) {
+	if dst == nil || src == nil {
+		return
+	}
 	for _, path := range paths {
 		switch path {
 		case "id":
@@ -106,42 +114,45 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 //
 // Address is a nested message.
 type Address struct {
-	Street  string `json:"street"`
-	City    string `json:"city"`
-	State   string `json:"state"`
-	Zip     string `json:"zip"`
-	Country string `json:"country"`
+	Street  string `json:"street,omitempty"`
+	City    string `json:"city,omitempty"`
+	State   string `json:"state,omitempty"`
+	Zip     string `json:"zip,omitempty"`
+	Country string `json:"country,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
-func (d *Address) ToProto() *Address {
-	if d == nil {
+func (a *Address) ToProto() *Address {
+	if a == nil {
 		return nil
 	}
 	pb := &Address{
-		Street:  d.Street,
-		City:    d.City,
-		State:   d.State,
-		Zip:     d.Zip,
-		Country: d.Country,
+		Street:  a.Street,
+		City:    a.City,
+		State:   a.State,
+		Zip:     a.Zip,
+		Country: a.Country,
 	}
 	return pb
 }
 
 // FromProto populates from a protobuf message.
-func (d *Address) FromProto(pb *Address) {
+func (a *Address) FromProto(pb *Address) {
 	if pb == nil {
 		return
 	}
-	d.Street = pb.Street
-	d.City = pb.City
-	d.State = pb.State
-	d.Zip = pb.Zip
-	d.Country = pb.Country
+	a.Street = pb.Street
+	a.City = pb.City
+	a.State = pb.State
+	a.Zip = pb.Zip
+	a.Country = pb.Country
 }
 
 // ApplyFieldMaskAddress copies fields from src to dst based on the given paths.
 func ApplyFieldMaskAddress(dst, src *Address, paths []string) {
+	if dst == nil || src == nil {
+		return
+	}
 	for _, path := range paths {
 		switch path {
 		case "street":

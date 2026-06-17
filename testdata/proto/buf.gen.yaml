@@ -1,4 +1,9 @@
 version: v2
+inputs:
+  - directory: .
+    paths:
+      - user.proto
+      - catalog.proto
 plugins:
   # Domain types
   - local: protoc-gen-proto2type

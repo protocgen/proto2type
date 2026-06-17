@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"fmt"
+
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
 	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
@@ -86,4 +88,17 @@ func fieldNameOverride(field *protogen.Field) string {
 		return ""
 	}
 	return fo.Name
+}
+
+// validateFieldNameOverride checks that a field name override does not contain
+// dangerous characters that could cause injection or path traversal issues in
+// storage backends. Returns an error message if invalid, or empty string if valid.
+func validateFieldNameOverride(name string) string {
+	for _, c := range name {
+		switch c {
+		case '.', '/', '$', '[', ']', '\x00':
+			return fmt.Sprintf("field name override %q contains invalid character %q", name, string(c))
+		}
+	}
+	return ""
 }

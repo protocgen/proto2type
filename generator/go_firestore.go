@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"fmt"
+
 	"google.golang.org/protobuf/compiler/protogen"
 
 	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
@@ -34,14 +36,14 @@ func generateGoFirestore(gen *protogen.Plugin, file *protogen.File, opts *Option
 	}
 
 	for _, msg := range file.Messages {
-		generateGoFirestoreMessage(g, msg, opts)
+		generateGoFirestoreMessage(gen, g, msg, opts)
 	}
 
 	return nil
 }
 
 // generateGoFirestoreMessage generates a Firestore storage struct for a message.
-func generateGoFirestoreMessage(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) {
+func generateGoFirestoreMessage(gen *protogen.Plugin, g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) {
 	if isMessageSkipped(msg) {
 		return
 	}
@@ -64,11 +66,16 @@ func generateGoFirestoreMessage(g *protogen.GeneratedFile, msg *protogen.Message
 		}
 
 		fieldName := toPascalCase(string(field.Desc.Name()))
-		fieldType := goDomainFieldType(field)
+		fieldType := goStorageFieldType(field, "Firestore")
 
 		// Build firestore tag
 		fsName := storageFieldName(string(field.Desc.Name()))
 		if override := fieldNameOverride(field); override != "" {
+			// Validate the override name (SEC-2)
+			if errMsg := validateFieldNameOverride(override); errMsg != "" {
+				gen.Error(fmt.Errorf("field %s in %s: %s", field.Desc.Name(), msg.Desc.FullName(), errMsg))
+				continue
+			}
 			fsName = override
 		}
 		fsTag := fsName
@@ -109,6 +116,6 @@ func generateGoFirestoreMessage(g *protogen.GeneratedFile, msg *protogen.Message
 		if nested.Desc.IsMapEntry() {
 			continue
 		}
-		generateGoFirestoreMessage(g, nested, opts)
+		generateGoFirestoreMessage(gen, g, nested, opts)
 	}
 }
