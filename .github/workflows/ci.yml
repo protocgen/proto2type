@@ -122,3 +122,59 @@ jobs:
 
       - name: Check for differences
         run: git diff --exit-code
+
+  integration-db:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1
+        with:
+          github_token: ${{ github.token }}
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Start Firestore emulator
+        run: |
+          firebase emulators:start --only firestore --project demo-test &
+          # Wait for emulator to be ready
+          for i in $(seq 1 30); do
+            curl -s http://localhost:8080 > /dev/null && break
+            sleep 1
+          done
+        env:
+          FIRESTORE_EMULATOR_HOST: localhost:8080
+
+      - name: Build plugin
+        run: go build -o protoc-gen-proto2type .
+
+      - name: Generate test types
+        run: |
+          cd testdata/proto
+          PATH="$(git rev-parse --show-toplevel):$PATH" buf generate
+
+      - name: Run integration tests
+        run: go test -tags integration ./tests/integration/... -v -count=1
+        env:
+          FIRESTORE_EMULATOR_HOST: localhost:8080
+          MONGO_URI: mongodb://localhost:27017
