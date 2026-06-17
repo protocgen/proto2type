@@ -224,11 +224,17 @@ func (u *User) Equal(other *User) bool {
 	}
 	for k, v := range u.Metadata {
 		ov, ok := other.Metadata[k]
-		if !ok || v != ov {
+		if !ok {
+			return false
+		}
+		if v != ov {
 			return false
 		}
 	}
-	if !u.Address.Equal(other.Address) {
+	if (u.Address == nil) != (other.Address == nil) {
+		return false
+	}
+	if u.Address != nil && !u.Address.Equal(other.Address) {
 		return false
 	}
 	if !u.CreatedAt.Equal(other.CreatedAt) {
