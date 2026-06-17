@@ -126,3 +126,92 @@ func ApplyFieldMaskModelCatalogEntry(dst, src *ModelCatalogEntry, paths []string
 		}
 	}
 }
+
+// Clone returns a deep copy of ModelCatalogEntry.
+func (m *ModelCatalogEntry) Clone() *ModelCatalogEntry {
+	if m == nil {
+		return nil
+	}
+	c := &ModelCatalogEntry{
+		ModelID:          m.ModelID,
+		Provider:         m.Provider,
+		DisplayName:      m.DisplayName,
+		InputPerMillion:  m.InputPerMillion,
+		OutputPerMillion: m.OutputPerMillion,
+		Enabled:          m.Enabled,
+		Category:         m.Category,
+		ContextWindow:    m.ContextWindow,
+		DiscountPercent:  m.DiscountPercent,
+		ProviderModelID:  m.ProviderModelID,
+		CreatedAt:        m.CreatedAt,
+		UpdatedAt:        m.UpdatedAt,
+		Notes:            m.Notes,
+		Region:           m.Region,
+	}
+	if m.Aliases != nil {
+		c.Aliases = make([]string, len(m.Aliases))
+		copy(c.Aliases, m.Aliases)
+	}
+	return c
+}
+
+// Equal reports whether m and other are equal.
+func (m *ModelCatalogEntry) Equal(other *ModelCatalogEntry) bool {
+	if m == other {
+		return true
+	}
+	if m == nil || other == nil {
+		return false
+	}
+	if m.ModelID != other.ModelID {
+		return false
+	}
+	if m.Provider != other.Provider {
+		return false
+	}
+	if m.DisplayName != other.DisplayName {
+		return false
+	}
+	if m.InputPerMillion != other.InputPerMillion {
+		return false
+	}
+	if m.OutputPerMillion != other.OutputPerMillion {
+		return false
+	}
+	if m.Enabled != other.Enabled {
+		return false
+	}
+	if m.Category != other.Category {
+		return false
+	}
+	if m.ContextWindow != other.ContextWindow {
+		return false
+	}
+	if m.DiscountPercent != other.DiscountPercent {
+		return false
+	}
+	if len(m.Aliases) != len(other.Aliases) {
+		return false
+	}
+	for i := range m.Aliases {
+		if m.Aliases[i] != other.Aliases[i] {
+			return false
+		}
+	}
+	if m.ProviderModelID != other.ProviderModelID {
+		return false
+	}
+	if !m.CreatedAt.Equal(other.CreatedAt) {
+		return false
+	}
+	if !m.UpdatedAt.Equal(other.UpdatedAt) {
+		return false
+	}
+	if m.Notes != other.Notes {
+		return false
+	}
+	if m.Region != other.Region {
+		return false
+	}
+	return true
+}

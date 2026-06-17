@@ -145,6 +145,124 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 	}
 }
 
+// Clone returns a deep copy of User.
+func (u *User) Clone() *User {
+	if u == nil {
+		return nil
+	}
+	c := &User{
+		ID:             u.ID,
+		Email:          u.Email,
+		DisplayName:    u.DisplayName,
+		Active:         u.Active,
+		Age:            u.Age,
+		CreatedAt:      u.CreatedAt,
+		SessionTimeout: u.SessionTimeout,
+		Status:         u.Status,
+	}
+	if u.Phone != nil {
+		v := *u.Phone
+		c.Phone = &v
+	}
+	if u.Nickname != nil {
+		v := *u.Nickname
+		c.Nickname = &v
+	}
+	if u.Roles != nil {
+		c.Roles = make([]string, len(u.Roles))
+		copy(c.Roles, u.Roles)
+	}
+	if u.Avatar != nil {
+		c.Avatar = make([]byte, len(u.Avatar))
+		copy(c.Avatar, u.Avatar)
+	}
+	if u.Metadata != nil {
+		c.Metadata = make(map[string]string, len(u.Metadata))
+		for k, v := range u.Metadata {
+			c.Metadata[k] = v
+		}
+	}
+	if u.Address != nil {
+		c.Address = u.Address.Clone()
+	}
+	return c
+}
+
+// Equal reports whether u and other are equal.
+func (u *User) Equal(other *User) bool {
+	if u == other {
+		return true
+	}
+	if u == nil || other == nil {
+		return false
+	}
+	if u.ID != other.ID {
+		return false
+	}
+	if u.Email != other.Email {
+		return false
+	}
+	if u.DisplayName != other.DisplayName {
+		return false
+	}
+	if u.Active != other.Active {
+		return false
+	}
+	if u.Age != other.Age {
+		return false
+	}
+	if len(u.Roles) != len(other.Roles) {
+		return false
+	}
+	for i := range u.Roles {
+		if u.Roles[i] != other.Roles[i] {
+			return false
+		}
+	}
+	if len(u.Metadata) != len(other.Metadata) {
+		return false
+	}
+	for k, v := range u.Metadata {
+		ov, ok := other.Metadata[k]
+		if !ok || v != ov {
+			return false
+		}
+	}
+	if !u.Address.Equal(other.Address) {
+		return false
+	}
+	if !u.CreatedAt.Equal(other.CreatedAt) {
+		return false
+	}
+	if u.SessionTimeout != other.SessionTimeout {
+		return false
+	}
+	if (u.Phone == nil) != (other.Phone == nil) {
+		return false
+	}
+	if u.Phone != nil && *u.Phone != *other.Phone {
+		return false
+	}
+	if len(u.Avatar) != len(other.Avatar) {
+		return false
+	}
+	for i := range u.Avatar {
+		if u.Avatar[i] != other.Avatar[i] {
+			return false
+		}
+	}
+	if (u.Nickname == nil) != (other.Nickname == nil) {
+		return false
+	}
+	if u.Nickname != nil && *u.Nickname != *other.Nickname {
+		return false
+	}
+	if u.Status != other.Status {
+		return false
+	}
+	return true
+}
+
 // Address is the domain representation of test.v1.Address.
 //
 // Address is a nested message.
@@ -202,4 +320,45 @@ func ApplyFieldMaskAddress(dst, src *Address, paths []string) {
 			dst.Country = src.Country
 		}
 	}
+}
+
+// Clone returns a deep copy of Address.
+func (a *Address) Clone() *Address {
+	if a == nil {
+		return nil
+	}
+	c := &Address{
+		Street:  a.Street,
+		City:    a.City,
+		State:   a.State,
+		Zip:     a.Zip,
+		Country: a.Country,
+	}
+	return c
+}
+
+// Equal reports whether a and other are equal.
+func (a *Address) Equal(other *Address) bool {
+	if a == other {
+		return true
+	}
+	if a == nil || other == nil {
+		return false
+	}
+	if a.Street != other.Street {
+		return false
+	}
+	if a.City != other.City {
+		return false
+	}
+	if a.State != other.State {
+		return false
+	}
+	if a.Zip != other.Zip {
+		return false
+	}
+	if a.Country != other.Country {
+		return false
+	}
+	return true
 }
