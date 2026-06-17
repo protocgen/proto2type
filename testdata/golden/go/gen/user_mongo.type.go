@@ -8,6 +8,7 @@ import (
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 import "time"
@@ -25,7 +26,12 @@ type UserMongo struct {
 	CreatedAt      time.Time         `bson:"created_at,omitempty"`
 	SessionTimeout time.Duration     `bson:"session_timeout,omitempty"`
 	Phone          *string           `bson:"phone,omitempty"`
+	Avatar         []byte            `bson:"avatar,omitempty"`
+	Nickname       *string           `bson:"nickname,omitempty"`
+	Status         int32             `bson:"status,omitempty"`
 }
+
+// WARNING: oneof fields in User are not yet supported by proto2type.
 
 // ToProto converts to the protobuf message.
 func (u *UserMongo) ToProto() *pb.User {
@@ -40,6 +46,7 @@ func (u *UserMongo) ToProto() *pb.User {
 		Age:         u.Age,
 		Roles:       u.Roles,
 		Metadata:    u.Metadata,
+		Status:      u.Status,
 	}
 	if u.Address != nil {
 		pb.Address = u.Address.ToProto()
@@ -49,6 +56,13 @@ func (u *UserMongo) ToProto() *pb.User {
 	}
 	pb.SessionTimeout = durationpb.New(u.SessionTimeout)
 	pb.Phone = u.Phone
+	if u.Avatar != nil {
+		pb.Avatar = make([]byte, len(u.Avatar))
+		copy(pb.Avatar, u.Avatar)
+	}
+	if u.Nickname != nil {
+		pb.Nickname = wrapperspb.String(*u.Nickname)
+	}
 	return pb
 }
 
@@ -75,6 +89,15 @@ func (u *UserMongo) FromProto(pb *pb.User) {
 		u.SessionTimeout = pb.SessionTimeout.AsDuration()
 	}
 	u.Phone = pb.Phone
+	if pb.Avatar != nil {
+		u.Avatar = make([]byte, len(pb.Avatar))
+		copy(u.Avatar, pb.Avatar)
+	}
+	if pb.Nickname != nil {
+		v := pb.Nickname.GetValue()
+		u.Nickname = &v
+	}
+	u.Status = pb.Status
 }
 
 // ToDomain converts to the domain type.
@@ -93,6 +116,9 @@ func (u *UserMongo) ToDomain() *User {
 		CreatedAt:      u.CreatedAt,
 		SessionTimeout: u.SessionTimeout,
 		Phone:          u.Phone,
+		Avatar:         u.Avatar,
+		Nickname:       u.Nickname,
+		Status:         u.Status,
 	}
 	if u.Address != nil {
 		d.Address = u.Address.ToDomain()
@@ -119,6 +145,9 @@ func (u *UserMongo) FromDomain(d *User) {
 	u.CreatedAt = d.CreatedAt
 	u.SessionTimeout = d.SessionTimeout
 	u.Phone = d.Phone
+	u.Avatar = d.Avatar
+	u.Nickname = d.Nickname
+	u.Status = d.Status
 }
 
 // AddressMongo is the MongoDB storage representation of test.v1.Address.

@@ -7,6 +7,7 @@ import (
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 import "time"
@@ -26,7 +27,12 @@ type User struct {
 	CreatedAt      time.Time         `json:"created_at,omitempty"`
 	SessionTimeout time.Duration     `json:"session_timeout,omitempty"`
 	Phone          *string           `json:"phone,omitempty"`
+	Avatar         []byte            `json:"avatar,omitempty"`
+	Nickname       *string           `json:"nickname,omitempty"`
+	Status         int32             `json:"status,omitempty"`
 }
+
+// WARNING: oneof fields in User are not yet supported by proto2type.
 
 // ToProto converts to the protobuf message.
 func (u *User) ToProto() *pb.User {
@@ -41,6 +47,7 @@ func (u *User) ToProto() *pb.User {
 		Age:         u.Age,
 		Roles:       u.Roles,
 		Metadata:    u.Metadata,
+		Status:      u.Status,
 	}
 	if u.Address != nil {
 		pb.Address = u.Address.ToProto()
@@ -50,6 +57,13 @@ func (u *User) ToProto() *pb.User {
 	}
 	pb.SessionTimeout = durationpb.New(u.SessionTimeout)
 	pb.Phone = u.Phone
+	if u.Avatar != nil {
+		pb.Avatar = make([]byte, len(u.Avatar))
+		copy(pb.Avatar, u.Avatar)
+	}
+	if u.Nickname != nil {
+		pb.Nickname = wrapperspb.String(*u.Nickname)
+	}
 	return pb
 }
 
@@ -76,6 +90,15 @@ func (u *User) FromProto(pb *pb.User) {
 		u.SessionTimeout = pb.SessionTimeout.AsDuration()
 	}
 	u.Phone = pb.Phone
+	if pb.Avatar != nil {
+		u.Avatar = make([]byte, len(pb.Avatar))
+		copy(u.Avatar, pb.Avatar)
+	}
+	if pb.Nickname != nil {
+		v := pb.Nickname.GetValue()
+		u.Nickname = &v
+	}
+	u.Status = pb.Status
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
@@ -107,6 +130,12 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			dst.SessionTimeout = src.SessionTimeout
 		case "phone":
 			dst.Phone = src.Phone
+		case "avatar":
+			dst.Avatar = src.Avatar
+		case "nickname":
+			dst.Nickname = src.Nickname
+		case "status":
+			dst.Status = src.Status
 		}
 	}
 }

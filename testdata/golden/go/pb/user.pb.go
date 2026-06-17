@@ -11,6 +11,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -23,22 +24,83 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// UserStatus represents the user's account status.
+type UserStatus int32
+
+const (
+	UserStatus_USER_STATUS_UNSPECIFIED UserStatus = 0
+	UserStatus_USER_STATUS_ACTIVE      UserStatus = 1
+	UserStatus_USER_STATUS_SUSPENDED   UserStatus = 2
+	UserStatus_USER_STATUS_DELETED     UserStatus = 3
+)
+
+// Enum value maps for UserStatus.
+var (
+	UserStatus_name = map[int32]string{
+		0: "USER_STATUS_UNSPECIFIED",
+		1: "USER_STATUS_ACTIVE",
+		2: "USER_STATUS_SUSPENDED",
+		3: "USER_STATUS_DELETED",
+	}
+	UserStatus_value = map[string]int32{
+		"USER_STATUS_UNSPECIFIED": 0,
+		"USER_STATUS_ACTIVE":      1,
+		"USER_STATUS_SUSPENDED":   2,
+		"USER_STATUS_DELETED":     3,
+	}
+)
+
+func (x UserStatus) Enum() *UserStatus {
+	p := new(UserStatus)
+	*p = x
+	return p
+}
+
+func (x UserStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (UserStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_user_proto_enumTypes[0].Descriptor()
+}
+
+func (UserStatus) Type() protoreflect.EnumType {
+	return &file_user_proto_enumTypes[0]
+}
+
+func (x UserStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use UserStatus.Descriptor instead.
+func (UserStatus) EnumDescriptor() ([]byte, []int) {
+	return file_user_proto_rawDescGZIP(), []int{0}
+}
+
 // User represents a user account.
 type User struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Email          string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
-	DisplayName    string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Active         bool                   `protobuf:"varint,4,opt,name=active,proto3" json:"active,omitempty"`
-	Age            int32                  `protobuf:"varint,5,opt,name=age,proto3" json:"age,omitempty"`
-	Roles          []string               `protobuf:"bytes,6,rep,name=roles,proto3" json:"roles,omitempty"`
-	Metadata       map[string]string      `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Address        *Address               `protobuf:"bytes,8,opt,name=address,proto3" json:"address,omitempty"`
-	CreatedAt      *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	SessionTimeout *durationpb.Duration   `protobuf:"bytes,10,opt,name=session_timeout,json=sessionTimeout,proto3" json:"session_timeout,omitempty"`
-	Phone          *string                `protobuf:"bytes,11,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state          protoimpl.MessageState  `protogen:"open.v1"`
+	Id             string                  `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Email          string                  `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	DisplayName    string                  `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Active         bool                    `protobuf:"varint,4,opt,name=active,proto3" json:"active,omitempty"`
+	Age            int32                   `protobuf:"varint,5,opt,name=age,proto3" json:"age,omitempty"`
+	Roles          []string                `protobuf:"bytes,6,rep,name=roles,proto3" json:"roles,omitempty"`
+	Metadata       map[string]string       `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Address        *Address                `protobuf:"bytes,8,opt,name=address,proto3" json:"address,omitempty"`
+	CreatedAt      *timestamppb.Timestamp  `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	SessionTimeout *durationpb.Duration    `protobuf:"bytes,10,opt,name=session_timeout,json=sessionTimeout,proto3" json:"session_timeout,omitempty"`
+	Phone          *string                 `protobuf:"bytes,11,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
+	Avatar         []byte                  `protobuf:"bytes,12,opt,name=avatar,proto3" json:"avatar,omitempty"`
+	Nickname       *wrapperspb.StringValue `protobuf:"bytes,13,opt,name=nickname,proto3" json:"nickname,omitempty"`
+	Status         UserStatus              `protobuf:"varint,14,opt,name=status,proto3,enum=test.v1.UserStatus" json:"status,omitempty"`
+	// Types that are valid to be assigned to ContactMethod:
+	//
+	//	*User_ContactEmail
+	//	*User_ContactPhone
+	ContactMethod isUser_ContactMethod `protobuf_oneof:"contact_method"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *User) Reset() {
@@ -148,6 +210,68 @@ func (x *User) GetPhone() string {
 	return ""
 }
 
+func (x *User) GetAvatar() []byte {
+	if x != nil {
+		return x.Avatar
+	}
+	return nil
+}
+
+func (x *User) GetNickname() *wrapperspb.StringValue {
+	if x != nil {
+		return x.Nickname
+	}
+	return nil
+}
+
+func (x *User) GetStatus() UserStatus {
+	if x != nil {
+		return x.Status
+	}
+	return UserStatus_USER_STATUS_UNSPECIFIED
+}
+
+func (x *User) GetContactMethod() isUser_ContactMethod {
+	if x != nil {
+		return x.ContactMethod
+	}
+	return nil
+}
+
+func (x *User) GetContactEmail() string {
+	if x != nil {
+		if x, ok := x.ContactMethod.(*User_ContactEmail); ok {
+			return x.ContactEmail
+		}
+	}
+	return ""
+}
+
+func (x *User) GetContactPhone() string {
+	if x != nil {
+		if x, ok := x.ContactMethod.(*User_ContactPhone); ok {
+			return x.ContactPhone
+		}
+	}
+	return ""
+}
+
+type isUser_ContactMethod interface {
+	isUser_ContactMethod()
+}
+
+type User_ContactEmail struct {
+	ContactEmail string `protobuf:"bytes,15,opt,name=contact_email,json=contactEmail,proto3,oneof"`
+}
+
+type User_ContactPhone struct {
+	ContactPhone string `protobuf:"bytes,16,opt,name=contact_phone,json=contactPhone,proto3,oneof"`
+}
+
+func (*User_ContactEmail) isUser_ContactMethod() {}
+
+func (*User_ContactPhone) isUser_ContactMethod() {}
+
 // Address is a nested message.
 type Address struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -230,7 +354,7 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\"\xd5\x03\n" +
+	"user.proto\x12\atest.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xb4\x05\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
@@ -244,17 +368,29 @@ const file_user_proto_rawDesc = "" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12B\n" +
 	"\x0fsession_timeout\x18\n" +
 	" \x01(\v2\x19.google.protobuf.DurationR\x0esessionTimeout\x12\x19\n" +
-	"\x05phone\x18\v \x01(\tH\x00R\x05phone\x88\x01\x01\x1a;\n" +
+	"\x05phone\x18\v \x01(\tH\x01R\x05phone\x88\x01\x01\x12\x16\n" +
+	"\x06avatar\x18\f \x01(\fR\x06avatar\x128\n" +
+	"\bnickname\x18\r \x01(\v2\x1c.google.protobuf.StringValueR\bnickname\x12+\n" +
+	"\x06status\x18\x0e \x01(\x0e2\x13.test.v1.UserStatusR\x06status\x12%\n" +
+	"\rcontact_email\x18\x0f \x01(\tH\x00R\fcontactEmail\x12%\n" +
+	"\rcontact_phone\x18\x10 \x01(\tH\x00R\fcontactPhone\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\b\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x10\n" +
+	"\x0econtact_methodB\b\n" +
 	"\x06_phone\"w\n" +
 	"\aAddress\x12\x16\n" +
 	"\x06street\x18\x01 \x01(\tR\x06street\x12\x12\n" +
 	"\x04city\x18\x02 \x01(\tR\x04city\x12\x14\n" +
 	"\x05state\x18\x03 \x01(\tR\x05state\x12\x10\n" +
 	"\x03zip\x18\x04 \x01(\tR\x03zip\x12\x18\n" +
-	"\acountry\x18\x05 \x01(\tR\acountryB7Z5github.com/protocgen/proto2type/testdata/golden/go/pbb\x06proto3"
+	"\acountry\x18\x05 \x01(\tR\acountry*u\n" +
+	"\n" +
+	"UserStatus\x12\x1b\n" +
+	"\x17USER_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12USER_STATUS_ACTIVE\x10\x01\x12\x19\n" +
+	"\x15USER_STATUS_SUSPENDED\x10\x02\x12\x17\n" +
+	"\x13USER_STATUS_DELETED\x10\x03B7Z5github.com/protocgen/proto2type/testdata/golden/go/pbb\x06proto3"
 
 var (
 	file_user_proto_rawDescOnce sync.Once
@@ -268,24 +404,29 @@ func file_user_proto_rawDescGZIP() []byte {
 	return file_user_proto_rawDescData
 }
 
+var file_user_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_user_proto_goTypes = []any{
-	(*User)(nil),                  // 0: test.v1.User
-	(*Address)(nil),               // 1: test.v1.Address
-	nil,                           // 2: test.v1.User.MetadataEntry
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),   // 4: google.protobuf.Duration
+	(UserStatus)(0),                // 0: test.v1.UserStatus
+	(*User)(nil),                   // 1: test.v1.User
+	(*Address)(nil),                // 2: test.v1.Address
+	nil,                            // 3: test.v1.User.MetadataEntry
+	(*timestamppb.Timestamp)(nil),  // 4: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),    // 5: google.protobuf.Duration
+	(*wrapperspb.StringValue)(nil), // 6: google.protobuf.StringValue
 }
 var file_user_proto_depIdxs = []int32{
-	2, // 0: test.v1.User.metadata:type_name -> test.v1.User.MetadataEntry
-	1, // 1: test.v1.User.address:type_name -> test.v1.Address
-	3, // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	4, // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	3, // 0: test.v1.User.metadata:type_name -> test.v1.User.MetadataEntry
+	2, // 1: test.v1.User.address:type_name -> test.v1.Address
+	4, // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	5, // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
+	6, // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
+	0, // 5: test.v1.User.status:type_name -> test.v1.UserStatus
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_user_proto_init() }
@@ -293,19 +434,23 @@ func file_user_proto_init() {
 	if File_user_proto != nil {
 		return
 	}
-	file_user_proto_msgTypes[0].OneofWrappers = []any{}
+	file_user_proto_msgTypes[0].OneofWrappers = []any{
+		(*User_ContactEmail)(nil),
+		(*User_ContactPhone)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_proto_rawDesc), len(file_user_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_user_proto_goTypes,
 		DependencyIndexes: file_user_proto_depIdxs,
+		EnumInfos:         file_user_proto_enumTypes,
 		MessageInfos:      file_user_proto_msgTypes,
 	}.Build()
 	File_user_proto = out.File
