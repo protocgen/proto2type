@@ -60,7 +60,7 @@ func TestCrossBackendConsistency(t *testing.T) {
 	}
 	var fsRead gen.ModelCatalogEntryFirestore
 	snap.DataTo(&fsRead)
-	fsDomain := fsRead.ToDomain()
+	fsDomain := fsRead.ToDomain("test/cross-test")
 
 	// Read from MongoDB
 	var mgRead gen.ModelCatalogEntryMongo

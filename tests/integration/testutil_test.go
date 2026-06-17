@@ -46,3 +46,7 @@ func mongoClient(t *testing.T) *mongo.Client {
 	t.Cleanup(func() { client.Disconnect(ctx) })
 	return client
 }
+
+func strPtr(s string) *string {
+	return &s
+}

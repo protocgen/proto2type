@@ -94,7 +94,7 @@ func TestMongoRoundTrip_User(t *testing.T) {
 		Roles:       []string{"viewer"},
 		Metadata:    map[string]string{"source": "test"},
 		CreatedAt:   now,
-		Phone:       "555-9876",
+		Phone:       strPtr("555-9876"),
 	}
 
 	var ms gen.UserMongo

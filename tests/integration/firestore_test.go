@@ -59,7 +59,7 @@ func TestFirestoreRoundTrip_ModelCatalogEntry(t *testing.T) {
 	}
 
 	// Firestore → Domain
-	roundTripped := readBack.ToDomain()
+	roundTripped := readBack.ToDomain(docID)
 
 	// Assert equality (ModelID is not stored in Firestore, so it won't round-trip through storage)
 	// But all other fields should match
@@ -113,7 +113,7 @@ func TestFirestoreRoundTrip_User(t *testing.T) {
 		Roles:       []string{"admin", "editor"},
 		Metadata:    map[string]string{"theme": "dark", "lang": "en"},
 		CreatedAt:   now,
-		Phone:       "555-1234",
+		Phone:       strPtr("555-1234"),
 	}
 
 	// Domain → Firestore
@@ -195,7 +195,7 @@ func TestFirestoreZeroValues(t *testing.T) {
 		t.Fatalf("Failed to deserialize zero-value doc: %v", err)
 	}
 
-	roundTripped := readBack.ToDomain()
+	roundTripped := readBack.ToDomain("test/empty-model")
 
 	assertEqual(t, "Provider", "test", roundTripped.Provider)
 	assertEqual(t, "DisplayName", "", roundTripped.DisplayName)
