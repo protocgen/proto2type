@@ -47,7 +47,7 @@ func (u *User) ToProto() *pb.User {
 		Age:         u.Age,
 		Roles:       u.Roles,
 		Metadata:    u.Metadata,
-		Status:      u.Status,
+		Status:      pb.UserStatus(u.Status),
 	}
 	if u.Address != nil {
 		pb.Address = u.Address.ToProto()
@@ -98,7 +98,7 @@ func (u *User) FromProto(pb *pb.User) {
 		v := pb.Nickname.GetValue()
 		u.Nickname = &v
 	}
-	u.Status = pb.Status
+	u.Status = int32(pb.Status)
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.

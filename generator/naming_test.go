@@ -101,4 +101,3 @@ func TestReceiverName(t *testing.T) {
 		})
 	}
 }
-

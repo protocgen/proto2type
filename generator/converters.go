@@ -69,7 +69,13 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 		domainFieldName := toPascalCase(string(field.Desc.Name()))
 		protoFieldName := field.GoName
 
-		g.P("\t\t", protoFieldName, ": ", recv, ".", domainFieldName, ",")
+		if field.Desc.Kind() == protoreflect.EnumKind {
+			// Cast int32 domain field to proto enum type
+			enumIdent := g.QualifiedGoIdent(field.Enum.GoIdent)
+			g.P("\t\t", protoFieldName, ": ", enumIdent, "(", recv, ".", domainFieldName, "),")
+		} else {
+			g.P("\t\t", protoFieldName, ": ", recv, ".", domainFieldName, ",")
+		}
 	}
 	g.P("\t}")
 
@@ -191,6 +197,9 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 		} else if field.Desc.HasOptionalKeyword() {
 			// Optional scalar: both proto and domain use *T, assign directly (PROTO-3)
 			g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName)
+		} else if field.Desc.Kind() == protoreflect.EnumKind {
+			// Cast proto enum type to int32 domain field
+			g.P("\t", recv, ".", domainFieldName, " = int32(pb.", protoFieldName, ")")
 		} else {
 			// Scalars, repeated, maps: direct assignment
 			g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName)

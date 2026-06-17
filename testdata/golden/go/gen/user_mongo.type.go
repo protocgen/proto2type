@@ -46,7 +46,7 @@ func (u *UserMongo) ToProto() *pb.User {
 		Age:         u.Age,
 		Roles:       u.Roles,
 		Metadata:    u.Metadata,
-		Status:      u.Status,
+		Status:      pb.UserStatus(u.Status),
 	}
 	if u.Address != nil {
 		pb.Address = u.Address.ToProto()
@@ -97,7 +97,7 @@ func (u *UserMongo) FromProto(pb *pb.User) {
 		v := pb.Nickname.GetValue()
 		u.Nickname = &v
 	}
-	u.Status = pb.Status
+	u.Status = int32(pb.Status)
 }
 
 // ToDomain converts to the domain type.
