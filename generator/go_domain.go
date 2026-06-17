@@ -127,6 +127,12 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, o
 	// Generate ApplyFieldMask function
 	generateGoFieldMask(g, msg)
 
+	// Generate Clone method (deep copy)
+	generateGoClone(g, msg)
+
+	// Generate Equal method (field-by-field comparison)
+	generateGoEqual(g, msg)
+
 	// Generate nested messages
 	for _, nested := range msg.Messages {
 		// Skip map entry messages
