@@ -26,6 +26,8 @@ func TestValidateFieldNameOverride(t *testing.T) {
 		{"dollar_prefix", "$set", true},
 		{"mongo_operator", "$unset", true},
 		{"firestore_path", "a.b.c", true},
+		{"double_quote", "field\"name", true},
+		{"backtick", "field`name", true},
 	}
 
 	for _, tt := range tests {

@@ -2,6 +2,7 @@ package generator
 
 import (
 	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // generateGoFieldMask generates an ApplyFieldMask function for a domain struct.
@@ -26,7 +27,17 @@ func generateGoFieldMask(g *protogen.GeneratedFile, msg *protogen.Message) {
 		protoName := string(field.Desc.Name())
 		fieldName := toPascalCase(protoName)
 		g.P("\t\tcase \"", protoName, "\":")
-		g.P("\t\t\tdst.", fieldName, " = src.", fieldName)
+		if field.Desc.Kind() == protoreflect.BytesKind {
+			// Deep copy bytes fields (SEC-3)
+			g.P("\t\t\tif src.", fieldName, " != nil {")
+			g.P("\t\t\t\tdst.", fieldName, " = make([]byte, len(src.", fieldName, "))")
+			g.P("\t\t\t\tcopy(dst.", fieldName, ", src.", fieldName, ")")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", fieldName, " = nil")
+			g.P("\t\t\t}")
+		} else {
+			g.P("\t\t\tdst.", fieldName, " = src.", fieldName)
+		}
 	}
 
 	g.P("\t\t}")

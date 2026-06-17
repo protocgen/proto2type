@@ -48,7 +48,8 @@ func receiverName(typeName string) string {
 	if len(typeName) == 0 {
 		return "x"
 	}
-	return strings.ToLower(typeName[:1])
+	r := []rune(typeName)
+	return string(unicode.ToLower(r[0]))
 }
 
 // outputFilename returns the output filename for a given proto file.

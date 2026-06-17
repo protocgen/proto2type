@@ -131,7 +131,12 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 		case "phone":
 			dst.Phone = src.Phone
 		case "avatar":
-			dst.Avatar = src.Avatar
+			if src.Avatar != nil {
+				dst.Avatar = make([]byte, len(src.Avatar))
+				copy(dst.Avatar, src.Avatar)
+			} else {
+				dst.Avatar = nil
+			}
 		case "nickname":
 			dst.Nickname = src.Nickname
 		case "status":

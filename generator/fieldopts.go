@@ -96,7 +96,7 @@ func fieldNameOverride(field *protogen.Field) string {
 func validateFieldNameOverride(name string) string {
 	for _, c := range name {
 		switch c {
-		case '.', '/', '$', '[', ']', '\x00':
+	case '.', '/', '$', '[', ']', '\x00', '"', '`':
 			return fmt.Sprintf("field name override %q contains invalid character %q", name, string(c))
 		}
 	}

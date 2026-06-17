@@ -116,9 +116,12 @@ func (u *UserFirestore) ToDomain() *User {
 		CreatedAt:      u.CreatedAt,
 		SessionTimeout: u.SessionTimeout,
 		Phone:          u.Phone,
-		Avatar:         u.Avatar,
 		Nickname:       u.Nickname,
 		Status:         u.Status,
+	}
+	if u.Avatar != nil {
+		d.Avatar = make([]byte, len(u.Avatar))
+		copy(d.Avatar, u.Avatar)
 	}
 	if u.Address != nil {
 		d.Address = u.Address.ToDomain()
@@ -145,7 +148,10 @@ func (u *UserFirestore) FromDomain(d *User) {
 	u.CreatedAt = d.CreatedAt
 	u.SessionTimeout = d.SessionTimeout
 	u.Phone = d.Phone
-	u.Avatar = d.Avatar
+	if d.Avatar != nil {
+		u.Avatar = make([]byte, len(d.Avatar))
+		copy(u.Avatar, d.Avatar)
+	}
 	u.Nickname = d.Nickname
 	u.Status = d.Status
 }
