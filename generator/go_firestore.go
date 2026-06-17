@@ -2,6 +2,8 @@ package generator
 
 import (
 	"google.golang.org/protobuf/compiler/protogen"
+
+	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
 )
 
 // generateGoFirestore generates a Go Firestore storage type file.
@@ -40,6 +42,10 @@ func generateGoFirestore(gen *protogen.Plugin, file *protogen.File, opts *Option
 
 // generateGoFirestoreMessage generates a Firestore storage struct for a message.
 func generateGoFirestoreMessage(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) {
+	if isMessageSkipped(msg) {
+		return
+	}
+
 	name := msg.GoIdent.GoName + "Firestore"
 
 	g.P("// ", name, " is the Firestore storage representation of ", msg.Desc.FullName(), ".")
@@ -49,22 +55,41 @@ func generateGoFirestoreMessage(g *protogen.GeneratedFile, msg *protogen.Message
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
 			continue
 		}
-
-		// TODO: check for document_id option — skip if so (Firestore uses doc path)
+		if isFieldSkipped(field) {
+			continue
+		}
+		// Firestore uses the document path as ID — skip document_id fields from struct
+		if isDocumentID(field) {
+			continue
+		}
 
 		fieldName := toPascalCase(string(field.Desc.Name()))
 		fieldType := goDomainFieldType(field)
 
 		// Build firestore tag
 		fsName := storageFieldName(string(field.Desc.Name()))
+		if override := fieldNameOverride(field); override != "" {
+			fsName = override
+		}
 		fsTag := fsName
 
-		// TODO: check for server_timestamp option
-		if isWellKnownTimestamp(field) {
-			// Default: omitempty for timestamps
-			fsTag += ",omitempty"
-		} else if shouldOmitempty(field, opts) {
-			fsTag += ",omitempty"
+		if isServerTimestamp(field) {
+			fsTag += ",serverTimestamp"
+		} else {
+			// Check explicit omitempty option first
+			switch fieldOmitempty(field) {
+			case proto2typepb.OptionalBool_OPTIONAL_BOOL_TRUE:
+				fsTag += ",omitempty"
+			case proto2typepb.OptionalBool_OPTIONAL_BOOL_FALSE:
+				// Explicit false: no omitempty
+			default:
+				if isWellKnownTimestamp(field) {
+					// Default: omitempty for timestamps
+					fsTag += ",omitempty"
+				} else if shouldOmitempty(field, opts) {
+					fsTag += ",omitempty"
+				}
+			}
 		}
 
 		g.P("\t", fieldName, " ", fieldType, " `firestore:\"", fsTag, "\"`")
@@ -75,6 +100,9 @@ func generateGoFirestoreMessage(g *protogen.GeneratedFile, msg *protogen.Message
 
 	// Generate ToProto and FromProto converters
 	generateConverters(g, msg, "Firestore")
+
+	// Generate ToDomain and FromDomain converters
+	generateDomainConverters(g, msg, "Firestore")
 
 	// Nested messages
 	for _, nested := range msg.Messages {

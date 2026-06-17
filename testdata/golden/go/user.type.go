@@ -72,6 +72,36 @@ func (d *User) FromProto(pb *User) {
 	d.Phone = pb.Phone
 }
 
+// ApplyFieldMaskUser copies fields from src to dst based on the given paths.
+func ApplyFieldMaskUser(dst, src *User, paths []string) {
+	for _, path := range paths {
+		switch path {
+		case "id":
+			dst.ID = src.ID
+		case "email":
+			dst.Email = src.Email
+		case "display_name":
+			dst.DisplayName = src.DisplayName
+		case "active":
+			dst.Active = src.Active
+		case "age":
+			dst.Age = src.Age
+		case "roles":
+			dst.Roles = src.Roles
+		case "metadata":
+			dst.Metadata = src.Metadata
+		case "address":
+			dst.Address = src.Address
+		case "created_at":
+			dst.CreatedAt = src.CreatedAt
+		case "session_timeout":
+			dst.SessionTimeout = src.SessionTimeout
+		case "phone":
+			dst.Phone = src.Phone
+		}
+	}
+}
+
 // Address is the domain representation of test.v1.Address.
 //
 // Address is a nested message.
@@ -108,4 +138,22 @@ func (d *Address) FromProto(pb *Address) {
 	d.State = pb.State
 	d.Zip = pb.Zip
 	d.Country = pb.Country
+}
+
+// ApplyFieldMaskAddress copies fields from src to dst based on the given paths.
+func ApplyFieldMaskAddress(dst, src *Address, paths []string) {
+	for _, path := range paths {
+		switch path {
+		case "street":
+			dst.Street = src.Street
+		case "city":
+			dst.City = src.City
+		case "state":
+			dst.State = src.State
+		case "zip":
+			dst.Zip = src.Zip
+		case "country":
+			dst.Country = src.Country
+		}
+	}
 }

@@ -6,6 +6,8 @@ import (
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
 )
 
 // generateGo generates Go output files for a proto file.
@@ -69,6 +71,10 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 
 // generateGoDomainMessage generates a Go domain struct and converters for a single message.
 func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) error {
+	if isMessageSkipped(msg) {
+		return nil
+	}
+
 	name := msg.GoIdent.GoName
 
 	// Struct definition
@@ -84,6 +90,9 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, o
 	for _, field := range msg.Fields {
 		// Skip oneof synthetic fields (handle the oneof group instead)
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			continue
+		}
+		if isFieldSkipped(field) {
 			continue
 		}
 
@@ -104,6 +113,9 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, o
 
 	// Generate ToProto and FromProto converters
 	generateConverters(g, msg, "")
+
+	// Generate ApplyFieldMask function
+	generateGoFieldMask(g, msg)
 
 	// Generate nested messages
 	for _, nested := range msg.Messages {
@@ -165,7 +177,13 @@ func goDomainSingularType(field *protogen.Field) string {
 
 // shouldOmitempty returns true if a field should have the omitempty tag.
 func shouldOmitempty(field *protogen.Field, opts *Options) bool {
-	// TODO: check proto2type.field options for explicit omitempty setting
+	// Check proto2type.field options for explicit omitempty setting.
+	switch fieldOmitempty(field) {
+	case proto2typepb.OptionalBool_OPTIONAL_BOOL_TRUE:
+		return true
+	case proto2typepb.OptionalBool_OPTIONAL_BOOL_FALSE:
+		return false
+	}
 
 	// proto3 optional fields get omitempty
 	if field.Desc.HasOptionalKeyword() {

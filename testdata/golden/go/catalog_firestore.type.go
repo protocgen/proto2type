@@ -12,7 +12,6 @@ import "time"
 
 // ModelCatalogEntryFirestore is the Firestore storage representation of test.v1.ModelCatalogEntry.
 type ModelCatalogEntryFirestore struct {
-	ModelID          string    `firestore:"model_id"`
 	Provider         string    `firestore:"provider"`
 	DisplayName      string    `firestore:"display_name"`
 	InputPerMillion  float64   `firestore:"input_per_million"`
@@ -24,8 +23,8 @@ type ModelCatalogEntryFirestore struct {
 	Aliases          []string  `firestore:"aliases,omitempty"`
 	ProviderModelID  string    `firestore:"provider_model_id"`
 	CreatedAt        time.Time `firestore:"created_at,omitempty"`
-	UpdatedAt        time.Time `firestore:"updated_at,omitempty"`
-	Notes            string    `firestore:"notes"`
+	UpdatedAt        time.Time `firestore:"updated_at,serverTimestamp"`
+	Notes            string    `firestore:"notes,omitempty"`
 	Region           string    `firestore:"region"`
 }
 
@@ -35,7 +34,6 @@ func (d *ModelCatalogEntryFirestore) ToProto() *ModelCatalogEntry {
 		return nil
 	}
 	pb := &ModelCatalogEntry{
-		ModelId:          d.ModelID,
 		Provider:         d.Provider,
 		DisplayName:      d.DisplayName,
 		InputPerMillion:  d.InputPerMillion,
@@ -63,7 +61,6 @@ func (d *ModelCatalogEntryFirestore) FromProto(pb *ModelCatalogEntry) {
 	if pb == nil {
 		return
 	}
-	d.ModelID = pb.ModelId
 	d.Provider = pb.Provider
 	d.DisplayName = pb.DisplayName
 	d.InputPerMillion = pb.InputPerMillion
@@ -82,4 +79,49 @@ func (d *ModelCatalogEntryFirestore) FromProto(pb *ModelCatalogEntry) {
 	}
 	d.Notes = pb.Notes
 	d.Region = pb.Region
+}
+
+// ToDomain converts to the domain type.
+func (s *ModelCatalogEntryFirestore) ToDomain() *ModelCatalogEntry {
+	if s == nil {
+		return nil
+	}
+	d := &ModelCatalogEntry{
+		Provider:         s.Provider,
+		DisplayName:      s.DisplayName,
+		InputPerMillion:  s.InputPerMillion,
+		OutputPerMillion: s.OutputPerMillion,
+		Enabled:          s.Enabled,
+		Category:         s.Category,
+		ContextWindow:    s.ContextWindow,
+		DiscountPercent:  s.DiscountPercent,
+		Aliases:          s.Aliases,
+		ProviderModelID:  s.ProviderModelID,
+		CreatedAt:        s.CreatedAt,
+		UpdatedAt:        s.UpdatedAt,
+		Notes:            s.Notes,
+		Region:           s.Region,
+	}
+	return d
+}
+
+// FromDomain populates from the domain type.
+func (s *ModelCatalogEntryFirestore) FromDomain(d *ModelCatalogEntry) {
+	if d == nil {
+		return
+	}
+	s.Provider = d.Provider
+	s.DisplayName = d.DisplayName
+	s.InputPerMillion = d.InputPerMillion
+	s.OutputPerMillion = d.OutputPerMillion
+	s.Enabled = d.Enabled
+	s.Category = d.Category
+	s.ContextWindow = d.ContextWindow
+	s.DiscountPercent = d.DiscountPercent
+	s.Aliases = d.Aliases
+	s.ProviderModelID = d.ProviderModelID
+	s.CreatedAt = d.CreatedAt
+	s.UpdatedAt = d.UpdatedAt
+	s.Notes = d.Notes
+	s.Region = d.Region
 }

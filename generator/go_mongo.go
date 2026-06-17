@@ -2,6 +2,8 @@ package generator
 
 import (
 	"google.golang.org/protobuf/compiler/protogen"
+
+	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
 )
 
 // generateGoMongo generates a Go MongoDB storage type file.
@@ -40,6 +42,10 @@ func generateGoMongo(gen *protogen.Plugin, file *protogen.File, opts *Options) e
 
 // generateGoMongoMessage generates a MongoDB storage struct for a message.
 func generateGoMongoMessage(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) {
+	if isMessageSkipped(msg) {
+		return
+	}
+
 	name := msg.GoIdent.GoName + "Mongo"
 
 	g.P("// ", name, " is the MongoDB storage representation of ", msg.Desc.FullName(), ".")
@@ -49,18 +55,37 @@ func generateGoMongoMessage(g *protogen.GeneratedFile, msg *protogen.Message, op
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
 			continue
 		}
+		if isFieldSkipped(field) {
+			continue
+		}
 
 		fieldName := toPascalCase(string(field.Desc.Name()))
 		fieldType := goDomainFieldType(field)
 
 		// Build bson tag
-		bsonName := storageFieldName(string(field.Desc.Name()))
-		bsonTag := bsonName
+		var bsonTag string
+		if isDocumentID(field) {
+			bsonTag = "_id"
+		} else if isInline(field) {
+			bsonTag = ",inline"
+		} else {
+			bsonName := storageFieldName(string(field.Desc.Name()))
+			if override := fieldNameOverride(field); override != "" {
+				bsonName = override
+			}
+			bsonTag = bsonName
 
-		// TODO: check for document_id option — use "_id" if so
-
-		if shouldOmitempty(field, opts) {
-			bsonTag += ",omitempty"
+			// Check explicit omitempty option first
+			switch fieldOmitempty(field) {
+			case proto2typepb.OptionalBool_OPTIONAL_BOOL_TRUE:
+				bsonTag += ",omitempty"
+			case proto2typepb.OptionalBool_OPTIONAL_BOOL_FALSE:
+				// Explicit false: no omitempty
+			default:
+				if shouldOmitempty(field, opts) {
+					bsonTag += ",omitempty"
+				}
+			}
 		}
 
 		g.P("\t", fieldName, " ", fieldType, " `bson:\"", bsonTag, "\"`")
@@ -71,6 +96,9 @@ func generateGoMongoMessage(g *protogen.GeneratedFile, msg *protogen.Message, op
 
 	// Generate ToProto and FromProto converters
 	generateConverters(g, msg, "Mongo")
+
+	// Generate ToDomain and FromDomain converters
+	generateDomainConverters(g, msg, "Mongo")
 
 	// Nested messages
 	for _, nested := range msg.Messages {

@@ -12,7 +12,7 @@ import "time"
 
 // ModelCatalogEntryMongo is the MongoDB storage representation of test.v1.ModelCatalogEntry.
 type ModelCatalogEntryMongo struct {
-	ModelID          string    `bson:"model_id"`
+	ModelID          string    `bson:"_id"`
 	Provider         string    `bson:"provider"`
 	DisplayName      string    `bson:"display_name"`
 	InputPerMillion  float64   `bson:"input_per_million"`
@@ -25,7 +25,7 @@ type ModelCatalogEntryMongo struct {
 	ProviderModelID  string    `bson:"provider_model_id"`
 	CreatedAt        time.Time `bson:"created_at,omitempty"`
 	UpdatedAt        time.Time `bson:"updated_at,omitempty"`
-	Notes            string    `bson:"notes"`
+	Notes            string    `bson:"notes,omitempty"`
 	Region           string    `bson:"region"`
 }
 
@@ -82,4 +82,51 @@ func (d *ModelCatalogEntryMongo) FromProto(pb *ModelCatalogEntry) {
 	}
 	d.Notes = pb.Notes
 	d.Region = pb.Region
+}
+
+// ToDomain converts to the domain type.
+func (s *ModelCatalogEntryMongo) ToDomain() *ModelCatalogEntry {
+	if s == nil {
+		return nil
+	}
+	d := &ModelCatalogEntry{
+		ModelID:          s.ModelID,
+		Provider:         s.Provider,
+		DisplayName:      s.DisplayName,
+		InputPerMillion:  s.InputPerMillion,
+		OutputPerMillion: s.OutputPerMillion,
+		Enabled:          s.Enabled,
+		Category:         s.Category,
+		ContextWindow:    s.ContextWindow,
+		DiscountPercent:  s.DiscountPercent,
+		Aliases:          s.Aliases,
+		ProviderModelID:  s.ProviderModelID,
+		CreatedAt:        s.CreatedAt,
+		UpdatedAt:        s.UpdatedAt,
+		Notes:            s.Notes,
+		Region:           s.Region,
+	}
+	return d
+}
+
+// FromDomain populates from the domain type.
+func (s *ModelCatalogEntryMongo) FromDomain(d *ModelCatalogEntry) {
+	if d == nil {
+		return
+	}
+	s.ModelID = d.ModelID
+	s.Provider = d.Provider
+	s.DisplayName = d.DisplayName
+	s.InputPerMillion = d.InputPerMillion
+	s.OutputPerMillion = d.OutputPerMillion
+	s.Enabled = d.Enabled
+	s.Category = d.Category
+	s.ContextWindow = d.ContextWindow
+	s.DiscountPercent = d.DiscountPercent
+	s.Aliases = d.Aliases
+	s.ProviderModelID = d.ProviderModelID
+	s.CreatedAt = d.CreatedAt
+	s.UpdatedAt = d.UpdatedAt
+	s.Notes = d.Notes
+	s.Region = d.Region
 }

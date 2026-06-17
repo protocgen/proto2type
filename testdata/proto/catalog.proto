@@ -2,12 +2,13 @@ syntax = "proto3";
 package test.v1;
 
 import "google/protobuf/timestamp.proto";
+import "proto2type/options.proto";
 
 option go_package = "github.com/protocgen/proto2type/testdata/golden/go";
 
 // ModelCatalogEntry represents a model in the catalog.
 message ModelCatalogEntry {
-  string model_id = 1;
+  string model_id = 1 [(proto2type.field).document_id = true];
   string provider = 2;
   string display_name = 3;
   double input_per_million = 4;
@@ -19,7 +20,7 @@ message ModelCatalogEntry {
   repeated string aliases = 12;
   string provider_model_id = 14;
   google.protobuf.Timestamp created_at = 13;
-  google.protobuf.Timestamp updated_at = 15;
-  string notes = 16;
+  google.protobuf.Timestamp updated_at = 15 [(proto2type.field).server_timestamp = true];
+  string notes = 16 [(proto2type.field).omitempty = OPTIONAL_BOOL_TRUE];
   string region = 17;
 }

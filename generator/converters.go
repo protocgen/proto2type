@@ -11,12 +11,12 @@ func generateConverters(g *protogen.GeneratedFile, msg *protogen.Message, struct
 	structName := msg.GoIdent.GoName + structSuffix
 	protoType := g.QualifiedGoIdent(msg.GoIdent)
 
-	generateToProto(g, msg, structName, protoType)
-	generateFromProto(g, msg, structName, protoType)
+	generateToProto(g, msg, structName, protoType, structSuffix)
+	generateFromProto(g, msg, structName, protoType, structSuffix)
 }
 
 // generateToProto generates the ToProto method.
-func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structName, protoType string) {
+func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structName, protoType, structSuffix string) {
 	g.P("// ToProto converts to the protobuf message.")
 	g.P("func (d *", structName, ") ToProto() *", protoType, " {")
 	g.P("\tif d == nil {")
@@ -27,6 +27,13 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 	g.P("\tpb := &", protoType, "{")
 	for _, field := range msg.Fields {
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			continue
+		}
+		if isFieldSkipped(field) {
+			continue
+		}
+		// Skip document_id fields for Firestore (not in the struct)
+		if isDocumentID(field) && structSuffix == "Firestore" {
 			continue
 		}
 		if isWellKnownTimestamp(field) || isWellKnownDuration(field) {
@@ -43,6 +50,13 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 	// Handle well-known types that need special conversion outside the struct literal.
 	for _, field := range msg.Fields {
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			continue
+		}
+		if isFieldSkipped(field) {
+			continue
+		}
+		// Skip document_id fields for Firestore (not in the struct)
+		if isDocumentID(field) && structSuffix == "Firestore" {
 			continue
 		}
 
@@ -74,7 +88,7 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 }
 
 // generateFromProto generates the FromProto method.
-func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structName, protoType string) {
+func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structName, protoType, structSuffix string) {
 	g.P("// FromProto populates from a protobuf message.")
 	g.P("func (d *", structName, ") FromProto(pb *", protoType, ") {")
 	g.P("\tif pb == nil {")
@@ -83,6 +97,13 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 
 	for _, field := range msg.Fields {
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			continue
+		}
+		if isFieldSkipped(field) {
+			continue
+		}
+		// Skip document_id fields for Firestore (not in the struct)
+		if isDocumentID(field) && structSuffix == "Firestore" {
 			continue
 		}
 
@@ -106,6 +127,61 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 		}
 	}
 
+	g.P("}")
+	g.P()
+}
+
+// generateDomainConverters generates ToDomain/FromDomain methods for a storage struct.
+func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, storageSuffix string) {
+	storageType := msg.GoIdent.GoName + storageSuffix
+	domainType := msg.GoIdent.GoName
+
+	// ToDomain
+	g.P("// ToDomain converts to the domain type.")
+	g.P("func (s *", storageType, ") ToDomain() *", domainType, " {")
+	g.P("\tif s == nil {")
+	g.P("\t\treturn nil")
+	g.P("\t}")
+	g.P("\td := &", domainType, "{")
+	for _, field := range msg.Fields {
+		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			continue
+		}
+		if isFieldSkipped(field) {
+			continue
+		}
+		// For Firestore: document_id fields are not in the storage struct
+		// They need to be passed separately — skip in direct assignment
+		if isDocumentID(field) && storageSuffix == "Firestore" {
+			continue
+		}
+		fieldName := toPascalCase(string(field.Desc.Name()))
+		g.P("\t\t", fieldName, ": s.", fieldName, ",")
+	}
+	g.P("\t}")
+	g.P("\treturn d")
+	g.P("}")
+	g.P()
+
+	// FromDomain
+	g.P("// FromDomain populates from the domain type.")
+	g.P("func (s *", storageType, ") FromDomain(d *", domainType, ") {")
+	g.P("\tif d == nil {")
+	g.P("\t\treturn")
+	g.P("\t}")
+	for _, field := range msg.Fields {
+		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			continue
+		}
+		if isFieldSkipped(field) {
+			continue
+		}
+		if isDocumentID(field) && storageSuffix == "Firestore" {
+			continue
+		}
+		fieldName := toPascalCase(string(field.Desc.Name()))
+		g.P("\ts.", fieldName, " = d.", fieldName)
+	}
 	g.P("}")
 	g.P()
 }

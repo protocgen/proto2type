@@ -26,7 +26,7 @@ type ModelCatalogEntry struct {
 	ProviderModelID  string    `json:"provider_model_id"`
 	CreatedAt        time.Time `json:"created_at,omitempty"`
 	UpdatedAt        time.Time `json:"updated_at,omitempty"`
-	Notes            string    `json:"notes"`
+	Notes            string    `json:"notes,omitempty"`
 	Region           string    `json:"region"`
 }
 
@@ -83,4 +83,42 @@ func (d *ModelCatalogEntry) FromProto(pb *ModelCatalogEntry) {
 	}
 	d.Notes = pb.Notes
 	d.Region = pb.Region
+}
+
+// ApplyFieldMaskModelCatalogEntry copies fields from src to dst based on the given paths.
+func ApplyFieldMaskModelCatalogEntry(dst, src *ModelCatalogEntry, paths []string) {
+	for _, path := range paths {
+		switch path {
+		case "model_id":
+			dst.ModelID = src.ModelID
+		case "provider":
+			dst.Provider = src.Provider
+		case "display_name":
+			dst.DisplayName = src.DisplayName
+		case "input_per_million":
+			dst.InputPerMillion = src.InputPerMillion
+		case "output_per_million":
+			dst.OutputPerMillion = src.OutputPerMillion
+		case "enabled":
+			dst.Enabled = src.Enabled
+		case "category":
+			dst.Category = src.Category
+		case "context_window":
+			dst.ContextWindow = src.ContextWindow
+		case "discount_percent":
+			dst.DiscountPercent = src.DiscountPercent
+		case "aliases":
+			dst.Aliases = src.Aliases
+		case "provider_model_id":
+			dst.ProviderModelID = src.ProviderModelID
+		case "created_at":
+			dst.CreatedAt = src.CreatedAt
+		case "updated_at":
+			dst.UpdatedAt = src.UpdatedAt
+		case "notes":
+			dst.Notes = src.Notes
+		case "region":
+			dst.Region = src.Region
+		}
+	}
 }

@@ -71,6 +71,45 @@ func (d *UserMongo) FromProto(pb *User) {
 	d.Phone = pb.Phone
 }
 
+// ToDomain converts to the domain type.
+func (s *UserMongo) ToDomain() *User {
+	if s == nil {
+		return nil
+	}
+	d := &User{
+		ID:             s.ID,
+		Email:          s.Email,
+		DisplayName:    s.DisplayName,
+		Active:         s.Active,
+		Age:            s.Age,
+		Roles:          s.Roles,
+		Metadata:       s.Metadata,
+		Address:        s.Address,
+		CreatedAt:      s.CreatedAt,
+		SessionTimeout: s.SessionTimeout,
+		Phone:          s.Phone,
+	}
+	return d
+}
+
+// FromDomain populates from the domain type.
+func (s *UserMongo) FromDomain(d *User) {
+	if d == nil {
+		return
+	}
+	s.ID = d.ID
+	s.Email = d.Email
+	s.DisplayName = d.DisplayName
+	s.Active = d.Active
+	s.Age = d.Age
+	s.Roles = d.Roles
+	s.Metadata = d.Metadata
+	s.Address = d.Address
+	s.CreatedAt = d.CreatedAt
+	s.SessionTimeout = d.SessionTimeout
+	s.Phone = d.Phone
+}
+
 // AddressMongo is the MongoDB storage representation of test.v1.Address.
 type AddressMongo struct {
 	Street  string `bson:"street"`
@@ -105,4 +144,31 @@ func (d *AddressMongo) FromProto(pb *Address) {
 	d.State = pb.State
 	d.Zip = pb.Zip
 	d.Country = pb.Country
+}
+
+// ToDomain converts to the domain type.
+func (s *AddressMongo) ToDomain() *Address {
+	if s == nil {
+		return nil
+	}
+	d := &Address{
+		Street:  s.Street,
+		City:    s.City,
+		State:   s.State,
+		Zip:     s.Zip,
+		Country: s.Country,
+	}
+	return d
+}
+
+// FromDomain populates from the domain type.
+func (s *AddressMongo) FromDomain(d *Address) {
+	if d == nil {
+		return
+	}
+	s.Street = d.Street
+	s.City = d.City
+	s.State = d.State
+	s.Zip = d.Zip
+	s.Country = d.Country
 }
