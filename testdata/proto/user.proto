@@ -1,0 +1,31 @@
+syntax = "proto3";
+package test.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/protocgen/proto2type/testdata/golden/go";
+
+// User represents a user account.
+message User {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
+  bool active = 4;
+  int32 age = 5;
+  repeated string roles = 6;
+  map<string, string> metadata = 7;
+  Address address = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Duration session_timeout = 10;
+  optional string phone = 11;
+}
+
+// Address is a nested message.
+message Address {
+  string street = 1;
+  string city = 2;
+  string state = 3;
+  string zip = 4;
+  string country = 5;
+}

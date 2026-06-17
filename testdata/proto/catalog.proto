@@ -1,0 +1,25 @@
+syntax = "proto3";
+package test.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/protocgen/proto2type/testdata/golden/go";
+
+// ModelCatalogEntry represents a model in the catalog.
+message ModelCatalogEntry {
+  string model_id = 1;
+  string provider = 2;
+  string display_name = 3;
+  double input_per_million = 4;
+  double output_per_million = 5;
+  bool enabled = 6;
+  string category = 7;
+  int64 context_window = 8;
+  double discount_percent = 9;
+  repeated string aliases = 12;
+  string provider_model_id = 14;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 15;
+  string notes = 16;
+  string region = 17;
+}

@@ -1,0 +1,23 @@
+version: v2
+plugins:
+  # Domain types
+  - local: protoc-gen-proto2type
+    out: ../golden/go
+    opt:
+      - paths=source_relative
+
+  # Firestore storage types
+  - local: protoc-gen-proto2type
+    out: ../golden/go
+    opt:
+      - paths=source_relative
+      - backend=firestore
+      - domain=false
+
+  # Mongo storage types
+  - local: protoc-gen-proto2type
+    out: ../golden/go
+    opt:
+      - paths=source_relative
+      - backend=mongo
+      - domain=false

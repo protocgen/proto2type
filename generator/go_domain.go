@@ -102,6 +102,9 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, o
 	g.P("}")
 	g.P()
 
+	// Generate ToProto and FromProto converters
+	generateConverters(g, msg, "")
+
 	// Generate nested messages
 	for _, nested := range msg.Messages {
 		// Skip map entry messages

@@ -69,6 +69,9 @@ func generateGoMongoMessage(g *protogen.GeneratedFile, msg *protogen.Message, op
 	g.P("}")
 	g.P()
 
+	// Generate ToProto and FromProto converters
+	generateConverters(g, msg, "Mongo")
+
 	// Nested messages
 	for _, nested := range msg.Messages {
 		if nested.Desc.IsMapEntry() {
