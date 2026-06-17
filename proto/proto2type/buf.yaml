@@ -1,0 +1,6 @@
+version: v2
+modules:
+  - path: .
+    name: buf.build/protocgen/proto2type
+deps:
+  - buf.build/protocolbuffers/wellknowntypes

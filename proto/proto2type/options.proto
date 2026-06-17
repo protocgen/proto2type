@@ -1,0 +1,53 @@
+syntax = "proto3";
+package proto2type;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/protocgen/proto2type/proto/proto2type";
+
+// Message-level options for proto2type.
+// Extension number 90100 is in the range reserved for internal/organizational use
+// (50000-99999) per the Protocol Buffers documentation. This number was chosen to
+// avoid conflicts with other protobuf plugins. If you encounter a collision, you
+// may change it — the number only needs to be unique within your descriptor pool.
+extend google.protobuf.MessageOptions {
+  MessageOptions message = 90100;
+}
+
+message MessageOptions {
+  // Skip generating types for this message.
+  bool skip = 1;
+}
+
+// Field-level options for proto2type.
+extend google.protobuf.FieldOptions {
+  FieldOptions field = 90100;
+}
+
+message FieldOptions {
+  // Mark as document ID field.
+  // Firestore: excluded from struct (ID is doc path).
+  // Mongo: tagged bson:"_id".
+  bool document_id = 1;
+
+  // Server-managed timestamp (Firestore serverTimestamp).
+  bool server_timestamp = 2;
+
+  // Override the storage field name.
+  string name = 3;
+
+  // Exclude from generated types entirely.
+  bool skip = 4;
+
+  // Force omitempty behavior.
+  OptionalBool omitempty = 5;
+
+  // Flatten nested message fields into parent (Mongo: bson:",inline").
+  bool inline = 6;
+}
+
+enum OptionalBool {
+  OPTIONAL_BOOL_UNSPECIFIED = 0;
+  OPTIONAL_BOOL_TRUE = 1;
+  OPTIONAL_BOOL_FALSE = 2;
+}

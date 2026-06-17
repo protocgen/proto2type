@@ -1,0 +1,37 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - user.proto
+      - catalog.proto
+plugins:
+  # Generate proto Go types (same go_package as defined in .proto files)
+  - local: protoc-gen-go
+    out: ../golden/go/pb
+    opt:
+      - paths=source_relative
+
+  # Domain types (override go_package to be in the gen/ package)
+  - local: protoc-gen-proto2type
+    out: ../golden/go/gen
+    opt:
+      - paths=source_relative
+      - go_package=github.com/protocgen/proto2type/testdata/golden/go/gen;gen
+
+  # Firestore storage types
+  - local: protoc-gen-proto2type
+    out: ../golden/go/gen
+    opt:
+      - paths=source_relative
+      - backend=firestore
+      - domain=false
+      - go_package=github.com/protocgen/proto2type/testdata/golden/go/gen;gen
+
+  # Mongo storage types
+  - local: protoc-gen-proto2type
+    out: ../golden/go/gen
+    opt:
+      - paths=source_relative
+      - backend=mongo
+      - domain=false
+      - go_package=github.com/protocgen/proto2type/testdata/golden/go/gen;gen

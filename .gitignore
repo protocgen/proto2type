@@ -1,0 +1,13 @@
+# Binaries
+protoc-gen-proto2type
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Test output
+testdata/output/
