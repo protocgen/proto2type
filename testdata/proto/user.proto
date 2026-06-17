@@ -3,8 +3,17 @@ package test.v1;
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
+import "google/protobuf/wrappers.proto";
 
 option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
+
+// UserStatus represents the user's account status.
+enum UserStatus {
+  USER_STATUS_UNSPECIFIED = 0;
+  USER_STATUS_ACTIVE = 1;
+  USER_STATUS_SUSPENDED = 2;
+  USER_STATUS_DELETED = 3;
+}
 
 // User represents a user account.
 message User {
@@ -19,6 +28,14 @@ message User {
   google.protobuf.Timestamp created_at = 9;
   google.protobuf.Duration session_timeout = 10;
   optional string phone = 11;
+  bytes avatar = 12;
+  google.protobuf.StringValue nickname = 13;
+  UserStatus status = 14;
+
+  oneof contact_method {
+    string contact_email = 15;
+    string contact_phone = 16;
+  }
 }
 
 // Address is a nested message.

@@ -69,7 +69,13 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 		domainFieldName := toPascalCase(string(field.Desc.Name()))
 		protoFieldName := field.GoName
 
-		g.P("\t\t", protoFieldName, ": ", recv, ".", domainFieldName, ",")
+		if field.Desc.Kind() == protoreflect.EnumKind {
+			// Cast int32 domain field to proto enum type
+			enumIdent := g.QualifiedGoIdent(field.Enum.GoIdent)
+			g.P("\t\t", protoFieldName, ": ", enumIdent, "(", recv, ".", domainFieldName, "),")
+		} else {
+			g.P("\t\t", protoFieldName, ": ", recv, ".", domainFieldName, ",")
+		}
 	}
 	g.P("\t}")
 
@@ -191,6 +197,9 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 		} else if field.Desc.HasOptionalKeyword() {
 			// Optional scalar: both proto and domain use *T, assign directly (PROTO-3)
 			g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName)
+		} else if field.Desc.Kind() == protoreflect.EnumKind {
+			// Cast proto enum type to int32 domain field
+			g.P("\t", recv, ".", domainFieldName, " = int32(pb.", protoFieldName, ")")
 		} else {
 			// Scalars, repeated, maps: direct assignment
 			g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName)
@@ -248,9 +257,33 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 			continue
 		}
 		fieldName := toPascalCase(string(field.Desc.Name()))
+		if field.Desc.Kind() == protoreflect.BytesKind {
+			// Skip bytes — handled with deep copy below
+			continue
+		}
 		g.P("\t\t", fieldName, ": ", recv, ".", fieldName, ",")
 	}
 	g.P("\t}")
+
+	// Deep copy bytes fields (SEC-3)
+	for _, field := range msg.Fields {
+		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			continue
+		}
+		if isFieldSkipped(field) {
+			continue
+		}
+		if isDocumentID(field) && isFirestore {
+			continue
+		}
+		if field.Desc.Kind() == protoreflect.BytesKind {
+			fieldName := toPascalCase(string(field.Desc.Name()))
+			g.P("\tif ", recv, ".", fieldName, " != nil {")
+			g.P("\t\td.", fieldName, " = make([]byte, len(", recv, ".", fieldName, "))")
+			g.P("\t\tcopy(d.", fieldName, ", ", recv, ".", fieldName, ")")
+			g.P("\t}")
+		}
+	}
 
 	// Assign document ID from parameter (Firestore only)
 	if isFirestore && docIDFieldName != "" {
@@ -303,6 +336,12 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 			g.P("\tif d.", fieldName, " != nil {")
 			g.P("\t\t", recv, ".", fieldName, " = &", nestedType, "{}")
 			g.P("\t\t", recv, ".", fieldName, ".FromDomain(d.", fieldName, ")")
+			g.P("\t}")
+		} else if field.Desc.Kind() == protoreflect.BytesKind {
+			// Deep copy bytes fields (SEC-3)
+			g.P("\tif d.", fieldName, " != nil {")
+			g.P("\t\t", recv, ".", fieldName, " = make([]byte, len(d.", fieldName, "))")
+			g.P("\t\tcopy(", recv, ".", fieldName, ", d.", fieldName, ")")
 			g.P("\t}")
 		} else {
 			g.P("\t", recv, ".", fieldName, " = d.", fieldName)
