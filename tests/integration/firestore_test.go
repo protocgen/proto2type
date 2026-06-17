@@ -41,7 +41,7 @@ func TestFirestoreRoundTrip_ModelCatalogEntry(t *testing.T) {
 	fs.FromDomain(original)
 
 	// Write to Firestore
-	docID := fmt.Sprintf("%s/%s", original.Provider, original.ModelID)
+	docID := fmt.Sprintf("%s-%s", original.Provider, original.ModelID)
 	_, err := col.Doc(docID).Set(ctx, &fs)
 	if err != nil {
 		t.Fatalf("Failed to write to Firestore: %v", err)
@@ -144,7 +144,11 @@ func TestFirestoreRoundTrip_User(t *testing.T) {
 	assertEqual(t, "DisplayName", original.DisplayName, roundTripped.DisplayName)
 	assertEqual(t, "Active", original.Active, roundTripped.Active)
 	assertEqual(t, "Age", original.Age, roundTripped.Age)
-	assertEqual(t, "Phone", original.Phone, roundTripped.Phone)
+	if (original.Phone == nil) != (roundTripped.Phone == nil) {
+		t.Errorf("Phone: nil mismatch: got %v, want %v", roundTripped.Phone, original.Phone)
+	} else if original.Phone != nil && *original.Phone != *roundTripped.Phone {
+		t.Errorf("Phone: got %q, want %q", *roundTripped.Phone, *original.Phone)
+	}
 
 	// Map field
 	if len(roundTripped.Metadata) != len(original.Metadata) {
@@ -180,12 +184,12 @@ func TestFirestoreZeroValues(t *testing.T) {
 	var fs gen.ModelCatalogEntryFirestore
 	fs.FromDomain(original)
 
-	_, err := col.Doc("test/empty-model").Set(ctx, &fs)
+	_, err := col.Doc("empty-model").Set(ctx, &fs)
 	if err != nil {
 		t.Fatalf("Failed to write zero-value doc: %v", err)
 	}
 
-	snap, err := col.Doc("test/empty-model").Get(ctx)
+	snap, err := col.Doc("empty-model").Get(ctx)
 	if err != nil {
 		t.Fatalf("Failed to read zero-value doc: %v", err)
 	}
@@ -195,7 +199,7 @@ func TestFirestoreZeroValues(t *testing.T) {
 		t.Fatalf("Failed to deserialize zero-value doc: %v", err)
 	}
 
-	roundTripped := readBack.ToDomain("test/empty-model")
+	roundTripped := readBack.ToDomain("empty-model")
 
 	assertEqual(t, "Provider", "test", roundTripped.Provider)
 	assertEqual(t, "DisplayName", "", roundTripped.DisplayName)

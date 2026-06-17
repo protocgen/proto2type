@@ -118,7 +118,11 @@ func TestMongoRoundTrip_User(t *testing.T) {
 	assertEqual(t, "DisplayName", original.DisplayName, roundTripped.DisplayName)
 	assertEqual(t, "Active", original.Active, roundTripped.Active)
 	assertEqual(t, "Age", original.Age, roundTripped.Age)
-	assertEqual(t, "Phone", original.Phone, roundTripped.Phone)
+	if (original.Phone == nil) != (roundTripped.Phone == nil) {
+		t.Errorf("Phone: nil mismatch: got %v, want %v", roundTripped.Phone, original.Phone)
+	} else if original.Phone != nil && *original.Phone != *roundTripped.Phone {
+		t.Errorf("Phone: got %q, want %q", *roundTripped.Phone, *original.Phone)
+	}
 
 	if len(roundTripped.Metadata) != len(original.Metadata) {
 		t.Errorf("Metadata length: got %d, want %d", len(roundTripped.Metadata), len(original.Metadata))

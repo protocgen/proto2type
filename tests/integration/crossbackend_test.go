@@ -39,7 +39,7 @@ func TestCrossBackendConsistency(t *testing.T) {
 	var fs gen.ModelCatalogEntryFirestore
 	fs.FromDomain(original)
 	fsCol := fsClient.Collection("test_cross")
-	_, err := fsCol.Doc("test/cross-test").Set(ctx, &fs)
+	_, err := fsCol.Doc("cross-test").Set(ctx, &fs)
 	if err != nil {
 		t.Fatalf("Firestore write failed: %v", err)
 	}
@@ -54,13 +54,13 @@ func TestCrossBackendConsistency(t *testing.T) {
 	}
 
 	// Read from Firestore
-	snap, err := fsCol.Doc("test/cross-test").Get(ctx)
+	snap, err := fsCol.Doc("cross-test").Get(ctx)
 	if err != nil {
 		t.Fatalf("Firestore read failed: %v", err)
 	}
 	var fsRead gen.ModelCatalogEntryFirestore
 	snap.DataTo(&fsRead)
-	fsDomain := fsRead.ToDomain("test/cross-test")
+	fsDomain := fsRead.ToDomain("cross-test")
 
 	// Read from MongoDB
 	var mgRead gen.ModelCatalogEntryMongo
