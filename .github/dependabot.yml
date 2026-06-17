@@ -3,8 +3,8 @@ updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
-      frequency: weekly
+      interval: weekly
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      frequency: weekly
+      interval: weekly
