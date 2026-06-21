@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 
@@ -18,6 +19,15 @@ func generateGoFirestore(gen *protogen.Plugin, file *protogen.File, opts *Option
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
+
+		// Adjust the output filename when go_package points to a subdirectory.
+		protoImport := string(file.GoImportPath)
+		if strings.HasPrefix(importPath, protoImport+"/") {
+			subdir := strings.TrimPrefix(importPath, protoImport+"/")
+			dir := filename[:strings.LastIndex(filename, "/")+1]
+			base := filename[strings.LastIndex(filename, "/")+1:]
+			filename = dir + subdir + "/" + base
+		}
 	}
 	g := gen.NewGeneratedFile(filename, goImportPath)
 

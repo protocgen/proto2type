@@ -46,7 +46,40 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
+
+		// Adjust the output filename when go_package points to a subdirectory
+		// of the proto's import path. For example, if proto is in
+		//   github.com/.../types
+		// and go_package overrides to
+		//   github.com/.../types/domain
+		// we need to output to types/domain/ instead of types/.
+		protoImport := string(file.GoImportPath)
+		if strings.HasPrefix(importPath, protoImport+"/") {
+			subdir := strings.TrimPrefix(importPath, protoImport+"/")
+			// Insert subdir between the directory and filename.
+			// e.g., "candela/types/model_catalog.type.go" →
+			//        "candela/types/domain/model_catalog.type.go"
+			dir := filename[:strings.LastIndex(filename, "/")+1]
+			base := filename[strings.LastIndex(filename, "/")+1:]
+			filename = dir + subdir + "/" + base
+		}
 	}
+
+	// Collision check: domain types cannot share the same Go import path as
+	// proto types because both define structs with the same name (e.g.,
+	// ModelCatalogEntry). This would cause a compile error.
+	if goImportPath == file.GoImportPath {
+		return fmt.Errorf(
+			"proto2type: generated domain types would collide with proto types in package %s\n"+
+				"Both define types with the same names (e.g., %s).\n"+
+				"Set the go_package option to a different import path, for example:\n"+
+				"  opt: go_package=%s/domain;domain",
+			string(file.GoImportPath),
+			file.Messages[0].GoIdent.GoName,
+			string(file.GoImportPath),
+		)
+	}
+
 	g := gen.NewGeneratedFile(filename, goImportPath)
 
 	// Header
@@ -78,6 +111,7 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 
 	return nil
 }
+
 
 // generateGoDomainMessage generates a Go domain struct and converters for a single message.
 func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) error {
