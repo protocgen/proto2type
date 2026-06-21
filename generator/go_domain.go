@@ -112,7 +112,6 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 	return nil
 }
 
-
 // generateGoDomainMessage generates a Go domain struct and converters for a single message.
 func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) error {
 	if isMessageSkipped(msg) {
