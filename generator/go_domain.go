@@ -46,23 +46,7 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
-
-		// Adjust the output filename when go_package points to a subdirectory
-		// of the proto's import path. For example, if proto is in
-		//   github.com/.../types
-		// and go_package overrides to
-		//   github.com/.../types/domain
-		// we need to output to types/domain/ instead of types/.
-		protoImport := string(file.GoImportPath)
-		if strings.HasPrefix(importPath, protoImport+"/") {
-			subdir := strings.TrimPrefix(importPath, protoImport+"/")
-			// Insert subdir between the directory and filename.
-			// e.g., "candela/types/model_catalog.type.go" →
-			//        "candela/types/domain/model_catalog.type.go"
-			dir := filename[:strings.LastIndex(filename, "/")+1]
-			base := filename[strings.LastIndex(filename, "/")+1:]
-			filename = dir + subdir + "/" + base
-		}
+		filename = adjustSubdirFilename(filename, string(file.GoImportPath), importPath)
 	}
 
 	// Collision check: domain types cannot share the same Go import path as

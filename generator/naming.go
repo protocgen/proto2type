@@ -71,3 +71,19 @@ func parseGoPackage(pkg string) (importPath, packageName string) {
 	}
 	return pkg, pkg
 }
+
+// adjustSubdirFilename adjusts the output filename when go_package points to a
+// subdirectory of the proto's import path. For example, if proto is in
+// "github.com/.../types" and go_package overrides to "github.com/.../types/domain",
+// we need to output to "types/domain/" instead of "types/".
+func adjustSubdirFilename(filename, protoImport, importPath string) string {
+	if strings.HasPrefix(importPath, protoImport+"/") {
+		subdir := strings.TrimPrefix(importPath, protoImport+"/")
+		idx := strings.LastIndex(filename, "/")
+		if idx < 0 {
+			return subdir + "/" + filename
+		}
+		return filename[:idx+1] + subdir + "/" + filename[idx+1:]
+	}
+	return filename
+}
