@@ -29,6 +29,7 @@ type UserMongo struct {
 	Avatar         []byte            `bson:"avatar,omitempty"`
 	Nickname       *string           `bson:"nickname,omitempty"`
 	Status         int32             `bson:"status,omitempty"`
+	Tags           []*TagMongo       `bson:"tags,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -38,7 +39,7 @@ func (u *UserMongo) ToProto() *pb.User {
 	if u == nil {
 		return nil
 	}
-	pb := &pb.User{
+	out := &pb.User{
 		Id:          u.ID,
 		Email:       u.Email,
 		DisplayName: u.DisplayName,
@@ -49,21 +50,29 @@ func (u *UserMongo) ToProto() *pb.User {
 		Status:      pb.UserStatus(u.Status),
 	}
 	if u.Address != nil {
-		pb.Address = u.Address.ToProto()
+		out.Address = u.Address.ToProto()
 	}
 	if !u.CreatedAt.IsZero() {
-		pb.CreatedAt = timestamppb.New(u.CreatedAt)
+		out.CreatedAt = timestamppb.New(u.CreatedAt)
 	}
-	pb.SessionTimeout = durationpb.New(u.SessionTimeout)
-	pb.Phone = u.Phone
+	out.SessionTimeout = durationpb.New(u.SessionTimeout)
+	out.Phone = u.Phone
 	if u.Avatar != nil {
-		pb.Avatar = make([]byte, len(u.Avatar))
-		copy(pb.Avatar, u.Avatar)
+		out.Avatar = make([]byte, len(u.Avatar))
+		copy(out.Avatar, u.Avatar)
 	}
 	if u.Nickname != nil {
-		pb.Nickname = wrapperspb.String(*u.Nickname)
+		out.Nickname = wrapperspb.String(*u.Nickname)
 	}
-	return pb
+	if len(u.Tags) > 0 {
+		out.Tags = make([]*pb.Tag, len(u.Tags))
+		for i, v := range u.Tags {
+			if v != nil {
+				out.Tags[i] = v.ToProto()
+			}
+		}
+	}
+	return out
 }
 
 // FromProto populates from a protobuf message.
@@ -98,6 +107,16 @@ func (u *UserMongo) FromProto(pb *pb.User) {
 		u.Nickname = &v
 	}
 	u.Status = int32(pb.Status)
+	if len(pb.Tags) > 0 {
+		u.Tags = make([]*TagMongo, len(pb.Tags))
+		for i, v := range pb.Tags {
+			if v != nil {
+				elem := &TagMongo{}
+				elem.FromProto(v)
+				u.Tags[i] = elem
+			}
+		}
+	}
 }
 
 // ToDomain converts to the domain type.
@@ -125,6 +144,14 @@ func (u *UserMongo) ToDomain() *User {
 	}
 	if u.Address != nil {
 		d.Address = u.Address.ToDomain()
+	}
+	if len(u.Tags) > 0 {
+		d.Tags = make([]*Tag, len(u.Tags))
+		for i, v := range u.Tags {
+			if v != nil {
+				d.Tags[i] = v.ToDomain()
+			}
+		}
 	}
 	return d
 }
@@ -154,6 +181,16 @@ func (u *UserMongo) FromDomain(d *User) {
 	}
 	u.Nickname = d.Nickname
 	u.Status = d.Status
+	if len(d.Tags) > 0 {
+		u.Tags = make([]*TagMongo, len(d.Tags))
+		for i, v := range d.Tags {
+			if v != nil {
+				elem := &TagMongo{}
+				elem.FromDomain(v)
+				u.Tags[i] = elem
+			}
+		}
+	}
 }
 
 // AddressMongo is the MongoDB storage representation of test.v1.Address.
@@ -170,14 +207,14 @@ func (a *AddressMongo) ToProto() *pb.Address {
 	if a == nil {
 		return nil
 	}
-	pb := &pb.Address{
+	out := &pb.Address{
 		Street:  a.Street,
 		City:    a.City,
 		State:   a.State,
 		Zip:     a.Zip,
 		Country: a.Country,
 	}
-	return pb
+	return out
 }
 
 // FromProto populates from a protobuf message.
@@ -217,4 +254,52 @@ func (a *AddressMongo) FromDomain(d *Address) {
 	a.State = d.State
 	a.Zip = d.Zip
 	a.Country = d.Country
+}
+
+// TagMongo is the MongoDB storage representation of test.v1.Tag.
+type TagMongo struct {
+	Key   string `bson:"key,omitempty"`
+	Value string `bson:"value,omitempty"`
+}
+
+// ToProto converts to the protobuf message.
+func (t *TagMongo) ToProto() *pb.Tag {
+	if t == nil {
+		return nil
+	}
+	out := &pb.Tag{
+		Key:   t.Key,
+		Value: t.Value,
+	}
+	return out
+}
+
+// FromProto populates from a protobuf message.
+func (t *TagMongo) FromProto(pb *pb.Tag) {
+	if pb == nil {
+		return
+	}
+	t.Key = pb.Key
+	t.Value = pb.Value
+}
+
+// ToDomain converts to the domain type.
+func (t *TagMongo) ToDomain() *Tag {
+	if t == nil {
+		return nil
+	}
+	d := &Tag{
+		Key:   t.Key,
+		Value: t.Value,
+	}
+	return d
+}
+
+// FromDomain populates from the domain type.
+func (t *TagMongo) FromDomain(d *Tag) {
+	if d == nil {
+		return
+	}
+	t.Key = d.Key
+	t.Value = d.Value
 }

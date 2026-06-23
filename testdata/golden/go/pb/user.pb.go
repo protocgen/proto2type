@@ -99,6 +99,7 @@ type User struct {
 	//	*User_ContactEmail
 	//	*User_ContactPhone
 	ContactMethod isUser_ContactMethod `protobuf_oneof:"contact_method"`
+	Tags          []*Tag               `protobuf:"bytes,17,rep,name=tags,proto3" json:"tags,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -256,6 +257,13 @@ func (x *User) GetContactPhone() string {
 	return ""
 }
 
+func (x *User) GetTags() []*Tag {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
 type isUser_ContactMethod interface {
 	isUser_ContactMethod()
 }
@@ -349,12 +357,65 @@ func (x *Address) GetCountry() string {
 	return ""
 }
 
+// Tag is a label with a key-value pair.
+type Tag struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Tag) Reset() {
+	*x = Tag{}
+	mi := &file_user_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Tag) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Tag) ProtoMessage() {}
+
+func (x *Tag) ProtoReflect() protoreflect.Message {
+	mi := &file_user_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Tag.ProtoReflect.Descriptor instead.
+func (*Tag) Descriptor() ([]byte, []int) {
+	return file_user_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Tag) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *Tag) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
 var File_user_proto protoreflect.FileDescriptor
 
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xb4\x05\n" +
+	"user.proto\x12\atest.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xd6\x05\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
@@ -373,7 +434,8 @@ const file_user_proto_rawDesc = "" +
 	"\bnickname\x18\r \x01(\v2\x1c.google.protobuf.StringValueR\bnickname\x12+\n" +
 	"\x06status\x18\x0e \x01(\x0e2\x13.test.v1.UserStatusR\x06status\x12%\n" +
 	"\rcontact_email\x18\x0f \x01(\tH\x00R\fcontactEmail\x12%\n" +
-	"\rcontact_phone\x18\x10 \x01(\tH\x00R\fcontactPhone\x1a;\n" +
+	"\rcontact_phone\x18\x10 \x01(\tH\x00R\fcontactPhone\x12 \n" +
+	"\x04tags\x18\x11 \x03(\v2\f.test.v1.TagR\x04tags\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x10\n" +
@@ -384,7 +446,10 @@ const file_user_proto_rawDesc = "" +
 	"\x04city\x18\x02 \x01(\tR\x04city\x12\x14\n" +
 	"\x05state\x18\x03 \x01(\tR\x05state\x12\x10\n" +
 	"\x03zip\x18\x04 \x01(\tR\x03zip\x12\x18\n" +
-	"\acountry\x18\x05 \x01(\tR\acountry*u\n" +
+	"\acountry\x18\x05 \x01(\tR\acountry\"-\n" +
+	"\x03Tag\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value*u\n" +
 	"\n" +
 	"UserStatus\x12\x1b\n" +
 	"\x17USER_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
@@ -405,28 +470,30 @@ func file_user_proto_rawDescGZIP() []byte {
 }
 
 var file_user_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_user_proto_goTypes = []any{
 	(UserStatus)(0),                // 0: test.v1.UserStatus
 	(*User)(nil),                   // 1: test.v1.User
 	(*Address)(nil),                // 2: test.v1.Address
-	nil,                            // 3: test.v1.User.MetadataEntry
-	(*timestamppb.Timestamp)(nil),  // 4: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),    // 5: google.protobuf.Duration
-	(*wrapperspb.StringValue)(nil), // 6: google.protobuf.StringValue
+	(*Tag)(nil),                    // 3: test.v1.Tag
+	nil,                            // 4: test.v1.User.MetadataEntry
+	(*timestamppb.Timestamp)(nil),  // 5: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),    // 6: google.protobuf.Duration
+	(*wrapperspb.StringValue)(nil), // 7: google.protobuf.StringValue
 }
 var file_user_proto_depIdxs = []int32{
-	3, // 0: test.v1.User.metadata:type_name -> test.v1.User.MetadataEntry
+	4, // 0: test.v1.User.metadata:type_name -> test.v1.User.MetadataEntry
 	2, // 1: test.v1.User.address:type_name -> test.v1.Address
-	4, // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	5, // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
-	6, // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
+	5, // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	6, // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
+	7, // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
 	0, // 5: test.v1.User.status:type_name -> test.v1.UserStatus
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	3, // 6: test.v1.User.tags:type_name -> test.v1.Tag
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_user_proto_init() }
@@ -444,7 +511,7 @@ func file_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_proto_rawDesc), len(file_user_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

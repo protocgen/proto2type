@@ -30,6 +30,7 @@ type User struct {
 	Avatar         []byte            `json:"avatar,omitempty"`
 	Nickname       *string           `json:"nickname,omitempty"`
 	Status         int32             `json:"status,omitempty"`
+	Tags           []*Tag            `json:"tags,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -39,7 +40,7 @@ func (u *User) ToProto() *pb.User {
 	if u == nil {
 		return nil
 	}
-	pb := &pb.User{
+	out := &pb.User{
 		Id:          u.ID,
 		Email:       u.Email,
 		DisplayName: u.DisplayName,
@@ -50,21 +51,29 @@ func (u *User) ToProto() *pb.User {
 		Status:      pb.UserStatus(u.Status),
 	}
 	if u.Address != nil {
-		pb.Address = u.Address.ToProto()
+		out.Address = u.Address.ToProto()
 	}
 	if !u.CreatedAt.IsZero() {
-		pb.CreatedAt = timestamppb.New(u.CreatedAt)
+		out.CreatedAt = timestamppb.New(u.CreatedAt)
 	}
-	pb.SessionTimeout = durationpb.New(u.SessionTimeout)
-	pb.Phone = u.Phone
+	out.SessionTimeout = durationpb.New(u.SessionTimeout)
+	out.Phone = u.Phone
 	if u.Avatar != nil {
-		pb.Avatar = make([]byte, len(u.Avatar))
-		copy(pb.Avatar, u.Avatar)
+		out.Avatar = make([]byte, len(u.Avatar))
+		copy(out.Avatar, u.Avatar)
 	}
 	if u.Nickname != nil {
-		pb.Nickname = wrapperspb.String(*u.Nickname)
+		out.Nickname = wrapperspb.String(*u.Nickname)
 	}
-	return pb
+	if len(u.Tags) > 0 {
+		out.Tags = make([]*pb.Tag, len(u.Tags))
+		for i, v := range u.Tags {
+			if v != nil {
+				out.Tags[i] = v.ToProto()
+			}
+		}
+	}
+	return out
 }
 
 // FromProto populates from a protobuf message.
@@ -99,6 +108,16 @@ func (u *User) FromProto(pb *pb.User) {
 		u.Nickname = &v
 	}
 	u.Status = int32(pb.Status)
+	if len(pb.Tags) > 0 {
+		u.Tags = make([]*Tag, len(pb.Tags))
+		for i, v := range pb.Tags {
+			if v != nil {
+				elem := &Tag{}
+				elem.FromProto(v)
+				u.Tags[i] = elem
+			}
+		}
+	}
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
@@ -141,6 +160,8 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			dst.Nickname = src.Nickname
 		case "status":
 			dst.Status = src.Status
+		case "tags":
+			dst.Tags = src.Tags
 		}
 	}
 }
@@ -171,6 +192,14 @@ func (u *User) Clone() *User {
 	if u.Roles != nil {
 		c.Roles = make([]string, len(u.Roles))
 		copy(c.Roles, u.Roles)
+	}
+	if u.Tags != nil {
+		c.Tags = make([]*Tag, len(u.Tags))
+		for i, v := range u.Tags {
+			if v != nil {
+				c.Tags[i] = v.Clone()
+			}
+		}
 	}
 	if u.Avatar != nil {
 		c.Avatar = make([]byte, len(u.Avatar))
@@ -266,6 +295,17 @@ func (u *User) Equal(other *User) bool {
 	if u.Status != other.Status {
 		return false
 	}
+	if len(u.Tags) != len(other.Tags) {
+		return false
+	}
+	for i := range u.Tags {
+		if (u.Tags[i] == nil) != (other.Tags[i] == nil) {
+			return false
+		}
+		if u.Tags[i] != nil && !u.Tags[i].Equal(other.Tags[i]) {
+			return false
+		}
+	}
 	return true
 }
 
@@ -285,14 +325,14 @@ func (a *Address) ToProto() *pb.Address {
 	if a == nil {
 		return nil
 	}
-	pb := &pb.Address{
+	out := &pb.Address{
 		Street:  a.Street,
 		City:    a.City,
 		State:   a.State,
 		Zip:     a.Zip,
 		Country: a.Country,
 	}
-	return pb
+	return out
 }
 
 // FromProto populates from a protobuf message.
@@ -364,6 +404,79 @@ func (a *Address) Equal(other *Address) bool {
 		return false
 	}
 	if a.Country != other.Country {
+		return false
+	}
+	return true
+}
+
+// Tag is the domain representation of test.v1.Tag.
+//
+// Tag is a label with a key-value pair.
+type Tag struct {
+	Key   string `json:"key,omitempty"`
+	Value string `json:"value,omitempty"`
+}
+
+// ToProto converts to the protobuf message.
+func (t *Tag) ToProto() *pb.Tag {
+	if t == nil {
+		return nil
+	}
+	out := &pb.Tag{
+		Key:   t.Key,
+		Value: t.Value,
+	}
+	return out
+}
+
+// FromProto populates from a protobuf message.
+func (t *Tag) FromProto(pb *pb.Tag) {
+	if pb == nil {
+		return
+	}
+	t.Key = pb.Key
+	t.Value = pb.Value
+}
+
+// ApplyFieldMaskTag copies fields from src to dst based on the given paths.
+func ApplyFieldMaskTag(dst, src *Tag, paths []string) {
+	if dst == nil || src == nil {
+		return
+	}
+	for _, path := range paths {
+		switch path {
+		case "key":
+			dst.Key = src.Key
+		case "value":
+			dst.Value = src.Value
+		}
+	}
+}
+
+// Clone returns a deep copy of Tag.
+func (t *Tag) Clone() *Tag {
+	if t == nil {
+		return nil
+	}
+	c := &Tag{
+		Key:   t.Key,
+		Value: t.Value,
+	}
+	return c
+}
+
+// Equal reports whether t and other are equal.
+func (t *Tag) Equal(other *Tag) bool {
+	if t == other {
+		return true
+	}
+	if t == nil || other == nil {
+		return false
+	}
+	if t.Key != other.Key {
+		return false
+	}
+	if t.Value != other.Value {
 		return false
 	}
 	return true

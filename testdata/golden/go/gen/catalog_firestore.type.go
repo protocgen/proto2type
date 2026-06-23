@@ -34,7 +34,7 @@ func (m *ModelCatalogEntryFirestore) ToProto() *pb.ModelCatalogEntry {
 	if m == nil {
 		return nil
 	}
-	pb := &pb.ModelCatalogEntry{
+	out := &pb.ModelCatalogEntry{
 		Provider:         m.Provider,
 		DisplayName:      m.DisplayName,
 		InputPerMillion:  m.InputPerMillion,
@@ -49,12 +49,12 @@ func (m *ModelCatalogEntryFirestore) ToProto() *pb.ModelCatalogEntry {
 		Region:           m.Region,
 	}
 	if !m.CreatedAt.IsZero() {
-		pb.CreatedAt = timestamppb.New(m.CreatedAt)
+		out.CreatedAt = timestamppb.New(m.CreatedAt)
 	}
 	if !m.UpdatedAt.IsZero() {
-		pb.UpdatedAt = timestamppb.New(m.UpdatedAt)
+		out.UpdatedAt = timestamppb.New(m.UpdatedAt)
 	}
-	return pb
+	return out
 }
 
 // FromProto populates from a protobuf message.
