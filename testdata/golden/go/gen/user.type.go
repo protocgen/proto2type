@@ -40,7 +40,7 @@ func (u *User) ToProto() *pb.User {
 	if u == nil {
 		return nil
 	}
-	pb := &pb.User{
+	out := &pb.User{
 		Id:          u.ID,
 		Email:       u.Email,
 		DisplayName: u.DisplayName,
@@ -51,29 +51,29 @@ func (u *User) ToProto() *pb.User {
 		Status:      pb.UserStatus(u.Status),
 	}
 	if u.Address != nil {
-		pb.Address = u.Address.ToProto()
+		out.Address = u.Address.ToProto()
 	}
 	if !u.CreatedAt.IsZero() {
-		pb.CreatedAt = timestamppb.New(u.CreatedAt)
+		out.CreatedAt = timestamppb.New(u.CreatedAt)
 	}
-	pb.SessionTimeout = durationpb.New(u.SessionTimeout)
-	pb.Phone = u.Phone
+	out.SessionTimeout = durationpb.New(u.SessionTimeout)
+	out.Phone = u.Phone
 	if u.Avatar != nil {
-		pb.Avatar = make([]byte, len(u.Avatar))
-		copy(pb.Avatar, u.Avatar)
+		out.Avatar = make([]byte, len(u.Avatar))
+		copy(out.Avatar, u.Avatar)
 	}
 	if u.Nickname != nil {
-		pb.Nickname = wrapperspb.String(*u.Nickname)
+		out.Nickname = wrapperspb.String(*u.Nickname)
 	}
 	if len(u.Tags) > 0 {
-		pb.Tags = make([]*pb.Tag, len(u.Tags))
+		out.Tags = make([]*pb.Tag, len(u.Tags))
 		for i, v := range u.Tags {
 			if v != nil {
-				pb.Tags[i] = v.ToProto()
+				out.Tags[i] = v.ToProto()
 			}
 		}
 	}
-	return pb
+	return out
 }
 
 // FromProto populates from a protobuf message.
@@ -325,14 +325,14 @@ func (a *Address) ToProto() *pb.Address {
 	if a == nil {
 		return nil
 	}
-	pb := &pb.Address{
+	out := &pb.Address{
 		Street:  a.Street,
 		City:    a.City,
 		State:   a.State,
 		Zip:     a.Zip,
 		Country: a.Country,
 	}
-	return pb
+	return out
 }
 
 // FromProto populates from a protobuf message.
@@ -422,11 +422,11 @@ func (t *Tag) ToProto() *pb.Tag {
 	if t == nil {
 		return nil
 	}
-	pb := &pb.Tag{
+	out := &pb.Tag{
 		Key:   t.Key,
 		Value: t.Value,
 	}
-	return pb
+	return out
 }
 
 // FromProto populates from a protobuf message.

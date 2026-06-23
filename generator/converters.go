@@ -34,7 +34,9 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 	g.P("\t}")
 
 	// Open the proto struct literal with non-special fields.
-	g.P("\tpb := &", protoType, "{")
+	// Use "out" instead of "pb" to avoid shadowing the proto package import
+	// when QualifiedGoIdent resolves types like pb.Tag.
+	g.P("\tout := &", protoType, "{")
 	for _, field := range msg.Fields {
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
 			continue
@@ -103,7 +105,7 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 				GoName:       "New",
 			})
 			g.P("\tif !", recv, ".", domainFieldName, ".IsZero() {")
-			g.P("\t\tpb.", protoFieldName, " = ", tsNew, "(", recv, ".", domainFieldName, ")")
+			g.P("\t\tout.", protoFieldName, " = ", tsNew, "(", recv, ".", domainFieldName, ")")
 			g.P("\t}")
 		} else if isWellKnownDuration(field) {
 			// durationpb.New
@@ -111,46 +113,46 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 				GoImportPath: "google.golang.org/protobuf/types/known/durationpb",
 				GoName:       "New",
 			})
-			g.P("\tpb.", protoFieldName, " = ", durNew, "(", recv, ".", domainFieldName, ")")
+			g.P("\tout.", protoFieldName, " = ", durNew, "(", recv, ".", domainFieldName, ")")
 		} else if isWellKnownWrapper(field) {
-			// Wrapper type: if d.Phone != nil { pb.Phone = wrapperspb.String(*d.Phone) }
+			// Wrapper type: if d.Phone != nil { out.Phone = wrapperspb.String(*d.Phone) }
 			funcName := wrapperPbFuncName(field)
 			wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
 				GoName:       funcName,
 			})
 			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
-			g.P("\t\tpb.", protoFieldName, " = ", wrapperFunc, "(*", recv, ".", domainFieldName, ")")
+			g.P("\t\tout.", protoFieldName, " = ", wrapperFunc, "(*", recv, ".", domainFieldName, ")")
 			g.P("\t}")
 		} else if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() {
 			// Singular nested message: recursive conversion via ToProto()
 			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
-			g.P("\t\tpb.", protoFieldName, " = ", recv, ".", domainFieldName, ".ToProto()")
+			g.P("\t\tout.", protoFieldName, " = ", recv, ".", domainFieldName, ".ToProto()")
 			g.P("\t}")
 		} else if field.Desc.Kind() == protoreflect.MessageKind && field.Desc.IsList() {
 			// Repeated message: loop-based element-wise conversion
 			protoElemType := g.QualifiedGoIdent(field.Message.GoIdent)
 			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
-			g.P("\t\tpb.", protoFieldName, " = make([]*", protoElemType, ", len(", recv, ".", domainFieldName, "))")
+			g.P("\t\tout.", protoFieldName, " = make([]*", protoElemType, ", len(", recv, ".", domainFieldName, "))")
 			g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tpb.", protoFieldName, "[i] = v.ToProto()")
+			g.P("\t\t\t\tout.", protoFieldName, "[i] = v.ToProto()")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 			g.P("\t}")
 		} else if field.Desc.Kind() == protoreflect.BytesKind {
 			// Bytes field: defensive copy (SEC-3)
 			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
-			g.P("\t\tpb.", protoFieldName, " = make([]byte, len(", recv, ".", domainFieldName, "))")
-			g.P("\t\tcopy(pb.", protoFieldName, ", ", recv, ".", domainFieldName, ")")
+			g.P("\t\tout.", protoFieldName, " = make([]byte, len(", recv, ".", domainFieldName, "))")
+			g.P("\t\tcopy(out.", protoFieldName, ", ", recv, ".", domainFieldName, ")")
 			g.P("\t}")
 		} else if field.Desc.HasOptionalKeyword() {
 			// Optional scalar: both domain and proto use *T, assign directly (PROTO-3)
-			g.P("\tpb.", protoFieldName, " = ", recv, ".", domainFieldName)
+			g.P("\tout.", protoFieldName, " = ", recv, ".", domainFieldName)
 		}
 	}
 
-	g.P("\treturn pb")
+	g.P("\treturn out")
 	g.P("}")
 	g.P()
 }
