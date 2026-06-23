@@ -46,7 +46,24 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
+		filename = adjustSubdirFilename(filename, string(file.GoImportPath), importPath)
 	}
+
+	// Collision check: domain types cannot share the same Go import path as
+	// proto types because both define structs with the same name (e.g.,
+	// ModelCatalogEntry). This would cause a compile error.
+	if goImportPath == file.GoImportPath {
+		return fmt.Errorf(
+			"proto2type: generated domain types would collide with proto types in package %s\n"+
+				"Both define types with the same names (e.g., %s).\n"+
+				"Set the go_package option to a different import path, for example:\n"+
+				"  opt: go_package=%s/domain;domain",
+			string(file.GoImportPath),
+			file.Messages[0].GoIdent.GoName,
+			string(file.GoImportPath),
+		)
+	}
+
 	g := gen.NewGeneratedFile(filename, goImportPath)
 
 	// Header

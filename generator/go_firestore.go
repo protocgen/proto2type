@@ -18,6 +18,7 @@ func generateGoFirestore(gen *protogen.Plugin, file *protogen.File, opts *Option
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
+		filename = adjustSubdirFilename(filename, string(file.GoImportPath), importPath)
 	}
 	g := gen.NewGeneratedFile(filename, goImportPath)
 
