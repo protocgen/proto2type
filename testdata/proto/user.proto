@@ -36,6 +36,7 @@ message User {
     string contact_email = 15;
     string contact_phone = 16;
   }
+  repeated Tag tags = 17;
 }
 
 // Address is a nested message.
@@ -45,4 +46,10 @@ message Address {
   string state = 3;
   string zip = 4;
   string country = 5;
+}
+
+// Tag is a label with a key-value pair.
+message Tag {
+  string key = 1;
+  string value = 2;
 }

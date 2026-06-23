@@ -29,6 +29,7 @@ type UserFirestore struct {
 	Avatar         []byte            `firestore:"avatar,omitempty"`
 	Nickname       *string           `firestore:"nickname,omitempty"`
 	Status         int32             `firestore:"status,omitempty"`
+	Tags           []*TagFirestore   `firestore:"tags,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -62,6 +63,14 @@ func (u *UserFirestore) ToProto() *pb.User {
 	}
 	if u.Nickname != nil {
 		pb.Nickname = wrapperspb.String(*u.Nickname)
+	}
+	if len(u.Tags) > 0 {
+		pb.Tags = make([]*pb.Tag, len(u.Tags))
+		for i, v := range u.Tags {
+			if v != nil {
+				pb.Tags[i] = v.ToProto()
+			}
+		}
 	}
 	return pb
 }
@@ -98,6 +107,16 @@ func (u *UserFirestore) FromProto(pb *pb.User) {
 		u.Nickname = &v
 	}
 	u.Status = int32(pb.Status)
+	if len(pb.Tags) > 0 {
+		u.Tags = make([]*TagFirestore, len(pb.Tags))
+		for i, v := range pb.Tags {
+			if v != nil {
+				elem := &TagFirestore{}
+				elem.FromProto(v)
+				u.Tags[i] = elem
+			}
+		}
+	}
 }
 
 // ToDomain converts to the domain type.
@@ -125,6 +144,14 @@ func (u *UserFirestore) ToDomain() *User {
 	}
 	if u.Address != nil {
 		d.Address = u.Address.ToDomain()
+	}
+	if len(u.Tags) > 0 {
+		d.Tags = make([]*Tag, len(u.Tags))
+		for i, v := range u.Tags {
+			if v != nil {
+				d.Tags[i] = v.ToDomain()
+			}
+		}
 	}
 	return d
 }
@@ -154,6 +181,16 @@ func (u *UserFirestore) FromDomain(d *User) {
 	}
 	u.Nickname = d.Nickname
 	u.Status = d.Status
+	if len(d.Tags) > 0 {
+		u.Tags = make([]*TagFirestore, len(d.Tags))
+		for i, v := range d.Tags {
+			if v != nil {
+				elem := &TagFirestore{}
+				elem.FromDomain(v)
+				u.Tags[i] = elem
+			}
+		}
+	}
 }
 
 // AddressFirestore is the Firestore storage representation of test.v1.Address.
@@ -217,4 +254,52 @@ func (a *AddressFirestore) FromDomain(d *Address) {
 	a.State = d.State
 	a.Zip = d.Zip
 	a.Country = d.Country
+}
+
+// TagFirestore is the Firestore storage representation of test.v1.Tag.
+type TagFirestore struct {
+	Key   string `firestore:"key,omitempty"`
+	Value string `firestore:"value,omitempty"`
+}
+
+// ToProto converts to the protobuf message.
+func (t *TagFirestore) ToProto() *pb.Tag {
+	if t == nil {
+		return nil
+	}
+	pb := &pb.Tag{
+		Key:   t.Key,
+		Value: t.Value,
+	}
+	return pb
+}
+
+// FromProto populates from a protobuf message.
+func (t *TagFirestore) FromProto(pb *pb.Tag) {
+	if pb == nil {
+		return
+	}
+	t.Key = pb.Key
+	t.Value = pb.Value
+}
+
+// ToDomain converts to the domain type.
+func (t *TagFirestore) ToDomain() *Tag {
+	if t == nil {
+		return nil
+	}
+	d := &Tag{
+		Key:   t.Key,
+		Value: t.Value,
+	}
+	return d
+}
+
+// FromDomain populates from the domain type.
+func (t *TagFirestore) FromDomain(d *Tag) {
+	if d == nil {
+		return
+	}
+	t.Key = d.Key
+	t.Value = d.Value
 }
