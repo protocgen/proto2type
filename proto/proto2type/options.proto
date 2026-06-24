@@ -44,6 +44,10 @@ message FieldOptions {
 
   // Flatten nested message fields into parent (Mongo: bson:",inline").
   bool inline = 6;
+
+  // Store this enum field as its string name instead of int32.
+  // Per-field override for the global enum_as_string plugin option.
+  OptionalBool enum_as_string = 7;
 }
 
 enum OptionalBool {

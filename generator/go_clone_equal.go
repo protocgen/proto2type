@@ -6,7 +6,7 @@ import (
 )
 
 // generateGoClone generates a Clone method that returns a deep copy of the domain struct.
-func generateGoClone(g *protogen.GeneratedFile, msg *protogen.Message) {
+func generateGoClone(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) {
 	name := msg.GoIdent.GoName
 	recv := receiverName(name)
 
@@ -71,7 +71,7 @@ func generateGoClone(g *protogen.GeneratedFile, msg *protogen.Message) {
 		}
 		fieldName := toPascalCase(string(field.Desc.Name()))
 		g.P("\tif ", recv, ".", fieldName, " != nil {")
-		g.P("\t\tc.", fieldName, " = make(", goDomainFieldType(field), ", len(", recv, ".", fieldName, "))")
+		g.P("\t\tc.", fieldName, " = make(", goDomainFieldType(field, opts), ", len(", recv, ".", fieldName, "))")
 		if field.Desc.Kind() == protoreflect.MessageKind {
 			// Repeated messages: clone each element
 			g.P("\t\tfor i, v := range ", recv, ".", fieldName, " {")
@@ -176,7 +176,7 @@ func generateGoClone(g *protogen.GeneratedFile, msg *protogen.Message) {
 }
 
 // generateGoEqual generates an Equal method that compares two domain structs field-by-field.
-func generateGoEqual(g *protogen.GeneratedFile, msg *protogen.Message) {
+func generateGoEqual(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) {
 	name := msg.GoIdent.GoName
 	recv := receiverName(name)
 
