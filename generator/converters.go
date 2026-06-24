@@ -7,7 +7,7 @@ import (
 
 // generateConverters generates ToProto() and FromProto() methods for a message struct.
 // structSuffix is "" for domain, "Firestore" for Firestore, "Mongo" for Mongo, etc.
-func generateConverters(g *protogen.GeneratedFile, msg *protogen.Message, structSuffix string) {
+func generateConverters(g *protogen.GeneratedFile, msg *protogen.Message, structSuffix string, opts *Options) {
 	structName := msg.GoIdent.GoName + structSuffix
 	protoType := g.QualifiedGoIdent(msg.GoIdent)
 
@@ -20,12 +20,12 @@ func generateConverters(g *protogen.GeneratedFile, msg *protogen.Message, struct
 		}
 	}
 
-	generateToProto(g, msg, structName, protoType, structSuffix)
-	generateFromProto(g, msg, structName, protoType, structSuffix)
+	generateToProto(g, msg, structName, protoType, structSuffix, opts)
+	generateFromProto(g, msg, structName, protoType, structSuffix, opts)
 }
 
 // generateToProto generates the ToProto method.
-func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structName, protoType, structSuffix string) {
+func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structName, protoType, structSuffix string, opts *Options) {
 	recv := receiverName(structName)
 	g.P("// ToProto converts to the protobuf message.")
 	g.P("func (", recv, " *", structName, ") ToProto() *", protoType, " {")
@@ -65,6 +65,7 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			continue
 		}
 		// Skip optional scalars — handle nil pointer below (PROTO-3)
+		// Note: optional enums are also skipped here and handled below.
 		if field.Desc.HasOptionalKeyword() {
 			continue
 		}
@@ -73,9 +74,14 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 		protoFieldName := field.GoName
 
 		if field.Desc.Kind() == protoreflect.EnumKind {
-			// Cast int32 domain field to proto enum type
 			enumIdent := g.QualifiedGoIdent(field.Enum.GoIdent)
-			g.P("\t\t", protoFieldName, ": ", enumIdent, "(", recv, ".", domainFieldName, "),")
+			if isEnumAsString(field, opts) {
+				// String enum: look up the numeric value from the enum's _value map
+				g.P("\t\t", protoFieldName, ": ", enumIdent, "(", enumIdent, "_value[", recv, ".", domainFieldName, "]),")
+			} else {
+				// Int32 enum: direct cast
+				g.P("\t\t", protoFieldName, ": ", enumIdent, "(", recv, ".", domainFieldName, "),")
+			}
 		} else {
 			g.P("\t\t", protoFieldName, ": ", recv, ".", domainFieldName, ",")
 		}
@@ -146,9 +152,20 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			g.P("\t\tout.", protoFieldName, " = make([]byte, len(", recv, ".", domainFieldName, "))")
 			g.P("\t\tcopy(out.", protoFieldName, ", ", recv, ".", domainFieldName, ")")
 			g.P("\t}")
+		} else if field.Desc.HasOptionalKeyword() && field.Desc.Kind() == protoreflect.EnumKind {
+			// Optional enum: proto uses *EnumType, domain uses string or int32.
+			enumIdent := g.QualifiedGoIdent(field.Enum.GoIdent)
+			g.P("\tif ", recv, ".", domainFieldName, " != \"\" {")
+			if isEnumAsString(field, opts) {
+				g.P("\t\tv := ", enumIdent, "(", enumIdent, "_value[", recv, ".", domainFieldName, "])")
+			} else {
+				g.P("\t\tv := ", enumIdent, "(", recv, ".", domainFieldName, ")")
+			}
+			g.P("\t\tout.", protoFieldName, " = &v")
+			g.P("\t}")
 		} else if field.Desc.HasOptionalKeyword() {
 			// Optional scalar: both domain and proto use *T, assign directly (PROTO-3)
-			g.P("\tout.", protoFieldName, " = ", recv, ".", domainFieldName)
+			g.P("\tout.", protoFieldName, " = ", recv, ".", domainFieldName, "")
 		}
 	}
 
@@ -158,7 +175,7 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 }
 
 // generateFromProto generates the FromProto method.
-func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structName, protoType, structSuffix string) {
+func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structName, protoType, structSuffix string, opts *Options) {
 	recv := receiverName(structName)
 	g.P("// FromProto populates from a protobuf message.")
 	g.P("func (", recv, " *", structName, ") FromProto(pb *", protoType, ") {")
@@ -221,12 +238,26 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 			g.P("\t\t", recv, ".", domainFieldName, " = make([]byte, len(pb.", protoFieldName, "))")
 			g.P("\t\tcopy(", recv, ".", domainFieldName, ", pb.", protoFieldName, ")")
 			g.P("\t}")
+		} else if field.Desc.HasOptionalKeyword() && field.Desc.Kind() == protoreflect.EnumKind {
+			// Optional enum: proto uses *EnumType, domain uses string or int32.
+			g.P("\tif pb.", protoFieldName, " != nil {")
+			if isEnumAsString(field, opts) {
+				g.P("\t\t", recv, ".", domainFieldName, " = pb.Get", protoFieldName, "().String()")
+			} else {
+				g.P("\t\t", recv, ".", domainFieldName, " = int32(pb.Get", protoFieldName, "())")
+			}
+			g.P("\t}")
 		} else if field.Desc.HasOptionalKeyword() {
 			// Optional scalar: both proto and domain use *T, assign directly (PROTO-3)
 			g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName)
 		} else if field.Desc.Kind() == protoreflect.EnumKind {
-			// Cast proto enum type to int32 domain field
-			g.P("\t", recv, ".", domainFieldName, " = int32(pb.", protoFieldName, ")")
+			if isEnumAsString(field, opts) {
+				// String enum: convert proto enum to its string name
+				g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".String()")
+			} else {
+				// Int32 enum: direct cast
+				g.P("\t", recv, ".", domainFieldName, " = int32(pb.", protoFieldName, ")")
+			}
 		} else {
 			// Scalars, repeated, maps: direct assignment
 			g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName)

@@ -102,3 +102,19 @@ func validateFieldNameOverride(name string) string {
 	}
 	return ""
 }
+
+// isEnumAsString returns true if this enum field should use string representation.
+// Per-field annotation takes priority; global option is the fallback.
+func isEnumAsString(field *protogen.Field, opts *Options) bool {
+	fo := getFieldOptions(field)
+	if fo != nil {
+		switch fo.EnumAsString {
+		case proto2typepb.OptionalBool_OPTIONAL_BOOL_TRUE:
+			return true
+		case proto2typepb.OptionalBool_OPTIONAL_BOOL_FALSE:
+			return false
+		}
+	}
+	// Fallback to global option.
+	return opts != nil && opts.EnumAsString
+}

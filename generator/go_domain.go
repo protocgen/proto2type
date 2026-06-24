@@ -124,7 +124,7 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, o
 		}
 
 		fieldName := toPascalCase(string(field.Desc.Name()))
-		fieldType := goDomainFieldType(field)
+		fieldType := goDomainFieldType(field, opts)
 
 		jsonName := string(field.Desc.Name())
 		jsonTag := jsonName
@@ -139,16 +139,16 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, o
 	g.P()
 
 	// Generate ToProto and FromProto converters
-	generateConverters(g, msg, "")
+	generateConverters(g, msg, "", opts)
 
 	// Generate ApplyFieldMask function
 	generateGoFieldMask(g, msg)
 
 	// Generate Clone method (deep copy)
-	generateGoClone(g, msg)
+	generateGoClone(g, msg, opts)
 
 	// Generate Equal method (field-by-field comparison)
-	generateGoEqual(g, msg)
+	generateGoEqual(g, msg, opts)
 
 	// Generate nested messages
 	for _, nested := range msg.Messages {
@@ -165,10 +165,10 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, o
 }
 
 // goDomainFieldType returns the Go type for a proto field in a domain struct.
-func goDomainFieldType(field *protogen.Field) string {
+func goDomainFieldType(field *protogen.Field, opts *Options) string {
 	// Handle repeated fields
 	if field.Desc.IsList() {
-		return "[]" + goDomainSingularType(field)
+		return "[]" + goDomainSingularType(field, opts)
 	}
 
 	// Handle map fields
@@ -181,11 +181,11 @@ func goDomainFieldType(field *protogen.Field) string {
 		return fmt.Sprintf("map[%s]%s", keyType, valType)
 	}
 
-	return goDomainSingularType(field)
+	return goDomainSingularType(field, opts)
 }
 
 // goDomainSingularType returns the Go type for a singular (non-repeated, non-map) field.
-func goDomainSingularType(field *protogen.Field) string {
+func goDomainSingularType(field *protogen.Field, opts *Options) string {
 	// Well-known types
 	if isWellKnownTimestamp(field) {
 		return "time.Time"
@@ -206,7 +206,10 @@ func goDomainSingularType(field *protogen.Field) string {
 
 	// Enum types
 	if field.Desc.Kind() == protoreflect.EnumKind {
-		return "int32" // TODO: support enum_as_string option
+		if isEnumAsString(field, opts) {
+			return "string"
+		}
+		return "int32"
 	}
 
 	// proto3 optional scalars -> pointer types
@@ -220,10 +223,10 @@ func goDomainSingularType(field *protogen.Field) string {
 
 // goStorageFieldType returns the Go type for a proto field in a storage struct.
 // It appends the given suffix to nested message type names.
-func goStorageFieldType(field *protogen.Field, suffix string) string {
+func goStorageFieldType(field *protogen.Field, suffix string, opts *Options) string {
 	// Handle repeated fields
 	if field.Desc.IsList() {
-		return "[]" + goStorageSingularType(field, suffix)
+		return "[]" + goStorageSingularType(field, suffix, opts)
 	}
 
 	// Handle map fields
@@ -236,12 +239,12 @@ func goStorageFieldType(field *protogen.Field, suffix string) string {
 		return fmt.Sprintf("map[%s]%s", keyType, valType)
 	}
 
-	return goStorageSingularType(field, suffix)
+	return goStorageSingularType(field, suffix, opts)
 }
 
 // goStorageSingularType returns the Go type for a singular field in a storage struct,
 // appending the given suffix to nested message type names.
-func goStorageSingularType(field *protogen.Field, suffix string) string {
+func goStorageSingularType(field *protogen.Field, suffix string, opts *Options) string {
 	// Well-known types
 	if isWellKnownTimestamp(field) {
 		return "time.Time"
@@ -262,7 +265,10 @@ func goStorageSingularType(field *protogen.Field, suffix string) string {
 
 	// Enum types
 	if field.Desc.Kind() == protoreflect.EnumKind {
-		return "int32" // TODO: support enum_as_string option
+		if isEnumAsString(field, opts) {
+			return "string"
+		}
+		return "int32"
 	}
 
 	// proto3 optional scalars -> pointer types

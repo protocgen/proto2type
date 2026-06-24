@@ -75,7 +75,7 @@ func generateGoFirestoreMessage(gen *protogen.Plugin, g *protogen.GeneratedFile,
 		}
 
 		fieldName := toPascalCase(string(field.Desc.Name()))
-		fieldType := goStorageFieldType(field, "Firestore")
+		fieldType := goStorageFieldType(field, "Firestore", opts)
 
 		// Build firestore tag
 		fsName := storageFieldName(string(field.Desc.Name()))
@@ -115,7 +115,7 @@ func generateGoFirestoreMessage(gen *protogen.Plugin, g *protogen.GeneratedFile,
 	g.P()
 
 	// Generate ToProto and FromProto converters
-	generateConverters(g, msg, "Firestore")
+	generateConverters(g, msg, "Firestore", opts)
 
 	// Generate ToDomain and FromDomain converters
 	generateDomainConverters(g, msg, "Firestore")

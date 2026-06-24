@@ -70,7 +70,7 @@ func generateGoMongoMessage(gen *protogen.Plugin, g *protogen.GeneratedFile, msg
 		}
 
 		fieldName := toPascalCase(string(field.Desc.Name()))
-		fieldType := goStorageFieldType(field, "Mongo")
+		fieldType := goStorageFieldType(field, "Mongo", opts)
 
 		// Build bson tag
 		var bsonTag string
@@ -110,7 +110,7 @@ func generateGoMongoMessage(gen *protogen.Plugin, g *protogen.GeneratedFile, msg
 	g.P()
 
 	// Generate ToProto and FromProto converters
-	generateConverters(g, msg, "Mongo")
+	generateConverters(g, msg, "Mongo", opts)
 
 	// Generate ToDomain and FromDomain converters
 	generateDomainConverters(g, msg, "Mongo")
