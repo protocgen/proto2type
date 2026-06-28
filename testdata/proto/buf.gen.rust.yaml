@@ -1,0 +1,22 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - user.proto
+      - catalog.proto
+plugins:
+  # Rust domain types
+  - local: protoc-gen-proto2type
+    out: ../golden/rust/gen
+    opt:
+      - paths=source_relative
+      - lang=rust
+
+  # Rust SQLite storage types
+  - local: protoc-gen-proto2type
+    out: ../golden/rust/gen
+    opt:
+      - paths=source_relative
+      - lang=rust
+      - backend=sqlite
+      - domain=false

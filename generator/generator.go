@@ -15,7 +15,9 @@ func GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) erro
 	switch opts.Lang {
 	case "go", "":
 		return generateGo(gen, file, opts)
+	case "rust":
+		return generateRust(gen, file, opts)
 	default:
-		return fmt.Errorf("proto2type: unsupported language %q (supported: go)", opts.Lang)
+		return fmt.Errorf("proto2type: unsupported language %q (supported: go, rust)", opts.Lang)
 	}
 }

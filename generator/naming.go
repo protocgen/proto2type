@@ -27,6 +27,37 @@ func toPascalCase(s string) string {
 	return b.String()
 }
 
+// toSnakeCase converts a PascalCase or camelCase string to snake_case.
+// e.g., "modelId" → "model_id", "DisplayName" → "display_name"
+// Handles consecutive uppercase: "HTMLParser" → "html_parser"
+func toSnakeCase(s string) string {
+	if s == "" {
+		return s
+	}
+
+	var b strings.Builder
+	runes := []rune(s)
+	for i, r := range runes {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				// Insert underscore before uppercase if:
+				// - previous char is lowercase, OR
+				// - next char is lowercase (handles "HTMLParser" -> "html_parser")
+				prev := runes[i-1]
+				if unicode.IsLower(prev) {
+					b.WriteRune('_')
+				} else if i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
+					b.WriteRune('_')
+				}
+			}
+			b.WriteRune(unicode.ToLower(r))
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // isCommonAbbreviation returns true for common abbreviations that should be all-caps.
 func isCommonAbbreviation(s string) bool {
 	switch s {

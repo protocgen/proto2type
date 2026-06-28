@@ -29,6 +29,34 @@ func TestToPascalCase(t *testing.T) {
 	}
 }
 
+func TestToSnakeCase(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"modelId", "model_id"},
+		{"DisplayName", "display_name"},
+		{"HTMLParser", "html_parser"},
+		{"inputPerMillion", "input_per_million"},
+		{"ID", "id"},
+		{"contextWindow", "context_window"},
+		{"", ""},
+		{"a", "a"},
+		{"A", "a"},
+		{"already_snake", "already_snake"},
+		{"XMLHttpRequest", "xml_http_request"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := toSnakeCase(tt.input)
+			if got != tt.want {
+				t.Errorf("toSnakeCase(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestOutputFilename(t *testing.T) {
 	tests := []struct {
 		path   string
