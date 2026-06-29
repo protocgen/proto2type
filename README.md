@@ -26,8 +26,9 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 - 🔄 **Bidirectional converters** — `ToProto()` / `FromProto()`, `ToDomain()` / `FromDomain()` on every struct
 - 🎯 **Field mask helpers** — `ApplyFieldMask()` for partial updates
 - 📋 **Custom proto options** — `document_id`, `server_timestamp`, `skip`, `omitempty`, `inline`, `name`
+- 🗄️ **SQLite backend (Rust)** — `Row` structs with `to_domain()` / `from_domain()`, JSON-serialised nested fields
 - 🔌 **Works without a database** — generate domain types only, no backend required
-- 🌐 **Multi-language ready** — Go now, Python / Kotlin / TypeScript planned
+- 🌐 **Multi-language** — Go and Rust supported, Python / Kotlin / TypeScript planned
 
 ## Install
 
@@ -86,6 +87,41 @@ Then run:
 buf generate
 ```
 
+### Rust
+
+**Domain types** (serde-annotated structs):
+
+```yaml
+# buf.gen.rust.yaml
+version: v2
+plugins:
+  - local: protoc-gen-proto2type
+    out: gen/rust
+    opt:
+      - lang=rust
+```
+
+**Domain + SQLite storage**:
+
+```yaml
+# buf.gen.rust.yaml
+version: v2
+plugins:
+  # Domain types
+  - local: protoc-gen-proto2type
+    out: gen/rust
+    opt:
+      - lang=rust
+
+  # SQLite Row structs
+  - local: protoc-gen-proto2type
+    out: gen/rust
+    opt:
+      - lang=rust
+      - backend=sqlite
+      - domain=false
+```
+
 ### With protoc
 
 ```bash
@@ -102,8 +138,8 @@ See [CONFIG.md](CONFIG.md) for the full reference, including proto-level annotat
 
 | Option | Default | Description |
 |---|---|---|
-| `lang` | `go` | Target language (`go`, `python`, `kotlin`, `typescript`) |
-| `backend` | _(none)_ | Storage backend (`firestore`, `mongo`, `dynamodb`, `datastore`, `spanner`) |
+| `lang` | `go` | Target language (`go`, `rust`, `python`, `kotlin`, `typescript`) |
+| `backend` | _(none)_ | Storage backend (`firestore`, `mongo`, `sqlite`, `dynamodb`, `datastore`, `spanner`) |
 | `domain` | `true` | Generate domain types + proto converters |
 | `output_file` | _(auto)_ | Override output filename |
 | `enum_as_string` | `false` | Store enums as string names instead of `int32` |
@@ -248,11 +284,33 @@ message User {
 | Nested message | `*MessageType` |
 | Enum | `int32` (default) or `string` (`enum_as_string=true`) |
 
+### Rust Type Mapping
+
+| Proto Type | Rust Domain Type | SQLite Row Type |
+|---|---|---|
+| `string` | `String` | `String` |
+| `int32`, `sint32`, `sfixed32` | `i32` | `i32` |
+| `int64`, `sint64`, `sfixed64` | `i64` | `i64` |
+| `uint32`, `fixed32` | `u32` | `u32` |
+| `uint64`, `fixed64` | `u64` | `u64` |
+| `float` | `f32` | `f32` |
+| `double` | `f64` | `f64` |
+| `bool` | `bool` | `bool` |
+| `bytes` | `Vec<u8>` | `Vec<u8>` |
+| `repeated T` | `Vec<T>` | `String` (JSON) |
+| `map<K, V>` | `HashMap<K, V>` | `String` (JSON) |
+| `optional T` | `Option<T>` | `Option<T>` |
+| `google.protobuf.Timestamp` | `DateTime<Utc>` | `i64` (epoch ms) |
+| `google.protobuf.Duration` | `chrono::Duration` | `i64` (milliseconds) |
+| Nested message | `Option<Box<T>>` | `String` (JSON) |
+| Enum | `i32` (default) or `String` (`enum_as_string=true`) | `i32` / `String` |
+
 ## Roadmap
 
 | Phase | Scope | Status |
 |---|---|---|
-| **1** | Go + Firestore + MongoDB | 🚧 Current |
+| **1** | Go + Firestore + MongoDB | ✅ Done |
+| **1.5** | Rust + SQLite | 🚧 Current |
 | **2** | Python (absorbs [proto2pydantic](https://github.com/protocgen/proto2pydantic)) | Planned |
 | **3** | DynamoDB + Datastore + Kotlin | Planned |
 | **4** | Spanner + TypeScript + SQL ORMs | Planned |
@@ -274,8 +332,11 @@ nix develop -c go test ./... -update
 # Build the plugin
 nix develop -c go build -o protoc-gen-proto2type .
 
-# Generate from test protos
+# Generate from test protos (Go)
 cd testdata/proto && nix develop -c buf generate
+
+# Generate from test protos (Rust)
+cd testdata/proto && nix develop -c buf generate --template buf.gen.rust.yaml
 ```
 
 ## Contributing
