@@ -214,8 +214,8 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 
 	// from_domain: convert domain type to Row
 	g.P("    /// Constructs a row from the domain type.")
-	g.P("    pub fn from_domain(d: &", domainName, ") -> Self {")
-	g.P("        Self {")
+	g.P("    pub fn from_domain(d: &", domainName, ") -> Result<Self, serde_json::Error> {")
+	g.P("        Ok(Self {")
 
 	for _, field := range msg.Fields {
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
@@ -235,7 +235,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 		g.P("            ", rustFieldName, ": ", conversion, ",")
 	}
 
-	g.P("        }")
+	g.P("        })")
 	g.P("    }")
 
 	g.P("}")
@@ -362,7 +362,7 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 	}
 	// Nested message: deserialize from JSON string
 	if isNestedMessage(field) {
-		return fmt.Sprintf("Some(Box::new(serde_json::from_str(&self.%s)?))", fieldName)
+		return fmt.Sprintf("if self.%s.is_empty() { None } else { Some(Box::new(serde_json::from_str(&self.%s)?)) }", fieldName, fieldName)
 	}
 	// Repeated: deserialize from JSON string
 	if field.Desc.IsList() {
@@ -400,16 +400,15 @@ func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opt
 	}
 	// Nested message: serialize to JSON string
 	if isNestedMessage(field) {
-		msgName := rustMessageName(field.Message)
-		return fmt.Sprintf("d.%s.as_ref().map(|v: &Box<%s>| serde_json::to_string(v.as_ref()).unwrap_or_default()).unwrap_or_default()", fieldName, msgName)
+		return fmt.Sprintf("match &d.%s { Some(v) => serde_json::to_string(v.as_ref())?, None => String::new() }", fieldName)
 	}
 	// Repeated: serialize to JSON string
 	if field.Desc.IsList() {
-		return fmt.Sprintf("serde_json::to_string(&d.%s).unwrap_or_default()", fieldName)
+		return fmt.Sprintf("serde_json::to_string(&d.%s)?", fieldName)
 	}
 	// Map: serialize to JSON string
 	if field.Desc.IsMap() {
-		return fmt.Sprintf("serde_json::to_string(&d.%s).unwrap_or_default()", fieldName)
+		return fmt.Sprintf("serde_json::to_string(&d.%s)?", fieldName)
 	}
 	// Bytes
 	if field.Desc.Kind() == protoreflect.BytesKind {

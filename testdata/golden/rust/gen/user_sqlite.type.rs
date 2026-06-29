@@ -68,7 +68,7 @@ impl UserRow {
             age: self.age,
             roles: serde_json::from_str(&self.roles)?,
             metadata: serde_json::from_str(&self.metadata)?,
-            address: Some(Box::new(serde_json::from_str(&self.address)?)),
+            address: if self.address.is_empty() { None } else { Some(Box::new(serde_json::from_str(&self.address)?)) },
             created_at: epoch_ms_to_datetime(self.created_at),
             session_timeout: chrono::Duration::milliseconds(self.session_timeout),
             phone: self.phone.clone(),
@@ -80,24 +80,24 @@ impl UserRow {
     }
 
     /// Constructs a row from the domain type.
-    pub fn from_domain(d: &User) -> Self {
-        Self {
+    pub fn from_domain(d: &User) -> Result<Self, serde_json::Error> {
+        Ok(Self {
             id: d.id.clone(),
             email: d.email.clone(),
             display_name: d.display_name.clone(),
             active: d.active,
             age: d.age,
-            roles: serde_json::to_string(&d.roles).unwrap_or_default(),
-            metadata: serde_json::to_string(&d.metadata).unwrap_or_default(),
-            address: d.address.as_ref().map(|v: &Box<Address>| serde_json::to_string(v.as_ref()).unwrap_or_default()).unwrap_or_default(),
+            roles: serde_json::to_string(&d.roles)?,
+            metadata: serde_json::to_string(&d.metadata)?,
+            address: match &d.address { Some(v) => serde_json::to_string(v.as_ref())?, None => String::new() },
             created_at: datetime_to_epoch_ms(&d.created_at),
             session_timeout: d.session_timeout.num_milliseconds(),
             phone: d.phone.clone(),
             avatar: d.avatar.clone(),
             nickname: d.nickname.clone(),
             status: d.status,
-            tags: serde_json::to_string(&d.tags).unwrap_or_default(),
-        }
+            tags: serde_json::to_string(&d.tags)?,
+        })
     }
 }
 
@@ -135,14 +135,14 @@ impl AddressRow {
     }
 
     /// Constructs a row from the domain type.
-    pub fn from_domain(d: &Address) -> Self {
-        Self {
+    pub fn from_domain(d: &Address) -> Result<Self, serde_json::Error> {
+        Ok(Self {
             street: d.street.clone(),
             city: d.city.clone(),
             state: d.state.clone(),
             zip: d.zip.clone(),
             country: d.country.clone(),
-        }
+        })
     }
 }
 
@@ -171,11 +171,11 @@ impl TagRow {
     }
 
     /// Constructs a row from the domain type.
-    pub fn from_domain(d: &Tag) -> Self {
-        Self {
+    pub fn from_domain(d: &Tag) -> Result<Self, serde_json::Error> {
+        Ok(Self {
             key: d.key.clone(),
             value: d.value.clone(),
-        }
+        })
     }
 }
 

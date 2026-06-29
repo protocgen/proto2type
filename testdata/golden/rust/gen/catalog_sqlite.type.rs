@@ -78,8 +78,8 @@ impl ModelCatalogEntryRow {
     }
 
     /// Constructs a row from the domain type.
-    pub fn from_domain(d: &ModelCatalogEntry) -> Self {
-        Self {
+    pub fn from_domain(d: &ModelCatalogEntry) -> Result<Self, serde_json::Error> {
+        Ok(Self {
             provider: d.provider.clone(),
             display_name: d.display_name.clone(),
             input_per_million: d.input_per_million,
@@ -88,13 +88,13 @@ impl ModelCatalogEntryRow {
             category: d.category.clone(),
             context_window: d.context_window,
             discount_percent: d.discount_percent,
-            aliases: serde_json::to_string(&d.aliases).unwrap_or_default(),
+            aliases: serde_json::to_string(&d.aliases)?,
             provider_model_id: d.provider_model_id.clone(),
             created_at: datetime_to_epoch_ms(&d.created_at),
             updated_at: datetime_to_epoch_ms(&d.updated_at),
             notes: d.notes.clone(),
             region: d.region.clone(),
-        }
+        })
     }
 }
 

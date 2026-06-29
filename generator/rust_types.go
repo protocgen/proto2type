@@ -58,8 +58,8 @@ func rustMessageName(msg *protogen.Message) string {
 		// Top-level message (parent is FileDescriptor)
 		return toPascalCase(string(msg.Desc.Name()))
 	}
-	// Nested message: prefix with all ancestor names
-	return qualifiedMessageName(parent) + toPascalCase(string(msg.Desc.Name()))
+	// Nested message: prefix with all ancestor names, underscore-separated
+	return qualifiedMessageName(parent) + "_" + toPascalCase(string(msg.Desc.Name()))
 }
 
 // qualifiedMessageName builds the full qualified Rust name from a MessageDescriptor chain.
@@ -68,7 +68,7 @@ func qualifiedMessageName(md protoreflect.MessageDescriptor) string {
 	if !ok {
 		return toPascalCase(string(md.Name()))
 	}
-	return qualifiedMessageName(parent) + toPascalCase(string(md.Name()))
+	return qualifiedMessageName(parent) + "_" + toPascalCase(string(md.Name()))
 }
 
 // rustWrapperType returns the Rust Option type for a well-known wrapper field.
