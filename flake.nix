@@ -23,6 +23,7 @@
             gopls
             golangci-lint
             pre-commit
+            lefthook
           ];
 
           shellHook = ''
@@ -30,7 +31,7 @@
             echo "  go:       $(go version)"
             echo "  buf:      $(buf --version)"
             echo "  protoc:   $(protoc --version)"
-            pre-commit install --quiet
+            lefthook install
           '';
         };
       });

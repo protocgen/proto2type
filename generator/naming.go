@@ -27,6 +27,37 @@ func toPascalCase(s string) string {
 	return b.String()
 }
 
+// toSnakeCase converts a PascalCase or camelCase string to snake_case.
+// e.g., "modelId" → "model_id", "DisplayName" → "display_name"
+// Handles consecutive uppercase: "HTMLParser" → "html_parser"
+func toSnakeCase(s string) string {
+	if s == "" {
+		return s
+	}
+
+	var b strings.Builder
+	runes := []rune(s)
+	for i, r := range runes {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				// Insert underscore before uppercase if:
+				// - previous char is lowercase, OR
+				// - next char is lowercase (handles "HTMLParser" -> "html_parser")
+				prev := runes[i-1]
+				if unicode.IsLower(prev) {
+					b.WriteRune('_')
+				} else if i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
+					b.WriteRune('_')
+				}
+			}
+			b.WriteRune(unicode.ToLower(r))
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // isCommonAbbreviation returns true for common abbreviations that should be all-caps.
 func isCommonAbbreviation(s string) bool {
 	switch s {
@@ -86,4 +117,39 @@ func adjustSubdirFilename(filename, protoImport, importPath string) string {
 		return filename[:idx+1] + subdir + "/" + filename[idx+1:]
 	}
 	return filename
+}
+
+// rustKeywords is the set of Rust reserved keywords (including weak/reserved-for-future-use).
+// rustRawKeywords are keywords that can be escaped with r# prefix.
+var rustRawKeywords = map[string]bool{
+	"as": true, "async": true, "await": true, "break": true, "const": true,
+	"continue": true, "dyn": true, "else": true, "enum": true,
+	"extern": true, "fn": true, "for": true, "if": true,
+	"impl": true, "in": true, "let": true, "loop": true, "match": true,
+	"mod": true, "move": true, "mut": true, "pub": true, "ref": true,
+	"return": true, "static": true, "struct": true,
+	"trait": true, "type": true, "unsafe": true,
+	"use": true, "where": true, "while": true, "yield": true,
+	"abstract": true, "become": true, "box": true, "do": true, "final": true,
+	"macro": true, "override": true, "priv": true, "try": true,
+	"typeof": true, "unsized": true, "virtual": true,
+}
+
+// rustSpecialKeywords are keywords that CANNOT use r# (self, Self, super, crate, true, false).
+// These are escaped by appending an underscore.
+var rustSpecialKeywords = map[string]bool{
+	"self": true, "Self": true, "super": true, "crate": true,
+	"true": true, "false": true,
+}
+
+// escapeRustKeyword escapes Rust reserved keywords to produce valid identifiers.
+// Most keywords use the r# prefix; self/Self/super/crate/true/false use a _ suffix.
+func escapeRustKeyword(name string) string {
+	if rustSpecialKeywords[name] {
+		return name + "_"
+	}
+	if rustRawKeywords[name] {
+		return "r#" + name
+	}
+	return name
 }

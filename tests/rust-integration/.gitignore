@@ -1,0 +1,5 @@
+# Generated source (rebuilt by refresh.sh from golden files)
+src/
+
+# Cargo build artifacts
+target/

@@ -100,6 +100,93 @@ jobs:
       - name: Check for differences
         run: git diff --exit-code
 
+  golden-test-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Buf
+        uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1
+
+      - name: Build plugin
+        run: go build -o protoc-gen-proto2type .
+
+      - name: Add plugin to PATH
+        run: echo "$PWD" >> "$GITHUB_PATH"
+
+      - name: Regenerate Rust golden files
+        run: cd testdata/proto && buf generate --template buf.gen.rust.yaml
+
+      - name: Check for Rust golden file drift
+        run: git diff --exit-code testdata/golden/rust/
+
+  rust-compile-check:
+    runs-on: ubuntu-latest
+    needs: golden-test-rust
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Create compile-check Cargo project
+        run: |
+          mkdir -p /tmp/rust-compile-check/src
+          cat > /tmp/rust-compile-check/Cargo.toml <<'EOF'
+          [package]
+          name = "proto2type-compile-check"
+          version = "0.0.0"
+          edition = "2021"
+          publish = false
+
+          [dependencies]
+          serde = { version = "1", features = ["derive"] }
+          serde_json = "1"
+          chrono = { version = "0.4.20", features = ["serde"] }
+          rusqlite = { version = "0.35", features = ["bundled"] }
+          EOF
+          sed -i 's/^          //' /tmp/rust-compile-check/Cargo.toml
+
+          # For each proto (e.g. catalog, user), create a module directory:
+          # src/catalog/mod.rs   (domain types)
+          # src/catalog/sqlite.rs (storage types, uses super::*)
+          echo '// Auto-generated compile check' > /tmp/rust-compile-check/src/lib.rs
+          for domain_file in testdata/golden/rust/gen/*.type.rs; do
+            base=$(basename "$domain_file" .type.rs)
+            # Skip sqlite files, they'll be handled as submodules
+            if echo "$base" | grep -q '_sqlite$'; then
+              continue
+            fi
+            # Create module directory
+            mkdir -p "/tmp/rust-compile-check/src/${base}"
+            # Copy domain file as mod.rs
+            cp "$domain_file" "/tmp/rust-compile-check/src/${base}/mod.rs"
+            # Add the sqlite submodule declaration to mod.rs
+            sqlite_file="testdata/golden/rust/gen/${base}_sqlite.type.rs"
+            if [ -f "$sqlite_file" ]; then
+              echo '' >> "/tmp/rust-compile-check/src/${base}/mod.rs"
+              echo 'pub mod sqlite;' >> "/tmp/rust-compile-check/src/${base}/mod.rs"
+              cp "$sqlite_file" "/tmp/rust-compile-check/src/${base}/sqlite.rs"
+            fi
+            # Register in lib.rs
+            echo "pub mod ${base};" >> /tmp/rust-compile-check/src/lib.rs
+          done
+
+      - name: Cargo check generated Rust code
+        run: cargo check --manifest-path /tmp/rust-compile-check/Cargo.toml
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: Audit generated code dependencies
+        run: cd /tmp/rust-compile-check && cargo audit
+
   integration-db:
     runs-on: ubuntu-latest
     needs: build-and-test
@@ -163,3 +250,14 @@ jobs:
         env:
           FIRESTORE_EMULATOR_HOST: localhost:8080
           MONGO_URI: mongodb://localhost:27017
+
+  rust-integration-test:
+    runs-on: ubuntu-latest
+    needs: golden-test-rust
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Refresh and test
+        run: |
+          bash tests/rust-integration/refresh.sh
+          cd tests/rust-integration && cargo test -- --nocapture

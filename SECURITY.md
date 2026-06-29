@@ -44,4 +44,21 @@ Send an email to **security@protocgen.dev** with the following information:
 
 This policy applies to the proto2type protoc plugin and its generated code. Issues in dependencies should be reported to the respective upstream projects.
 
+## Security Considerations
+
+proto2type is a code generator. Security concerns fall into two categories:
+
+### Generator Security
+- **Code injection:** Proto field names are validated against language keywords and sanitized
+- **DoS:** Recursive message generation is bounded by protoc's own nesting limits
+- **Supply chain:** Generator dependencies are tracked via `go.sum`
+
+### Generated Code Security
+- **SQL injection:** Not applicable — generated code uses parameterized rusqlite accessors
+- **JSON deserialization:** Uses serde_json defaults (128-level recursion limit)
+- **Error handling:** All fallible operations use `Result` with `?` propagation
+- **Timestamp handling:** Out-of-range timestamps return `ConversionError::InvalidTimestamp`
+
+See [CONFIG.md](CONFIG.md) for the full trust model documentation.
+
 Thank you for helping keep proto2type and its users safe.
