@@ -99,7 +99,7 @@ func rustDomainFieldType(field *protogen.Field, opts *Options) string {
 func rustDomainSingularType(field *protogen.Field, opts *Options) string {
 	// Well-known types
 	if isWellKnownTimestamp(field) {
-		return "chrono::DateTime<chrono::Utc>"
+		return "DateTime<Utc>"
 	}
 	if isWellKnownDuration(field) {
 		return "chrono::Duration"

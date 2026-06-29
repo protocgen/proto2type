@@ -21,8 +21,8 @@ pub struct ModelCatalogEntry {
     #[serde(default)]
     pub aliases: Vec<String>,
     pub provider_model_id: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     pub notes: String,
     pub region: String,
 }

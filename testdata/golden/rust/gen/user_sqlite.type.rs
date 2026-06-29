@@ -2,6 +2,7 @@
 // source: user.proto
 // backend: sqlite
 
+use super::*;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
@@ -88,7 +89,7 @@ impl UserRow {
             age: d.age,
             roles: serde_json::to_string(&d.roles).unwrap_or_default(),
             metadata: serde_json::to_string(&d.metadata).unwrap_or_default(),
-            address: d.address.as_ref().map(|v| serde_json::to_string(v.as_ref()).unwrap_or_default()).unwrap_or_default(),
+            address: d.address.as_ref().map(|v: &Box<Address>| serde_json::to_string(v.as_ref()).unwrap_or_default()).unwrap_or_default(),
             created_at: datetime_to_epoch_ms(&d.created_at),
             session_timeout: d.session_timeout.num_milliseconds(),
             phone: d.phone.clone(),

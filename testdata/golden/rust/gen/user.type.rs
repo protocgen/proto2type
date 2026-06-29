@@ -21,7 +21,7 @@ pub struct User {
     pub metadata: HashMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<Box<Address>>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: DateTime<Utc>,
     pub session_timeout: chrono::Duration,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,

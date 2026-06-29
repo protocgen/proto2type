@@ -32,6 +32,7 @@ func generateRustSqlite(gen *protogen.Plugin, file *protogen.File, opts *Options
 	}
 
 	// Emit use statements
+	g.P("use super::*;")
 	g.P("use serde::{Deserialize, Serialize};")
 	if needsChrono {
 		g.P("use chrono::{DateTime, Utc};")
@@ -393,7 +394,8 @@ func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opt
 	}
 	// Nested message: serialize to JSON string
 	if isNestedMessage(field) {
-		return fmt.Sprintf("d.%s.as_ref().map(|v| serde_json::to_string(v.as_ref()).unwrap_or_default()).unwrap_or_default()", fieldName)
+			msgName := toPascalCase(string(field.Desc.Message().Name()))
+		return fmt.Sprintf("d.%s.as_ref().map(|v: &Box<%s>| serde_json::to_string(v.as_ref()).unwrap_or_default()).unwrap_or_default()", fieldName, msgName)
 	}
 	// Repeated: serialize to JSON string
 	if field.Desc.IsList() {

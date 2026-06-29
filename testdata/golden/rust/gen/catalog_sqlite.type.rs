@@ -2,6 +2,7 @@
 // source: catalog.proto
 // backend: sqlite
 
+use super::*;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
