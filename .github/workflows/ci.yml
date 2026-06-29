@@ -149,7 +149,7 @@ jobs:
           [dependencies]
           serde = { version = "1", features = ["derive"] }
           serde_json = "1"
-          chrono = { version = "0.4", features = ["serde"] }
+          chrono = { version = "0.4.20", features = ["serde"] }
           rusqlite = { version = "0.35", features = ["bundled"] }
           EOF
           sed -i 's/^          //' /tmp/rust-compile-check/Cargo.toml
@@ -181,6 +181,11 @@ jobs:
 
       - name: Cargo check generated Rust code
         run: cargo check --manifest-path /tmp/rust-compile-check/Cargo.toml
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: Audit generated code dependencies
+        run: cd /tmp/rust-compile-check && cargo audit
 
   integration-db:
     runs-on: ubuntu-latest

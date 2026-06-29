@@ -384,3 +384,40 @@ This produces three files per proto:
 - `user_mongo.type.go` — MongoDB structs with `bson:""` tags
 
 All three include `ToProto()` and `FromProto()` converters.
+
+### Security Considerations
+
+#### JSON Deserialization Trust Model
+
+The SQLite backend serializes nested messages, repeated fields, and maps as JSON strings in TEXT columns. The generated `to_domain()` and `into_domain()` methods deserialize these values using `serde_json::from_str()`.
+
+**Trust Assumption:** The SQLite database is treated as a trusted data source. If the database is writable by untrusted parties, consider:
+
+- Adding input size validation before deserialization
+- Using `serde_json::from_reader` with a bounded reader
+- Validating JSON depth before processing
+
+`serde_json` applies a default recursion limit of 128 levels, which mitigates deep-nesting attacks.
+
+#### Sensitive Data
+
+Generated structs derive `Debug`, `Serialize`, and `Deserialize` for all fields. This means:
+- `Debug` formatting will include all field values, including PII
+- Serialization will include all fields
+
+For fields containing sensitive data, consider:
+- Adding `#[serde(skip)]` manually to generated files (not recommended — will be overwritten)
+- Filing an issue to add a `(proto2type.field).sensitive` option
+- Using a wrapper type that implements custom `Debug`
+
+#### Supply Chain
+
+Generated Rust code depends on these crates:
+| Crate | Min Version | Notes |
+|-------|------------|-------|
+| `serde` | 1.0 | Widely audited |
+| `serde_json` | 1.0 | Widely audited |
+| `chrono` | 0.4.20+ | Pin to avoid RUSTSEC-2020-0159 |
+| `rusqlite` | 0.35 | C FFI to SQLite |
+
+Run `cargo audit` regularly on projects using generated code.
