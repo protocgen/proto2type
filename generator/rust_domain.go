@@ -152,7 +152,7 @@ func generateRustEnum(g *protogen.GeneratedFile, enum *protogen.Enum, parentName
 		}
 	}
 
-	g.P("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]")
+	g.P("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]")
 	g.P("#[repr(i32)]")
 	g.P("pub enum ", enumName, " {")
 
