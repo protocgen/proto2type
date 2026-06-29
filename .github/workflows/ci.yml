@@ -150,22 +150,33 @@ jobs:
           serde = { version = "1", features = ["derive"] }
           serde_json = "1"
           chrono = { version = "0.4", features = ["serde"] }
-          rusqlite = { version = "0.31", features = ["bundled"] }
+          rusqlite = { version = "0.35", features = ["bundled"] }
           EOF
-          # Strip leading whitespace from heredoc
           sed -i 's/^          //' /tmp/rust-compile-check/Cargo.toml
 
-          # Symlink generated files into the src directory
-          for f in testdata/golden/rust/gen/*.rs; do
-            cp "$f" /tmp/rust-compile-check/src/
-          done
-
-          # Create lib.rs that includes all generated modules
+          # For each proto (e.g. catalog, user), create a module directory:
+          # src/catalog/mod.rs   (domain types)
+          # src/catalog/sqlite.rs (storage types, uses super::*)
           echo '// Auto-generated compile check' > /tmp/rust-compile-check/src/lib.rs
-          for f in /tmp/rust-compile-check/src/*.type.rs; do
-            mod=$(basename "$f" .type.rs | tr '.' '_')
-            mv "$f" "/tmp/rust-compile-check/src/${mod}.rs"
-            echo "pub mod ${mod};" >> /tmp/rust-compile-check/src/lib.rs
+          for domain_file in testdata/golden/rust/gen/*.type.rs; do
+            base=$(basename "$domain_file" .type.rs)
+            # Skip sqlite files, they'll be handled as submodules
+            if echo "$base" | grep -q '_sqlite$'; then
+              continue
+            fi
+            # Create module directory
+            mkdir -p "/tmp/rust-compile-check/src/${base}"
+            # Copy domain file as mod.rs
+            cp "$domain_file" "/tmp/rust-compile-check/src/${base}/mod.rs"
+            # Add the sqlite submodule declaration to mod.rs
+            sqlite_file="testdata/golden/rust/gen/${base}_sqlite.type.rs"
+            if [ -f "$sqlite_file" ]; then
+              echo '' >> "/tmp/rust-compile-check/src/${base}/mod.rs"
+              echo 'pub mod sqlite;' >> "/tmp/rust-compile-check/src/${base}/mod.rs"
+              cp "$sqlite_file" "/tmp/rust-compile-check/src/${base}/sqlite.rs"
+            fi
+            # Register in lib.rs
+            echo "pub mod ${base};" >> /tmp/rust-compile-check/src/lib.rs
           done
 
       - name: Cargo check generated Rust code

@@ -1,0 +1,22 @@
+pre-commit:
+  parallel: true
+  commands:
+    gofmt:
+      glob: "*.go"
+      run: gofmt -l -w {staged_files}
+    go-vet:
+      glob: "*.go"
+      run: go vet ./...
+    golangci-lint:
+      glob: "*.go"
+      run: golangci-lint run
+
+pre-push:
+  commands:
+    go-test:
+      run: go test ./...
+    golden-check:
+      run: |
+        go build -o /tmp/protoc-gen-proto2type .
+        PATH="/tmp:$PATH" bash -c 'cd testdata/proto && buf generate && buf generate --template buf.gen.rust.yaml'
+        git diff --exit-code testdata/golden/
