@@ -49,6 +49,28 @@ func rustZeroValue(kind protoreflect.Kind) string {
 	}
 }
 
+// rustMessageName returns the Rust struct name for a message.
+// For top-level messages, it returns the PascalCase name.
+// For nested messages, it prefixes with parent names to avoid collisions.
+func rustMessageName(msg *protogen.Message) string {
+	parent, ok := msg.Desc.Parent().(protoreflect.MessageDescriptor)
+	if !ok {
+		// Top-level message (parent is FileDescriptor)
+		return toPascalCase(string(msg.Desc.Name()))
+	}
+	// Nested message: prefix with all ancestor names
+	return qualifiedMessageName(parent) + toPascalCase(string(msg.Desc.Name()))
+}
+
+// qualifiedMessageName builds the full qualified Rust name from a MessageDescriptor chain.
+func qualifiedMessageName(md protoreflect.MessageDescriptor) string {
+	parent, ok := md.Parent().(protoreflect.MessageDescriptor)
+	if !ok {
+		return toPascalCase(string(md.Name()))
+	}
+	return qualifiedMessageName(parent) + toPascalCase(string(md.Name()))
+}
+
 // rustWrapperType returns the Rust Option type for a well-known wrapper field.
 func rustWrapperType(field *protogen.Field) string {
 	switch string(field.Desc.Message().FullName()) {
@@ -87,7 +109,37 @@ func rustDomainFieldType(field *protogen.Field, opts *Options) string {
 		keyType := rustType(field.Desc.MapKey().Kind())
 		valType := rustType(field.Desc.MapValue().Kind())
 		if field.Desc.MapValue().Kind() == protoreflect.MessageKind {
-			valType = toPascalCase(string(field.Desc.MapValue().Message().Name()))
+			valFullName := string(field.Desc.MapValue().Message().FullName())
+			switch valFullName {
+			case "google.protobuf.Timestamp":
+				valType = "DateTime<Utc>"
+			case "google.protobuf.Duration":
+				valType = "chrono::Duration"
+			default:
+				// Check wrapper types
+				switch valFullName {
+				case "google.protobuf.StringValue":
+					valType = "Option<String>"
+				case "google.protobuf.BoolValue":
+					valType = "Option<bool>"
+				case "google.protobuf.Int32Value":
+					valType = "Option<i32>"
+				case "google.protobuf.Int64Value":
+					valType = "Option<i64>"
+				case "google.protobuf.UInt32Value":
+					valType = "Option<u32>"
+				case "google.protobuf.UInt64Value":
+					valType = "Option<u64>"
+				case "google.protobuf.FloatValue":
+					valType = "Option<f32>"
+				case "google.protobuf.DoubleValue":
+					valType = "Option<f64>"
+				case "google.protobuf.BytesValue":
+					valType = "Option<Vec<u8>>"
+				default:
+					valType = qualifiedMessageName(field.Desc.MapValue().Message())
+				}
+			}
 		} else if field.Desc.MapValue().Kind() == protoreflect.EnumKind {
 			if isEnumAsString(field, opts) {
 				valType = "String"
@@ -118,7 +170,7 @@ func rustDomainSingularType(field *protogen.Field, opts *Options) string {
 
 	// Message types (nested) -> Option<Box<T>>
 	if field.Desc.Kind() == protoreflect.MessageKind {
-		return "Option<Box<" + toPascalCase(string(field.Desc.Message().Name())) + ">>"
+		return "Option<Box<" + rustMessageName(field.Message) + ">>"
 	}
 
 	// Enum types
@@ -154,7 +206,7 @@ func rustDomainListElementType(field *protogen.Field, opts *Options) string {
 	}
 	// Message types: just the struct name, no Option<Box<>>
 	if field.Desc.Kind() == protoreflect.MessageKind {
-		return toPascalCase(string(field.Desc.Message().Name()))
+		return rustMessageName(field.Message)
 	}
 	// Enum types
 	if field.Desc.Kind() == protoreflect.EnumKind {

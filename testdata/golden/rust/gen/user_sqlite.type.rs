@@ -59,24 +59,24 @@ impl UserRow {
     }
 
     /// Converts this row to the domain type.
-    pub fn to_domain(&self) -> User {
-        User {
+    pub fn to_domain(&self) -> Result<User, serde_json::Error> {
+        Ok(User {
             id: self.id.clone(),
             email: self.email.clone(),
             display_name: self.display_name.clone(),
             active: self.active,
             age: self.age,
-            roles: serde_json::from_str(&self.roles).unwrap_or_default(),
-            metadata: serde_json::from_str(&self.metadata).unwrap_or_default(),
-            address: serde_json::from_str(&self.address).ok().map(Box::new),
+            roles: serde_json::from_str(&self.roles)?,
+            metadata: serde_json::from_str(&self.metadata)?,
+            address: Some(Box::new(serde_json::from_str(&self.address)?)),
             created_at: epoch_ms_to_datetime(self.created_at),
             session_timeout: chrono::Duration::milliseconds(self.session_timeout),
             phone: self.phone.clone(),
             avatar: self.avatar.clone(),
             nickname: self.nickname.clone(),
             status: self.status,
-            tags: serde_json::from_str(&self.tags).unwrap_or_default(),
-        }
+            tags: serde_json::from_str(&self.tags)?,
+        })
     }
 
     /// Constructs a row from the domain type.
@@ -124,14 +124,14 @@ impl AddressRow {
     }
 
     /// Converts this row to the domain type.
-    pub fn to_domain(&self) -> Address {
-        Address {
+    pub fn to_domain(&self) -> Result<Address, serde_json::Error> {
+        Ok(Address {
             street: self.street.clone(),
             city: self.city.clone(),
             state: self.state.clone(),
             zip: self.zip.clone(),
             country: self.country.clone(),
-        }
+        })
     }
 
     /// Constructs a row from the domain type.
@@ -163,11 +163,11 @@ impl TagRow {
     }
 
     /// Converts this row to the domain type.
-    pub fn to_domain(&self) -> Tag {
-        Tag {
+    pub fn to_domain(&self) -> Result<Tag, serde_json::Error> {
+        Ok(Tag {
             key: self.key.clone(),
             value: self.value.clone(),
-        }
+        })
     }
 
     /// Constructs a row from the domain type.

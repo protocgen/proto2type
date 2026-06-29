@@ -108,7 +108,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 		return
 	}
 
-	name := toPascalCase(string(msg.Desc.Name()))
+	name := rustMessageName(msg)
 	rowName := name + "Row"
 	domainName := name
 
@@ -181,11 +181,11 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 	g.P("    /// Converts this row to the domain type.")
 	if docIDField != nil {
 		docIDRustName := toSnakeCase(string(docIDField.Desc.Name()))
-		g.P("    pub fn to_domain(&self, ", docIDRustName, ": String) -> ", domainName, " {")
+		g.P("    pub fn to_domain(&self, ", docIDRustName, ": String) -> Result<", domainName, ", serde_json::Error> {")
 	} else {
-		g.P("    pub fn to_domain(&self) -> ", domainName, " {")
+		g.P("    pub fn to_domain(&self) -> Result<", domainName, ", serde_json::Error> {")
 	}
-	g.P("        ", domainName, " {")
+	g.P("        Ok(", domainName, " {")
 
 	for _, field := range msg.Fields {
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
@@ -208,7 +208,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 		g.P("            ", rustFieldName, ": ", conversion, ",")
 	}
 
-	g.P("        }")
+	g.P("        })")
 	g.P("    }")
 	g.P()
 
@@ -362,15 +362,15 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 	}
 	// Nested message: deserialize from JSON string
 	if isNestedMessage(field) {
-		return fmt.Sprintf("serde_json::from_str(&self.%s).ok().map(Box::new)", fieldName)
+		return fmt.Sprintf("Some(Box::new(serde_json::from_str(&self.%s)?))", fieldName)
 	}
-	// Repeated message: deserialize from JSON string
+	// Repeated: deserialize from JSON string
 	if field.Desc.IsList() {
-		return fmt.Sprintf("serde_json::from_str(&self.%s).unwrap_or_default()", fieldName)
+		return fmt.Sprintf("serde_json::from_str(&self.%s)?", fieldName)
 	}
 	// Map: deserialize from JSON string
 	if field.Desc.IsMap() {
-		return fmt.Sprintf("serde_json::from_str(&self.%s).unwrap_or_default()", fieldName)
+		return fmt.Sprintf("serde_json::from_str(&self.%s)?", fieldName)
 	}
 	// Bytes
 	if field.Desc.Kind() == protoreflect.BytesKind {
@@ -400,7 +400,7 @@ func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opt
 	}
 	// Nested message: serialize to JSON string
 	if isNestedMessage(field) {
-		msgName := toPascalCase(string(field.Desc.Message().Name()))
+		msgName := rustMessageName(field.Message)
 		return fmt.Sprintf("d.%s.as_ref().map(|v: &Box<%s>| serde_json::to_string(v.as_ref()).unwrap_or_default()).unwrap_or_default()", fieldName, msgName)
 	}
 	// Repeated: serialize to JSON string

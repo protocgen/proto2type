@@ -113,7 +113,7 @@ func generateRustDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 		return nil
 	}
 
-	name := toPascalCase(string(msg.Desc.Name()))
+	name := rustMessageName(msg)
 
 	// Doc comment
 	g.P("/// Domain representation of ", msg.Desc.FullName(), ".")
@@ -129,7 +129,9 @@ func generateRustDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 	g.P("pub struct ", name, " {")
 
 	for _, field := range msg.Fields {
-		// Skip oneof synthetic fields
+		// Skip oneof synthetic fields (handle the oneof group instead)
+		// TODO: real oneof fields are currently skipped. Implement Rust enum
+		// generation for oneof groups to match the Go backend behavior.
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
 			continue
 		}
