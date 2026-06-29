@@ -80,6 +80,12 @@ func scanRustSqliteImports(msg *protogen.Message, needsChrono, needsSerdeJson *b
 			*needsSerdeJson = true
 		}
 	}
+	for _, nested := range msg.Messages {
+		if nested.Desc.IsMapEntry() {
+			continue
+		}
+		scanRustSqliteImports(nested, needsChrono, needsSerdeJson)
+	}
 }
 
 // generateRustEpochMsHelpers generates epoch_ms conversion functions.

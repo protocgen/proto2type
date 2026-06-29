@@ -88,6 +88,12 @@ func rustDomainFieldType(field *protogen.Field, opts *Options) string {
 		valType := rustType(field.Desc.MapValue().Kind())
 		if field.Desc.MapValue().Kind() == protoreflect.MessageKind {
 			valType = toPascalCase(string(field.Desc.MapValue().Message().Name()))
+		} else if field.Desc.MapValue().Kind() == protoreflect.EnumKind {
+			if isEnumAsString(field, opts) {
+				valType = "String"
+			} else {
+				valType = "i32"
+			}
 		}
 		return fmt.Sprintf("HashMap<%s, %s>", keyType, valType)
 	}

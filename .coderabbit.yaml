@@ -1,0 +1,19 @@
+language: en-US
+reviews:
+  profile: assertive
+  auto_review:
+    enabled: true
+    base_branches:
+      - main
+  path_instructions:
+    - path: "generator/**"
+      instructions: |
+        This is a protoc plugin written in Go that generates code for multiple languages.
+        Focus on: correctness of generated code, handling of all proto field types,
+        consistency between language backends (Go, Rust).
+    - path: "testdata/golden/**"
+      instructions: |
+        These are golden test files showing expected generated output.
+        Verify they match what the generator would produce.
+chat:
+  auto_reply: true
