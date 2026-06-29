@@ -31,11 +31,11 @@ impl From<serde_json::Error> for ConversionError {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeywordFieldsRow {
     pub r#type: String,
-    pub r#self: i32,
+    pub self_: i32,
     pub r#match: bool,
     pub r#mod: String,
     pub r#ref: i64,
-    pub r#super: String,
+    pub super_: String,
 }
 
 impl KeywordFieldsRow {
@@ -43,11 +43,11 @@ impl KeywordFieldsRow {
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
             r#type: row.get("type")?,
-            r#self: row.get("self")?,
+            self_: row.get("self")?,
             r#match: row.get("match")?,
             r#mod: row.get("mod")?,
             r#ref: row.get("ref")?,
-            r#super: row.get("super")?,
+            super_: row.get("super")?,
         })
     }
 
@@ -55,11 +55,11 @@ impl KeywordFieldsRow {
     pub fn to_domain(&self) -> Result<KeywordFields, ConversionError> {
         Ok(KeywordFields {
             r#type: self.r#type.clone(),
-            r#self: self.r#self,
+            self_: self.self_,
             r#match: self.r#match,
             r#mod: self.r#mod.clone(),
             r#ref: self.r#ref,
-            r#super: self.r#super.clone(),
+            super_: self.super_.clone(),
         })
     }
 
@@ -67,11 +67,11 @@ impl KeywordFieldsRow {
     pub fn into_domain(self) -> Result<KeywordFields, ConversionError> {
         Ok(KeywordFields {
             r#type: self.r#type,
-            r#self: self.r#self,
+            self_: self.self_,
             r#match: self.r#match,
             r#mod: self.r#mod,
             r#ref: self.r#ref,
-            r#super: self.r#super,
+            super_: self.super_,
         })
     }
 
@@ -79,11 +79,11 @@ impl KeywordFieldsRow {
     pub fn from_domain(d: &KeywordFields) -> Result<Self, ConversionError> {
         Ok(Self {
             r#type: d.r#type.clone(),
-            r#self: d.r#self,
+            self_: d.self_,
             r#match: d.r#match,
             r#mod: d.r#mod.clone(),
             r#ref: d.r#ref,
-            r#super: d.r#super.clone(),
+            super_: d.super_.clone(),
         })
     }
 }

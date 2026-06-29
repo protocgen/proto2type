@@ -26,6 +26,11 @@ func buildFileDescriptorSet(t *testing.T) *descriptorpb.FileDescriptorSet {
 		t.Fatalf("closing temp file: %v", err)
 	}
 
+	// Check if buf is available; skip if not (e.g. in CI build-and-test job)
+	if _, err := exec.LookPath("buf"); err != nil {
+		t.Skip("buf not found in PATH; skipping integration test")
+	}
+
 	cmd := exec.Command("buf", "build", "-o", tmpFile.Name())
 	cmd.Dir = filepath.Join("..", "testdata", "proto")
 	out, err := cmd.CombinedOutput()
@@ -485,11 +490,11 @@ func TestRustKeywordEscaping_Integration(t *testing.T) {
 
 	keywordFields := map[string]string{
 		"type":  "r#type",
-		"self":  "r#self",
+		"self":  "self_",
 		"match": "r#match",
 		"mod":   "r#mod",
 		"ref":   "r#ref",
-		"super": "r#super",
+		"super": "super_",
 	}
 
 	for protoName, wantRustName := range keywordFields {

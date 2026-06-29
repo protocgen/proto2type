@@ -10,7 +10,7 @@ func TestEscapeRustKeyword(t *testing.T) {
 		// Strict keywords
 		{"type", "r#type"},
 		{"struct", "r#struct"},
-		{"self", "r#self"},
+		{"self", "self_"},
 		{"match", "r#match"},
 		{"mod", "r#mod"},
 		{"as", "r#as"},
@@ -19,12 +19,12 @@ func TestEscapeRustKeyword(t *testing.T) {
 		{"break", "r#break"},
 		{"const", "r#const"},
 		{"continue", "r#continue"},
-		{"crate", "r#crate"},
+		{"crate", "crate_"},
 		{"dyn", "r#dyn"},
 		{"else", "r#else"},
 		{"enum", "r#enum"},
 		{"extern", "r#extern"},
-		{"false", "r#false"},
+		{"false", "false_"},
 		{"fn", "r#fn"},
 		{"for", "r#for"},
 		{"if", "r#if"},
@@ -37,11 +37,11 @@ func TestEscapeRustKeyword(t *testing.T) {
 		{"pub", "r#pub"},
 		{"ref", "r#ref"},
 		{"return", "r#return"},
-		{"Self", "r#Self"},
+		{"Self", "Self_"},
 		{"static", "r#static"},
-		{"super", "r#super"},
+		{"super", "super_"},
 		{"trait", "r#trait"},
-		{"true", "r#true"},
+		{"true", "true_"},
 		{"unsafe", "r#unsafe"},
 		{"use", "r#use"},
 		{"where", "r#where"},
@@ -82,9 +82,8 @@ func TestEscapeRustKeyword(t *testing.T) {
 }
 
 func TestEscapeRustKeyword_Exhaustive(t *testing.T) {
-	// Verify the full keyword set is handled.
-	// Count how many keywords are in rustKeywords map.
-	expectedKeywords := []string{
+	// Verify every Rust keyword is handled by escapeRustKeyword.
+	allKeywords := []string{
 		"as", "async", "await", "break", "const", "continue", "crate", "dyn",
 		"else", "enum", "extern", "false", "fn", "for", "if", "impl", "in",
 		"let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
@@ -93,13 +92,15 @@ func TestEscapeRustKeyword_Exhaustive(t *testing.T) {
 		"abstract", "become", "box", "do", "final", "macro", "override",
 		"priv", "try", "typeof", "unsized", "virtual",
 	}
-	for _, kw := range expectedKeywords {
-		if !rustKeywords[kw] {
-			t.Errorf("expected %q to be in rustKeywords map but it was not", kw)
+	for _, kw := range allKeywords {
+		escaped := escapeRustKeyword(kw)
+		if escaped == kw {
+			t.Errorf("keyword %q was not escaped (returned unchanged)", kw)
 		}
 	}
-	if len(expectedKeywords) != len(rustKeywords) {
-		t.Errorf("rustKeywords map has %d entries but test expects %d",
-			len(rustKeywords), len(expectedKeywords))
+	// Verify maps have the expected total count
+	totalMapped := len(rustRawKeywords) + len(rustSpecialKeywords)
+	if len(allKeywords) != totalMapped {
+		t.Errorf("keyword maps have %d entries but test expects %d", totalMapped, len(allKeywords))
 	}
 }

@@ -14,7 +14,7 @@ pub struct KeywordFields {
     #[serde(rename = "type")]
     pub r#type: String,
     #[serde(rename = "self")]
-    pub r#self: i32,
+    pub self_: i32,
     #[serde(rename = "match")]
     pub r#match: bool,
     #[serde(rename = "mod")]
@@ -22,6 +22,6 @@ pub struct KeywordFields {
     #[serde(rename = "ref")]
     pub r#ref: i64,
     #[serde(rename = "super")]
-    pub r#super: String,
+    pub super_: String,
 }
 
