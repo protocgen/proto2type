@@ -195,4 +195,3 @@ func isWellKnownAny(field *protogen.Field) bool {
 	return field.Desc.Kind() == protoreflect.MessageKind &&
 		string(field.Desc.Message().FullName()) == "google.protobuf.Any"
 }
-

@@ -385,7 +385,6 @@ func generateRustDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 	return nil
 }
 
-
 // shouldSerdeDefault returns true if the field should have #[serde(default)].
 func shouldSerdeDefault(field *protogen.Field) bool {
 	// Vec and HashMap fields benefit from default

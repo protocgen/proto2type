@@ -675,4 +675,3 @@ func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opt
 	}
 	return fmt.Sprintf("d.%s", fieldName)
 }
-
