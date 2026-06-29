@@ -4,6 +4,7 @@ inputs:
     paths:
       - user.proto
       - catalog.proto
+      - keywords.proto
 plugins:
   # Rust domain types
   - local: protoc-gen-proto2type

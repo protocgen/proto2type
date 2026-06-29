@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -115,6 +116,16 @@ func rustDomainFieldType(field *protogen.Field, opts *Options) string {
 				valType = "DateTime<Utc>"
 			case "google.protobuf.Duration":
 				valType = "i64"
+			case "google.protobuf.Struct":
+				valType = "serde_json::Map<String, serde_json::Value>"
+			case "google.protobuf.Value":
+				valType = "serde_json::Value"
+			case "google.protobuf.ListValue":
+				valType = "Vec<serde_json::Value>"
+			case "google.protobuf.FieldMask":
+				valType = "Vec<String>"
+			case "google.protobuf.Empty":
+				valType = "()"
 			default:
 				// Check wrapper types
 				switch valFullName {
@@ -144,7 +155,7 @@ func rustDomainFieldType(field *protogen.Field, opts *Options) string {
 			if isEnumAsString(field, opts) {
 				valType = "String"
 			} else {
-				valType = "i32"
+				valType = rustEnumTypeName(field)
 			}
 		}
 		return fmt.Sprintf("HashMap<%s, %s>", keyType, valType)
@@ -168,6 +179,27 @@ func rustDomainSingularType(field *protogen.Field, opts *Options) string {
 		return rustWrapperType(field)
 	}
 
+	// Well-known JSON types
+	if isWellKnownStruct(field) {
+		return "serde_json::Map<String, serde_json::Value>"
+	}
+	if isWellKnownValue(field) {
+		return "serde_json::Value"
+	}
+	if isWellKnownListValue(field) {
+		return "Vec<serde_json::Value>"
+	}
+	if isWellKnownFieldMask(field) {
+		return "Vec<String>"
+	}
+	if isWellKnownEmpty(field) {
+		return "()"
+	}
+	if isWellKnownAny(field) {
+		// TODO: google.protobuf.Any is too complex for auto-mapping; skipping.
+		return "serde_json::Value"
+	}
+
 	// Message types (nested) -> Option<Box<T>>
 	// TODO(P1-11): Box<T> is used for all nested messages but is only necessary
 	// for recursive types. Implementing recursion detection is deferred.
@@ -180,7 +212,7 @@ func rustDomainSingularType(field *protogen.Field, opts *Options) string {
 		if isEnumAsString(field, opts) {
 			return "String"
 		}
-		return "i32"
+		return rustEnumTypeName(field)
 	}
 
 	// proto3 optional scalars -> Option<T>
@@ -206,6 +238,25 @@ func rustDomainListElementType(field *protogen.Field, opts *Options) string {
 	if isWellKnownWrapper(field) {
 		return rustWrapperType(field)
 	}
+	// Well-known JSON types
+	if isWellKnownStruct(field) {
+		return "serde_json::Map<String, serde_json::Value>"
+	}
+	if isWellKnownValue(field) {
+		return "serde_json::Value"
+	}
+	if isWellKnownListValue(field) {
+		return "Vec<serde_json::Value>"
+	}
+	if isWellKnownFieldMask(field) {
+		return "Vec<String>"
+	}
+	if isWellKnownEmpty(field) {
+		return "()"
+	}
+	if isWellKnownAny(field) {
+		return "serde_json::Value"
+	}
 	// Message types: just the struct name, no Option<Box<>>
 	if field.Desc.Kind() == protoreflect.MessageKind {
 		return rustMessageName(field.Message)
@@ -215,7 +266,38 @@ func rustDomainListElementType(field *protogen.Field, opts *Options) string {
 		if isEnumAsString(field, opts) {
 			return "String"
 		}
-		return "i32"
+		return rustEnumTypeName(field)
 	}
 	return rustType(field.Desc.Kind())
+}
+
+// rustEnumTypeName returns the Rust enum type name for an enum field.
+func rustEnumTypeName(field *protogen.Field) string {
+	return toPascalCase(string(field.Desc.Enum().Name()))
+}
+
+// stripEnumPrefix strips the common enum name prefix from a proto enum value name
+// and converts to PascalCase. For example, USER_STATUS_ACTIVE with enum name
+// UserStatus strips USER_STATUS_ prefix, giving "ACTIVE" → "Active".
+func stripEnumPrefix(enumName, valueName string) string {
+	// Convert PascalCase enum name to UPPER_SNAKE prefix
+	// e.g., "UserStatus" → "USER_STATUS_"
+	var b strings.Builder
+	for i, r := range enumName {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			b.WriteRune('_')
+		}
+		b.WriteRune(r)
+	}
+	prefix := strings.ToUpper(b.String()) + "_"
+
+	stripped := valueName
+	if strings.HasPrefix(valueName, prefix) {
+		stripped = strings.TrimPrefix(valueName, prefix)
+	}
+	if stripped == "" {
+		stripped = valueName
+	}
+	// Convert UPPER_SNAKE to PascalCase
+	return toPascalCase(strings.ToLower(stripped))
 }

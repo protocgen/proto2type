@@ -1,0 +1,17 @@
+syntax = "proto3";
+package proto2type.test.keywords;
+
+option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
+
+import "proto2type/options.proto";
+
+// Test message with proto fields named after Rust keywords.
+// These are valid proto field names but require r# escaping in Rust.
+message KeywordFields {
+    string type = 1;
+    int32 self = 2;
+    bool match = 3;
+    string mod = 4;
+    int64 ref = 5;
+    string super = 6;
+}

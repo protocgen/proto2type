@@ -153,5 +153,46 @@ func isNestedMessage(field *protogen.Field) bool {
 	if isWellKnownTimestamp(field) || isWellKnownDuration(field) || isWellKnownWrapper(field) {
 		return false
 	}
+	if isWellKnownStruct(field) || isWellKnownValue(field) || isWellKnownListValue(field) ||
+		isWellKnownFieldMask(field) || isWellKnownEmpty(field) || isWellKnownAny(field) {
+		return false
+	}
 	return true
 }
+
+// isWellKnownStruct returns true if the field is google.protobuf.Struct.
+func isWellKnownStruct(field *protogen.Field) bool {
+	return field.Desc.Kind() == protoreflect.MessageKind &&
+		string(field.Desc.Message().FullName()) == "google.protobuf.Struct"
+}
+
+// isWellKnownValue returns true if the field is google.protobuf.Value.
+func isWellKnownValue(field *protogen.Field) bool {
+	return field.Desc.Kind() == protoreflect.MessageKind &&
+		string(field.Desc.Message().FullName()) == "google.protobuf.Value"
+}
+
+// isWellKnownListValue returns true if the field is google.protobuf.ListValue.
+func isWellKnownListValue(field *protogen.Field) bool {
+	return field.Desc.Kind() == protoreflect.MessageKind &&
+		string(field.Desc.Message().FullName()) == "google.protobuf.ListValue"
+}
+
+// isWellKnownFieldMask returns true if the field is google.protobuf.FieldMask.
+func isWellKnownFieldMask(field *protogen.Field) bool {
+	return field.Desc.Kind() == protoreflect.MessageKind &&
+		string(field.Desc.Message().FullName()) == "google.protobuf.FieldMask"
+}
+
+// isWellKnownEmpty returns true if the field is google.protobuf.Empty.
+func isWellKnownEmpty(field *protogen.Field) bool {
+	return field.Desc.Kind() == protoreflect.MessageKind &&
+		string(field.Desc.Message().FullName()) == "google.protobuf.Empty"
+}
+
+// isWellKnownAny returns true if the field is google.protobuf.Any.
+func isWellKnownAny(field *protogen.Field) bool {
+	return field.Desc.Kind() == protoreflect.MessageKind &&
+		string(field.Desc.Message().FullName()) == "google.protobuf.Any"
+}
+
