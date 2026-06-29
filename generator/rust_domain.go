@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -45,14 +46,13 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 	needsChrono := false
 	needsHashMap := false
 	needsSerde := false
-	needsSerdeJson := false
 
 	for _, msg := range file.Messages {
 		if isMessageSkipped(msg) {
 			continue
 		}
 		needsSerde = true
-		scanRustImports(msg, &needsChrono, &needsHashMap, &needsSerdeJson)
+		scanRustImports(msg, &needsChrono, &needsHashMap)
 	}
 
 	// Emit use statements
@@ -64,10 +64,6 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 	}
 	if needsHashMap {
 		g.P("use std::collections::HashMap;")
-	}
-	if needsSerdeJson {
-		// Only needed if there are fields falling through to serde_json::Value
-		_ = needsSerdeJson
 	}
 	g.P()
 
@@ -81,7 +77,7 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 }
 
 // scanRustImports scans a message (and its nested messages) for types that require imports.
-func scanRustImports(msg *protogen.Message, needsChrono, needsHashMap, needsSerdeJson *bool) {
+func scanRustImports(msg *protogen.Message, needsChrono, needsHashMap *bool) {
 	if isMessageSkipped(msg) {
 		return
 	}
@@ -92,7 +88,7 @@ func scanRustImports(msg *protogen.Message, needsChrono, needsHashMap, needsSerd
 		if isFieldSkipped(field) {
 			continue
 		}
-		if isWellKnownTimestamp(field) || isWellKnownDuration(field) {
+		if isWellKnownTimestamp(field) {
 			*needsChrono = true
 		}
 		if field.Desc.IsMap() {
@@ -103,7 +99,7 @@ func scanRustImports(msg *protogen.Message, needsChrono, needsHashMap, needsSerd
 		if nested.Desc.IsMapEntry() {
 			continue
 		}
-		scanRustImports(nested, needsChrono, needsHashMap, needsSerdeJson)
+		scanRustImports(nested, needsChrono, needsHashMap)
 	}
 }
 
@@ -128,11 +124,18 @@ func generateRustDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 	g.P("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]")
 	g.P("pub struct ", name, " {")
 
+	// Collect skipped oneof names for warning comments (P0-2).
+	var skippedOneofs []string
+
 	for _, field := range msg.Fields {
 		// Skip oneof synthetic fields (handle the oneof group instead)
 		// TODO: real oneof fields are currently skipped. Implement Rust enum
 		// generation for oneof groups to match the Go backend behavior.
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			oneofName := string(field.Oneof.Desc.Name())
+			if !slices.Contains(skippedOneofs, oneofName) {
+				skippedOneofs = append(skippedOneofs, oneofName)
+			}
 			continue
 		}
 		if isFieldSkipped(field) {
@@ -140,19 +143,27 @@ func generateRustDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 		}
 
 		protoName := string(field.Desc.Name())
-		rustFieldName := toSnakeCase(protoName)
+		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
 		fieldType := rustDomainFieldType(field, opts)
+
+		// P1-13: Honor (proto2type.field).name option via serde rename.
+		// TODO: server_timestamp and inline options need design thought for Rust.
+		nameOverride := fieldNameOverride(field)
 
 		// Serde attributes
 		attrs := []string{}
 
-		// #[serde(rename = "...")] only if field name differs from proto name
-		if rustFieldName != protoName {
+		// #[serde(rename = "...")] for name overrides (P1-13)
+		if nameOverride != "" {
+			attrs = append(attrs, fmt.Sprintf(`rename = "%s"`, nameOverride))
+		} else if rustFieldName != protoName {
+			// Fallback: rename if snake_case differs from proto name
 			attrs = append(attrs, fmt.Sprintf(`rename = "%s"`, protoName))
 		}
 
-		// #[serde(skip_serializing_if = "Option::is_none")] for Option fields
-		if isOptionalRustField(field, opts) {
+		// #[serde(default, skip_serializing_if = "Option::is_none")] for Option fields (P1-8)
+		if strings.HasPrefix(fieldType, "Option<") {
+			attrs = append(attrs, `default`)
 			attrs = append(attrs, `skip_serializing_if = "Option::is_none"`)
 		}
 
@@ -165,7 +176,17 @@ func generateRustDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 			g.P("    #[serde(", strings.Join(attrs, ", "), ")]")
 		}
 
+		// P0-1: Duration doc comment
+		if isWellKnownDuration(field) {
+			g.P("    /// Duration in milliseconds")
+		}
+
 		g.P("    pub ", rustFieldName, ": ", fieldType, ",")
+	}
+
+	// Emit oneof warning comments (P0-2)
+	for _, oneofName := range skippedOneofs {
+		g.P("    // WARNING: oneof '", oneofName, "' is not yet supported — fields omitted")
 	}
 
 	g.P("}")

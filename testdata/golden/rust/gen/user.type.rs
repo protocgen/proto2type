@@ -19,18 +19,20 @@ pub struct User {
     pub roles: Vec<String>,
     #[serde(default)]
     pub metadata: HashMap<String, String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<Box<Address>>,
     pub created_at: DateTime<Utc>,
-    pub session_timeout: chrono::Duration,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Duration in milliseconds
+    pub session_timeout: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,
     pub avatar: Vec<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nickname: Option<String>,
     pub status: i32,
     #[serde(default)]
     pub tags: Vec<Tag>,
+    // WARNING: oneof 'contact_method' is not yet supported — fields omitted
 }
 
 /// Domain representation of test.v1.Address.

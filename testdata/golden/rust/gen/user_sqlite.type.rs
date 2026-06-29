@@ -6,12 +6,37 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
+#[derive(Debug)]
+pub enum ConversionError {
+    Json(serde_json::Error),
+    InvalidTimestamp(i64),
+}
+
+impl std::fmt::Display for ConversionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(e) => write!(f, "json: {e}"),
+            Self::InvalidTimestamp(ms) => write!(f, "invalid timestamp: {ms}ms"),
+        }
+    }
+}
+
+impl std::error::Error for ConversionError {}
+
+impl From<serde_json::Error> for ConversionError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Json(e)
+    }
+}
+
 /// Converts epoch milliseconds to a chrono DateTime<Utc>.
-fn epoch_ms_to_datetime(ms: i64) -> DateTime<Utc> {
-    DateTime::from_timestamp_millis(ms).unwrap_or_default()
+#[allow(dead_code)]
+fn epoch_ms_to_datetime(ms: i64) -> Result<DateTime<Utc>, ConversionError> {
+    DateTime::from_timestamp_millis(ms).ok_or(ConversionError::InvalidTimestamp(ms))
 }
 
 /// Converts a chrono DateTime<Utc> to epoch milliseconds.
+#[allow(dead_code)]
 fn datetime_to_epoch_ms(dt: &DateTime<Utc>) -> i64 {
     dt.timestamp_millis()
 }
@@ -26,7 +51,7 @@ pub struct UserRow {
     pub age: i32,
     pub roles: String,
     pub metadata: String,
-    pub address: String,
+    pub address: Option<String>,
     pub created_at: i64,
     pub session_timeout: i64,
     pub phone: Option<String>,
@@ -34,6 +59,7 @@ pub struct UserRow {
     pub nickname: Option<String>,
     pub status: i32,
     pub tags: String,
+    // WARNING: oneof 'contact_method' is not yet supported — fields omitted
 }
 
 impl UserRow {
@@ -59,7 +85,7 @@ impl UserRow {
     }
 
     /// Converts this row to the domain type.
-    pub fn to_domain(&self) -> Result<User, serde_json::Error> {
+    pub fn to_domain(&self) -> Result<User, ConversionError> {
         Ok(User {
             id: self.id.clone(),
             email: self.email.clone(),
@@ -68,9 +94,9 @@ impl UserRow {
             age: self.age,
             roles: serde_json::from_str(&self.roles)?,
             metadata: serde_json::from_str(&self.metadata)?,
-            address: if self.address.is_empty() { None } else { Some(Box::new(serde_json::from_str(&self.address)?)) },
-            created_at: epoch_ms_to_datetime(self.created_at),
-            session_timeout: chrono::Duration::milliseconds(self.session_timeout),
+            address: match &self.address { Some(s) => Some(Box::new(serde_json::from_str(s)?)), None => None },
+            created_at: epoch_ms_to_datetime(self.created_at)?,
+            session_timeout: self.session_timeout,
             phone: self.phone.clone(),
             avatar: self.avatar.clone(),
             nickname: self.nickname.clone(),
@@ -79,8 +105,29 @@ impl UserRow {
         })
     }
 
+    /// Converts this row into the domain type, consuming self.
+    pub fn into_domain(self) -> Result<User, ConversionError> {
+        Ok(User {
+            id: self.id,
+            email: self.email,
+            display_name: self.display_name,
+            active: self.active,
+            age: self.age,
+            roles: serde_json::from_str(&self.roles)?,
+            metadata: serde_json::from_str(&self.metadata)?,
+            address: match self.address { Some(s) => Some(Box::new(serde_json::from_str(&s)?)), None => None },
+            created_at: epoch_ms_to_datetime(self.created_at)?,
+            session_timeout: self.session_timeout,
+            phone: self.phone,
+            avatar: self.avatar,
+            nickname: self.nickname,
+            status: self.status,
+            tags: serde_json::from_str(&self.tags)?,
+        })
+    }
+
     /// Constructs a row from the domain type.
-    pub fn from_domain(d: &User) -> Result<Self, serde_json::Error> {
+    pub fn from_domain(d: &User) -> Result<Self, ConversionError> {
         Ok(Self {
             id: d.id.clone(),
             email: d.email.clone(),
@@ -89,9 +136,9 @@ impl UserRow {
             age: d.age,
             roles: serde_json::to_string(&d.roles)?,
             metadata: serde_json::to_string(&d.metadata)?,
-            address: match &d.address { Some(v) => serde_json::to_string(v.as_ref())?, None => String::new() },
+            address: match &d.address { Some(v) => Some(serde_json::to_string(v.as_ref())?), None => None },
             created_at: datetime_to_epoch_ms(&d.created_at),
-            session_timeout: d.session_timeout.num_milliseconds(),
+            session_timeout: d.session_timeout,
             phone: d.phone.clone(),
             avatar: d.avatar.clone(),
             nickname: d.nickname.clone(),
@@ -124,7 +171,7 @@ impl AddressRow {
     }
 
     /// Converts this row to the domain type.
-    pub fn to_domain(&self) -> Result<Address, serde_json::Error> {
+    pub fn to_domain(&self) -> Result<Address, ConversionError> {
         Ok(Address {
             street: self.street.clone(),
             city: self.city.clone(),
@@ -134,8 +181,19 @@ impl AddressRow {
         })
     }
 
+    /// Converts this row into the domain type, consuming self.
+    pub fn into_domain(self) -> Result<Address, ConversionError> {
+        Ok(Address {
+            street: self.street,
+            city: self.city,
+            state: self.state,
+            zip: self.zip,
+            country: self.country,
+        })
+    }
+
     /// Constructs a row from the domain type.
-    pub fn from_domain(d: &Address) -> Result<Self, serde_json::Error> {
+    pub fn from_domain(d: &Address) -> Result<Self, ConversionError> {
         Ok(Self {
             street: d.street.clone(),
             city: d.city.clone(),
@@ -163,15 +221,23 @@ impl TagRow {
     }
 
     /// Converts this row to the domain type.
-    pub fn to_domain(&self) -> Result<Tag, serde_json::Error> {
+    pub fn to_domain(&self) -> Result<Tag, ConversionError> {
         Ok(Tag {
             key: self.key.clone(),
             value: self.value.clone(),
         })
     }
 
+    /// Converts this row into the domain type, consuming self.
+    pub fn into_domain(self) -> Result<Tag, ConversionError> {
+        Ok(Tag {
+            key: self.key,
+            value: self.value,
+        })
+    }
+
     /// Constructs a row from the domain type.
-    pub fn from_domain(d: &Tag) -> Result<Self, serde_json::Error> {
+    pub fn from_domain(d: &Tag) -> Result<Self, ConversionError> {
         Ok(Self {
             key: d.key.clone(),
             value: d.value.clone(),

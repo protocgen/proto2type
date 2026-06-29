@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -22,13 +23,12 @@ func generateRustSqlite(gen *protogen.Plugin, file *protogen.File, opts *Options
 
 	// Scan for needed imports
 	needsChrono := false
-	needsSerdeJson := false
 
 	for _, msg := range file.Messages {
 		if isMessageSkipped(msg) {
 			continue
 		}
-		scanRustSqliteImports(msg, &needsChrono, &needsSerdeJson)
+		scanRustSqliteImports(msg, &needsChrono)
 	}
 
 	// Emit use statements
@@ -37,11 +37,10 @@ func generateRustSqlite(gen *protogen.Plugin, file *protogen.File, opts *Options
 	if needsChrono {
 		g.P("use chrono::{DateTime, Utc};")
 	}
-	if needsSerdeJson {
-		// serde_json needed for nested messages serialized as JSON strings
-		_ = needsSerdeJson
-	}
 	g.P()
+
+	// Emit ConversionError type (P1-9)
+	generateRustConversionError(g, needsChrono)
 
 	// Generate helper functions if chrono is needed
 	if needsChrono {
@@ -56,7 +55,7 @@ func generateRustSqlite(gen *protogen.Plugin, file *protogen.File, opts *Options
 }
 
 // scanRustSqliteImports scans a message for SQLite-specific import needs.
-func scanRustSqliteImports(msg *protogen.Message, needsChrono, needsSerdeJson *bool) {
+func scanRustSqliteImports(msg *protogen.Message, needsChrono *bool) {
 	if isMessageSkipped(msg) {
 		return
 	}
@@ -70,32 +69,59 @@ func scanRustSqliteImports(msg *protogen.Message, needsChrono, needsSerdeJson *b
 		if isDocumentID(field) {
 			continue
 		}
-		if isWellKnownTimestamp(field) || isWellKnownDuration(field) {
+		if isWellKnownTimestamp(field) {
 			*needsChrono = true
-		}
-		if isNestedMessage(field) {
-			*needsSerdeJson = true
-		}
-		if field.Desc.IsList() && field.Desc.Kind() == protoreflect.MessageKind {
-			*needsSerdeJson = true
 		}
 	}
 	for _, nested := range msg.Messages {
 		if nested.Desc.IsMapEntry() {
 			continue
 		}
-		scanRustSqliteImports(nested, needsChrono, needsSerdeJson)
+		scanRustSqliteImports(nested, needsChrono)
 	}
+}
+
+// generateRustConversionError emits a ConversionError enum type for SQLite conversion (P1-9).
+func generateRustConversionError(g *protogen.GeneratedFile, needsChrono bool) {
+	g.P("#[derive(Debug)]")
+	g.P("pub enum ConversionError {")
+	g.P("    Json(serde_json::Error),")
+	if needsChrono {
+		g.P("    InvalidTimestamp(i64),")
+	}
+	g.P("}")
+	g.P()
+	g.P("impl std::fmt::Display for ConversionError {")
+	g.P("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {")
+	g.P("        match self {")
+	g.P(`            Self::Json(e) => write!(f, "json: {e}"),`)
+	if needsChrono {
+		g.P(`            Self::InvalidTimestamp(ms) => write!(f, "invalid timestamp: {ms}ms"),`)
+	}
+	g.P("        }")
+	g.P("    }")
+	g.P("}")
+	g.P()
+	g.P("impl std::error::Error for ConversionError {}")
+	g.P()
+	g.P("impl From<serde_json::Error> for ConversionError {")
+	g.P("    fn from(e: serde_json::Error) -> Self {")
+	g.P("        Self::Json(e)")
+	g.P("    }")
+	g.P("}")
+	g.P()
 }
 
 // generateRustEpochMsHelpers generates epoch_ms conversion functions.
 func generateRustEpochMsHelpers(g *protogen.GeneratedFile) {
 	g.P("/// Converts epoch milliseconds to a chrono DateTime<Utc>.")
-	g.P("fn epoch_ms_to_datetime(ms: i64) -> DateTime<Utc> {")
-	g.P("    DateTime::from_timestamp_millis(ms).unwrap_or_default()")
+	g.P("#[allow(dead_code)]")
+	g.P("fn epoch_ms_to_datetime(ms: i64) -> Result<DateTime<Utc>, ConversionError> {")
+	g.P("    DateTime::from_timestamp_millis(ms).ok_or(ConversionError::InvalidTimestamp(ms))")
 	g.P("}")
 	g.P()
 	g.P("/// Converts a chrono DateTime<Utc> to epoch milliseconds.")
+	g.P("#[allow(dead_code)]")
 	g.P("fn datetime_to_epoch_ms(dt: &DateTime<Utc>) -> i64 {")
 	g.P("    dt.timestamp_millis()")
 	g.P("}")
@@ -121,6 +147,9 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 		}
 	}
 
+	// Collect skipped oneof names for warning comments (P0-2).
+	var skippedOneofs []string
+
 	// Row struct
 	g.P("/// SQLite storage representation of ", msg.Desc.FullName(), ".")
 	g.P("#[derive(Debug, Clone, Serialize, Deserialize)]")
@@ -128,6 +157,10 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 
 	for _, field := range msg.Fields {
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			oneofName := string(field.Oneof.Desc.Name())
+			if !slices.Contains(skippedOneofs, oneofName) {
+				skippedOneofs = append(skippedOneofs, oneofName)
+			}
 			continue
 		}
 		if isFieldSkipped(field) {
@@ -139,10 +172,15 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 		}
 
 		protoName := string(field.Desc.Name())
-		rustFieldName := toSnakeCase(protoName)
+		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
 		fieldType := rustSqliteFieldType(field, opts)
 
 		g.P("    pub ", rustFieldName, ": ", fieldType, ",")
+	}
+
+	// Emit oneof warning comments (P0-2)
+	for _, oneofName := range skippedOneofs {
+		g.P("    // WARNING: oneof '", oneofName, "' is not yet supported \u2014 fields omitted")
 	}
 
 	g.P("}")
@@ -168,7 +206,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 		}
 
 		protoName := string(field.Desc.Name())
-		rustFieldName := toSnakeCase(protoName)
+		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
 
 		g.P("            ", rustFieldName, ": row.get(\"", protoName, "\")?,")
 	}
@@ -180,10 +218,10 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 	// to_domain: convert Row to domain type
 	g.P("    /// Converts this row to the domain type.")
 	if docIDField != nil {
-		docIDRustName := toSnakeCase(string(docIDField.Desc.Name()))
-		g.P("    pub fn to_domain(&self, ", docIDRustName, ": String) -> Result<", domainName, ", serde_json::Error> {")
+		docIDRustName := escapeRustKeyword(toSnakeCase(string(docIDField.Desc.Name())))
+		g.P("    pub fn to_domain(&self, ", docIDRustName, ": String) -> Result<", domainName, ", ConversionError> {")
 	} else {
-		g.P("    pub fn to_domain(&self) -> Result<", domainName, ", serde_json::Error> {")
+		g.P("    pub fn to_domain(&self) -> Result<", domainName, ", ConversionError> {")
 	}
 	g.P("        Ok(", domainName, " {")
 
@@ -196,7 +234,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 		}
 
 		protoName := string(field.Desc.Name())
-		rustFieldName := toSnakeCase(protoName)
+		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
 
 		if isDocumentID(field) {
 			// Inject from parameter
@@ -212,9 +250,44 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 	g.P("    }")
 	g.P()
 
+	// into_domain: consuming variant (P1-10)
+	g.P("    /// Converts this row into the domain type, consuming self.")
+	if docIDField != nil {
+		docIDRustName := escapeRustKeyword(toSnakeCase(string(docIDField.Desc.Name())))
+		g.P("    pub fn into_domain(self, ", docIDRustName, ": String) -> Result<", domainName, ", ConversionError> {")
+	} else {
+		g.P("    pub fn into_domain(self) -> Result<", domainName, ", ConversionError> {")
+	}
+	g.P("        Ok(", domainName, " {")
+
+	for _, field := range msg.Fields {
+		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			continue
+		}
+		if isFieldSkipped(field) {
+			continue
+		}
+
+		protoName := string(field.Desc.Name())
+		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
+
+		if isDocumentID(field) {
+			// Inject from parameter
+			g.P("            ", rustFieldName, ",")
+			continue
+		}
+
+		conversion := rustSqliteIntoDomainConversion(field, rustFieldName, opts)
+		g.P("            ", rustFieldName, ": ", conversion, ",")
+	}
+
+	g.P("        })")
+	g.P("    }")
+	g.P()
+
 	// from_domain: convert domain type to Row
 	g.P("    /// Constructs a row from the domain type.")
-	g.P("    pub fn from_domain(d: &", domainName, ") -> Result<Self, serde_json::Error> {")
+	g.P("    pub fn from_domain(d: &", domainName, ") -> Result<Self, ConversionError> {")
 	g.P("        Ok(Self {")
 
 	for _, field := range msg.Fields {
@@ -229,7 +302,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 		}
 
 		protoName := string(field.Desc.Name())
-		rustFieldName := toSnakeCase(protoName)
+		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
 
 		conversion := rustSqliteFromDomainConversion(field, rustFieldName, opts)
 		g.P("            ", rustFieldName, ": ", conversion, ",")
@@ -266,9 +339,9 @@ func rustSqliteFieldType(field *protogen.Field, opts *Options) string {
 		return rustSqliteWrapperType(field)
 	}
 
-	// Nested messages -> String (JSON serialized)
+	// Nested messages -> Option<String> (JSON serialized, NULL for absent) (P1-12)
 	if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() {
-		return "String"
+		return "Option<String>"
 	}
 
 	// Repeated fields -> String (JSON serialized)
@@ -307,9 +380,9 @@ func rustSqliteScalarType(kind protoreflect.Kind) string {
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
 		return "i64"
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-		return "u32"
+		return "i64" // SQLite has no unsigned; i64 is safe for u32 range
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		return "u64"
+		return "i64" // SQLite has no unsigned; NOTE: u64 > i64::MAX will overflow
 	case protoreflect.FloatKind:
 		return "f32"
 	case protoreflect.DoubleKind:
@@ -352,17 +425,18 @@ func rustSqliteWrapperType(field *protogen.Field) string {
 // rustSqliteToDomainConversion returns the expression to convert a SQLite row field to a domain field.
 func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts *Options) string {
 	if isWellKnownTimestamp(field) {
-		return fmt.Sprintf("epoch_ms_to_datetime(self.%s)", fieldName)
+		return fmt.Sprintf("epoch_ms_to_datetime(self.%s)?", fieldName)
 	}
+	// P0-1: Duration is i64 in both domain and SQLite, just copy
 	if isWellKnownDuration(field) {
-		return fmt.Sprintf("chrono::Duration::milliseconds(self.%s)", fieldName)
+		return fmt.Sprintf("self.%s", fieldName)
 	}
 	if isWellKnownWrapper(field) {
 		return fmt.Sprintf("self.%s.clone()", fieldName)
 	}
-	// Nested message: deserialize from JSON string
+	// Nested message: deserialize from Option<String> (P1-12)
 	if isNestedMessage(field) {
-		return fmt.Sprintf("if self.%s.is_empty() { None } else { Some(Box::new(serde_json::from_str(&self.%s)?)) }", fieldName, fieldName)
+		return fmt.Sprintf("match &self.%s { Some(s) => Some(Box::new(serde_json::from_str(s)?)), None => None }", fieldName)
 	}
 	// Repeated: deserialize from JSON string
 	if field.Desc.IsList() {
@@ -371,6 +445,13 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 	// Map: deserialize from JSON string
 	if field.Desc.IsMap() {
 		return fmt.Sprintf("serde_json::from_str(&self.%s)?", fieldName)
+	}
+	// P0-3: unsigned types need cast from i64
+	if field.Desc.Kind() == protoreflect.Uint32Kind || field.Desc.Kind() == protoreflect.Fixed32Kind {
+		return fmt.Sprintf("self.%s as u32", fieldName)
+	}
+	if field.Desc.Kind() == protoreflect.Uint64Kind || field.Desc.Kind() == protoreflect.Fixed64Kind {
+		return fmt.Sprintf("self.%s as u64", fieldName)
 	}
 	// Bytes
 	if field.Desc.Kind() == protoreflect.BytesKind {
@@ -387,20 +468,67 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 	return fmt.Sprintf("self.%s", fieldName)
 }
 
+// rustSqliteIntoDomainConversion returns the expression for consuming conversion (into_domain).
+// Like rustSqliteToDomainConversion but moves String fields instead of cloning.
+func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opts *Options) string {
+	if isWellKnownTimestamp(field) {
+		return fmt.Sprintf("epoch_ms_to_datetime(self.%s)?", fieldName)
+	}
+	if isWellKnownDuration(field) {
+		return fmt.Sprintf("self.%s", fieldName)
+	}
+	if isWellKnownWrapper(field) {
+		return fmt.Sprintf("self.%s", fieldName)
+	}
+	// Nested message: deserialize from Option<String>
+	if isNestedMessage(field) {
+		return fmt.Sprintf("match self.%s { Some(s) => Some(Box::new(serde_json::from_str(&s)?)), None => None }", fieldName)
+	}
+	// Repeated: deserialize from JSON string
+	if field.Desc.IsList() {
+		return fmt.Sprintf("serde_json::from_str(&self.%s)?", fieldName)
+	}
+	// Map: deserialize from JSON string
+	if field.Desc.IsMap() {
+		return fmt.Sprintf("serde_json::from_str(&self.%s)?", fieldName)
+	}
+	// P0-3: unsigned types need cast from i64
+	if field.Desc.Kind() == protoreflect.Uint32Kind || field.Desc.Kind() == protoreflect.Fixed32Kind {
+		return fmt.Sprintf("self.%s as u32", fieldName)
+	}
+	if field.Desc.Kind() == protoreflect.Uint64Kind || field.Desc.Kind() == protoreflect.Fixed64Kind {
+		return fmt.Sprintf("self.%s as u64", fieldName)
+	}
+	// Bytes (Vec<u8> can be moved)
+	if field.Desc.Kind() == protoreflect.BytesKind {
+		return fmt.Sprintf("self.%s", fieldName)
+	}
+	// String types are moved (no clone)
+	if field.Desc.Kind() == protoreflect.StringKind {
+		return fmt.Sprintf("self.%s", fieldName)
+	}
+	// Optional scalars
+	if field.Desc.HasOptionalKeyword() {
+		return fmt.Sprintf("self.%s", fieldName)
+	}
+	return fmt.Sprintf("self.%s", fieldName)
+}
+
 // rustSqliteFromDomainConversion returns the expression to convert a domain field to a SQLite row field.
 func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opts *Options) string {
 	if isWellKnownTimestamp(field) {
 		return fmt.Sprintf("datetime_to_epoch_ms(&d.%s)", fieldName)
 	}
+	// P0-1: Duration is i64 in both domain and SQLite, just copy
 	if isWellKnownDuration(field) {
-		return fmt.Sprintf("d.%s.num_milliseconds()", fieldName)
+		return fmt.Sprintf("d.%s", fieldName)
 	}
 	if isWellKnownWrapper(field) {
 		return fmt.Sprintf("d.%s.clone()", fieldName)
 	}
-	// Nested message: serialize to JSON string
+	// Nested message: serialize to Option<String> (P1-12)
 	if isNestedMessage(field) {
-		return fmt.Sprintf("match &d.%s { Some(v) => serde_json::to_string(v.as_ref())?, None => String::new() }", fieldName)
+		return fmt.Sprintf("match &d.%s { Some(v) => Some(serde_json::to_string(v.as_ref())?), None => None }", fieldName)
 	}
 	// Repeated: serialize to JSON string
 	if field.Desc.IsList() {
@@ -409,6 +537,13 @@ func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opt
 	// Map: serialize to JSON string
 	if field.Desc.IsMap() {
 		return fmt.Sprintf("serde_json::to_string(&d.%s)?", fieldName)
+	}
+	// P0-3: unsigned types need cast to i64 for SQLite
+	if field.Desc.Kind() == protoreflect.Uint32Kind || field.Desc.Kind() == protoreflect.Fixed32Kind {
+		return fmt.Sprintf("d.%s as i64", fieldName)
+	}
+	if field.Desc.Kind() == protoreflect.Uint64Kind || field.Desc.Kind() == protoreflect.Fixed64Kind {
+		return fmt.Sprintf("d.%s as i64", fieldName)
 	}
 	// Bytes
 	if field.Desc.Kind() == protoreflect.BytesKind {

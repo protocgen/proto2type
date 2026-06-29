@@ -6,12 +6,37 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
+#[derive(Debug)]
+pub enum ConversionError {
+    Json(serde_json::Error),
+    InvalidTimestamp(i64),
+}
+
+impl std::fmt::Display for ConversionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(e) => write!(f, "json: {e}"),
+            Self::InvalidTimestamp(ms) => write!(f, "invalid timestamp: {ms}ms"),
+        }
+    }
+}
+
+impl std::error::Error for ConversionError {}
+
+impl From<serde_json::Error> for ConversionError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Json(e)
+    }
+}
+
 /// Converts epoch milliseconds to a chrono DateTime<Utc>.
-fn epoch_ms_to_datetime(ms: i64) -> DateTime<Utc> {
-    DateTime::from_timestamp_millis(ms).unwrap_or_default()
+#[allow(dead_code)]
+fn epoch_ms_to_datetime(ms: i64) -> Result<DateTime<Utc>, ConversionError> {
+    DateTime::from_timestamp_millis(ms).ok_or(ConversionError::InvalidTimestamp(ms))
 }
 
 /// Converts a chrono DateTime<Utc> to epoch milliseconds.
+#[allow(dead_code)]
 fn datetime_to_epoch_ms(dt: &DateTime<Utc>) -> i64 {
     dt.timestamp_millis()
 }
@@ -57,7 +82,7 @@ impl ModelCatalogEntryRow {
     }
 
     /// Converts this row to the domain type.
-    pub fn to_domain(&self, model_id: String) -> Result<ModelCatalogEntry, serde_json::Error> {
+    pub fn to_domain(&self, model_id: String) -> Result<ModelCatalogEntry, ConversionError> {
         Ok(ModelCatalogEntry {
             model_id,
             provider: self.provider.clone(),
@@ -70,15 +95,36 @@ impl ModelCatalogEntryRow {
             discount_percent: self.discount_percent,
             aliases: serde_json::from_str(&self.aliases)?,
             provider_model_id: self.provider_model_id.clone(),
-            created_at: epoch_ms_to_datetime(self.created_at),
-            updated_at: epoch_ms_to_datetime(self.updated_at),
+            created_at: epoch_ms_to_datetime(self.created_at)?,
+            updated_at: epoch_ms_to_datetime(self.updated_at)?,
             notes: self.notes.clone(),
             region: self.region.clone(),
         })
     }
 
+    /// Converts this row into the domain type, consuming self.
+    pub fn into_domain(self, model_id: String) -> Result<ModelCatalogEntry, ConversionError> {
+        Ok(ModelCatalogEntry {
+            model_id,
+            provider: self.provider,
+            display_name: self.display_name,
+            input_per_million: self.input_per_million,
+            output_per_million: self.output_per_million,
+            enabled: self.enabled,
+            category: self.category,
+            context_window: self.context_window,
+            discount_percent: self.discount_percent,
+            aliases: serde_json::from_str(&self.aliases)?,
+            provider_model_id: self.provider_model_id,
+            created_at: epoch_ms_to_datetime(self.created_at)?,
+            updated_at: epoch_ms_to_datetime(self.updated_at)?,
+            notes: self.notes,
+            region: self.region,
+        })
+    }
+
     /// Constructs a row from the domain type.
-    pub fn from_domain(d: &ModelCatalogEntry) -> Result<Self, serde_json::Error> {
+    pub fn from_domain(d: &ModelCatalogEntry) -> Result<Self, ConversionError> {
         Ok(Self {
             provider: d.provider.clone(),
             display_name: d.display_name.clone(),

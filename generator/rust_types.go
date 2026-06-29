@@ -114,7 +114,7 @@ func rustDomainFieldType(field *protogen.Field, opts *Options) string {
 			case "google.protobuf.Timestamp":
 				valType = "DateTime<Utc>"
 			case "google.protobuf.Duration":
-				valType = "chrono::Duration"
+				valType = "i64"
 			default:
 				// Check wrapper types
 				switch valFullName {
@@ -160,7 +160,7 @@ func rustDomainSingularType(field *protogen.Field, opts *Options) string {
 		return "DateTime<Utc>"
 	}
 	if isWellKnownDuration(field) {
-		return "chrono::Duration"
+		return "i64" // Duration in milliseconds
 	}
 
 	// Well-known wrapper types (e.g. google.protobuf.StringValue -> Option<String>)
@@ -169,6 +169,8 @@ func rustDomainSingularType(field *protogen.Field, opts *Options) string {
 	}
 
 	// Message types (nested) -> Option<Box<T>>
+	// TODO(P1-11): Box<T> is used for all nested messages but is only necessary
+	// for recursive types. Implementing recursion detection is deferred.
 	if field.Desc.Kind() == protoreflect.MessageKind {
 		return "Option<Box<" + rustMessageName(field.Message) + ">>"
 	}
@@ -196,10 +198,10 @@ func rustDomainSingularType(field *protogen.Field, opts *Options) string {
 func rustDomainListElementType(field *protogen.Field, opts *Options) string {
 	// WKTs
 	if isWellKnownTimestamp(field) {
-		return "chrono::DateTime<chrono::Utc>"
+		return "DateTime<Utc>"
 	}
 	if isWellKnownDuration(field) {
-		return "chrono::Duration"
+		return "i64" // Duration in milliseconds
 	}
 	if isWellKnownWrapper(field) {
 		return rustWrapperType(field)
