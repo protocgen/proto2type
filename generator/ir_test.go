@@ -42,23 +42,27 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 
 	// Expected field kinds (excludes oneof members).
 	wantFields := map[string]FieldKind{
-		"id":              FieldKindScalar,
-		"email":           FieldKindScalar,
-		"display_name":    FieldKindScalar,
-		"active":          FieldKindScalar,
-		"age":             FieldKindScalar,
-		"roles":           FieldKindScalar,  // repeated scalar
-		"metadata":        FieldKindMessage, // map (outer kind is Message)
-		"address":         FieldKindMessage,
-		"created_at":      FieldKindTimestamp,
-		"session_timeout": FieldKindDuration,
-		"phone":           FieldKindScalar, // optional string
-		"avatar":          FieldKindScalar, // bytes
-		"nickname":        FieldKindWrapperString,
-		"status":          FieldKindEnum,
-		"tags":            FieldKindMessage,   // repeated message
-		"deleted_at":      FieldKindTimestamp, // optional timestamp
-		"previous_status": FieldKindEnum,      // optional enum
+		"id":               FieldKindScalar,
+		"email":            FieldKindScalar,
+		"display_name":     FieldKindScalar,
+		"active":           FieldKindScalar,
+		"age":              FieldKindScalar,
+		"roles":            FieldKindScalar,  // repeated scalar
+		"metadata":         FieldKindMessage, // map (outer kind is Message)
+		"address":          FieldKindMessage,
+		"created_at":       FieldKindTimestamp,
+		"session_timeout":  FieldKindDuration,
+		"phone":            FieldKindScalar, // optional string
+		"avatar":           FieldKindScalar, // bytes
+		"nickname":         FieldKindWrapperString,
+		"status":           FieldKindEnum,
+		"tags":             FieldKindMessage,   // repeated message
+		"deleted_at":       FieldKindTimestamp, // optional timestamp
+		"previous_status":  FieldKindEnum,      // optional enum
+		"update_mask":      FieldKindFieldMask, // WKT reference
+		"extra_metadata":   FieldKindStruct,    // WKT reference
+		"preferences":      FieldKindListValue, // WKT reference
+		"avatar_thumbnail": FieldKindScalar,    // optional bytes
 	}
 
 	for _, f := range user.Fields {

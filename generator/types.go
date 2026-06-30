@@ -89,32 +89,6 @@ func isWellKnownWrapper(field *protogen.Field) bool {
 	return false
 }
 
-// wrapperGoType returns the Go pointer type for a well-known wrapper field.
-func wrapperGoType(field *protogen.Field) string {
-	switch string(field.Desc.Message().FullName()) {
-	case "google.protobuf.StringValue":
-		return "*string"
-	case "google.protobuf.BoolValue":
-		return "*bool"
-	case "google.protobuf.Int32Value":
-		return "*int32"
-	case "google.protobuf.Int64Value":
-		return "*int64"
-	case "google.protobuf.UInt32Value":
-		return "*uint32"
-	case "google.protobuf.UInt64Value":
-		return "*uint64"
-	case "google.protobuf.FloatValue":
-		return "*float32"
-	case "google.protobuf.DoubleValue":
-		return "*float64"
-	case "google.protobuf.BytesValue":
-		return "*[]byte"
-	default:
-		return "any"
-	}
-}
-
 // wrapperPbFuncName returns the wrapperspb constructor function name for a wrapper type.
 // e.g., "google.protobuf.StringValue" -> "String"
 func wrapperPbFuncName(field *protogen.Field) string {
@@ -194,15 +168,4 @@ func isWellKnownEmpty(field *protogen.Field) bool {
 func isWellKnownAny(field *protogen.Field) bool {
 	return field.Desc.Kind() == protoreflect.MessageKind &&
 		string(field.Desc.Message().FullName()) == "google.protobuf.Any"
-}
-
-// isWellKnownType returns true if the field is any google.protobuf well-known type.
-// These are mapped to Go value types (time.Time, time.Duration, *string, etc.)
-// rather than user-defined message pointers.
-func isWellKnownType(field *protogen.Field) bool {
-	return isWellKnownTimestamp(field) || isWellKnownDuration(field) ||
-		isWellKnownWrapper(field) || isWellKnownStruct(field) ||
-		isWellKnownValue(field) || isWellKnownListValue(field) ||
-		isWellKnownFieldMask(field) || isWellKnownEmpty(field) ||
-		isWellKnownAny(field)
 }

@@ -144,6 +144,53 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
 			g.P("\t\tout.", protoFieldName, " = ", wrapperFunc, "(*", recv, ".", domainFieldName, ")")
 			g.P("\t}")
+		} else if isWellKnownFieldMask(field) {
+			// FieldMask: domain []string → proto *fieldmaskpb.FieldMask (defensive copy per SEC-3)
+			fmIdent := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/fieldmaskpb",
+				GoName:       "FieldMask",
+			})
+			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+			g.P("\t\tpaths := make([]string, len(", recv, ".", domainFieldName, "))")
+			g.P("\t\tcopy(paths, ", recv, ".", domainFieldName, ")")
+			g.P("\t\tout.", protoFieldName, " = &", fmIdent, "{Paths: paths}")
+			g.P("\t}")
+		} else if isWellKnownStruct(field) {
+			// Struct: domain map[string]any → proto *structpb.Struct
+			structNew := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/structpb",
+				GoName:       "NewStruct",
+			})
+			logPrintf := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "log",
+				GoName:       "Printf",
+			})
+			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+			g.P("\t\tvar err error")
+			g.P("\t\tout.", protoFieldName, ", err = ", structNew, "(", recv, ".", domainFieldName, ")")
+			g.P("\t\tif err != nil {")
+			g.P("\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, " to Struct: %v\", \"", structName, "\", err)")
+			g.P("\t\t\tout.", protoFieldName, " = nil")
+			g.P("\t\t}")
+			g.P("\t}")
+		} else if isWellKnownListValue(field) {
+			// ListValue: domain []any → proto *structpb.ListValue
+			listNew := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/structpb",
+				GoName:       "NewList",
+			})
+			logPrintf2 := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "log",
+				GoName:       "Printf",
+			})
+			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+			g.P("\t\tvar err error")
+			g.P("\t\tout.", protoFieldName, ", err = ", listNew, "(", recv, ".", domainFieldName, ")")
+			g.P("\t\tif err != nil {")
+			g.P("\t\t\t", logPrintf2, "(\"proto2type: failed to convert %s.", domainFieldName, " to ListValue: %v\", \"", structName, "\", err)")
+			g.P("\t\t\tout.", protoFieldName, " = nil")
+			g.P("\t\t}")
+			g.P("\t}")
 		} else if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() {
 			// Singular nested message: recursive conversion via ToProto()
 			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
@@ -159,6 +206,12 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			g.P("\t\t\t\tout.", protoFieldName, "[i] = v.ToProto()")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
+			g.P("\t}")
+		} else if field.Desc.Kind() == protoreflect.BytesKind && field.Desc.HasOptionalKeyword() {
+			// Optional bytes: dereference then copy
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tout.", protoFieldName, " = make([]byte, len(*", recv, ".", domainFieldName, "))")
+			g.P("\t\tcopy(out.", protoFieldName, ", *", recv, ".", domainFieldName, ")")
 			g.P("\t}")
 		} else if field.Desc.Kind() == protoreflect.BytesKind {
 			// Bytes field: defensive copy (SEC-3)
@@ -250,6 +303,23 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 			g.P("\t\tv := pb.", protoFieldName, ".GetValue()")
 			g.P("\t\t", recv, ".", domainFieldName, " = &v")
 			g.P("\t}")
+		} else if isWellKnownFieldMask(field) {
+			// FieldMask: proto *fieldmaskpb.FieldMask → domain []string (defensive copy per SEC-3)
+			g.P("\tif pb.", protoFieldName, " != nil {")
+			g.P("\t\tsrc := pb.", protoFieldName, ".GetPaths()")
+			g.P("\t\t", recv, ".", domainFieldName, " = make([]string, len(src))")
+			g.P("\t\tcopy(", recv, ".", domainFieldName, ", src)")
+			g.P("\t}")
+		} else if isWellKnownStruct(field) {
+			// Struct: proto *structpb.Struct → domain map[string]any
+			g.P("\tif pb.", protoFieldName, " != nil {")
+			g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsMap()")
+			g.P("\t}")
+		} else if isWellKnownListValue(field) {
+			// ListValue: proto *structpb.ListValue → domain []any
+			g.P("\tif pb.", protoFieldName, " != nil {")
+			g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsSlice()")
+			g.P("\t}")
 		} else if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() {
 			// Singular nested message: recursive conversion via FromProto()
 			nestedType := toPascalCase(string(field.Desc.Message().Name())) + structSuffix
@@ -269,6 +339,13 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 			g.P("\t\t\t\t", recv, ".", domainFieldName, "[i] = elem")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
+			g.P("\t}")
+		} else if field.Desc.Kind() == protoreflect.BytesKind && field.Desc.HasOptionalKeyword() {
+			// Optional bytes: copy into pointer
+			g.P("\tif pb.", protoFieldName, " != nil {")
+			g.P("\t\tb := make([]byte, len(pb.", protoFieldName, "))")
+			g.P("\t\tcopy(b, pb.", protoFieldName, ")")
+			g.P("\t\t", recv, ".", domainFieldName, " = &b")
 			g.P("\t}")
 		} else if field.Desc.Kind() == protoreflect.BytesKind {
 			// Bytes field: defensive copy (SEC-3)
@@ -363,7 +440,8 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 		// Skip message fields — handle recursively below
 		// This covers both singular (isNestedMessage) and repeated messages.
 		if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsMap() &&
-			!isWellKnownTimestamp(field) && !isWellKnownDuration(field) && !isWellKnownWrapper(field) {
+			!isWellKnownTimestamp(field) && !isWellKnownDuration(field) && !isWellKnownWrapper(field) &&
+			!isWellKnownFieldMask(field) && !isWellKnownStruct(field) && !isWellKnownListValue(field) {
 			continue
 		}
 		fieldName := toPascalCase(string(field.Desc.Name()))
@@ -397,10 +475,19 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 		}
 		if field.Desc.Kind() == protoreflect.BytesKind {
 			fieldName := toPascalCase(string(field.Desc.Name()))
-			g.P("\tif ", recv, ".", fieldName, " != nil {")
-			g.P("\t\td.", fieldName, " = make([]byte, len(", recv, ".", fieldName, "))")
-			g.P("\t\tcopy(d.", fieldName, ", ", recv, ".", fieldName, ")")
-			g.P("\t}")
+			if field.Desc.HasOptionalKeyword() {
+				// Optional bytes: *[]byte — dereference, copy, re-ref
+				g.P("\tif ", recv, ".", fieldName, " != nil {")
+				g.P("\t\tb := make([]byte, len(*", recv, ".", fieldName, "))")
+				g.P("\t\tcopy(b, *", recv, ".", fieldName, ")")
+				g.P("\t\td.", fieldName, " = &b")
+				g.P("\t}")
+			} else {
+				g.P("\tif ", recv, ".", fieldName, " != nil {")
+				g.P("\t\td.", fieldName, " = make([]byte, len(", recv, ".", fieldName, "))")
+				g.P("\t\tcopy(d.", fieldName, ", ", recv, ".", fieldName, ")")
+				g.P("\t}")
+			}
 		}
 	}
 
@@ -508,6 +595,13 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 			g.P("\t\t\t\t", recv, ".", fieldName, "[i] = elem")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
+			g.P("\t}")
+		} else if field.Desc.Kind() == protoreflect.BytesKind && field.Desc.HasOptionalKeyword() {
+			// Deep copy optional bytes: domain *[]byte → storage *[]byte
+			g.P("\tif d.", fieldName, " != nil {")
+			g.P("\t\tb := make([]byte, len(*d.", fieldName, "))")
+			g.P("\t\tcopy(b, *d.", fieldName, ")")
+			g.P("\t\t", recv, ".", fieldName, " = &b")
 			g.P("\t}")
 		} else if field.Desc.Kind() == protoreflect.BytesKind {
 			// Deep copy bytes fields (SEC-3)

@@ -83,6 +83,14 @@ pub struct User {
     pub deleted_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_status: Option<UserStatus>,
+    #[serde(default)]
+    pub update_mask: Vec<String>,
+    #[serde(default)]
+    pub extra_metadata: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    pub preferences: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_thumbnail: Option<Vec<u8>>,
 }
 
 /// Domain representation of test.v1.Address.

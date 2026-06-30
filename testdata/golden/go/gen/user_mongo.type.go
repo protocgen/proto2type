@@ -7,31 +7,38 @@ package gen
 import (
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
+	log "log"
 )
 
 import "time"
 
 // UserMongo is the MongoDB storage representation of test.v1.User.
 type UserMongo struct {
-	ID             string            `bson:"id,omitempty"`
-	Email          string            `bson:"email,omitempty"`
-	DisplayName    string            `bson:"display_name,omitempty"`
-	Active         bool              `bson:"active,omitempty"`
-	Age            int32             `bson:"age,omitempty"`
-	Roles          []string          `bson:"roles,omitempty"`
-	Metadata       map[string]string `bson:"metadata,omitempty"`
-	Address        *AddressMongo     `bson:"address,omitempty"`
-	CreatedAt      time.Time         `bson:"created_at,omitempty"`
-	SessionTimeout time.Duration     `bson:"session_timeout,omitempty"`
-	Phone          *string           `bson:"phone,omitempty"`
-	Avatar         []byte            `bson:"avatar,omitempty"`
-	Nickname       *string           `bson:"nickname,omitempty"`
-	Status         int32             `bson:"status,omitempty"`
-	Tags           []*TagMongo       `bson:"tags,omitempty"`
-	DeletedAt      time.Time         `bson:"deleted_at,omitempty"`
-	PreviousStatus int32             `bson:"previous_status,omitempty"`
+	ID              string            `bson:"id,omitempty"`
+	Email           string            `bson:"email,omitempty"`
+	DisplayName     string            `bson:"display_name,omitempty"`
+	Active          bool              `bson:"active,omitempty"`
+	Age             int32             `bson:"age,omitempty"`
+	Roles           []string          `bson:"roles,omitempty"`
+	Metadata        map[string]string `bson:"metadata,omitempty"`
+	Address         *AddressMongo     `bson:"address,omitempty"`
+	CreatedAt       time.Time         `bson:"created_at,omitempty"`
+	SessionTimeout  time.Duration     `bson:"session_timeout,omitempty"`
+	Phone           *string           `bson:"phone,omitempty"`
+	Avatar          []byte            `bson:"avatar,omitempty"`
+	Nickname        *string           `bson:"nickname,omitempty"`
+	Status          int32             `bson:"status,omitempty"`
+	Tags            []*TagMongo       `bson:"tags,omitempty"`
+	DeletedAt       time.Time         `bson:"deleted_at,omitempty"`
+	PreviousStatus  int32             `bson:"previous_status,omitempty"`
+	UpdateMask      []string          `bson:"update_mask,omitempty"`
+	ExtraMetadata   map[string]any    `bson:"extra_metadata,omitempty"`
+	Preferences     []any             `bson:"preferences,omitempty"`
+	AvatarThumbnail *[]byte           `bson:"avatar_thumbnail,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -80,6 +87,31 @@ func (u *UserMongo) ToProto() *pb.User {
 	if u.PreviousStatus != 0 {
 		v := pb.UserStatus(u.PreviousStatus)
 		out.PreviousStatus = &v
+	}
+	if len(u.UpdateMask) > 0 {
+		paths := make([]string, len(u.UpdateMask))
+		copy(paths, u.UpdateMask)
+		out.UpdateMask = &fieldmaskpb.FieldMask{Paths: paths}
+	}
+	if len(u.ExtraMetadata) > 0 {
+		var err error
+		out.ExtraMetadata, err = structpb.NewStruct(u.ExtraMetadata)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.ExtraMetadata to Struct: %v", "UserMongo", err)
+			out.ExtraMetadata = nil
+		}
+	}
+	if len(u.Preferences) > 0 {
+		var err error
+		out.Preferences, err = structpb.NewList(u.Preferences)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.Preferences to ListValue: %v", "UserMongo", err)
+			out.Preferences = nil
+		}
+	}
+	if u.AvatarThumbnail != nil {
+		out.AvatarThumbnail = make([]byte, len(*u.AvatarThumbnail))
+		copy(out.AvatarThumbnail, *u.AvatarThumbnail)
 	}
 	return out
 }
@@ -132,6 +164,22 @@ func (u *UserMongo) FromProto(pb *pb.User) {
 	if pb.PreviousStatus != nil {
 		u.PreviousStatus = int32(pb.GetPreviousStatus())
 	}
+	if pb.UpdateMask != nil {
+		src := pb.UpdateMask.GetPaths()
+		u.UpdateMask = make([]string, len(src))
+		copy(u.UpdateMask, src)
+	}
+	if pb.ExtraMetadata != nil {
+		u.ExtraMetadata = pb.ExtraMetadata.AsMap()
+	}
+	if pb.Preferences != nil {
+		u.Preferences = pb.Preferences.AsSlice()
+	}
+	if pb.AvatarThumbnail != nil {
+		b := make([]byte, len(pb.AvatarThumbnail))
+		copy(b, pb.AvatarThumbnail)
+		u.AvatarThumbnail = &b
+	}
 }
 
 // ToDomain converts to the domain type.
@@ -152,10 +200,18 @@ func (u *UserMongo) ToDomain() *User {
 		Phone:          u.Phone,
 		Nickname:       u.Nickname,
 		Status:         u.Status,
+		UpdateMask:     u.UpdateMask,
+		ExtraMetadata:  u.ExtraMetadata,
+		Preferences:    u.Preferences,
 	}
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
 		copy(d.Avatar, u.Avatar)
+	}
+	if u.AvatarThumbnail != nil {
+		b := make([]byte, len(*u.AvatarThumbnail))
+		copy(b, *u.AvatarThumbnail)
+		d.AvatarThumbnail = &b
 	}
 	vDeletedAt := u.DeletedAt
 	d.DeletedAt = &vDeletedAt
@@ -215,6 +271,14 @@ func (u *UserMongo) FromDomain(d *User) {
 	}
 	if d.PreviousStatus != nil {
 		u.PreviousStatus = *d.PreviousStatus
+	}
+	u.UpdateMask = d.UpdateMask
+	u.ExtraMetadata = d.ExtraMetadata
+	u.Preferences = d.Preferences
+	if d.AvatarThumbnail != nil {
+		b := make([]byte, len(*d.AvatarThumbnail))
+		copy(b, *d.AvatarThumbnail)
+		u.AvatarThumbnail = &b
 	}
 }
 

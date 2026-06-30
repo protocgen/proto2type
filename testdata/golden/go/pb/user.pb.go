@@ -10,6 +10,8 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 	reflect "reflect"
@@ -102,8 +104,14 @@ type User struct {
 	Tags           []*Tag                 `protobuf:"bytes,17,rep,name=tags,proto3" json:"tags,omitempty"`
 	DeletedAt      *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=deleted_at,json=deletedAt,proto3,oneof" json:"deleted_at,omitempty"`
 	PreviousStatus *UserStatus            `protobuf:"varint,19,opt,name=previous_status,json=previousStatus,proto3,enum=test.v1.UserStatus,oneof" json:"previous_status,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// WKT reference types
+	UpdateMask    *fieldmaskpb.FieldMask `protobuf:"bytes,20,opt,name=update_mask,json=updateMask,proto3" json:"update_mask,omitempty"`
+	ExtraMetadata *structpb.Struct       `protobuf:"bytes,21,opt,name=extra_metadata,json=extraMetadata,proto3" json:"extra_metadata,omitempty"`
+	Preferences   *structpb.ListValue    `protobuf:"bytes,22,opt,name=preferences,proto3" json:"preferences,omitempty"`
+	// Optional bytes
+	AvatarThumbnail []byte `protobuf:"bytes,23,opt,name=avatar_thumbnail,json=avatarThumbnail,proto3,oneof" json:"avatar_thumbnail,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *User) Reset() {
@@ -280,6 +288,34 @@ func (x *User) GetPreviousStatus() UserStatus {
 	return UserStatus_USER_STATUS_UNSPECIFIED
 }
 
+func (x *User) GetUpdateMask() *fieldmaskpb.FieldMask {
+	if x != nil {
+		return x.UpdateMask
+	}
+	return nil
+}
+
+func (x *User) GetExtraMetadata() *structpb.Struct {
+	if x != nil {
+		return x.ExtraMetadata
+	}
+	return nil
+}
+
+func (x *User) GetPreferences() *structpb.ListValue {
+	if x != nil {
+		return x.Preferences
+	}
+	return nil
+}
+
+func (x *User) GetAvatarThumbnail() []byte {
+	if x != nil {
+		return x.AvatarThumbnail
+	}
+	return nil
+}
+
 type isUser_ContactMethod interface {
 	isUser_ContactMethod()
 }
@@ -431,7 +467,7 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xfc\x06\n" +
+	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xfc\b\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
@@ -454,14 +490,20 @@ const file_user_proto_rawDesc = "" +
 	"\x04tags\x18\x11 \x03(\v2\f.test.v1.TagR\x04tags\x12>\n" +
 	"\n" +
 	"deleted_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampH\x02R\tdeletedAt\x88\x01\x01\x12A\n" +
-	"\x0fprevious_status\x18\x13 \x01(\x0e2\x13.test.v1.UserStatusH\x03R\x0epreviousStatus\x88\x01\x01\x1a;\n" +
+	"\x0fprevious_status\x18\x13 \x01(\x0e2\x13.test.v1.UserStatusH\x03R\x0epreviousStatus\x88\x01\x01\x12;\n" +
+	"\vupdate_mask\x18\x14 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
+	"updateMask\x12>\n" +
+	"\x0eextra_metadata\x18\x15 \x01(\v2\x17.google.protobuf.StructR\rextraMetadata\x12<\n" +
+	"\vpreferences\x18\x16 \x01(\v2\x1a.google.protobuf.ListValueR\vpreferences\x12.\n" +
+	"\x10avatar_thumbnail\x18\x17 \x01(\fH\x04R\x0favatarThumbnail\x88\x01\x01\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x10\n" +
 	"\x0econtact_methodB\b\n" +
 	"\x06_phoneB\r\n" +
 	"\v_deleted_atB\x12\n" +
-	"\x10_previous_status\"w\n" +
+	"\x10_previous_statusB\x13\n" +
+	"\x11_avatar_thumbnail\"w\n" +
 	"\aAddress\x12\x16\n" +
 	"\x06street\x18\x01 \x01(\tR\x06street\x12\x12\n" +
 	"\x04city\x18\x02 \x01(\tR\x04city\x12\x14\n" +
@@ -501,22 +543,28 @@ var file_user_proto_goTypes = []any{
 	(*timestamppb.Timestamp)(nil),  // 5: google.protobuf.Timestamp
 	(*durationpb.Duration)(nil),    // 6: google.protobuf.Duration
 	(*wrapperspb.StringValue)(nil), // 7: google.protobuf.StringValue
+	(*fieldmaskpb.FieldMask)(nil),  // 8: google.protobuf.FieldMask
+	(*structpb.Struct)(nil),        // 9: google.protobuf.Struct
+	(*structpb.ListValue)(nil),     // 10: google.protobuf.ListValue
 }
 var file_user_proto_depIdxs = []int32{
-	4, // 0: test.v1.User.metadata:type_name -> test.v1.User.MetadataEntry
-	2, // 1: test.v1.User.address:type_name -> test.v1.Address
-	5, // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	6, // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
-	7, // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
-	0, // 5: test.v1.User.status:type_name -> test.v1.UserStatus
-	3, // 6: test.v1.User.tags:type_name -> test.v1.Tag
-	5, // 7: test.v1.User.deleted_at:type_name -> google.protobuf.Timestamp
-	0, // 8: test.v1.User.previous_status:type_name -> test.v1.UserStatus
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	4,  // 0: test.v1.User.metadata:type_name -> test.v1.User.MetadataEntry
+	2,  // 1: test.v1.User.address:type_name -> test.v1.Address
+	5,  // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	6,  // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
+	7,  // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
+	0,  // 5: test.v1.User.status:type_name -> test.v1.UserStatus
+	3,  // 6: test.v1.User.tags:type_name -> test.v1.Tag
+	5,  // 7: test.v1.User.deleted_at:type_name -> google.protobuf.Timestamp
+	0,  // 8: test.v1.User.previous_status:type_name -> test.v1.UserStatus
+	8,  // 9: test.v1.User.update_mask:type_name -> google.protobuf.FieldMask
+	9,  // 10: test.v1.User.extra_metadata:type_name -> google.protobuf.Struct
+	10, // 11: test.v1.User.preferences:type_name -> google.protobuf.ListValue
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_user_proto_init() }

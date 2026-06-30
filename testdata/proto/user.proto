@@ -1,8 +1,10 @@
 syntax = "proto3";
 package test.v1;
 
-import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
 
 option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
@@ -39,6 +41,14 @@ message User {
   repeated Tag tags = 17;
   optional google.protobuf.Timestamp deleted_at = 18;
   optional UserStatus previous_status = 19;
+
+  // WKT reference types
+  google.protobuf.FieldMask update_mask = 20;
+  google.protobuf.Struct extra_metadata = 21;
+  google.protobuf.ListValue preferences = 22;
+
+  // Optional bytes
+  optional bytes avatar_thumbnail = 23;
 }
 
 // Address is a nested message.

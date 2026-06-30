@@ -138,13 +138,13 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg *
 	generateConverters(g, msg, "", opts)
 
 	// Generate ApplyFieldMask function
-	generateGoFieldMask(g, msg)
+	generateGoFieldMask(g, dm)
 
 	// Generate Clone method (deep copy)
-	generateGoClone(g, msg, opts)
+	generateGoClone(g, dm)
 
 	// Generate Equal method (field-by-field comparison)
-	generateGoEqual(g, msg, opts)
+	generateGoEqual(g, dm)
 
 	// Generate nested messages
 	// Build a lookup for nested protogen messages.
@@ -421,65 +421,6 @@ func buildProtoMessageMap(msgs []*protogen.Message) map[string]*protogen.Message
 	}
 	walk(msgs)
 	return m
-}
-
-// goDomainFieldType returns the Go type for a proto field in a domain struct.
-// Used by converter generation (go_clone_equal.go).
-func goDomainFieldType(field *protogen.Field, opts *Options) string {
-	// Handle repeated fields
-	if field.Desc.IsList() {
-		return "[]" + goDomainSingularType(field, opts)
-	}
-
-	// Handle map fields
-	if field.Desc.IsMap() {
-		keyType := goType(field.Desc.MapKey().Kind())
-		valType := goType(field.Desc.MapValue().Kind())
-		if field.Desc.MapValue().Kind() == protoreflect.MessageKind {
-			valType = "*" + toPascalCase(string(field.Desc.MapValue().Message().Name()))
-		}
-		return fmt.Sprintf("map[%s]%s", keyType, valType)
-	}
-
-	return goDomainSingularType(field, opts)
-}
-
-// goDomainSingularType returns the Go type for a singular (non-repeated, non-map) field.
-// Used by converter generation (go_clone_equal.go).
-func goDomainSingularType(field *protogen.Field, opts *Options) string {
-	// Well-known types
-	if isWellKnownTimestamp(field) {
-		return "time.Time"
-	}
-	if isWellKnownDuration(field) {
-		return "time.Duration"
-	}
-
-	// Well-known wrapper types (e.g. google.protobuf.StringValue -> *string)
-	if isWellKnownWrapper(field) {
-		return wrapperGoType(field)
-	}
-
-	// Message types (nested)
-	if field.Desc.Kind() == protoreflect.MessageKind {
-		return "*" + toPascalCase(string(field.Desc.Message().Name()))
-	}
-
-	// Enum types
-	if field.Desc.Kind() == protoreflect.EnumKind {
-		if isEnumAsString(field, opts) {
-			return "string"
-		}
-		return "int32"
-	}
-
-	// proto3 optional scalars -> pointer types
-	if field.Desc.HasOptionalKeyword() {
-		return "*" + goType(field.Desc.Kind())
-	}
-
-	// Scalar types
-	return goType(field.Desc.Kind())
 }
 
 // shouldOmitempty returns true if a field should have the omitempty tag.

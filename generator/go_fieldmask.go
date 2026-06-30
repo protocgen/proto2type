@@ -6,8 +6,8 @@ import (
 )
 
 // generateGoFieldMask generates an ApplyFieldMask function for a domain struct.
-func generateGoFieldMask(g *protogen.GeneratedFile, msg *protogen.Message) {
-	name := msg.GoIdent.GoName
+func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
+	name := dm.Name
 
 	g.P("// ApplyFieldMask", name, " copies fields from src to dst based on the given paths.")
 	g.P("func ApplyFieldMask", name, "(dst, src *", name, ", paths []string) {")
@@ -17,36 +17,58 @@ func generateGoFieldMask(g *protogen.GeneratedFile, msg *protogen.Message) {
 	g.P("\tfor _, path := range paths {")
 	g.P("\t\tswitch path {")
 
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+	for _, f := range dm.Fields {
+		if f.IsOneof {
 			continue
 		}
-		if isFieldSkipped(field) {
-			continue
-		}
-		protoName := string(field.Desc.Name())
-		fieldName := toPascalCase(protoName)
-		g.P("\t\tcase \"", protoName, "\":")
-		if field.Desc.Kind() == protoreflect.BytesKind {
-			// Deep copy bytes fields (SEC-3)
-			g.P("\t\t\tif src.", fieldName, " != nil {")
-			g.P("\t\t\t\tdst.", fieldName, " = make([]byte, len(src.", fieldName, "))")
-			g.P("\t\t\t\tcopy(dst.", fieldName, ", src.", fieldName, ")")
+		g.P("\t\tcase \"", f.Name, "\":")
+		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && f.Optional {
+			// Deep copy optional bytes (*[]byte): deref, copy, re-ref
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tb := make([]byte, len(*src.", f.PascalName, "))")
+			g.P("\t\t\t\tcopy(b, *src.", f.PascalName, ")")
+			g.P("\t\t\t\tdst.", f.PascalName, " = &b")
 			g.P("\t\t\t} else {")
-			g.P("\t\t\t\tdst.", fieldName, " = nil")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
 			g.P("\t\t\t}")
-		} else if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() && !isWellKnownType(field) {
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
+			// Deep copy bytes fields (SEC-3)
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make([]byte, len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tcopy(dst.", f.PascalName, ", src.", f.PascalName, ")")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
+		} else if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
 			// Deep copy user-defined message pointer fields (GO-2).
 			// WKTs (Timestamp, Duration, wrappers) map to Go value types
 			// and don't need pointer deep copy.
-			g.P("\t\t\tif src.", fieldName, " != nil {")
-			g.P("\t\t\t\tclone := *src.", fieldName)
-			g.P("\t\t\t\tdst.", fieldName, " = &clone")
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tclone := *src.", f.PascalName)
+			g.P("\t\t\t\tdst.", f.PascalName, " = &clone")
 			g.P("\t\t\t} else {")
-			g.P("\t\t\t\tdst.", fieldName, " = nil")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
+		} else if (f.Kind == FieldKindFieldMask || f.Kind == FieldKindListValue) && !f.Repeated && !f.IsMap {
+			// Deep copy singular slice WKTs ([]string or []any)
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make(", goDomainFieldTypeFromIR(f), ", len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tcopy(dst.", f.PascalName, ", src.", f.PascalName, ")")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
+		} else if f.Kind == FieldKindStruct && !f.Repeated && !f.IsMap {
+			// Deep copy singular map WKT (map[string]any)
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make(map[string]any, len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tfor k, v := range src.", f.PascalName, " {")
+			g.P("\t\t\t\t\tdst.", f.PascalName, "[k] = v")
+			g.P("\t\t\t\t}")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
 			g.P("\t\t\t}")
 		} else {
-			g.P("\t\t\tdst.", fieldName, " = src.", fieldName)
+			g.P("\t\t\tdst.", f.PascalName, " = src.", f.PascalName)
 		}
 	}
 

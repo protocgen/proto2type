@@ -63,7 +63,12 @@ data class User(
     @SerialName("contact_method") val contactMethod: UserContactMethod? = null,
     val tags: List<Tag> = emptyList(),
     @SerialName("deleted_at") val deletedAt: Instant? = null,
-    @SerialName("previous_status") val previousStatus: UserStatus? = null
+    @SerialName("previous_status") val previousStatus: UserStatus? = null,
+    @SerialName("update_mask") val updateMask: List<String> = emptyList(),
+    @SerialName("extra_metadata") val extraMetadata: Map<String, Any?> = emptyMap(),
+    val preferences: List<Any?> = emptyList(),
+    // Note: ByteArray uses referential equality. Override equals()/hashCode() if needed.
+    @SerialName("avatar_thumbnail") val avatarThumbnail: ByteArray? = null
 )
 
 /** Address is a nested message. */

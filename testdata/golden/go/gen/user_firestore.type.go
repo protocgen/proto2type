@@ -7,31 +7,38 @@ package gen
 import (
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
+	log "log"
 )
 
 import "time"
 
 // UserFirestore is the Firestore storage representation of test.v1.User.
 type UserFirestore struct {
-	ID             string            `firestore:"id,omitempty"`
-	Email          string            `firestore:"email,omitempty"`
-	DisplayName    string            `firestore:"display_name,omitempty"`
-	Active         bool              `firestore:"active,omitempty"`
-	Age            int32             `firestore:"age,omitempty"`
-	Roles          []string          `firestore:"roles,omitempty"`
-	Metadata       map[string]string `firestore:"metadata,omitempty"`
-	Address        *AddressFirestore `firestore:"address,omitempty"`
-	CreatedAt      time.Time         `firestore:"created_at,omitempty"`
-	SessionTimeout time.Duration     `firestore:"session_timeout,omitempty"`
-	Phone          *string           `firestore:"phone,omitempty"`
-	Avatar         []byte            `firestore:"avatar,omitempty"`
-	Nickname       *string           `firestore:"nickname,omitempty"`
-	Status         int32             `firestore:"status,omitempty"`
-	Tags           []*TagFirestore   `firestore:"tags,omitempty"`
-	DeletedAt      time.Time         `firestore:"deleted_at,omitempty"`
-	PreviousStatus int32             `firestore:"previous_status,omitempty"`
+	ID              string            `firestore:"id,omitempty"`
+	Email           string            `firestore:"email,omitempty"`
+	DisplayName     string            `firestore:"display_name,omitempty"`
+	Active          bool              `firestore:"active,omitempty"`
+	Age             int32             `firestore:"age,omitempty"`
+	Roles           []string          `firestore:"roles,omitempty"`
+	Metadata        map[string]string `firestore:"metadata,omitempty"`
+	Address         *AddressFirestore `firestore:"address,omitempty"`
+	CreatedAt       time.Time         `firestore:"created_at,omitempty"`
+	SessionTimeout  time.Duration     `firestore:"session_timeout,omitempty"`
+	Phone           *string           `firestore:"phone,omitempty"`
+	Avatar          []byte            `firestore:"avatar,omitempty"`
+	Nickname        *string           `firestore:"nickname,omitempty"`
+	Status          int32             `firestore:"status,omitempty"`
+	Tags            []*TagFirestore   `firestore:"tags,omitempty"`
+	DeletedAt       time.Time         `firestore:"deleted_at,omitempty"`
+	PreviousStatus  int32             `firestore:"previous_status,omitempty"`
+	UpdateMask      []string          `firestore:"update_mask,omitempty"`
+	ExtraMetadata   map[string]any    `firestore:"extra_metadata,omitempty"`
+	Preferences     []any             `firestore:"preferences,omitempty"`
+	AvatarThumbnail *[]byte           `firestore:"avatar_thumbnail,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -80,6 +87,31 @@ func (u *UserFirestore) ToProto() *pb.User {
 	if u.PreviousStatus != 0 {
 		v := pb.UserStatus(u.PreviousStatus)
 		out.PreviousStatus = &v
+	}
+	if len(u.UpdateMask) > 0 {
+		paths := make([]string, len(u.UpdateMask))
+		copy(paths, u.UpdateMask)
+		out.UpdateMask = &fieldmaskpb.FieldMask{Paths: paths}
+	}
+	if len(u.ExtraMetadata) > 0 {
+		var err error
+		out.ExtraMetadata, err = structpb.NewStruct(u.ExtraMetadata)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.ExtraMetadata to Struct: %v", "UserFirestore", err)
+			out.ExtraMetadata = nil
+		}
+	}
+	if len(u.Preferences) > 0 {
+		var err error
+		out.Preferences, err = structpb.NewList(u.Preferences)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.Preferences to ListValue: %v", "UserFirestore", err)
+			out.Preferences = nil
+		}
+	}
+	if u.AvatarThumbnail != nil {
+		out.AvatarThumbnail = make([]byte, len(*u.AvatarThumbnail))
+		copy(out.AvatarThumbnail, *u.AvatarThumbnail)
 	}
 	return out
 }
@@ -132,6 +164,22 @@ func (u *UserFirestore) FromProto(pb *pb.User) {
 	if pb.PreviousStatus != nil {
 		u.PreviousStatus = int32(pb.GetPreviousStatus())
 	}
+	if pb.UpdateMask != nil {
+		src := pb.UpdateMask.GetPaths()
+		u.UpdateMask = make([]string, len(src))
+		copy(u.UpdateMask, src)
+	}
+	if pb.ExtraMetadata != nil {
+		u.ExtraMetadata = pb.ExtraMetadata.AsMap()
+	}
+	if pb.Preferences != nil {
+		u.Preferences = pb.Preferences.AsSlice()
+	}
+	if pb.AvatarThumbnail != nil {
+		b := make([]byte, len(pb.AvatarThumbnail))
+		copy(b, pb.AvatarThumbnail)
+		u.AvatarThumbnail = &b
+	}
 }
 
 // ToDomain converts to the domain type.
@@ -152,10 +200,18 @@ func (u *UserFirestore) ToDomain() *User {
 		Phone:          u.Phone,
 		Nickname:       u.Nickname,
 		Status:         u.Status,
+		UpdateMask:     u.UpdateMask,
+		ExtraMetadata:  u.ExtraMetadata,
+		Preferences:    u.Preferences,
 	}
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
 		copy(d.Avatar, u.Avatar)
+	}
+	if u.AvatarThumbnail != nil {
+		b := make([]byte, len(*u.AvatarThumbnail))
+		copy(b, *u.AvatarThumbnail)
+		d.AvatarThumbnail = &b
 	}
 	vDeletedAt := u.DeletedAt
 	d.DeletedAt = &vDeletedAt
@@ -215,6 +271,14 @@ func (u *UserFirestore) FromDomain(d *User) {
 	}
 	if d.PreviousStatus != nil {
 		u.PreviousStatus = *d.PreviousStatus
+	}
+	u.UpdateMask = d.UpdateMask
+	u.ExtraMetadata = d.ExtraMetadata
+	u.Preferences = d.Preferences
+	if d.AvatarThumbnail != nil {
+		b := make([]byte, len(*d.AvatarThumbnail))
+		copy(b, *d.AvatarThumbnail)
+		u.AvatarThumbnail = &b
 	}
 }
 
