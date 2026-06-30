@@ -507,9 +507,9 @@ func TestKotlinDurationImportDecision(t *testing.T) {
 // TestKotlinGoldenFiles verifies that golden Kotlin files contain expected patterns.
 func TestKotlinGoldenFiles(t *testing.T) {
 	files := []struct {
-		path            string
-		mustContain     []string
-		mustNotContain  []string
+		path           string
+		mustContain    []string
+		mustNotContain []string
 	}{
 		{
 			"../testdata/golden/kotlin/gen/user.type.kt",

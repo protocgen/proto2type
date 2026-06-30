@@ -37,6 +37,8 @@ message User {
     string contact_phone = 16;
   }
   repeated Tag tags = 17;
+  optional google.protobuf.Timestamp deleted_at = 18;
+  optional UserStatus previous_status = 19;
 }
 
 // Address is a nested message.
