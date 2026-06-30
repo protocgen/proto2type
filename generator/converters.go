@@ -145,13 +145,15 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			g.P("\t\tout.", protoFieldName, " = ", wrapperFunc, "(*", recv, ".", domainFieldName, ")")
 			g.P("\t}")
 		} else if isWellKnownFieldMask(field) {
-			// FieldMask: domain []string → proto *fieldmaskpb.FieldMask
+			// FieldMask: domain []string → proto *fieldmaskpb.FieldMask (defensive copy per SEC-3)
 			fmIdent := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/fieldmaskpb",
 				GoName:       "FieldMask",
 			})
 			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
-			g.P("\t\tout.", protoFieldName, " = &", fmIdent, "{Paths: ", recv, ".", domainFieldName, "}")
+			g.P("\t\tpaths := make([]string, len(", recv, ".", domainFieldName, "))")
+			g.P("\t\tcopy(paths, ", recv, ".", domainFieldName, ")")
+			g.P("\t\tout.", protoFieldName, " = &", fmIdent, "{Paths: paths}")
 			g.P("\t}")
 		} else if isWellKnownStruct(field) {
 			// Struct: domain map[string]any → proto *structpb.Struct
@@ -159,10 +161,15 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 				GoImportPath: "google.golang.org/protobuf/types/known/structpb",
 				GoName:       "NewStruct",
 			})
+			logPrintf := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "log",
+				GoName:       "Printf",
+			})
 			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
 			g.P("\t\tvar err error")
 			g.P("\t\tout.", protoFieldName, ", err = ", structNew, "(", recv, ".", domainFieldName, ")")
 			g.P("\t\tif err != nil {")
+			g.P("\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, " to Struct: %v\", \"", structName, "\", err)")
 			g.P("\t\t\tout.", protoFieldName, " = nil")
 			g.P("\t\t}")
 			g.P("\t}")
@@ -172,10 +179,15 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 				GoImportPath: "google.golang.org/protobuf/types/known/structpb",
 				GoName:       "NewList",
 			})
+			logPrintf2 := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "log",
+				GoName:       "Printf",
+			})
 			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
 			g.P("\t\tvar err error")
 			g.P("\t\tout.", protoFieldName, ", err = ", listNew, "(", recv, ".", domainFieldName, ")")
 			g.P("\t\tif err != nil {")
+			g.P("\t\t\t", logPrintf2, "(\"proto2type: failed to convert %s.", domainFieldName, " to ListValue: %v\", \"", structName, "\", err)")
 			g.P("\t\t\tout.", protoFieldName, " = nil")
 			g.P("\t\t}")
 			g.P("\t}")
@@ -292,9 +304,11 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 			g.P("\t\t", recv, ".", domainFieldName, " = &v")
 			g.P("\t}")
 		} else if isWellKnownFieldMask(field) {
-			// FieldMask: proto *fieldmaskpb.FieldMask → domain []string
+			// FieldMask: proto *fieldmaskpb.FieldMask → domain []string (defensive copy per SEC-3)
 			g.P("\tif pb.", protoFieldName, " != nil {")
-			g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".GetPaths()")
+			g.P("\t\tsrc := pb.", protoFieldName, ".GetPaths()")
+			g.P("\t\t", recv, ".", domainFieldName, " = make([]string, len(src))")
+			g.P("\t\tcopy(", recv, ".", domainFieldName, ", src)")
 			g.P("\t}")
 		} else if isWellKnownStruct(field) {
 			// Struct: proto *structpb.Struct → domain map[string]any

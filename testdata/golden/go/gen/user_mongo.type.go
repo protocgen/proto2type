@@ -11,6 +11,7 @@ import (
 	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
+	log "log"
 )
 
 import "time"
@@ -88,12 +89,15 @@ func (u *UserMongo) ToProto() *pb.User {
 		out.PreviousStatus = &v
 	}
 	if len(u.UpdateMask) > 0 {
-		out.UpdateMask = &fieldmaskpb.FieldMask{Paths: u.UpdateMask}
+		paths := make([]string, len(u.UpdateMask))
+		copy(paths, u.UpdateMask)
+		out.UpdateMask = &fieldmaskpb.FieldMask{Paths: paths}
 	}
 	if len(u.ExtraMetadata) > 0 {
 		var err error
 		out.ExtraMetadata, err = structpb.NewStruct(u.ExtraMetadata)
 		if err != nil {
+			log.Printf("proto2type: failed to convert %s.ExtraMetadata to Struct: %v", "UserMongo", err)
 			out.ExtraMetadata = nil
 		}
 	}
@@ -101,6 +105,7 @@ func (u *UserMongo) ToProto() *pb.User {
 		var err error
 		out.Preferences, err = structpb.NewList(u.Preferences)
 		if err != nil {
+			log.Printf("proto2type: failed to convert %s.Preferences to ListValue: %v", "UserMongo", err)
 			out.Preferences = nil
 		}
 	}
@@ -160,7 +165,9 @@ func (u *UserMongo) FromProto(pb *pb.User) {
 		u.PreviousStatus = int32(pb.GetPreviousStatus())
 	}
 	if pb.UpdateMask != nil {
-		u.UpdateMask = pb.UpdateMask.GetPaths()
+		src := pb.UpdateMask.GetPaths()
+		u.UpdateMask = make([]string, len(src))
+		copy(u.UpdateMask, src)
 	}
 	if pb.ExtraMetadata != nil {
 		u.ExtraMetadata = pb.ExtraMetadata.AsMap()
