@@ -1,0 +1,14 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - user.proto
+      - catalog.proto
+      - keywords.proto
+      - complex.proto
+plugins:
+  - local: protoc-gen-proto2type
+    out: ../golden/kotlin/gen
+    opt:
+      - paths=source_relative
+      - lang=kotlin

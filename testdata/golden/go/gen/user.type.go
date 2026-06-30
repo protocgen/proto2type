@@ -31,6 +31,8 @@ type User struct {
 	Nickname       *string           `json:"nickname,omitempty"`
 	Status         int32             `json:"status,omitempty"`
 	Tags           []*Tag            `json:"tags,omitempty"`
+	DeletedAt      *time.Time        `json:"deleted_at,omitempty"`
+	PreviousStatus *int32            `json:"previous_status,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -72,6 +74,13 @@ func (u *User) ToProto() *pb.User {
 				out.Tags[i] = v.ToProto()
 			}
 		}
+	}
+	if u.DeletedAt != nil {
+		out.DeletedAt = timestamppb.New(*u.DeletedAt)
+	}
+	if u.PreviousStatus != nil {
+		v := pb.UserStatus(*u.PreviousStatus)
+		out.PreviousStatus = &v
 	}
 	return out
 }
@@ -118,6 +127,14 @@ func (u *User) FromProto(pb *pb.User) {
 			}
 		}
 	}
+	if pb.DeletedAt != nil {
+		v := pb.DeletedAt.AsTime()
+		u.DeletedAt = &v
+	}
+	if pb.PreviousStatus != nil {
+		v := int32(pb.GetPreviousStatus())
+		u.PreviousStatus = &v
+	}
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
@@ -162,6 +179,10 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			dst.Status = src.Status
 		case "tags":
 			dst.Tags = src.Tags
+		case "deleted_at":
+			dst.DeletedAt = src.DeletedAt
+		case "previous_status":
+			dst.PreviousStatus = src.PreviousStatus
 		}
 	}
 }
@@ -188,6 +209,14 @@ func (u *User) Clone() *User {
 	if u.Nickname != nil {
 		v := *u.Nickname
 		c.Nickname = &v
+	}
+	if u.DeletedAt != nil {
+		v := *u.DeletedAt
+		c.DeletedAt = &v
+	}
+	if u.PreviousStatus != nil {
+		v := *u.PreviousStatus
+		c.PreviousStatus = &v
 	}
 	if u.Roles != nil {
 		c.Roles = make([]string, len(u.Roles))
@@ -305,6 +334,18 @@ func (u *User) Equal(other *User) bool {
 		if u.Tags[i] != nil && !u.Tags[i].Equal(other.Tags[i]) {
 			return false
 		}
+	}
+	if (u.DeletedAt == nil) != (other.DeletedAt == nil) {
+		return false
+	}
+	if u.DeletedAt != nil && *u.DeletedAt != *other.DeletedAt {
+		return false
+	}
+	if (u.PreviousStatus == nil) != (other.PreviousStatus == nil) {
+		return false
+	}
+	if u.PreviousStatus != nil && *u.PreviousStatus != *other.PreviousStatus {
+		return false
 	}
 	return true
 }

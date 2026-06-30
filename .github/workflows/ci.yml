@@ -95,10 +95,14 @@ jobs:
         run: echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Regenerate golden files
-        run: cd testdata/proto && buf generate
+        run: |
+          cd testdata/proto
+          buf generate
+          buf generate --template buf.gen.kotlin.yaml
+          buf generate --template buf.gen.complex-domain.yaml
 
       - name: Check for differences
-        run: git diff --exit-code
+        run: git diff --exit-code testdata/golden/
 
   golden-test-rust:
     runs-on: ubuntu-latest
@@ -121,7 +125,10 @@ jobs:
         run: echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Regenerate Rust golden files
-        run: cd testdata/proto && buf generate --template buf.gen.rust.yaml
+        run: |
+          cd testdata/proto
+          buf generate --template buf.gen.rust.yaml
+          buf generate --template buf.gen.complex-domain.yaml
 
       - name: Check for Rust golden file drift
         run: git diff --exit-code testdata/golden/rust/

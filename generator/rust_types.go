@@ -301,3 +301,81 @@ func stripEnumPrefix(enumName, valueName string) string {
 	// Convert UPPER_SNAKE to PascalCase
 	return toPascalCase(strings.ToLower(stripped))
 }
+
+// hasOneofFields returns true if the message has real (non-synthetic) oneof groups.
+func hasOneofFields(msg *protogen.Message) bool {
+	for _, field := range msg.Fields {
+		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			return true
+		}
+	}
+	return false
+}
+
+// scanRustImports scans a message (and its nested messages) for types that require imports.
+func scanRustImports(msg *protogen.Message, needsChrono, needsHashMap, needsSerdeJSON *bool) {
+	if isMessageSkipped(msg) {
+		return
+	}
+	for _, field := range msg.Fields {
+		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+			continue
+		}
+		if isFieldSkipped(field) {
+			continue
+		}
+		if isWellKnownTimestamp(field) {
+			*needsChrono = true
+		}
+		if field.Desc.IsMap() {
+			*needsHashMap = true
+		}
+		if isWellKnownStruct(field) || isWellKnownValue(field) || isWellKnownListValue(field) || isWellKnownAny(field) {
+			*needsSerdeJSON = true
+		}
+	}
+	for _, nested := range msg.Messages {
+		if nested.Desc.IsMapEntry() {
+			continue
+		}
+		scanRustImports(nested, needsChrono, needsHashMap, needsSerdeJSON)
+	}
+}
+
+// rustOneofVariantType returns the Rust type for a oneof variant field.
+func rustOneofVariantType(field *protogen.Field, opts *Options) string {
+	if isWellKnownTimestamp(field) {
+		return "DateTime<Utc>"
+	}
+	if isWellKnownDuration(field) {
+		return "i64"
+	}
+	if isWellKnownWrapper(field) {
+		return rustWrapperType(field)
+	}
+	if isWellKnownStruct(field) {
+		return "serde_json::Map<String, serde_json::Value>"
+	}
+	if isWellKnownValue(field) {
+		return "serde_json::Value"
+	}
+	if isWellKnownListValue(field) {
+		return "Vec<serde_json::Value>"
+	}
+	if isWellKnownFieldMask(field) {
+		return "Vec<String>"
+	}
+	if isWellKnownEmpty(field) {
+		return "()"
+	}
+	if field.Desc.Kind() == protoreflect.MessageKind {
+		return "Box<" + rustMessageName(field.Message) + ">"
+	}
+	if field.Desc.Kind() == protoreflect.EnumKind {
+		if isEnumAsString(field, opts) {
+			return "String"
+		}
+		return rustEnumTypeName(field)
+	}
+	return rustType(field.Desc.Kind())
+}

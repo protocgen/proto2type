@@ -153,3 +153,51 @@ func escapeRustKeyword(name string) string {
 	}
 	return name
 }
+
+// toCamelCase converts a snake_case string to lowerCamelCase.
+// e.g. "display_name" -> "displayName", "model_id" -> "modelId"
+func toCamelCase(s string) string {
+	parts := strings.Split(s, "_")
+	if len(parts) == 0 {
+		return s
+	}
+	var b strings.Builder
+	first := true
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		if first {
+			// First non-empty segment stays lowercase.
+			b.WriteString(strings.ToLower(part))
+			first = false
+		} else {
+			// Subsequent segments get capitalised first letter.
+			runes := []rune(part)
+			runes[0] = unicode.ToUpper(runes[0])
+			b.WriteString(string(runes))
+		}
+	}
+	return b.String()
+}
+
+// kotlinKeywords is the set of Kotlin hard keywords that must be escaped
+// with backticks to be used as identifiers.
+var kotlinKeywords = map[string]bool{
+	"as": true, "break": true, "class": true, "continue": true,
+	"do": true, "else": true, "false": true, "for": true,
+	"fun": true, "if": true, "in": true, "interface": true,
+	"is": true, "null": true, "object": true, "package": true,
+	"return": true, "super": true, "this": true, "throw": true,
+	"true": true, "try": true, "typealias": true, "typeof": true,
+	"val": true, "var": true, "when": true, "while": true,
+}
+
+// escapeKotlinKeyword wraps Kotlin reserved words in backticks.
+// e.g. "val" -> "`val`", "name" -> "name" (unchanged).
+func escapeKotlinKeyword(name string) string {
+	if kotlinKeywords[name] {
+		return "`" + name + "`"
+	}
+	return name
+}

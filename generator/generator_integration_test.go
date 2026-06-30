@@ -609,3 +609,118 @@ func TestRustNestedMessageDetection_Integration(t *testing.T) {
 		t.Errorf("isNestedMessage(tags) = true, want false (it's repeated)")
 	}
 }
+
+// --- IR-based Integration Tests ---
+
+func TestRustDomainFieldTypeFromIR_SpecificTypes(t *testing.T) {
+	fds := buildFileDescriptorSet(t)
+	gen := newPlugin(t, fds, []string{"user.proto"})
+	opts := &Options{Lang: "rust", Domain: true}
+	user := irFindDomainMessageInPlugin(t, gen, opts, "User")
+
+	tests := []struct {
+		field string
+		want  string
+	}{
+		{"email", "String"},
+		{"created_at", "DateTime<Utc>"},
+		{"active", "bool"},
+		{"age", "i32"},
+		{"roles", "Vec<String>"},
+		{"metadata", "HashMap<String, String>"},
+		{"address", "Option<Box<Address>>"},
+		{"session_timeout", "i64"},
+		{"phone", "Option<String>"},
+		{"avatar", "Vec<u8>"},
+		{"nickname", "Option<String>"},
+		{"status", "UserStatus"},
+		{"tags", "Vec<Tag>"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.field, func(t *testing.T) {
+			df := irFindField(t, user, tt.field)
+			got := rustDomainFieldTypeFromIR(df)
+			if got != tt.want {
+				t.Errorf("rustDomainFieldTypeFromIR(%q) = %q, want %q", tt.field, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIRScanRustImports_Integration(t *testing.T) {
+	fds := buildFileDescriptorSet(t)
+	gen := newPlugin(t, fds, []string{"user.proto"})
+	opts := &Options{Lang: "rust", Domain: true}
+
+	// User has Timestamp and map fields.
+	user := irFindDomainMessageInPlugin(t, gen, opts, "User")
+	var needsChrono, needsHashMap, needsSerdeJSON bool
+	irScanRustImports(user, &needsChrono, &needsHashMap, &needsSerdeJSON)
+
+	if !needsChrono {
+		t.Errorf("irScanRustImports(User): needsChrono = false, want true (User has Timestamp)")
+	}
+	if !needsHashMap {
+		t.Errorf("irScanRustImports(User): needsHashMap = false, want true (User has map field)")
+	}
+
+	// Address has no Timestamps, maps, or JSON WKTs — all should be false.
+	addr := irFindDomainMessageInPlugin(t, gen, opts, "Address")
+	var addrChrono, addrHashMap, addrSerdeJSON bool
+	irScanRustImports(addr, &addrChrono, &addrHashMap, &addrSerdeJSON)
+
+	if addrChrono {
+		t.Errorf("irScanRustImports(Address): needsChrono = true, want false")
+	}
+	if addrHashMap {
+		t.Errorf("irScanRustImports(Address): needsHashMap = true, want false")
+	}
+	if addrSerdeJSON {
+		t.Errorf("irScanRustImports(Address): needsSerdeJSON = true, want false")
+	}
+}
+
+func TestRustOneofVariantTypeFromIR_Integration(t *testing.T) {
+	fds := buildFileDescriptorSet(t)
+	gen := newPlugin(t, fds, []string{"user.proto"})
+	opts := &Options{Lang: "rust", Domain: true}
+	user := irFindDomainMessageInPlugin(t, gen, opts, "User")
+
+	if len(user.Oneofs) != 1 {
+		t.Fatalf("expected 1 DomainOneof in User, got %d", len(user.Oneofs))
+	}
+
+	oneof := user.Oneofs[0]
+	for _, v := range oneof.Variants {
+		t.Run(v.Name, func(t *testing.T) {
+			got := rustOneofVariantTypeFromIR(v)
+			// Both contact_email and contact_phone are strings.
+			if got != "String" {
+				t.Errorf("rustOneofVariantTypeFromIR(%q) = %q, want %q", v.Name, got, "String")
+			}
+		})
+	}
+}
+
+func TestRustDomainFieldTypeFromIR_Integration(t *testing.T) {
+	fds := buildFileDescriptorSet(t)
+	gen := newPlugin(t, fds, []string{"user.proto"})
+	opts := &Options{Lang: "rust", Domain: true}
+	user := irFindDomainMessageInPlugin(t, gen, opts, "User")
+
+	for _, f := range user.Fields {
+		// Skip collapsed oneof placeholders.
+		if f.IsOneof {
+			continue
+		}
+
+		t.Run(f.Name, func(t *testing.T) {
+			got := rustDomainFieldTypeFromIR(f)
+			if got == "" {
+				t.Errorf("rustDomainFieldTypeFromIR(%q) returned empty string", f.Name)
+			}
+			t.Logf("  %s -> %s", f.Name, got)
+		})
+	}
+}

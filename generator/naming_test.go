@@ -210,3 +210,83 @@ func FuzzToSnakeCase(f *testing.F) {
 		}
 	})
 }
+
+func TestToCamelCase(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"display_name", "displayName"},
+		{"model_id", "modelId"},
+		{"email", "email"},
+		{"created_at", "createdAt"},
+		{"session_timeout", "sessionTimeout"},
+		{"input_per_million", "inputPerMillion"},
+		{"id", "id"},
+		{"a_b_c", "aBC"},
+		{"", ""},
+		{"_leading", "leading"},
+		{"trailing_", "trailing"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := toCamelCase(tt.input)
+			if got != tt.want {
+				t.Errorf("toCamelCase(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEscapeKotlinKeyword(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		// Keywords that should be escaped.
+		{"val", "`val`"},
+		{"var", "`var`"},
+		{"fun", "`fun`"},
+		{"class", "`class`"},
+		{"object", "`object`"},
+		{"when", "`when`"},
+		{"is", "`is`"},
+		{"in", "`in`"},
+		{"return", "`return`"},
+		{"this", "`this`"},
+		{"super", "`super`"},
+		{"true", "`true`"},
+		{"false", "`false`"},
+		{"null", "`null`"},
+		{"as", "`as`"},
+		{"break", "`break`"},
+		{"continue", "`continue`"},
+		{"do", "`do`"},
+		{"else", "`else`"},
+		{"for", "`for`"},
+		{"if", "`if`"},
+		{"interface", "`interface`"},
+		{"package", "`package`"},
+		{"throw", "`throw`"},
+		{"try", "`try`"},
+		{"typealias", "`typealias`"},
+		{"typeof", "`typeof`"},
+		{"while", "`while`"},
+		// Non-keywords should pass through unchanged.
+		{"name", "name"},
+		{"email", "email"},
+		{"displayName", "displayName"},
+		{"value", "value"},
+		{"Type", "Type"}, // case-sensitive; "Type" is not a keyword
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := escapeKotlinKeyword(tt.input)
+			if got != tt.want {
+				t.Errorf("escapeKotlinKeyword(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

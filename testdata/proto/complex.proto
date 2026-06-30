@@ -1,0 +1,93 @@
+syntax = "proto3";
+package test.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/wrappers.proto";
+import "proto2type/options.proto";
+
+option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
+
+// Non-contiguous enum values.
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  PRIORITY_LOW = 10;
+  PRIORITY_MEDIUM = 20;
+  PRIORITY_HIGH = 30;
+  PRIORITY_CRITICAL = 100;
+}
+
+// Message with a nested enum.
+message Settings {
+  enum Theme {
+    THEME_UNSPECIFIED = 0;
+    THEME_LIGHT = 1;
+    THEME_DARK = 2;
+  }
+  Theme theme = 1;
+  string locale = 2;
+}
+
+// Deeply nested messages (3 levels).
+message Organization {
+  string name = 1;
+  
+  message Department {
+    string name = 1;
+    
+    message Team {
+      string name = 1;
+      repeated string members = 2;
+    }
+    repeated Team teams = 2;
+  }
+  repeated Department departments = 2;
+}
+
+// Multiple oneofs.
+message Notification {
+  string id = 1;
+  
+  oneof channel {
+    string email = 2;
+    string sms = 3;
+    string push_token = 4;
+  }
+  
+  oneof content {
+    string plain_text = 5;
+    string html = 6;
+  }
+  
+  Priority priority = 7;
+}
+
+// Map with message values and various WKTs.
+message Document {
+  string id = 1;
+  map<string, Settings> settings_map = 2;
+  map<int32, string> code_names = 3;
+  google.protobuf.Struct metadata = 4;
+  google.protobuf.Any extension = 5;
+  google.protobuf.FieldMask update_mask = 6;
+  google.protobuf.BoolValue archived = 7;
+  google.protobuf.Int64Value view_count = 8;
+  repeated google.protobuf.Empty placeholders = 9;
+}
+
+// Recursive/self-referencing message.
+message TreeNode {
+  string value = 1;
+  repeated TreeNode children = 2;
+  TreeNode parent = 3;
+}
+
+// Message with skipped field and name override.
+message AuditLog {
+  string id = 1 [(proto2type.field).document_id = true];
+  string action = 2;
+  string internal_notes = 3 [(proto2type.field).skip = true];
+  string user_id = 4 [(proto2type.field).name = "actor"];
+}

@@ -98,10 +98,12 @@ type User struct {
 	//
 	//	*User_ContactEmail
 	//	*User_ContactPhone
-	ContactMethod isUser_ContactMethod `protobuf_oneof:"contact_method"`
-	Tags          []*Tag               `protobuf:"bytes,17,rep,name=tags,proto3" json:"tags,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ContactMethod  isUser_ContactMethod   `protobuf_oneof:"contact_method"`
+	Tags           []*Tag                 `protobuf:"bytes,17,rep,name=tags,proto3" json:"tags,omitempty"`
+	DeletedAt      *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=deleted_at,json=deletedAt,proto3,oneof" json:"deleted_at,omitempty"`
+	PreviousStatus *UserStatus            `protobuf:"varint,19,opt,name=previous_status,json=previousStatus,proto3,enum=test.v1.UserStatus,oneof" json:"previous_status,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *User) Reset() {
@@ -264,6 +266,20 @@ func (x *User) GetTags() []*Tag {
 	return nil
 }
 
+func (x *User) GetDeletedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.DeletedAt
+	}
+	return nil
+}
+
+func (x *User) GetPreviousStatus() UserStatus {
+	if x != nil && x.PreviousStatus != nil {
+		return *x.PreviousStatus
+	}
+	return UserStatus_USER_STATUS_UNSPECIFIED
+}
+
 type isUser_ContactMethod interface {
 	isUser_ContactMethod()
 }
@@ -415,7 +431,7 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xd6\x05\n" +
+	"user.proto\x12\atest.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xfc\x06\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
@@ -435,12 +451,17 @@ const file_user_proto_rawDesc = "" +
 	"\x06status\x18\x0e \x01(\x0e2\x13.test.v1.UserStatusR\x06status\x12%\n" +
 	"\rcontact_email\x18\x0f \x01(\tH\x00R\fcontactEmail\x12%\n" +
 	"\rcontact_phone\x18\x10 \x01(\tH\x00R\fcontactPhone\x12 \n" +
-	"\x04tags\x18\x11 \x03(\v2\f.test.v1.TagR\x04tags\x1a;\n" +
+	"\x04tags\x18\x11 \x03(\v2\f.test.v1.TagR\x04tags\x12>\n" +
+	"\n" +
+	"deleted_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampH\x02R\tdeletedAt\x88\x01\x01\x12A\n" +
+	"\x0fprevious_status\x18\x13 \x01(\x0e2\x13.test.v1.UserStatusH\x03R\x0epreviousStatus\x88\x01\x01\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x10\n" +
 	"\x0econtact_methodB\b\n" +
-	"\x06_phone\"w\n" +
+	"\x06_phoneB\r\n" +
+	"\v_deleted_atB\x12\n" +
+	"\x10_previous_status\"w\n" +
 	"\aAddress\x12\x16\n" +
 	"\x06street\x18\x01 \x01(\tR\x06street\x12\x12\n" +
 	"\x04city\x18\x02 \x01(\tR\x04city\x12\x14\n" +
@@ -489,11 +510,13 @@ var file_user_proto_depIdxs = []int32{
 	7, // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
 	0, // 5: test.v1.User.status:type_name -> test.v1.UserStatus
 	3, // 6: test.v1.User.tags:type_name -> test.v1.Tag
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	5, // 7: test.v1.User.deleted_at:type_name -> google.protobuf.Timestamp
+	0, // 8: test.v1.User.previous_status:type_name -> test.v1.UserStatus
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_user_proto_init() }

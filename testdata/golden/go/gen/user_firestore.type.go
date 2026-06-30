@@ -30,6 +30,8 @@ type UserFirestore struct {
 	Nickname       *string           `firestore:"nickname,omitempty"`
 	Status         int32             `firestore:"status,omitempty"`
 	Tags           []*TagFirestore   `firestore:"tags,omitempty"`
+	DeletedAt      time.Time         `firestore:"deleted_at,omitempty"`
+	PreviousStatus int32             `firestore:"previous_status,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -71,6 +73,13 @@ func (u *UserFirestore) ToProto() *pb.User {
 				out.Tags[i] = v.ToProto()
 			}
 		}
+	}
+	if !u.DeletedAt.IsZero() {
+		out.DeletedAt = timestamppb.New(u.DeletedAt)
+	}
+	if u.PreviousStatus != 0 {
+		v := pb.UserStatus(u.PreviousStatus)
+		out.PreviousStatus = &v
 	}
 	return out
 }
@@ -117,6 +126,12 @@ func (u *UserFirestore) FromProto(pb *pb.User) {
 			}
 		}
 	}
+	if pb.DeletedAt != nil {
+		u.DeletedAt = pb.DeletedAt.AsTime()
+	}
+	if pb.PreviousStatus != nil {
+		u.PreviousStatus = int32(pb.GetPreviousStatus())
+	}
 }
 
 // ToDomain converts to the domain type.
@@ -142,6 +157,10 @@ func (u *UserFirestore) ToDomain() *User {
 		d.Avatar = make([]byte, len(u.Avatar))
 		copy(d.Avatar, u.Avatar)
 	}
+	vDeletedAt := u.DeletedAt
+	d.DeletedAt = &vDeletedAt
+	vPreviousStatus := u.PreviousStatus
+	d.PreviousStatus = &vPreviousStatus
 	if u.Address != nil {
 		d.Address = u.Address.ToDomain()
 	}
@@ -190,6 +209,12 @@ func (u *UserFirestore) FromDomain(d *User) {
 				u.Tags[i] = elem
 			}
 		}
+	}
+	if d.DeletedAt != nil {
+		u.DeletedAt = *d.DeletedAt
+	}
+	if d.PreviousStatus != nil {
+		u.PreviousStatus = *d.PreviousStatus
 	}
 }
 
