@@ -379,4 +379,3 @@ func rustOneofVariantType(field *protogen.Field, opts *Options) string {
 	}
 	return rustType(field.Desc.Kind())
 }
-
