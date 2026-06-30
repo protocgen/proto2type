@@ -64,6 +64,9 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 		)
 	}
 
+	// Build IR from the proto file.
+	df := BuildDomainFile(file, opts)
+
 	g := gen.NewGeneratedFile(filename, goImportPath)
 
 	// Header
@@ -73,22 +76,17 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 	g.P("package ", goPackageName)
 	g.P()
 
-	needsTime := false
-	for _, msg := range file.Messages {
-		for _, field := range msg.Fields {
-			if isWellKnownTimestamp(field) || isWellKnownDuration(field) {
-				needsTime = true
-				break
-			}
-		}
-	}
-	if needsTime {
+	if irNeedsTime(df.Messages) {
 		g.P(`import "time"`)
 		g.P()
 	}
 
-	for _, msg := range file.Messages {
-		if err := generateGoDomainMessage(g, msg, opts); err != nil {
+	// Build a lookup from FullName -> *protogen.Message for converter generation.
+	protoMsgMap := buildProtoMessageMap(file.Messages)
+
+	for _, dm := range df.Messages {
+		msg := protoMsgMap[dm.FullName]
+		if err := generateGoDomainMessage(g, dm, msg, opts); err != nil {
 			return err
 		}
 	}
@@ -97,38 +95,30 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 }
 
 // generateGoDomainMessage generates a Go domain struct and converters for a single message.
-func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) error {
-	if isMessageSkipped(msg) {
+func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg *protogen.Message, opts *Options) error {
+	if dm.Skip {
 		return nil
 	}
 
-	name := msg.GoIdent.GoName
+	name := dm.Name
 
 	// Struct definition
-	g.P("// ", name, " is the domain representation of ", msg.Desc.FullName(), ".")
-	if msg.Comments.Leading != "" {
+	g.P("// ", name, " is the domain representation of ", dm.FullName, ".")
+	if dm.Comment != "" {
 		g.P("//")
-		for _, line := range strings.Split(strings.TrimSpace(string(msg.Comments.Leading)), "\n") {
+		for _, line := range strings.Split(dm.Comment, "\n") {
 			g.P("// ", strings.TrimPrefix(line, " "))
 		}
 	}
 	g.P("type ", name, " struct {")
 
-	for _, field := range msg.Fields {
-		// Skip oneof synthetic fields (handle the oneof group instead)
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
-			continue
-		}
-		if isFieldSkipped(field) {
-			continue
-		}
+	for _, f := range dm.Fields {
+		fieldName := f.PascalName
+		fieldType := goDomainFieldTypeFromIR(f)
 
-		fieldName := toPascalCase(string(field.Desc.Name()))
-		fieldType := goDomainFieldType(field, opts)
-
-		jsonName := string(field.Desc.Name())
+		jsonName := f.Name
 		jsonTag := jsonName
-		if shouldOmitempty(field, opts) {
+		if f.Omitempty {
 			jsonTag += ",omitempty"
 		}
 
@@ -138,7 +128,7 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, o
 	g.P("}")
 	g.P()
 
-	// Generate ToProto and FromProto converters
+	// Generate ToProto and FromProto converters (still uses *protogen.Message)
 	generateConverters(g, msg, "", opts)
 
 	// Generate ApplyFieldMask function
@@ -151,12 +141,11 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, o
 	generateGoEqual(g, msg, opts)
 
 	// Generate nested messages
-	for _, nested := range msg.Messages {
-		// Skip map entry messages
-		if nested.Desc.IsMapEntry() {
-			continue
-		}
-		if err := generateGoDomainMessage(g, nested, opts); err != nil {
+	// Build a lookup for nested protogen messages.
+	nestedProtoMap := buildProtoMessageMap(msg.Messages)
+	for _, nestedDM := range dm.NestedMessages {
+		nestedMsg := nestedProtoMap[nestedDM.FullName]
+		if err := generateGoDomainMessage(g, nestedDM, nestedMsg, opts); err != nil {
 			return err
 		}
 	}
@@ -164,7 +153,124 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, msg *protogen.Message, o
 	return nil
 }
 
+// goDomainFieldTypeFromIR returns the Go type for a field using the IR.
+func goDomainFieldTypeFromIR(f *DomainField) string {
+	// Handle repeated fields
+	if f.Repeated {
+		return "[]" + goDomainSingularTypeFromIR(f)
+	}
+
+	// Handle map fields
+	if f.IsMap {
+		keyType := goType(f.MapKey.ScalarKind)
+		valType := goMapValueTypeFromIR(f.MapValue)
+		return fmt.Sprintf("map[%s]%s", keyType, valType)
+	}
+
+	return goDomainSingularTypeFromIR(f)
+}
+
+// goDomainSingularTypeFromIR returns the Go type for a singular field using the IR.
+func goDomainSingularTypeFromIR(f *DomainField) string {
+	switch f.Kind {
+	case FieldKindTimestamp:
+		return "time.Time"
+	case FieldKindDuration:
+		return "time.Duration"
+	case FieldKindMessage:
+		return "*" + f.MessageTypeName
+	case FieldKindEnum:
+		if f.EnumAsString {
+			return "string"
+		}
+		return "int32"
+	case FieldKindScalar:
+		if f.Optional {
+			return "*" + goType(f.ScalarKind)
+		}
+		return goType(f.ScalarKind)
+	}
+
+	// Wrapper types
+	if f.Kind.IsWrapper() {
+		return wrapperGoTypeFromIR(f.Kind)
+	}
+
+	return goType(f.ScalarKind)
+}
+
+// wrapperGoTypeFromIR returns the Go pointer type for a wrapper FieldKind.
+func wrapperGoTypeFromIR(kind FieldKind) string {
+	switch kind {
+	case FieldKindWrapperBool:
+		return "*bool"
+	case FieldKindWrapperInt32:
+		return "*int32"
+	case FieldKindWrapperInt64:
+		return "*int64"
+	case FieldKindWrapperUInt32:
+		return "*uint32"
+	case FieldKindWrapperUInt64:
+		return "*uint64"
+	case FieldKindWrapperFloat:
+		return "*float32"
+	case FieldKindWrapperDouble:
+		return "*float64"
+	case FieldKindWrapperString:
+		return "*string"
+	case FieldKindWrapperBytes:
+		return "*[]byte"
+	default:
+		return "any"
+	}
+}
+
+// goMapValueTypeFromIR returns the Go type for a map value using MapTypeInfo.
+func goMapValueTypeFromIR(mv *MapTypeInfo) string {
+	switch mv.Kind {
+	case FieldKindMessage:
+		return "*" + mv.MessageTypeName
+	case FieldKindEnum:
+		return "int32"
+	case FieldKindScalar:
+		return goType(mv.ScalarKind)
+	default:
+		return goType(mv.ScalarKind)
+	}
+}
+
+// irNeedsTime returns true if any message field uses Timestamp or Duration.
+func irNeedsTime(msgs []*DomainMessage) bool {
+	for _, m := range msgs {
+		if m.Skip {
+			continue
+		}
+		for _, f := range m.Fields {
+			if f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration {
+				return true
+			}
+		}
+		if irNeedsTime(m.NestedMessages) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildProtoMessageMap builds a map from FullName to *protogen.Message, recursively.
+func buildProtoMessageMap(msgs []*protogen.Message) map[string]*protogen.Message {
+	m := make(map[string]*protogen.Message)
+	for _, msg := range msgs {
+		m[string(msg.Desc.FullName())] = msg
+		for k, v := range buildProtoMessageMap(msg.Messages) {
+			m[k] = v
+		}
+	}
+	return m
+}
+
 // goDomainFieldType returns the Go type for a proto field in a domain struct.
+// Used by converter generation (go_clone_equal.go).
 func goDomainFieldType(field *protogen.Field, opts *Options) string {
 	// Handle repeated fields
 	if field.Desc.IsList() {
@@ -185,6 +291,7 @@ func goDomainFieldType(field *protogen.Field, opts *Options) string {
 }
 
 // goDomainSingularType returns the Go type for a singular (non-repeated, non-map) field.
+// Used by converter generation (go_clone_equal.go).
 func goDomainSingularType(field *protogen.Field, opts *Options) string {
 	// Well-known types
 	if isWellKnownTimestamp(field) {
