@@ -319,6 +319,7 @@ message User {
 | `google.protobuf.Timestamp` | `DateTime<Utc>` | `i64` (epoch ms) |
 | `optional google.protobuf.Timestamp` | `Option<DateTime<Utc>>` | `Option<i64>` |
 | `google.protobuf.Duration` | `chrono::Duration` | `i64` (milliseconds) |
+| `optional google.protobuf.Duration` | `Option<chrono::Duration>` | `Option<i64>` |
 | Nested message | `Option<Box<T>>` | `String` (JSON) |
 | Enum | `i32` (default) or `String` (`enum_as_string=true`) | `i32` / `String` |
 
@@ -339,7 +340,9 @@ message User {
 | `map<K, V>` | `Map<K, V>` |
 | `optional T` | `T?` (nullable) |
 | `google.protobuf.Timestamp` | `kotlinx.datetime.Instant` |
+| `optional google.protobuf.Timestamp` | `Instant?` |
 | `google.protobuf.Duration` | `kotlin.time.Duration` |
+| `optional google.protobuf.Duration` | `Duration?` |
 | Nested message | `MessageType?` |
 | Enum | `@Serializable enum class` |
 
@@ -348,7 +351,7 @@ message User {
 | Phase | Scope | Status |
 |---|---|---|
 | **1** | Go + Firestore + MongoDB | ✅ Done |
-| **1.5** | Rust + SQLite + Kotlin | ✅ Done |
+| **1.5** | Rust + SQLite, Kotlin (domain-only) | ✅ Done |
 | **2** | Python (absorbs [proto2pydantic](https://github.com/protocgen/proto2pydantic)) | Planned |
 | **3** | DynamoDB + Datastore | Planned |
 | **4** | Spanner + TypeScript + SQL ORMs | Planned |
