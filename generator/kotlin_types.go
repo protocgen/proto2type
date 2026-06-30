@@ -129,6 +129,9 @@ func kotlinElementType(f DomainField) string {
 	case FieldKindMessage:
 		return f.MessageTypeName
 	case FieldKindEnum:
+		if f.EnumAsString {
+			return "String"
+		}
 		return f.EnumTypeName
 	case FieldKindStruct:
 		return "Map<String, Any?>"

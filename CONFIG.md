@@ -44,7 +44,7 @@ When `lang=kotlin`:
 - File suffix: `{proto_name}.type.kt`
 
 > **Minimum Kotlin version:** 1.9+ (generated code uses the `entries` enum property).
-
+>
 > **Note:** No storage backends are available for Kotlin yet. Only domain type generation is supported.
 
 ### `backend`

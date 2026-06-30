@@ -146,6 +146,11 @@ func TestKotlinFieldType(t *testing.T) {
 			want: "String?",
 		},
 		{
+			name: "repeated enum as string",
+			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", Repeated: true, EnumAsString: true},
+			want: "List<String>",
+		},
+		{
 			name: "wrapper string",
 			f:    DomainField{Kind: FieldKindWrapperString},
 			want: "String?",
