@@ -6,6 +6,8 @@ package gen
 import (
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -86,18 +88,26 @@ func (u *User) ToProto() *pb.User {
 		v := pb.UserStatus(*u.PreviousStatus)
 		out.PreviousStatus = &v
 	}
-	if u.UpdateMask != nil {
-		out.UpdateMask = u.UpdateMask.ToProto()
+	if len(u.UpdateMask) > 0 {
+		out.UpdateMask = &fieldmaskpb.FieldMask{Paths: u.UpdateMask}
 	}
-	if u.ExtraMetadata != nil {
-		out.ExtraMetadata = u.ExtraMetadata.ToProto()
+	if len(u.ExtraMetadata) > 0 {
+		var err error
+		out.ExtraMetadata, err = structpb.NewStruct(u.ExtraMetadata)
+		if err != nil {
+			out.ExtraMetadata = nil
+		}
 	}
-	if u.Preferences != nil {
-		out.Preferences = u.Preferences.ToProto()
+	if len(u.Preferences) > 0 {
+		var err error
+		out.Preferences, err = structpb.NewList(u.Preferences)
+		if err != nil {
+			out.Preferences = nil
+		}
 	}
 	if u.AvatarThumbnail != nil {
-		out.AvatarThumbnail = make([]byte, len(u.AvatarThumbnail))
-		copy(out.AvatarThumbnail, u.AvatarThumbnail)
+		out.AvatarThumbnail = make([]byte, len(*u.AvatarThumbnail))
+		copy(out.AvatarThumbnail, *u.AvatarThumbnail)
 	}
 	return out
 }
@@ -153,20 +163,18 @@ func (u *User) FromProto(pb *pb.User) {
 		u.PreviousStatus = &v
 	}
 	if pb.UpdateMask != nil {
-		u.UpdateMask = &FieldMask{}
-		u.UpdateMask.FromProto(pb.UpdateMask)
+		u.UpdateMask = pb.UpdateMask.GetPaths()
 	}
 	if pb.ExtraMetadata != nil {
-		u.ExtraMetadata = &Struct{}
-		u.ExtraMetadata.FromProto(pb.ExtraMetadata)
+		u.ExtraMetadata = pb.ExtraMetadata.AsMap()
 	}
 	if pb.Preferences != nil {
-		u.Preferences = &ListValue{}
-		u.Preferences.FromProto(pb.Preferences)
+		u.Preferences = pb.Preferences.AsSlice()
 	}
 	if pb.AvatarThumbnail != nil {
-		u.AvatarThumbnail = make([]byte, len(pb.AvatarThumbnail))
-		copy(u.AvatarThumbnail, pb.AvatarThumbnail)
+		b := make([]byte, len(pb.AvatarThumbnail))
+		copy(b, pb.AvatarThumbnail)
+		u.AvatarThumbnail = &b
 	}
 }
 

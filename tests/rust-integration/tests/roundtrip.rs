@@ -365,7 +365,11 @@ fn test_sqlite_user_roundtrip() {
             contact_method TEXT,
             tags          TEXT    NOT NULL,
             deleted_at    INTEGER,
-            previous_status INTEGER
+            previous_status INTEGER,
+            update_mask   TEXT    NOT NULL,
+            extra_metadata TEXT   NOT NULL,
+            preferences   TEXT    NOT NULL,
+            avatar_thumbnail BLOB
         );",
     )
     .expect("create table");
@@ -377,11 +381,13 @@ fn test_sqlite_user_roundtrip() {
         "INSERT INTO users (
             id, email, display_name, active, age, roles, metadata,
             address, created_at, session_timeout, phone, avatar,
-            nickname, status, contact_method, tags, deleted_at, previous_status
+            nickname, status, contact_method, tags, deleted_at, previous_status,
+            update_mask, extra_metadata, preferences, avatar_thumbnail
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7,
             ?8, ?9, ?10, ?11, ?12,
-            ?13, ?14, ?15, ?16, ?17, ?18
+            ?13, ?14, ?15, ?16, ?17, ?18,
+            ?19, ?20, ?21, ?22
         )",
         rusqlite::params![
             row.id,
@@ -402,6 +408,10 @@ fn test_sqlite_user_roundtrip() {
             row.tags,
             row.deleted_at,
             row.previous_status,
+            row.update_mask,
+            row.extra_metadata,
+            row.preferences,
+            row.avatar_thumbnail,
         ],
     )
     .expect("insert");
@@ -508,7 +518,9 @@ fn test_sqlite_multiple_users() {
             metadata TEXT NOT NULL, address TEXT, created_at INTEGER NOT NULL,
             session_timeout INTEGER NOT NULL, phone TEXT, avatar BLOB NOT NULL,
             nickname TEXT, status INTEGER NOT NULL, contact_method TEXT, tags TEXT NOT NULL,
-            deleted_at INTEGER, previous_status INTEGER
+            deleted_at INTEGER, previous_status INTEGER,
+            update_mask TEXT NOT NULL, extra_metadata TEXT NOT NULL,
+            preferences TEXT NOT NULL, avatar_thumbnail BLOB
         );",
     )
     .expect("create table");
@@ -526,12 +538,13 @@ fn test_sqlite_multiple_users() {
     for user in &users {
         let row = UserRow::from_domain(user).expect("from_domain");
         conn.execute(
-            "INSERT INTO users VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+            "INSERT INTO users VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
             rusqlite::params![
                 row.id, row.email, row.display_name, row.active, row.age, row.roles,
                 row.metadata, row.address, row.created_at, row.session_timeout,
                 row.phone, row.avatar, row.nickname, row.status, row.contact_method, row.tags,
                 row.deleted_at, row.previous_status,
+                row.update_mask, row.extra_metadata, row.preferences, row.avatar_thumbnail,
             ],
         )
         .expect("insert");
@@ -603,7 +616,9 @@ fn test_binary_blob_sqlite() {
             metadata TEXT NOT NULL, address TEXT, created_at INTEGER NOT NULL,
             session_timeout INTEGER NOT NULL, phone TEXT, avatar BLOB NOT NULL,
             nickname TEXT, status INTEGER NOT NULL, contact_method TEXT, tags TEXT NOT NULL,
-            deleted_at INTEGER, previous_status INTEGER
+            deleted_at INTEGER, previous_status INTEGER,
+            update_mask TEXT NOT NULL, extra_metadata TEXT NOT NULL,
+            preferences TEXT NOT NULL, avatar_thumbnail BLOB
         );",
     )
     .expect("create");
@@ -615,12 +630,13 @@ fn test_binary_blob_sqlite() {
 
     let row = UserRow::from_domain(&user).expect("from_domain");
     conn.execute(
-        "INSERT INTO users VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+        "INSERT INTO users VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
         rusqlite::params![
             row.id, row.email, row.display_name, row.active, row.age, row.roles,
             row.metadata, row.address, row.created_at, row.session_timeout,
             row.phone, row.avatar, row.nickname, row.status, row.contact_method, row.tags,
             row.deleted_at, row.previous_status,
+            row.update_mask, row.extra_metadata, row.preferences, row.avatar_thumbnail,
         ],
     )
     .expect("insert");
