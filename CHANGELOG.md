@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Kotlin backend** (`lang=kotlin`): Generates `@Serializable` data classes using `kotlinx.serialization` and `kotlinx.datetime`. Includes sealed class oneofs, enum classes with `@SerialName`, and full WKT support.
+- **Intermediate Representation (IR)**: Shared type-walking layer used by Go, Rust, and Kotlin backends. Eliminates duplicated proto-walking logic.
+- **Optional WKT support**: `optional google.protobuf.Timestamp` now generates `*time.Time` (Go), `Option<DateTime<Utc>>` (Rust), `Instant?` (Kotlin). Same for Duration and Enum.
+- **complex.proto test suite**: Comprehensive test proto covering nested types, recursive messages, maps, WKTs, enums, and all edge cases.
+
+### Fixed
+- SQLite `u64` overflow: Replaced `as i64`/`as u64` casts with `TryFrom` + `ConversionError::Overflow`
+- Enum alias dedup: Proto enums with `allow_alias` no longer produce duplicate variant declarations
+- Comment injection: Proto comments containing `*/` are sanitized to prevent code injection in generated block comments
+- Optional enum Go converter: `ToProto`/`FromProto` now correctly handle pointer types for optional enums
+- Firestore/Mongo `ToDomain`/`FromDomain`: Handle type mismatch between storage (non-pointer) and domain (pointer) for optional fields
+
 ## [0.3.0] - 2025-06-28
 
 ### Added
