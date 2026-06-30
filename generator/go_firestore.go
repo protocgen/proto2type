@@ -106,6 +106,10 @@ func generateGoFirestoreMessage(gen *protogen.Plugin, g *protogen.GeneratedFile,
 	// Nested messages
 	for _, nested := range dm.NestedMessages {
 		nestedMsg := protoMsgMap[nested.FullName]
+		if nestedMsg == nil {
+			gen.Error(fmt.Errorf("proto2type: no proto message found for nested %s", nested.FullName))
+			continue
+		}
 		generateGoFirestoreMessage(gen, g, nested, nestedMsg, protoMsgMap, opts)
 	}
 }

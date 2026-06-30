@@ -107,6 +107,10 @@ func generateGoMongoMessage(gen *protogen.Plugin, g *protogen.GeneratedFile, dm 
 	// Nested messages
 	for _, nested := range dm.NestedMessages {
 		nestedMsg := protoMsgMap[nested.FullName]
+		if nestedMsg == nil {
+			gen.Error(fmt.Errorf("proto2type: no proto message found for nested %s", nested.FullName))
+			continue
+		}
 		generateGoMongoMessage(gen, g, nested, nestedMsg, protoMsgMap, opts)
 	}
 }
