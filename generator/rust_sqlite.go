@@ -47,6 +47,9 @@ func generateRustSqlite(gen *protogen.Plugin, file *protogen.File, opts *Options
 
 	for _, dm := range df.Messages {
 		msg := protoMsgMap[dm.FullName]
+		if msg == nil {
+			return fmt.Errorf("proto2type: no protogen.Message found for IR message %q", dm.FullName)
+		}
 		generateRustSqliteMessage(g, dm, msg, protoMsgMap, opts)
 	}
 
@@ -432,6 +435,11 @@ func rustSqliteFieldType(field *protogen.Field, opts *Options) string {
 
 // rustSqliteFieldTypeFromIR returns the SQLite-appropriate Rust type for a field using the IR.
 func rustSqliteFieldTypeFromIR(f *DomainField) string {
+	// Repeated and map fields are always JSON-serialized in SQLite.
+	if f.Repeated || f.IsMap {
+		return "String"
+	}
+
 	switch f.Kind {
 	case FieldKindTimestamp, FieldKindDuration:
 		if f.Optional {
@@ -441,9 +449,6 @@ func rustSqliteFieldTypeFromIR(f *DomainField) string {
 	case FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindFieldMask, FieldKindEmpty, FieldKindAny:
 		return "String" // JSON serialized
 	case FieldKindMessage:
-		if f.Repeated || f.IsMap {
-			return "String" // JSON serialized
-		}
 		return "Option<String>" // JSON serialized, NULL for absent
 	case FieldKindEnum:
 		if f.EnumAsString {
@@ -459,9 +464,6 @@ func rustSqliteFieldTypeFromIR(f *DomainField) string {
 	case FieldKindScalar:
 		if f.Optional {
 			return "Option<" + rustSqliteScalarType(f.ScalarKind) + ">"
-		}
-		if f.Repeated || f.IsMap {
-			return "String" // JSON serialized
 		}
 		return rustSqliteScalarType(f.ScalarKind)
 	}
