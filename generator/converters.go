@@ -426,7 +426,8 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 		// Skip message fields — handle recursively below
 		// This covers both singular (isNestedMessage) and repeated messages.
 		if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsMap() &&
-			!isWellKnownTimestamp(field) && !isWellKnownDuration(field) && !isWellKnownWrapper(field) {
+			!isWellKnownTimestamp(field) && !isWellKnownDuration(field) && !isWellKnownWrapper(field) &&
+			!isWellKnownFieldMask(field) && !isWellKnownStruct(field) && !isWellKnownListValue(field) {
 			continue
 		}
 		fieldName := toPascalCase(string(field.Desc.Name()))
@@ -460,10 +461,19 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 		}
 		if field.Desc.Kind() == protoreflect.BytesKind {
 			fieldName := toPascalCase(string(field.Desc.Name()))
-			g.P("\tif ", recv, ".", fieldName, " != nil {")
-			g.P("\t\td.", fieldName, " = make([]byte, len(", recv, ".", fieldName, "))")
-			g.P("\t\tcopy(d.", fieldName, ", ", recv, ".", fieldName, ")")
-			g.P("\t}")
+			if field.Desc.HasOptionalKeyword() {
+				// Optional bytes: *[]byte — dereference, copy, re-ref
+				g.P("\tif ", recv, ".", fieldName, " != nil {")
+				g.P("\t\tb := make([]byte, len(*", recv, ".", fieldName, "))")
+				g.P("\t\tcopy(b, *", recv, ".", fieldName, ")")
+				g.P("\t\td.", fieldName, " = &b")
+				g.P("\t}")
+			} else {
+				g.P("\tif ", recv, ".", fieldName, " != nil {")
+				g.P("\t\td.", fieldName, " = make([]byte, len(", recv, ".", fieldName, "))")
+				g.P("\t\tcopy(d.", fieldName, ", ", recv, ".", fieldName, ")")
+				g.P("\t}")
+			}
 		}
 	}
 
@@ -571,6 +581,13 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 			g.P("\t\t\t\t", recv, ".", fieldName, "[i] = elem")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
+			g.P("\t}")
+		} else if field.Desc.Kind() == protoreflect.BytesKind && field.Desc.HasOptionalKeyword() {
+			// Deep copy optional bytes: domain *[]byte → storage *[]byte
+			g.P("\tif d.", fieldName, " != nil {")
+			g.P("\t\tb := make([]byte, len(*d.", fieldName, "))")
+			g.P("\t\tcopy(b, *d.", fieldName, ")")
+			g.P("\t\t", recv, ".", fieldName, " = &b")
 			g.P("\t}")
 		} else if field.Desc.Kind() == protoreflect.BytesKind {
 			// Deep copy bytes fields (SEC-3)

@@ -193,14 +193,18 @@ func (u *UserFirestore) ToDomain() *User {
 		Phone:          u.Phone,
 		Nickname:       u.Nickname,
 		Status:         u.Status,
+		UpdateMask:     u.UpdateMask,
+		ExtraMetadata:  u.ExtraMetadata,
+		Preferences:    u.Preferences,
 	}
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
 		copy(d.Avatar, u.Avatar)
 	}
 	if u.AvatarThumbnail != nil {
-		d.AvatarThumbnail = make([]byte, len(u.AvatarThumbnail))
-		copy(d.AvatarThumbnail, u.AvatarThumbnail)
+		b := make([]byte, len(*u.AvatarThumbnail))
+		copy(b, *u.AvatarThumbnail)
+		d.AvatarThumbnail = &b
 	}
 	vDeletedAt := u.DeletedAt
 	d.DeletedAt = &vDeletedAt
@@ -265,8 +269,9 @@ func (u *UserFirestore) FromDomain(d *User) {
 	u.ExtraMetadata = d.ExtraMetadata
 	u.Preferences = d.Preferences
 	if d.AvatarThumbnail != nil {
-		u.AvatarThumbnail = make([]byte, len(d.AvatarThumbnail))
-		copy(u.AvatarThumbnail, d.AvatarThumbnail)
+		b := make([]byte, len(*d.AvatarThumbnail))
+		copy(b, *d.AvatarThumbnail)
+		u.AvatarThumbnail = &b
 	}
 }
 
