@@ -1,6 +1,9 @@
 package generator
 
-import "google.golang.org/protobuf/reflect/protoreflect"
+import (
+	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/reflect/protoreflect"
+)
 
 // FieldKind classifies a proto field into a language-agnostic category.
 // Backends use this to select the correct type mapping and serialisation logic.
@@ -146,6 +149,11 @@ type DomainMessage struct {
 	Skip bool
 	// HasDocID is true when at least one field has (proto2type.field).document_id = true.
 	HasDocID bool
+	// ProtoGoIdent is the protogen.GoIdent for the proto message type.
+	// Used by Go converters to emit qualified proto types (e.g. pb.User).
+	ProtoGoIdent protogen.GoIdent
+	// HasNonSyntheticOneof is true if the message has real (non-synthetic) oneofs.
+	HasNonSyntheticOneof bool
 }
 
 // DomainField is the IR for a single message field.
@@ -213,6 +221,18 @@ type DomainField struct {
 	// OneofTypeName is the IR type name of the oneof enum (e.g. "UserContactMethod").
 	// Only set when IsOneof is true.
 	OneofTypeName string
+
+	// --- Proto Go identifiers (used only by Go backend converters) ---
+
+	// ProtoGoName is the Go field name in the generated proto struct (field.GoName).
+	// May differ from PascalName (e.g. proto generates "Id" for "id").
+	ProtoGoName string
+	// ProtoEnumGoIdent is the protogen.GoIdent for enum types.
+	// Used for QualifiedGoIdent to resolve e.g. pb.UserStatus.
+	ProtoEnumGoIdent protogen.GoIdent
+	// ProtoMessageGoIdent is the protogen.GoIdent for message types.
+	// Used for QualifiedGoIdent to resolve e.g. pb.Tag.
+	ProtoMessageGoIdent protogen.GoIdent
 }
 
 // MapTypeInfo captures the kind and type name of a map key or value.

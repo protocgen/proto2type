@@ -5,27 +5,49 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+// irWrapperPbFuncName returns the wrapperspb constructor name for a wrapper FieldKind.
+func irWrapperPbFuncName(kind FieldKind) string {
+	switch kind {
+	case FieldKindWrapperBool:
+		return "Bool"
+	case FieldKindWrapperInt32:
+		return "Int32"
+	case FieldKindWrapperInt64:
+		return "Int64"
+	case FieldKindWrapperUInt32:
+		return "UInt32"
+	case FieldKindWrapperUInt64:
+		return "UInt64"
+	case FieldKindWrapperFloat:
+		return "Float"
+	case FieldKindWrapperDouble:
+		return "Double"
+	case FieldKindWrapperString:
+		return "String"
+	case FieldKindWrapperBytes:
+		return "Bytes"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 // generateConverters generates ToProto() and FromProto() methods for a message struct.
 // structSuffix is "" for domain, "Firestore" for Firestore, "Mongo" for Mongo, etc.
-func generateConverters(g *protogen.GeneratedFile, msg *protogen.Message, structSuffix string, opts *Options) {
-	structName := msg.GoIdent.GoName + structSuffix
-	protoType := g.QualifiedGoIdent(msg.GoIdent)
-
+func generateConverters(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix string, opts *Options) {
 	// Oneof warning (PROTO-4): check for non-synthetic oneofs and emit a warning comment.
-	for _, oneof := range msg.Oneofs {
-		if !oneof.Desc.IsSynthetic() {
-			g.P("// WARNING: oneof fields in ", msg.GoIdent.GoName, " are not yet supported by proto2type.")
-			g.P()
-			break
-		}
+	if dm.HasNonSyntheticOneof {
+		g.P("// WARNING: oneof fields in ", dm.Name, " are not yet supported by proto2type.")
+		g.P()
 	}
 
-	generateToProto(g, msg, structName, protoType, structSuffix, opts)
-	generateFromProto(g, msg, structName, protoType, structSuffix, opts)
+	generateToProto(g, dm, structSuffix, opts)
+	generateFromProto(g, dm, structSuffix, opts)
 }
 
 // generateToProto generates the ToProto method.
-func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structName, protoType, structSuffix string, opts *Options) {
+func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix string, opts *Options) {
+	structName := dm.Name + structSuffix
+	protoType := g.QualifiedGoIdent(dm.ProtoGoIdent)
 	recv := receiverName(structName)
 	g.P("// ToProto converts to the protobuf message.")
 	g.P("func (", recv, " *", structName, ") ToProto() *", protoType, " {")
@@ -37,45 +59,46 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 	// Use "out" instead of "pb" to avoid shadowing the proto package import
 	// when QualifiedGoIdent resolves types like pb.Tag.
 	g.P("\tout := &", protoType, "{")
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
-			continue
-		}
-		if isFieldSkipped(field) {
+	for _, f := range dm.Fields {
+		if f.IsOneof {
 			continue
 		}
 		// Skip document_id fields for Firestore (not in the struct)
-		if isDocumentID(field) && structSuffix == "Firestore" {
+		if f.DocID && structSuffix == "Firestore" {
 			continue
 		}
-		if isWellKnownTimestamp(field) || isWellKnownDuration(field) {
+		if f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration {
 			continue
 		}
 		// Skip well-known wrapper types — handle below
-		if isWellKnownWrapper(field) {
+		if f.Kind.IsWrapper() {
 			continue
 		}
 		// Skip message fields from struct literal — handle recursively below.
 		// This covers both singular messages and repeated messages.
-		if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsMap() {
+		if f.Kind == FieldKindMessage && !f.IsMap {
+			continue
+		}
+		// Skip WKT reference types — handled below (FieldMask, Struct, ListValue)
+		if f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue {
 			continue
 		}
 		// Skip bytes fields — handle with copy below (SEC-3)
-		if field.Desc.Kind() == protoreflect.BytesKind {
+		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 			continue
 		}
 		// Skip optional scalars — handle nil pointer below (PROTO-3)
 		// Note: optional enums are also skipped here and handled below.
-		if field.Desc.HasOptionalKeyword() {
+		if f.Optional {
 			continue
 		}
 
-		domainFieldName := toPascalCase(string(field.Desc.Name()))
-		protoFieldName := field.GoName
+		domainFieldName := f.PascalName
+		protoFieldName := f.ProtoGoName
 
-		if field.Desc.Kind() == protoreflect.EnumKind {
-			enumIdent := g.QualifiedGoIdent(field.Enum.GoIdent)
-			if isEnumAsString(field, opts) {
+		if f.Kind == FieldKindEnum {
+			enumIdent := g.QualifiedGoIdent(f.ProtoEnumGoIdent)
+			if f.EnumAsString {
 				// String enum: look up the numeric value from the enum's _value map
 				g.P("\t\t", protoFieldName, ": ", enumIdent, "(", enumIdent, "_value[", recv, ".", domainFieldName, "]),")
 			} else {
@@ -89,28 +112,25 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 	g.P("\t}")
 
 	// Handle well-known types and special fields outside the struct literal.
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
-			continue
-		}
-		if isFieldSkipped(field) {
+	for _, f := range dm.Fields {
+		if f.IsOneof {
 			continue
 		}
 		// Skip document_id fields for Firestore (not in the struct)
-		if isDocumentID(field) && structSuffix == "Firestore" {
+		if f.DocID && structSuffix == "Firestore" {
 			continue
 		}
 
-		domainFieldName := toPascalCase(string(field.Desc.Name()))
-		protoFieldName := field.GoName
+		domainFieldName := f.PascalName
+		protoFieldName := f.ProtoGoName
 
-		if isWellKnownTimestamp(field) {
+		if f.Kind == FieldKindTimestamp {
 			// timestamppb.New
 			tsNew := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/timestamppb",
 				GoName:       "New",
 			})
-			if field.Desc.HasOptionalKeyword() && structSuffix == "" {
+			if f.Optional && structSuffix == "" {
 				// Domain struct: optional timestamp is *time.Time
 				g.P("\tif ", recv, ".", domainFieldName, " != nil {")
 				g.P("\t\tout.", protoFieldName, " = ", tsNew, "(*", recv, ".", domainFieldName, ")")
@@ -120,13 +140,13 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 				g.P("\t\tout.", protoFieldName, " = ", tsNew, "(", recv, ".", domainFieldName, ")")
 				g.P("\t}")
 			}
-		} else if isWellKnownDuration(field) {
+		} else if f.Kind == FieldKindDuration {
 			// durationpb.New
 			durNew := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/durationpb",
 				GoName:       "New",
 			})
-			if field.Desc.HasOptionalKeyword() && structSuffix == "" {
+			if f.Optional && structSuffix == "" {
 				// Domain struct: optional duration is *time.Duration
 				g.P("\tif ", recv, ".", domainFieldName, " != nil {")
 				g.P("\t\tout.", protoFieldName, " = ", durNew, "(*", recv, ".", domainFieldName, ")")
@@ -134,9 +154,20 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			} else {
 				g.P("\tout.", protoFieldName, " = ", durNew, "(", recv, ".", domainFieldName, ")")
 			}
-		} else if isWellKnownWrapper(field) {
+		} else if f.Kind == FieldKindWrapperBytes {
+			// BytesValue wrapper: deep copy to prevent aliasing (SEC-3)
+			wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+				GoName:       "Bytes",
+			})
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tb := make([]byte, len(*", recv, ".", domainFieldName, "))")
+			g.P("\t\tcopy(b, *", recv, ".", domainFieldName, ")")
+			g.P("\t\tout.", protoFieldName, " = ", wrapperFunc, "(b)")
+			g.P("\t}")
+		} else if f.Kind.IsWrapper() {
 			// Wrapper type: if d.Phone != nil { out.Phone = wrapperspb.String(*d.Phone) }
-			funcName := wrapperPbFuncName(field)
+			funcName := irWrapperPbFuncName(f.Kind)
 			wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
 				GoName:       funcName,
@@ -144,7 +175,7 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
 			g.P("\t\tout.", protoFieldName, " = ", wrapperFunc, "(*", recv, ".", domainFieldName, ")")
 			g.P("\t}")
-		} else if isWellKnownFieldMask(field) {
+		} else if f.Kind == FieldKindFieldMask {
 			// FieldMask: domain []string → proto *fieldmaskpb.FieldMask (defensive copy per SEC-3)
 			fmIdent := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/fieldmaskpb",
@@ -155,7 +186,7 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			g.P("\t\tcopy(paths, ", recv, ".", domainFieldName, ")")
 			g.P("\t\tout.", protoFieldName, " = &", fmIdent, "{Paths: paths}")
 			g.P("\t}")
-		} else if isWellKnownStruct(field) {
+		} else if f.Kind == FieldKindStruct {
 			// Struct: domain map[string]any → proto *structpb.Struct
 			structNew := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/structpb",
@@ -173,7 +204,7 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			g.P("\t\t\tout.", protoFieldName, " = nil")
 			g.P("\t\t}")
 			g.P("\t}")
-		} else if isWellKnownListValue(field) {
+		} else if f.Kind == FieldKindListValue {
 			// ListValue: domain []any → proto *structpb.ListValue
 			listNew := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/structpb",
@@ -191,14 +222,14 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			g.P("\t\t\tout.", protoFieldName, " = nil")
 			g.P("\t\t}")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() {
+		} else if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
 			// Singular nested message: recursive conversion via ToProto()
 			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
 			g.P("\t\tout.", protoFieldName, " = ", recv, ".", domainFieldName, ".ToProto()")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.MessageKind && field.Desc.IsList() {
+		} else if f.Kind == FieldKindMessage && f.Repeated {
 			// Repeated message: loop-based element-wise conversion
-			protoElemType := g.QualifiedGoIdent(field.Message.GoIdent)
+			protoElemType := g.QualifiedGoIdent(f.ProtoMessageGoIdent)
 			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
 			g.P("\t\tout.", protoFieldName, " = make([]*", protoElemType, ", len(", recv, ".", domainFieldName, "))")
 			g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
@@ -207,32 +238,32 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.BytesKind && field.Desc.HasOptionalKeyword() {
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && f.Optional {
 			// Optional bytes: dereference then copy
 			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
 			g.P("\t\tout.", protoFieldName, " = make([]byte, len(*", recv, ".", domainFieldName, "))")
 			g.P("\t\tcopy(out.", protoFieldName, ", *", recv, ".", domainFieldName, ")")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.BytesKind {
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 			// Bytes field: defensive copy (SEC-3)
 			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
 			g.P("\t\tout.", protoFieldName, " = make([]byte, len(", recv, ".", domainFieldName, "))")
 			g.P("\t\tcopy(out.", protoFieldName, ", ", recv, ".", domainFieldName, ")")
 			g.P("\t}")
-		} else if field.Desc.HasOptionalKeyword() && field.Desc.Kind() == protoreflect.EnumKind {
+		} else if f.Optional && f.Kind == FieldKindEnum {
 			// Optional enum: proto uses *EnumType, domain uses *string or *int32.
-			enumIdent := g.QualifiedGoIdent(field.Enum.GoIdent)
+			enumIdent := g.QualifiedGoIdent(f.ProtoEnumGoIdent)
 			if structSuffix == "" {
 				// Domain struct: optional enum is pointer type
 				g.P("\tif ", recv, ".", domainFieldName, " != nil {")
-				if isEnumAsString(field, opts) {
+				if f.EnumAsString {
 					g.P("\t\tv := ", enumIdent, "(", enumIdent, "_value[*", recv, ".", domainFieldName, "])")
 				} else {
 					g.P("\t\tv := ", enumIdent, "(*", recv, ".", domainFieldName, ")")
 				}
 			} else {
 				// Storage struct: optional enum is non-pointer
-				if isEnumAsString(field, opts) {
+				if f.EnumAsString {
 					g.P("\tif ", recv, ".", domainFieldName, " != \"\" {")
 					g.P("\t\tv := ", enumIdent, "(", enumIdent, "_value[", recv, ".", domainFieldName, "])")
 				} else {
@@ -242,7 +273,7 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			}
 			g.P("\t\tout.", protoFieldName, " = &v")
 			g.P("\t}")
-		} else if field.Desc.HasOptionalKeyword() {
+		} else if f.Optional {
 			// Optional scalar: both domain and proto use *T, assign directly (PROTO-3)
 			g.P("\tout.", protoFieldName, " = ", recv, ".", domainFieldName, "")
 		}
@@ -254,7 +285,9 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 }
 
 // generateFromProto generates the FromProto method.
-func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structName, protoType, structSuffix string, opts *Options) {
+func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix string, opts *Options) {
+	structName := dm.Name + structSuffix
+	protoType := g.QualifiedGoIdent(dm.ProtoGoIdent)
 	recv := receiverName(structName)
 	g.P("// FromProto populates from a protobuf message.")
 	g.P("func (", recv, " *", structName, ") FromProto(pb *", protoType, ") {")
@@ -262,24 +295,21 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 	g.P("\t\treturn")
 	g.P("\t}")
 
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
-			continue
-		}
-		if isFieldSkipped(field) {
+	for _, f := range dm.Fields {
+		if f.IsOneof {
 			continue
 		}
 		// Skip document_id fields for Firestore (not in the struct)
-		if isDocumentID(field) && structSuffix == "Firestore" {
+		if f.DocID && structSuffix == "Firestore" {
 			continue
 		}
 
-		domainFieldName := toPascalCase(string(field.Desc.Name()))
-		protoFieldName := field.GoName
+		domainFieldName := f.PascalName
+		protoFieldName := f.ProtoGoName
 
-		if isWellKnownTimestamp(field) {
+		if f.Kind == FieldKindTimestamp {
 			g.P("\tif pb.", protoFieldName, " != nil {")
-			if field.Desc.HasOptionalKeyword() && structSuffix == "" {
+			if f.Optional && structSuffix == "" {
 				// Domain struct: optional timestamp is *time.Time
 				g.P("\t\tv := pb.", protoFieldName, ".AsTime()")
 				g.P("\t\t", recv, ".", domainFieldName, " = &v")
@@ -287,9 +317,9 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 				g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsTime()")
 			}
 			g.P("\t}")
-		} else if isWellKnownDuration(field) {
+		} else if f.Kind == FieldKindDuration {
 			g.P("\tif pb.", protoFieldName, " != nil {")
-			if field.Desc.HasOptionalKeyword() && structSuffix == "" {
+			if f.Optional && structSuffix == "" {
 				// Domain struct: optional duration is *time.Duration
 				g.P("\t\tv := pb.", protoFieldName, ".AsDuration()")
 				g.P("\t\t", recv, ".", domainFieldName, " = &v")
@@ -297,39 +327,47 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 				g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsDuration()")
 			}
 			g.P("\t}")
-		} else if isWellKnownWrapper(field) {
+		} else if f.Kind == FieldKindWrapperBytes {
+			// BytesValue wrapper: deep copy to prevent aliasing (SEC-3)
+			g.P("\tif pb.", protoFieldName, " != nil {")
+			g.P("\t\tsrc := pb.", protoFieldName, ".GetValue()")
+			g.P("\t\tb := make([]byte, len(src))")
+			g.P("\t\tcopy(b, src)")
+			g.P("\t\t", recv, ".", domainFieldName, " = &b")
+			g.P("\t}")
+		} else if f.Kind.IsWrapper() {
 			// Wrapper type: if pb.Phone != nil { v := pb.Phone.GetValue(); d.Phone = &v }
 			g.P("\tif pb.", protoFieldName, " != nil {")
 			g.P("\t\tv := pb.", protoFieldName, ".GetValue()")
 			g.P("\t\t", recv, ".", domainFieldName, " = &v")
 			g.P("\t}")
-		} else if isWellKnownFieldMask(field) {
+		} else if f.Kind == FieldKindFieldMask {
 			// FieldMask: proto *fieldmaskpb.FieldMask → domain []string (defensive copy per SEC-3)
 			g.P("\tif pb.", protoFieldName, " != nil {")
 			g.P("\t\tsrc := pb.", protoFieldName, ".GetPaths()")
 			g.P("\t\t", recv, ".", domainFieldName, " = make([]string, len(src))")
 			g.P("\t\tcopy(", recv, ".", domainFieldName, ", src)")
 			g.P("\t}")
-		} else if isWellKnownStruct(field) {
+		} else if f.Kind == FieldKindStruct {
 			// Struct: proto *structpb.Struct → domain map[string]any
 			g.P("\tif pb.", protoFieldName, " != nil {")
 			g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsMap()")
 			g.P("\t}")
-		} else if isWellKnownListValue(field) {
+		} else if f.Kind == FieldKindListValue {
 			// ListValue: proto *structpb.ListValue → domain []any
 			g.P("\tif pb.", protoFieldName, " != nil {")
 			g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsSlice()")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() {
+		} else if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
 			// Singular nested message: recursive conversion via FromProto()
-			nestedType := toPascalCase(string(field.Desc.Message().Name())) + structSuffix
+			nestedType := f.MessageTypeName + structSuffix
 			g.P("\tif pb.", protoFieldName, " != nil {")
 			g.P("\t\t", recv, ".", domainFieldName, " = &", nestedType, "{}")
 			g.P("\t\t", recv, ".", domainFieldName, ".FromProto(pb.", protoFieldName, ")")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.MessageKind && field.Desc.IsList() {
+		} else if f.Kind == FieldKindMessage && f.Repeated {
 			// Repeated message: loop-based element-wise conversion
-			nestedType := toPascalCase(string(field.Desc.Message().Name())) + structSuffix
+			nestedType := f.MessageTypeName + structSuffix
 			g.P("\tif len(pb.", protoFieldName, ") > 0 {")
 			g.P("\t\t", recv, ".", domainFieldName, " = make([]*", nestedType, ", len(pb.", protoFieldName, "))")
 			g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
@@ -340,25 +378,25 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.BytesKind && field.Desc.HasOptionalKeyword() {
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && f.Optional {
 			// Optional bytes: copy into pointer
 			g.P("\tif pb.", protoFieldName, " != nil {")
 			g.P("\t\tb := make([]byte, len(pb.", protoFieldName, "))")
 			g.P("\t\tcopy(b, pb.", protoFieldName, ")")
 			g.P("\t\t", recv, ".", domainFieldName, " = &b")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.BytesKind {
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 			// Bytes field: defensive copy (SEC-3)
 			g.P("\tif pb.", protoFieldName, " != nil {")
 			g.P("\t\t", recv, ".", domainFieldName, " = make([]byte, len(pb.", protoFieldName, "))")
 			g.P("\t\tcopy(", recv, ".", domainFieldName, ", pb.", protoFieldName, ")")
 			g.P("\t}")
-		} else if field.Desc.HasOptionalKeyword() && field.Desc.Kind() == protoreflect.EnumKind {
+		} else if f.Optional && f.Kind == FieldKindEnum {
 			// Optional enum: proto uses *EnumType, domain uses *string or *int32.
 			g.P("\tif pb.", protoFieldName, " != nil {")
 			if structSuffix == "" {
 				// Domain struct: optional enum is pointer type
-				if isEnumAsString(field, opts) {
+				if f.EnumAsString {
 					g.P("\t\tv := pb.Get", protoFieldName, "().String()")
 					g.P("\t\t", recv, ".", domainFieldName, " = &v")
 				} else {
@@ -367,18 +405,18 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 				}
 			} else {
 				// Storage struct: optional enum is non-pointer
-				if isEnumAsString(field, opts) {
+				if f.EnumAsString {
 					g.P("\t\t", recv, ".", domainFieldName, " = pb.Get", protoFieldName, "().String()")
 				} else {
 					g.P("\t\t", recv, ".", domainFieldName, " = int32(pb.Get", protoFieldName, "())")
 				}
 			}
 			g.P("\t}")
-		} else if field.Desc.HasOptionalKeyword() {
+		} else if f.Optional {
 			// Optional scalar: both proto and domain use *T, assign directly (PROTO-3)
 			g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName)
-		} else if field.Desc.Kind() == protoreflect.EnumKind {
-			if isEnumAsString(field, opts) {
+		} else if f.Kind == FieldKindEnum {
+			if f.EnumAsString {
 				// String enum: convert proto enum to its string name
 				g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".String()")
 			} else {
@@ -396,18 +434,18 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 }
 
 // generateDomainConverters generates ToDomain/FromDomain methods for a storage struct.
-func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, storageSuffix string) {
-	storageType := msg.GoIdent.GoName + storageSuffix
-	domainType := msg.GoIdent.GoName
+func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, storageSuffix string) {
+	storageType := dm.Name + storageSuffix
+	domainType := dm.Name
 	recv := receiverName(storageType)
 
 	// Determine if this is a Firestore type and find the document_id field.
 	isFirestore := storageSuffix == "Firestore"
 	var docIDFieldName string
 	if isFirestore {
-		for _, field := range msg.Fields {
-			if isDocumentID(field) {
-				docIDFieldName = toPascalCase(string(field.Desc.Name()))
+		for _, f := range dm.Fields {
+			if f.DocID {
+				docIDFieldName = f.PascalName
 				break
 			}
 		}
@@ -425,36 +463,31 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 	g.P("\t\treturn nil")
 	g.P("\t}")
 	g.P("\td := &", domainType, "{")
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
-			continue
-		}
-		if isFieldSkipped(field) {
+	for _, f := range dm.Fields {
+		if f.IsOneof {
 			continue
 		}
 		// For Firestore: document_id fields are not in the storage struct
 		// They need to be passed separately — skip in direct assignment
-		if isDocumentID(field) && isFirestore {
+		if f.DocID && isFirestore {
 			continue
 		}
 		// Skip message fields — handle recursively below
 		// This covers both singular (isNestedMessage) and repeated messages.
-		if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsMap() &&
-			!isWellKnownTimestamp(field) && !isWellKnownDuration(field) && !isWellKnownWrapper(field) &&
-			!isWellKnownFieldMask(field) && !isWellKnownStruct(field) && !isWellKnownListValue(field) {
+		if f.Kind == FieldKindMessage && !f.IsMap {
 			continue
 		}
-		fieldName := toPascalCase(string(field.Desc.Name()))
-		if field.Desc.Kind() == protoreflect.BytesKind {
+		fieldName := f.PascalName
+		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 			// Skip bytes — handled with deep copy below
 			continue
 		}
 		// Optional timestamp/duration/enum: storage is non-pointer, domain is pointer
-		if field.Desc.HasOptionalKeyword() && (isWellKnownTimestamp(field) || isWellKnownDuration(field)) {
+		if f.Optional && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration) {
 			// Skip from struct literal — handle below with address-of
 			continue
 		}
-		if field.Desc.HasOptionalKeyword() && field.Desc.Kind() == protoreflect.EnumKind {
+		if f.Optional && f.Kind == FieldKindEnum {
 			// Skip from struct literal — handle below with pointer wrap
 			continue
 		}
@@ -463,19 +496,16 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 	g.P("\t}")
 
 	// Deep copy bytes fields (SEC-3)
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+	for _, f := range dm.Fields {
+		if f.IsOneof {
 			continue
 		}
-		if isFieldSkipped(field) {
+		if f.DocID && isFirestore {
 			continue
 		}
-		if isDocumentID(field) && isFirestore {
-			continue
-		}
-		if field.Desc.Kind() == protoreflect.BytesKind {
-			fieldName := toPascalCase(string(field.Desc.Name()))
-			if field.Desc.HasOptionalKeyword() {
+		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
+			fieldName := f.PascalName
+			if f.Optional {
 				// Optional bytes: *[]byte — dereference, copy, re-ref
 				g.P("\tif ", recv, ".", fieldName, " != nil {")
 				g.P("\t\tb := make([]byte, len(*", recv, ".", fieldName, "))")
@@ -497,25 +527,23 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 	}
 
 	// Handle optional timestamp/duration/enum: storage T -> domain *T
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+	for _, f := range dm.Fields {
+		if f.IsOneof {
 			continue
 		}
-		if isFieldSkipped(field) {
+		if f.DocID && isFirestore {
 			continue
 		}
-		if isDocumentID(field) && isFirestore {
+		if !f.Optional {
 			continue
 		}
-		if !field.Desc.HasOptionalKeyword() {
-			continue
-		}
-		fieldName := toPascalCase(string(field.Desc.Name()))
-		if isWellKnownTimestamp(field) || isWellKnownDuration(field) {
+		fieldName := f.PascalName
+		switch f.Kind {
+		case FieldKindTimestamp, FieldKindDuration:
 			// Storage has time.Time, domain has *time.Time — take address
 			g.P("\tv", fieldName, " := ", recv, ".", fieldName)
 			g.P("\td.", fieldName, " = &v", fieldName)
-		} else if field.Desc.Kind() == protoreflect.EnumKind {
+		case FieldKindEnum:
 			// Storage has int32/string, domain has *int32/*string — take address
 			g.P("\tv", fieldName, " := ", recv, ".", fieldName)
 			g.P("\td.", fieldName, " = &v", fieldName)
@@ -523,26 +551,22 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 	}
 
 	// Handle nested message fields with recursive conversion
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+	for _, f := range dm.Fields {
+		if f.IsOneof {
 			continue
 		}
-		if isFieldSkipped(field) {
+		if f.DocID && isFirestore {
 			continue
 		}
-		if isDocumentID(field) && isFirestore {
-			continue
-		}
-		fieldName := toPascalCase(string(field.Desc.Name()))
-		if isNestedMessage(field) {
+		fieldName := f.PascalName
+		if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
 			// Singular nested message
 			g.P("\tif ", recv, ".", fieldName, " != nil {")
 			g.P("\t\td.", fieldName, " = ", recv, ".", fieldName, ".ToDomain()")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.MessageKind && field.Desc.IsList() &&
-			!isWellKnownTimestamp(field) && !isWellKnownDuration(field) && !isWellKnownWrapper(field) {
+		} else if f.Kind == FieldKindMessage && f.Repeated {
 			// Repeated message: loop-based element-wise conversion
-			nestedDomainType := toPascalCase(string(field.Desc.Message().Name()))
+			nestedDomainType := f.MessageTypeName
 			g.P("\tif len(", recv, ".", fieldName, ") > 0 {")
 			g.P("\t\td.", fieldName, " = make([]*", nestedDomainType, ", len(", recv, ".", fieldName, "))")
 			g.P("\t\tfor i, v := range ", recv, ".", fieldName, " {")
@@ -564,28 +588,24 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 	g.P("\tif d == nil {")
 	g.P("\t\treturn")
 	g.P("\t}")
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
+	for _, f := range dm.Fields {
+		if f.IsOneof {
 			continue
 		}
-		if isFieldSkipped(field) {
+		if f.DocID && isFirestore {
 			continue
 		}
-		if isDocumentID(field) && isFirestore {
-			continue
-		}
-		fieldName := toPascalCase(string(field.Desc.Name()))
-		if isNestedMessage(field) {
+		fieldName := f.PascalName
+		if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
 			// Singular nested message: recursive conversion via FromDomain
-			nestedType := toPascalCase(string(field.Desc.Message().Name())) + storageSuffix
+			nestedType := f.MessageTypeName + storageSuffix
 			g.P("\tif d.", fieldName, " != nil {")
 			g.P("\t\t", recv, ".", fieldName, " = &", nestedType, "{}")
 			g.P("\t\t", recv, ".", fieldName, ".FromDomain(d.", fieldName, ")")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.MessageKind && field.Desc.IsList() &&
-			!isWellKnownTimestamp(field) && !isWellKnownDuration(field) && !isWellKnownWrapper(field) {
+		} else if f.Kind == FieldKindMessage && f.Repeated {
 			// Repeated message: loop-based element-wise conversion
-			nestedType := toPascalCase(string(field.Desc.Message().Name())) + storageSuffix
+			nestedType := f.MessageTypeName + storageSuffix
 			g.P("\tif len(d.", fieldName, ") > 0 {")
 			g.P("\t\t", recv, ".", fieldName, " = make([]*", nestedType, ", len(d.", fieldName, "))")
 			g.P("\t\tfor i, v := range d.", fieldName, " {")
@@ -596,25 +616,25 @@ func generateDomainConverters(g *protogen.GeneratedFile, msg *protogen.Message, 
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.BytesKind && field.Desc.HasOptionalKeyword() {
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && f.Optional {
 			// Deep copy optional bytes: domain *[]byte → storage *[]byte
 			g.P("\tif d.", fieldName, " != nil {")
 			g.P("\t\tb := make([]byte, len(*d.", fieldName, "))")
 			g.P("\t\tcopy(b, *d.", fieldName, ")")
 			g.P("\t\t", recv, ".", fieldName, " = &b")
 			g.P("\t}")
-		} else if field.Desc.Kind() == protoreflect.BytesKind {
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 			// Deep copy bytes fields (SEC-3)
 			g.P("\tif d.", fieldName, " != nil {")
 			g.P("\t\t", recv, ".", fieldName, " = make([]byte, len(d.", fieldName, "))")
 			g.P("\t\tcopy(", recv, ".", fieldName, ", d.", fieldName, ")")
 			g.P("\t}")
-		} else if field.Desc.HasOptionalKeyword() && (isWellKnownTimestamp(field) || isWellKnownDuration(field)) {
+		} else if f.Optional && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration) {
 			// Optional timestamp/duration: domain *T -> storage T (dereference)
 			g.P("\tif d.", fieldName, " != nil {")
 			g.P("\t\t", recv, ".", fieldName, " = *d.", fieldName)
 			g.P("\t}")
-		} else if field.Desc.HasOptionalKeyword() && field.Desc.Kind() == protoreflect.EnumKind {
+		} else if f.Optional && f.Kind == FieldKindEnum {
 			// Optional enum: domain *int32/*string -> storage int32/string (dereference)
 			g.P("\tif d.", fieldName, " != nil {")
 			g.P("\t\t", recv, ".", fieldName, " = *d.", fieldName)

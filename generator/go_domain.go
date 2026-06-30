@@ -81,15 +81,8 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 		g.P()
 	}
 
-	// Build a lookup from FullName -> *protogen.Message for converter generation.
-	protoMsgMap := buildProtoMessageMap(file.Messages)
-
 	for _, dm := range df.Messages {
-		msg := protoMsgMap[dm.FullName]
-		if msg == nil {
-			return fmt.Errorf("proto2type: no protogen.Message found for IR message %q", dm.FullName)
-		}
-		if err := generateGoDomainMessage(g, dm, msg, opts); err != nil {
+		if err := generateGoDomainMessage(g, dm, opts); err != nil {
 			return err
 		}
 	}
@@ -98,7 +91,7 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 }
 
 // generateGoDomainMessage generates a Go domain struct and converters for a single message.
-func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg *protogen.Message, opts *Options) error {
+func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, opts *Options) error {
 	if dm.Skip {
 		return nil
 	}
@@ -134,8 +127,8 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg *
 	g.P("}")
 	g.P()
 
-	// Generate ToProto and FromProto converters (still uses *protogen.Message)
-	generateConverters(g, msg, "", opts)
+	// Generate ToProto and FromProto converters
+	generateConverters(g, dm, "", opts)
 
 	// Generate ApplyFieldMask function
 	generateGoFieldMask(g, dm)
@@ -147,11 +140,8 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg *
 	generateGoEqual(g, dm)
 
 	// Generate nested messages
-	// Build a lookup for nested protogen messages.
-	nestedProtoMap := buildProtoMessageMap(msg.Messages)
 	for _, nestedDM := range dm.NestedMessages {
-		nestedMsg := nestedProtoMap[nestedDM.FullName]
-		if err := generateGoDomainMessage(g, nestedDM, nestedMsg, opts); err != nil {
+		if err := generateGoDomainMessage(g, nestedDM, opts); err != nil {
 			return err
 		}
 	}
@@ -407,20 +397,6 @@ func irNeedsTime(msgs []*DomainMessage) bool {
 		}
 	}
 	return false
-}
-
-// buildProtoMessageMap builds a map from FullName to *protogen.Message, recursively.
-func buildProtoMessageMap(msgs []*protogen.Message) map[string]*protogen.Message {
-	m := make(map[string]*protogen.Message)
-	var walk func([]*protogen.Message)
-	walk = func(list []*protogen.Message) {
-		for _, msg := range list {
-			m[string(msg.Desc.FullName())] = msg
-			walk(msg.Messages)
-		}
-	}
-	walk(msgs)
-	return m
 }
 
 // shouldOmitempty returns true if a field should have the omitempty tag.
