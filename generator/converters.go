@@ -155,10 +155,11 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 		} else if field.Desc.HasOptionalKeyword() && field.Desc.Kind() == protoreflect.EnumKind {
 			// Optional enum: proto uses *EnumType, domain uses string or int32.
 			enumIdent := g.QualifiedGoIdent(field.Enum.GoIdent)
-			g.P("\tif ", recv, ".", domainFieldName, " != \"\" {")
 			if isEnumAsString(field, opts) {
+				g.P("\tif ", recv, ".", domainFieldName, " != \"\" {")
 				g.P("\t\tv := ", enumIdent, "(", enumIdent, "_value[", recv, ".", domainFieldName, "])")
 			} else {
+				g.P("\tif ", recv, ".", domainFieldName, " != 0 {")
 				g.P("\t\tv := ", enumIdent, "(", recv, ".", domainFieldName, ")")
 			}
 			g.P("\t\tout.", protoFieldName, " = &v")

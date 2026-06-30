@@ -199,6 +199,18 @@ func goDomainSingularTypeFromIR(f *DomainField) string {
 			return "*int32"
 		}
 		return "int32"
+	case FieldKindStruct:
+		return "map[string]any"
+	case FieldKindValue:
+		return "any"
+	case FieldKindListValue:
+		return "[]any"
+	case FieldKindFieldMask:
+		return "[]string"
+	case FieldKindEmpty:
+		return "struct{}"
+	case FieldKindAny:
+		return "any"
 	case FieldKindScalar:
 		if f.Optional {
 			return "*" + goType(f.ScalarKind)

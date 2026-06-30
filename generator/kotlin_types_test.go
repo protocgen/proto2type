@@ -19,10 +19,10 @@ func TestKotlinScalarType(t *testing.T) {
 		{protoreflect.Int64Kind, "Long"},
 		{protoreflect.Sint64Kind, "Long"},
 		{protoreflect.Sfixed64Kind, "Long"},
-		{protoreflect.Uint32Kind, "UInt"},
-		{protoreflect.Fixed32Kind, "UInt"},
-		{protoreflect.Uint64Kind, "ULong"},
-		{protoreflect.Fixed64Kind, "ULong"},
+		{protoreflect.Uint32Kind, "Int"},
+		{protoreflect.Fixed32Kind, "Int"},
+		{protoreflect.Uint64Kind, "Long"},
+		{protoreflect.Fixed64Kind, "Long"},
 		{protoreflect.FloatKind, "Float"},
 		{protoreflect.DoubleKind, "Double"},
 		{protoreflect.BytesKind, "ByteArray"},
@@ -50,8 +50,8 @@ func TestKotlinScalarDefault(t *testing.T) {
 		{protoreflect.DoubleKind, "0.0"},
 		{protoreflect.Int32Kind, "0"},
 		{protoreflect.Int64Kind, "0L"},
-		{protoreflect.Uint32Kind, "0u"},
-		{protoreflect.Uint64Kind, "0uL"},
+		{protoreflect.Uint32Kind, "0"},
+		{protoreflect.Uint64Kind, "0L"},
 	}
 
 	for _, tt := range tests {

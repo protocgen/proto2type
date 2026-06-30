@@ -459,13 +459,12 @@ func TestKotlinDurationImportDecision(t *testing.T) {
 	needsSerialName := false
 	needsInstant := false
 	needsDuration := false
-	needsDurationCompanion := false
 
 	for _, m := range file.Messages {
 		if m.Skip {
 			continue
 		}
-		scanKotlinImports(m, &needsSerialName, &needsInstant, &needsDuration, &needsDurationCompanion)
+		scanKotlinImports(m, &needsSerialName, &needsInstant, &needsDuration)
 	}
 
 	if !needsInstant {
@@ -488,12 +487,11 @@ func TestKotlinDurationImportDecision(t *testing.T) {
 		catSerialName := false
 		catInstant := false
 		catDuration := false
-		catDurationCompanion := false
 		for _, m := range catFile.Messages {
 			if m.Skip {
 				continue
 			}
-			scanKotlinImports(m, &catSerialName, &catInstant, &catDuration, &catDurationCompanion)
+			scanKotlinImports(m, &catSerialName, &catInstant, &catDuration)
 		}
 		if catDuration {
 			t.Error("catalog needsDuration = true, want false")

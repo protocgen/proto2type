@@ -78,6 +78,7 @@ func generateRustConversionError(g *protogen.GeneratedFile, needsChrono bool) {
 	if needsChrono {
 		g.P("    InvalidTimestamp(i64),")
 	}
+	g.P("    Overflow,")
 	g.P("}")
 	g.P()
 	g.P("impl std::fmt::Display for ConversionError {")
@@ -87,6 +88,7 @@ func generateRustConversionError(g *protogen.GeneratedFile, needsChrono bool) {
 	if needsChrono {
 		g.P(`            Self::InvalidTimestamp(ms) => write!(f, "invalid timestamp: {ms}ms"),`)
 	}
+	g.P(`            Self::Overflow => write!(f, "integer overflow during conversion"),`)
 	g.P("        }")
 	g.P("    }")
 	g.P("}")
@@ -547,7 +549,7 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 		return fmt.Sprintf("self.%s as u32", fieldName)
 	}
 	if field.Desc.Kind() == protoreflect.Uint64Kind || field.Desc.Kind() == protoreflect.Fixed64Kind {
-		return fmt.Sprintf("self.%s as u64", fieldName)
+		return fmt.Sprintf("u64::try_from(self.%s).map_err(|_| ConversionError::Overflow)?", fieldName)
 	}
 	// Bytes
 	if field.Desc.Kind() == protoreflect.BytesKind {
@@ -617,7 +619,7 @@ func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opt
 		return fmt.Sprintf("self.%s as u32", fieldName)
 	}
 	if field.Desc.Kind() == protoreflect.Uint64Kind || field.Desc.Kind() == protoreflect.Fixed64Kind {
-		return fmt.Sprintf("self.%s as u64", fieldName)
+		return fmt.Sprintf("u64::try_from(self.%s).map_err(|_| ConversionError::Overflow)?", fieldName)
 	}
 	// Bytes (Vec<u8> can be moved)
 	if field.Desc.Kind() == protoreflect.BytesKind {
@@ -676,7 +678,7 @@ func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opt
 		return fmt.Sprintf("d.%s as i64", fieldName)
 	}
 	if field.Desc.Kind() == protoreflect.Uint64Kind || field.Desc.Kind() == protoreflect.Fixed64Kind {
-		return fmt.Sprintf("d.%s as i64", fieldName)
+		return fmt.Sprintf("i64::try_from(d.%s).map_err(|_| ConversionError::Overflow)?", fieldName)
 	}
 	// Bytes
 	if field.Desc.Kind() == protoreflect.BytesKind {

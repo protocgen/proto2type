@@ -12,9 +12,9 @@ func kotlinScalarType(kind protoreflect.Kind) string {
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
 		return "Long"
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-		return "UInt"
+		return "Int"
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		return "ULong"
+		return "Long"
 	case protoreflect.FloatKind:
 		return "Float"
 	case protoreflect.DoubleKind:
@@ -42,9 +42,9 @@ func kotlinScalarDefault(kind protoreflect.Kind) string {
 	case protoreflect.BytesKind:
 		return "byteArrayOf()"
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-		return "0u"
+		return "0"
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		return "0uL"
+		return "0L"
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
 		return "0L"
 	default:
@@ -85,9 +85,9 @@ func kotlinMapTypeInfoType(m *MapTypeInfo) string {
 	case FieldKindWrapperInt64:
 		return "Long?"
 	case FieldKindWrapperUInt32:
-		return "UInt?"
+		return "Int?"
 	case FieldKindWrapperUInt64:
-		return "ULong?"
+		return "Long?"
 	case FieldKindWrapperFloat:
 		return "Float?"
 	case FieldKindWrapperDouble:
@@ -204,9 +204,9 @@ func kotlinWrapperType(kind FieldKind) string {
 	case FieldKindWrapperInt64:
 		return "Long?"
 	case FieldKindWrapperUInt32:
-		return "UInt?"
+		return "Int?"
 	case FieldKindWrapperUInt64:
-		return "ULong?"
+		return "Long?"
 	case FieldKindWrapperFloat:
 		return "Float?"
 	case FieldKindWrapperDouble:

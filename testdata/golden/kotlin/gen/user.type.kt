@@ -4,11 +4,10 @@
 
 package test.v1
 
+import kotlin.time.Duration
 import kotlinx.datetime.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Contextual
-import kotlin.time.Duration
 
 /** UserStatus represents the user's account status. */
 @Serializable
@@ -54,8 +53,8 @@ data class User(
     val roles: List<String> = emptyList(),
     val metadata: Map<String, String> = emptyMap(),
     val address: Address? = null,
-    @Contextual @SerialName("created_at") val createdAt: Instant = Instant.fromEpochSeconds(0),
-    @Contextual @SerialName("session_timeout") val sessionTimeout: Duration = Duration.ZERO,
+    @SerialName("created_at") val createdAt: Instant = Instant.fromEpochSeconds(0),
+    @SerialName("session_timeout") val sessionTimeout: Duration = Duration.ZERO,
     val phone: String? = null,
     // Note: ByteArray uses referential equality. Override equals()/hashCode() if needed.
     val avatar: ByteArray = byteArrayOf(),
@@ -63,7 +62,7 @@ data class User(
     val status: UserStatus = UserStatus.entries.first(),
     @SerialName("contact_method") val contactMethod: UserContactMethod? = null,
     val tags: List<Tag> = emptyList(),
-    @Contextual @SerialName("deleted_at") val deletedAt: Instant? = null,
+    @SerialName("deleted_at") val deletedAt: Instant? = null,
     @SerialName("previous_status") val previousStatus: UserStatus? = null
 )
 

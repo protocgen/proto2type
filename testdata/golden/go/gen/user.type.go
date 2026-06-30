@@ -78,7 +78,7 @@ func (u *User) ToProto() *pb.User {
 	if !u.DeletedAt.IsZero() {
 		out.DeletedAt = timestamppb.New(u.DeletedAt)
 	}
-	if u.PreviousStatus != "" {
+	if u.PreviousStatus != 0 {
 		v := pb.UserStatus(u.PreviousStatus)
 		out.PreviousStatus = &v
 	}

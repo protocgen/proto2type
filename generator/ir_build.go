@@ -368,9 +368,14 @@ func irMessageNameFromDesc(md protoreflect.MessageDescriptor) string {
 	return irMessageNameFromDesc(parent) + "_" + toPascalCase(string(md.Name()))
 }
 
-// cleanComment trims whitespace from a proto comment string.
+// cleanComment trims whitespace from a proto comment string and sanitises
+// sequences that could break block-comment syntax (e.g. Kotlin's /** */).
 func cleanComment(s string) string {
-	return strings.TrimSpace(s)
+	s = strings.TrimSpace(s)
+	// Prevent a proto comment containing "*/" from prematurely closing
+	// a generated block comment (SEC-1).
+	s = strings.ReplaceAll(s, "*/", "* /")
+	return s
 }
 
 // irEnumNameFromDesc builds the IR name from an EnumDescriptor,

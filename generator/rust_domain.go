@@ -137,7 +137,13 @@ func generateRustEnumFromIR(g *protogen.GeneratedFile, de *DomainEnum) {
 	g.P("#[repr(i32)]")
 	g.P("pub enum ", de.Name, " {")
 
+	seenVariants := map[int32]bool{}
 	for _, val := range de.Values {
+		if seenVariants[val.Number] {
+			continue
+		}
+		seenVariants[val.Number] = true
+
 		if val.Comment != "" {
 			for _, line := range strings.Split(val.Comment, "\n") {
 				g.P("    /// ", strings.TrimPrefix(line, " "))
@@ -175,7 +181,12 @@ func generateRustEnumFromIR(g *protogen.GeneratedFile, de *DomainEnum) {
 	g.P("impl std::fmt::Display for ", de.Name, " {")
 	g.P("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {")
 	g.P("        match self {")
+	seenDisplay := make(map[int32]bool)
 	for _, val := range de.Values {
+		if seenDisplay[val.Number] {
+			continue
+		}
+		seenDisplay[val.Number] = true
 		g.P("            Self::", val.Name, " => write!(f, \"", val.ProtoName, "\"),")
 	}
 	g.P("        }")

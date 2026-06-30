@@ -43,7 +43,6 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 	needsSerialName := false
 	needsInstant := false
 	needsDuration := false
-	needsContextual := false
 
 	for _, e := range ir.Enums {
 		needsSerializable = true
@@ -58,10 +57,13 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 			continue
 		}
 		needsSerializable = true
-		scanKotlinImports(m, &needsSerialName, &needsInstant, &needsDuration, &needsContextual)
+		scanKotlinImports(m, &needsSerialName, &needsInstant, &needsDuration)
 	}
 
-	// --- Emit imports ---
+	// --- Emit imports (kotlin.* before kotlinx.*, alphabetical within each group) ---
+	if needsDuration {
+		g.P("import kotlin.time.Duration")
+	}
 	if needsInstant {
 		g.P("import kotlinx.datetime.Instant")
 	}
@@ -70,12 +72,6 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 	}
 	if needsSerializable {
 		g.P("import kotlinx.serialization.Serializable")
-	}
-	if needsContextual {
-		g.P("import kotlinx.serialization.Contextual")
-	}
-	if needsDuration {
-		g.P("import kotlin.time.Duration")
 	}
 	if needsSerializable || needsInstant || needsDuration {
 		g.P()
@@ -98,9 +94,9 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 }
 
 // scanKotlinImports recursively scans a DomainMessage for import requirements.
-func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsDuration, needsContextual *bool) {
+func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsDuration *bool) {
 	for _, f := range msg.Fields {
-		scanKotlinFieldImports(f, needsSerialName, needsInstant, needsDuration, needsContextual)
+		scanKotlinFieldImports(f, needsSerialName, needsInstant, needsDuration)
 	}
 
 	// Oneofs always need @SerialName for variants.
@@ -134,19 +130,17 @@ func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsD
 		if nested.Skip {
 			continue
 		}
-		scanKotlinImports(nested, needsSerialName, needsInstant, needsDuration, needsContextual)
+		scanKotlinImports(nested, needsSerialName, needsInstant, needsDuration)
 	}
 }
 
 // scanKotlinFieldImports checks a single field for import requirements.
-func scanKotlinFieldImports(f *DomainField, needsSerialName, needsInstant, needsDuration, needsContextual *bool) {
+func scanKotlinFieldImports(f *DomainField, needsSerialName, needsInstant, needsDuration *bool) {
 	if f.Kind == FieldKindTimestamp {
 		*needsInstant = true
-		*needsContextual = true
 	}
 	if f.Kind == FieldKindDuration {
 		*needsDuration = true
-		*needsContextual = true
 	}
 
 	// Map values may be timestamps/durations too.
@@ -178,13 +172,29 @@ func writeKotlinEnum(g *protogen.GeneratedFile, enum *DomainEnum) {
 	g.P("@Serializable")
 	g.P("enum class ", enum.Name, " {")
 
-	for i, v := range enum.Values {
-		kotlinName := pascalToUpperSnake(v.Name)
+	// Dedup alias values: only emit the first variant for each number.
+	type enumEntry struct {
+		kotlinName string
+		protoName  string
+	}
+	var entries []enumEntry
+	seenEntryNumbers := map[int32]bool{}
+	for _, v := range enum.Values {
+		if seenEntryNumbers[v.Number] {
+			continue
+		}
+		seenEntryNumbers[v.Number] = true
+		entries = append(entries, enumEntry{
+			kotlinName: pascalToUpperSnake(v.Name),
+			protoName:  v.ProtoName,
+		})
+	}
+	for i, e := range entries {
 		sep := ","
-		if i == len(enum.Values)-1 {
+		if i == len(entries)-1 {
 			sep = ";"
 		}
-		g.P("    @SerialName(\"", v.ProtoName, "\") ", kotlinName, sep)
+		g.P("    @SerialName(\"", e.protoName, "\") ", e.kotlinName, sep)
 	}
 
 	g.P()
@@ -229,7 +239,6 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 	type fieldLine struct {
 		serialName string // empty if not needed
 		decl       string
-		contextual bool   // emit @Contextual annotation
 		comment    string // optional comment above the field
 	}
 	var lines []fieldLine
@@ -261,8 +270,6 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 			sn = f.Name
 		}
 
-		contextual := f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration
-
 		var comment string
 		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 			comment = "// Note: ByteArray uses referential equality. Override equals()/hashCode() if needed."
@@ -271,7 +278,6 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 		lines = append(lines, fieldLine{
 			serialName: sn,
 			decl:       fmt.Sprintf("val %s: %s = %s", camel, typ, def),
-			contextual: contextual,
 			comment:    comment,
 		})
 	}
@@ -288,14 +294,10 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 			if line.comment != "" {
 				g.P("    ", line.comment)
 			}
-			prefix := ""
-			if line.contextual {
-				prefix = "@Contextual "
-			}
 			if line.serialName != "" {
-				g.P("    ", prefix, "@SerialName(\"", line.serialName, "\") ", line.decl, trailingComma)
+				g.P("    @SerialName(\"", line.serialName, "\") ", line.decl, trailingComma)
 			} else {
-				g.P("    ", prefix, line.decl, trailingComma)
+				g.P("    ", line.decl, trailingComma)
 			}
 		}
 		g.P(")")

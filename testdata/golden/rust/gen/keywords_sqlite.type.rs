@@ -9,12 +9,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug)]
 pub enum ConversionError {
     Json(serde_json::Error),
+    Overflow,
 }
 
 impl std::fmt::Display for ConversionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Json(e) => write!(f, "json: {e}"),
+            Self::Overflow => write!(f, "integer overflow during conversion"),
         }
     }
 }

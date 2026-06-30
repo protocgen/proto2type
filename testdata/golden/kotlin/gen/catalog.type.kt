@@ -7,7 +7,6 @@ package test.v1
 import kotlinx.datetime.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Contextual
 
 /** ModelCatalogEntry represents a model in the catalog. */
 @Serializable
@@ -23,8 +22,8 @@ data class ModelCatalogEntry(
     @SerialName("discount_percent") val discountPercent: Double = 0.0,
     val aliases: List<String> = emptyList(),
     @SerialName("provider_model_id") val providerModelId: String = "",
-    @Contextual @SerialName("created_at") val createdAt: Instant = Instant.fromEpochSeconds(0),
-    @Contextual @SerialName("updated_at") val updatedAt: Instant = Instant.fromEpochSeconds(0),
+    @SerialName("created_at") val createdAt: Instant = Instant.fromEpochSeconds(0),
+    @SerialName("updated_at") val updatedAt: Instant = Instant.fromEpochSeconds(0),
     val notes: String = "",
     val region: String = ""
 )
