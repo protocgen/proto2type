@@ -293,6 +293,101 @@ func goMapValueTypeFromIR(mv *MapTypeInfo) string {
 	return goType(mv.ScalarKind)
 }
 
+// goStorageFieldTypeFromIR returns the Go type for a field using the IR,
+// appending suffix to nested message type names (e.g. "Firestore", "Mongo").
+func goStorageFieldTypeFromIR(f *DomainField, suffix string) string {
+	if f.Repeated {
+		return "[]" + goStorageSingularTypeFromIR(f, suffix)
+	}
+	if f.IsMap {
+		keyType := goType(f.MapKey.ScalarKind)
+		valType := goStorageMapValueTypeFromIR(f.MapValue, suffix)
+		return fmt.Sprintf("map[%s]%s", keyType, valType)
+	}
+	return goStorageSingularTypeFromIR(f, suffix)
+}
+
+// goStorageSingularTypeFromIR returns the Go type for a singular field in a storage struct,
+// appending suffix to nested message type names.
+func goStorageSingularTypeFromIR(f *DomainField, suffix string) string {
+	switch f.Kind {
+	case FieldKindTimestamp:
+		return "time.Time"
+	case FieldKindDuration:
+		return "time.Duration"
+	case FieldKindMessage:
+		return "*" + f.MessageTypeName + suffix
+	case FieldKindEnum:
+		if f.EnumAsString {
+			return "string"
+		}
+		return "int32"
+	case FieldKindStruct:
+		return "map[string]any"
+	case FieldKindValue:
+		return "any"
+	case FieldKindListValue:
+		return "[]any"
+	case FieldKindFieldMask:
+		return "[]string"
+	case FieldKindEmpty:
+		return "struct{}"
+	case FieldKindAny:
+		return "any"
+	case FieldKindScalar:
+		if f.Optional {
+			return "*" + goType(f.ScalarKind)
+		}
+		return goType(f.ScalarKind)
+	}
+
+	// Wrapper types
+	if f.Kind.IsWrapper() {
+		return wrapperGoTypeFromIR(f.Kind)
+	}
+
+	return goType(f.ScalarKind)
+}
+
+// goStorageMapValueTypeFromIR returns the Go type for a map value in a storage struct,
+// appending suffix to nested message type names.
+func goStorageMapValueTypeFromIR(mv *MapTypeInfo, suffix string) string {
+	if mv == nil {
+		return "any"
+	}
+	switch mv.Kind {
+	case FieldKindTimestamp:
+		return "time.Time"
+	case FieldKindDuration:
+		return "time.Duration"
+	case FieldKindStruct:
+		return "map[string]any"
+	case FieldKindValue:
+		return "any"
+	case FieldKindListValue:
+		return "[]any"
+	case FieldKindFieldMask:
+		return "[]string"
+	case FieldKindEmpty:
+		return "struct{}"
+	case FieldKindAny:
+		return "any"
+	case FieldKindMessage:
+		return "*" + mv.MessageTypeName + suffix
+	case FieldKindEnum:
+		return "int32"
+	case FieldKindScalar:
+		return goType(mv.ScalarKind)
+	}
+
+	// Wrapper types
+	if mv.Kind.IsWrapper() {
+		return wrapperGoTypeFromIR(mv.Kind)
+	}
+
+	return goType(mv.ScalarKind)
+}
+
 // irNeedsTime returns true if any message field uses Timestamp or Duration.
 func irNeedsTime(msgs []*DomainMessage) bool {
 	for _, m := range msgs {
@@ -365,65 +460,6 @@ func goDomainSingularType(field *protogen.Field, opts *Options) string {
 	// Message types (nested)
 	if field.Desc.Kind() == protoreflect.MessageKind {
 		return "*" + toPascalCase(string(field.Desc.Message().Name()))
-	}
-
-	// Enum types
-	if field.Desc.Kind() == protoreflect.EnumKind {
-		if isEnumAsString(field, opts) {
-			return "string"
-		}
-		return "int32"
-	}
-
-	// proto3 optional scalars -> pointer types
-	if field.Desc.HasOptionalKeyword() {
-		return "*" + goType(field.Desc.Kind())
-	}
-
-	// Scalar types
-	return goType(field.Desc.Kind())
-}
-
-// goStorageFieldType returns the Go type for a proto field in a storage struct.
-// It appends the given suffix to nested message type names.
-func goStorageFieldType(field *protogen.Field, suffix string, opts *Options) string {
-	// Handle repeated fields
-	if field.Desc.IsList() {
-		return "[]" + goStorageSingularType(field, suffix, opts)
-	}
-
-	// Handle map fields
-	if field.Desc.IsMap() {
-		keyType := goType(field.Desc.MapKey().Kind())
-		valType := goType(field.Desc.MapValue().Kind())
-		if field.Desc.MapValue().Kind() == protoreflect.MessageKind {
-			valType = "*" + toPascalCase(string(field.Desc.MapValue().Message().Name())) + suffix
-		}
-		return fmt.Sprintf("map[%s]%s", keyType, valType)
-	}
-
-	return goStorageSingularType(field, suffix, opts)
-}
-
-// goStorageSingularType returns the Go type for a singular field in a storage struct,
-// appending the given suffix to nested message type names.
-func goStorageSingularType(field *protogen.Field, suffix string, opts *Options) string {
-	// Well-known types
-	if isWellKnownTimestamp(field) {
-		return "time.Time"
-	}
-	if isWellKnownDuration(field) {
-		return "time.Duration"
-	}
-
-	// Well-known wrapper types (e.g. google.protobuf.StringValue -> *string)
-	if isWellKnownWrapper(field) {
-		return wrapperGoType(field)
-	}
-
-	// Message types (nested) — apply suffix
-	if field.Desc.Kind() == protoreflect.MessageKind {
-		return "*" + toPascalCase(string(field.Desc.Message().Name())) + suffix
 	}
 
 	// Enum types
