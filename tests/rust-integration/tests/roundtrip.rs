@@ -369,7 +369,12 @@ fn test_sqlite_user_roundtrip() {
             update_mask   TEXT    NOT NULL,
             extra_metadata TEXT   NOT NULL,
             preferences   TEXT    NOT NULL,
-            avatar_thumbnail BLOB
+            avatar_thumbnail BLOB,
+            field_masks TEXT NOT NULL,
+            structs TEXT NOT NULL,
+            lists TEXT NOT NULL,
+            event_times TEXT NOT NULL,
+            configs TEXT NOT NULL
         );",
     )
     .expect("create table");
@@ -382,12 +387,14 @@ fn test_sqlite_user_roundtrip() {
             id, email, display_name, active, age, roles, metadata,
             address, created_at, session_timeout, phone, avatar,
             nickname, status, contact_method, tags, deleted_at, previous_status,
-            update_mask, extra_metadata, preferences, avatar_thumbnail
+            update_mask, extra_metadata, preferences, avatar_thumbnail,
+            field_masks, structs, lists, event_times, configs
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7,
             ?8, ?9, ?10, ?11, ?12,
             ?13, ?14, ?15, ?16, ?17, ?18,
-            ?19, ?20, ?21, ?22
+            ?19, ?20, ?21, ?22,
+            ?23, ?24, ?25, ?26, ?27
         )",
         rusqlite::params![
             row.id,
@@ -412,6 +419,11 @@ fn test_sqlite_user_roundtrip() {
             row.extra_metadata,
             row.preferences,
             row.avatar_thumbnail,
+            row.field_masks,
+            row.structs,
+            row.lists,
+            row.event_times,
+            row.configs,
         ],
     )
     .expect("insert");
@@ -520,7 +532,9 @@ fn test_sqlite_multiple_users() {
             nickname TEXT, status INTEGER NOT NULL, contact_method TEXT, tags TEXT NOT NULL,
             deleted_at INTEGER, previous_status INTEGER,
             update_mask TEXT NOT NULL, extra_metadata TEXT NOT NULL,
-            preferences TEXT NOT NULL, avatar_thumbnail BLOB
+            preferences TEXT NOT NULL, avatar_thumbnail BLOB,
+            field_masks TEXT NOT NULL, structs TEXT NOT NULL, lists TEXT NOT NULL,
+            event_times TEXT NOT NULL, configs TEXT NOT NULL
         );",
     )
     .expect("create table");
@@ -538,13 +552,14 @@ fn test_sqlite_multiple_users() {
     for user in &users {
         let row = UserRow::from_domain(user).expect("from_domain");
         conn.execute(
-            "INSERT INTO users VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
+            "INSERT INTO users VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)",
             rusqlite::params![
                 row.id, row.email, row.display_name, row.active, row.age, row.roles,
                 row.metadata, row.address, row.created_at, row.session_timeout,
                 row.phone, row.avatar, row.nickname, row.status, row.contact_method, row.tags,
                 row.deleted_at, row.previous_status,
                 row.update_mask, row.extra_metadata, row.preferences, row.avatar_thumbnail,
+                row.field_masks, row.structs, row.lists, row.event_times, row.configs,
             ],
         )
         .expect("insert");
@@ -618,7 +633,9 @@ fn test_binary_blob_sqlite() {
             nickname TEXT, status INTEGER NOT NULL, contact_method TEXT, tags TEXT NOT NULL,
             deleted_at INTEGER, previous_status INTEGER,
             update_mask TEXT NOT NULL, extra_metadata TEXT NOT NULL,
-            preferences TEXT NOT NULL, avatar_thumbnail BLOB
+            preferences TEXT NOT NULL, avatar_thumbnail BLOB,
+            field_masks TEXT NOT NULL, structs TEXT NOT NULL, lists TEXT NOT NULL,
+            event_times TEXT NOT NULL, configs TEXT NOT NULL
         );",
     )
     .expect("create");
@@ -630,13 +647,14 @@ fn test_binary_blob_sqlite() {
 
     let row = UserRow::from_domain(&user).expect("from_domain");
     conn.execute(
-        "INSERT INTO users VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
+        "INSERT INTO users VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)",
         rusqlite::params![
             row.id, row.email, row.display_name, row.active, row.age, row.roles,
             row.metadata, row.address, row.created_at, row.session_timeout,
             row.phone, row.avatar, row.nickname, row.status, row.contact_method, row.tags,
             row.deleted_at, row.previous_status,
             row.update_mask, row.extra_metadata, row.preferences, row.avatar_thumbnail,
+            row.field_masks, row.structs, row.lists, row.event_times, row.configs,
         ],
     )
     .expect("insert");
