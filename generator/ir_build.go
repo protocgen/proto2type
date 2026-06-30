@@ -53,6 +53,15 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options)
 		Comment:  cleanComment(string(msg.Comments.Leading)),
 	}
 
+	dm.ProtoGoIdent = msg.GoIdent
+	// Detect non-synthetic oneofs for converter warning comments.
+	for _, o := range msg.Oneofs {
+		if !o.Desc.IsSynthetic() {
+			dm.HasNonSyntheticOneof = true
+			break
+		}
+	}
+
 	// Nested enums (before fields, so enum type names are available).
 	for _, enum := range msg.Enums {
 		dm.NestedEnums = append(dm.NestedEnums, buildDomainEnum(enum, name))
@@ -127,6 +136,14 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 		Inline:          isInline(field),
 		EnumAsString:    isEnumAsString(field, opts),
 		Omitempty:       shouldOmitempty(field, opts),
+	}
+
+	df.ProtoGoName = field.GoName
+	if field.Enum != nil {
+		df.ProtoEnumGoIdent = field.Enum.GoIdent
+	}
+	if field.Message != nil {
+		df.ProtoMessageGoIdent = field.Message.GoIdent
 	}
 
 	// Map fields.

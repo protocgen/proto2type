@@ -89,33 +89,6 @@ func isWellKnownWrapper(field *protogen.Field) bool {
 	return false
 }
 
-// wrapperPbFuncName returns the wrapperspb constructor function name for a wrapper type.
-// e.g., "google.protobuf.StringValue" -> "String"
-func wrapperPbFuncName(field *protogen.Field) string {
-	switch string(field.Desc.Message().FullName()) {
-	case "google.protobuf.StringValue":
-		return "String"
-	case "google.protobuf.BoolValue":
-		return "Bool"
-	case "google.protobuf.Int32Value":
-		return "Int32"
-	case "google.protobuf.Int64Value":
-		return "Int64"
-	case "google.protobuf.UInt32Value":
-		return "UInt32"
-	case "google.protobuf.UInt64Value":
-		return "UInt64"
-	case "google.protobuf.FloatValue":
-		return "Float"
-	case "google.protobuf.DoubleValue":
-		return "Double"
-	case "google.protobuf.BytesValue":
-		return "Bytes"
-	default:
-		return "String"
-	}
-}
-
 // isNestedMessage returns true if the field is a non-WKT message type that is not a list or map.
 func isNestedMessage(field *protogen.Field) bool {
 	if field.Desc.Kind() != protoreflect.MessageKind {
@@ -168,4 +141,18 @@ func isWellKnownEmpty(field *protogen.Field) bool {
 func isWellKnownAny(field *protogen.Field) bool {
 	return field.Desc.Kind() == protoreflect.MessageKind &&
 		string(field.Desc.Message().FullName()) == "google.protobuf.Any"
+}
+
+// buildProtoMessageMap builds a map from FullName to *protogen.Message, recursively.
+func buildProtoMessageMap(msgs []*protogen.Message) map[string]*protogen.Message {
+	m := make(map[string]*protogen.Message)
+	var walk func([]*protogen.Message)
+	walk = func(list []*protogen.Message) {
+		for _, msg := range list {
+			m[string(msg.Desc.FullName())] = msg
+			walk(msg.Messages)
+		}
+	}
+	walk(msgs)
+	return m
 }
