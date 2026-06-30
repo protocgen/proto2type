@@ -294,6 +294,9 @@ func kotlinDefaultValue(f DomainField) string {
 			return "null"
 		}
 		if f.EnumAsString {
+			if f.EnumDefaultName != "" {
+				return "\"" + f.EnumDefaultName + "\""
+			}
 			return "\"\""
 		}
 		return f.EnumTypeName + ".entries.first()"

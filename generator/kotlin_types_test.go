@@ -310,8 +310,8 @@ func TestKotlinDefaultValue(t *testing.T) {
 		},
 		{
 			name: "enum as string",
-			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", EnumAsString: true},
-			want: "\"\"",
+			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", EnumAsString: true, EnumDefaultName: "USER_STATUS_UNSPECIFIED"},
+			want: "\"USER_STATUS_UNSPECIFIED\"",
 		},
 		{
 			name: "wrapper string",
