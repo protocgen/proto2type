@@ -110,16 +110,30 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 				GoImportPath: "google.golang.org/protobuf/types/known/timestamppb",
 				GoName:       "New",
 			})
-			g.P("\tif !", recv, ".", domainFieldName, ".IsZero() {")
-			g.P("\t\tout.", protoFieldName, " = ", tsNew, "(", recv, ".", domainFieldName, ")")
-			g.P("\t}")
+			if field.Desc.HasOptionalKeyword() && structSuffix == "" {
+				// Domain struct: optional timestamp is *time.Time
+				g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+				g.P("\t\tout.", protoFieldName, " = ", tsNew, "(*", recv, ".", domainFieldName, ")")
+				g.P("\t}")
+			} else {
+				g.P("\tif !", recv, ".", domainFieldName, ".IsZero() {")
+				g.P("\t\tout.", protoFieldName, " = ", tsNew, "(", recv, ".", domainFieldName, ")")
+				g.P("\t}")
+			}
 		} else if isWellKnownDuration(field) {
 			// durationpb.New
 			durNew := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/durationpb",
 				GoName:       "New",
 			})
-			g.P("\tout.", protoFieldName, " = ", durNew, "(", recv, ".", domainFieldName, ")")
+			if field.Desc.HasOptionalKeyword() && structSuffix == "" {
+				// Domain struct: optional duration is *time.Duration
+				g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+				g.P("\t\tout.", protoFieldName, " = ", durNew, "(*", recv, ".", domainFieldName, ")")
+				g.P("\t}")
+			} else {
+				g.P("\tout.", protoFieldName, " = ", durNew, "(", recv, ".", domainFieldName, ")")
+			}
 		} else if isWellKnownWrapper(field) {
 			// Wrapper type: if d.Phone != nil { out.Phone = wrapperspb.String(*d.Phone) }
 			funcName := wrapperPbFuncName(field)
@@ -153,14 +167,25 @@ func generateToProto(g *protogen.GeneratedFile, msg *protogen.Message, structNam
 			g.P("\t\tcopy(out.", protoFieldName, ", ", recv, ".", domainFieldName, ")")
 			g.P("\t}")
 		} else if field.Desc.HasOptionalKeyword() && field.Desc.Kind() == protoreflect.EnumKind {
-			// Optional enum: proto uses *EnumType, domain uses string or int32.
+			// Optional enum: proto uses *EnumType, domain uses *string or *int32.
 			enumIdent := g.QualifiedGoIdent(field.Enum.GoIdent)
-			if isEnumAsString(field, opts) {
-				g.P("\tif ", recv, ".", domainFieldName, " != \"\" {")
-				g.P("\t\tv := ", enumIdent, "(", enumIdent, "_value[", recv, ".", domainFieldName, "])")
+			if structSuffix == "" {
+				// Domain struct: optional enum is pointer type
+				g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+				if isEnumAsString(field, opts) {
+					g.P("\t\tv := ", enumIdent, "(", enumIdent, "_value[*", recv, ".", domainFieldName, "])")
+				} else {
+					g.P("\t\tv := ", enumIdent, "(*", recv, ".", domainFieldName, ")")
+				}
 			} else {
-				g.P("\tif ", recv, ".", domainFieldName, " != 0 {")
-				g.P("\t\tv := ", enumIdent, "(", recv, ".", domainFieldName, ")")
+				// Storage struct: optional enum is non-pointer
+				if isEnumAsString(field, opts) {
+					g.P("\tif ", recv, ".", domainFieldName, " != \"\" {")
+					g.P("\t\tv := ", enumIdent, "(", enumIdent, "_value[", recv, ".", domainFieldName, "])")
+				} else {
+					g.P("\tif ", recv, ".", domainFieldName, " != 0 {")
+					g.P("\t\tv := ", enumIdent, "(", recv, ".", domainFieldName, ")")
+				}
 			}
 			g.P("\t\tout.", protoFieldName, " = &v")
 			g.P("\t}")
@@ -201,11 +226,23 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 
 		if isWellKnownTimestamp(field) {
 			g.P("\tif pb.", protoFieldName, " != nil {")
-			g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsTime()")
+			if field.Desc.HasOptionalKeyword() && structSuffix == "" {
+				// Domain struct: optional timestamp is *time.Time
+				g.P("\t\tv := pb.", protoFieldName, ".AsTime()")
+				g.P("\t\t", recv, ".", domainFieldName, " = &v")
+			} else {
+				g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsTime()")
+			}
 			g.P("\t}")
 		} else if isWellKnownDuration(field) {
 			g.P("\tif pb.", protoFieldName, " != nil {")
-			g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsDuration()")
+			if field.Desc.HasOptionalKeyword() && structSuffix == "" {
+				// Domain struct: optional duration is *time.Duration
+				g.P("\t\tv := pb.", protoFieldName, ".AsDuration()")
+				g.P("\t\t", recv, ".", domainFieldName, " = &v")
+			} else {
+				g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsDuration()")
+			}
 			g.P("\t}")
 		} else if isWellKnownWrapper(field) {
 			// Wrapper type: if pb.Phone != nil { v := pb.Phone.GetValue(); d.Phone = &v }
@@ -240,12 +277,24 @@ func generateFromProto(g *protogen.GeneratedFile, msg *protogen.Message, structN
 			g.P("\t\tcopy(", recv, ".", domainFieldName, ", pb.", protoFieldName, ")")
 			g.P("\t}")
 		} else if field.Desc.HasOptionalKeyword() && field.Desc.Kind() == protoreflect.EnumKind {
-			// Optional enum: proto uses *EnumType, domain uses string or int32.
+			// Optional enum: proto uses *EnumType, domain uses *string or *int32.
 			g.P("\tif pb.", protoFieldName, " != nil {")
-			if isEnumAsString(field, opts) {
-				g.P("\t\t", recv, ".", domainFieldName, " = pb.Get", protoFieldName, "().String()")
+			if structSuffix == "" {
+				// Domain struct: optional enum is pointer type
+				if isEnumAsString(field, opts) {
+					g.P("\t\tv := pb.Get", protoFieldName, "().String()")
+					g.P("\t\t", recv, ".", domainFieldName, " = &v")
+				} else {
+					g.P("\t\tv := int32(pb.Get", protoFieldName, "())")
+					g.P("\t\t", recv, ".", domainFieldName, " = &v")
+				}
 			} else {
-				g.P("\t\t", recv, ".", domainFieldName, " = int32(pb.Get", protoFieldName, "())")
+				// Storage struct: optional enum is non-pointer
+				if isEnumAsString(field, opts) {
+					g.P("\t\t", recv, ".", domainFieldName, " = pb.Get", protoFieldName, "().String()")
+				} else {
+					g.P("\t\t", recv, ".", domainFieldName, " = int32(pb.Get", protoFieldName, "())")
+				}
 			}
 			g.P("\t}")
 		} else if field.Desc.HasOptionalKeyword() {

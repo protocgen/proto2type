@@ -75,11 +75,11 @@ func (u *User) ToProto() *pb.User {
 			}
 		}
 	}
-	if !u.DeletedAt.IsZero() {
-		out.DeletedAt = timestamppb.New(u.DeletedAt)
+	if u.DeletedAt != nil {
+		out.DeletedAt = timestamppb.New(*u.DeletedAt)
 	}
-	if u.PreviousStatus != 0 {
-		v := pb.UserStatus(u.PreviousStatus)
+	if u.PreviousStatus != nil {
+		v := pb.UserStatus(*u.PreviousStatus)
 		out.PreviousStatus = &v
 	}
 	return out
@@ -128,10 +128,12 @@ func (u *User) FromProto(pb *pb.User) {
 		}
 	}
 	if pb.DeletedAt != nil {
-		u.DeletedAt = pb.DeletedAt.AsTime()
+		v := pb.DeletedAt.AsTime()
+		u.DeletedAt = &v
 	}
 	if pb.PreviousStatus != nil {
-		u.PreviousStatus = int32(pb.GetPreviousStatus())
+		v := int32(pb.GetPreviousStatus())
+		u.PreviousStatus = &v
 	}
 }
 
