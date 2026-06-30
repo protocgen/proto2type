@@ -152,13 +152,15 @@ func (u *UserMongo) ToDomain() *User {
 		Phone:          u.Phone,
 		Nickname:       u.Nickname,
 		Status:         u.Status,
-		DeletedAt:      u.DeletedAt,
-		PreviousStatus: u.PreviousStatus,
 	}
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
 		copy(d.Avatar, u.Avatar)
 	}
+	vDeletedAt := u.DeletedAt
+	d.DeletedAt = &vDeletedAt
+	vPreviousStatus := u.PreviousStatus
+	d.PreviousStatus = &vPreviousStatus
 	if u.Address != nil {
 		d.Address = u.Address.ToDomain()
 	}
@@ -208,8 +210,12 @@ func (u *UserMongo) FromDomain(d *User) {
 			}
 		}
 	}
-	u.DeletedAt = d.DeletedAt
-	u.PreviousStatus = d.PreviousStatus
+	if d.DeletedAt != nil {
+		u.DeletedAt = *d.DeletedAt
+	}
+	if d.PreviousStatus != nil {
+		u.PreviousStatus = *d.PreviousStatus
+	}
 }
 
 // AddressMongo is the MongoDB storage representation of test.v1.Address.
