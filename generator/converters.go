@@ -154,6 +154,17 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 			} else {
 				g.P("\tout.", protoFieldName, " = ", durNew, "(", recv, ".", domainFieldName, ")")
 			}
+		} else if f.Kind == FieldKindWrapperBytes {
+			// BytesValue wrapper: deep copy to prevent aliasing (SEC-3)
+			wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+				GoName:       "Bytes",
+			})
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tb := make([]byte, len(*", recv, ".", domainFieldName, "))")
+			g.P("\t\tcopy(b, *", recv, ".", domainFieldName, ")")
+			g.P("\t\tout.", protoFieldName, " = ", wrapperFunc, "(b)")
+			g.P("\t}")
 		} else if f.Kind.IsWrapper() {
 			// Wrapper type: if d.Phone != nil { out.Phone = wrapperspb.String(*d.Phone) }
 			funcName := irWrapperPbFuncName(f.Kind)
@@ -316,6 +327,14 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 				g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsDuration()")
 			}
 			g.P("\t}")
+		} else if f.Kind == FieldKindWrapperBytes {
+			// BytesValue wrapper: deep copy to prevent aliasing (SEC-3)
+			g.P("\tif pb.", protoFieldName, " != nil {")
+			g.P("\t\tsrc := pb.", protoFieldName, ".GetValue()")
+			g.P("\t\tb := make([]byte, len(src))")
+			g.P("\t\tcopy(b, src)")
+			g.P("\t\t", recv, ".", domainFieldName, " = &b")
+			g.P("\t}")
 		} else if f.Kind.IsWrapper() {
 			// Wrapper type: if pb.Phone != nil { v := pb.Phone.GetValue(); d.Phone = &v }
 			g.P("\tif pb.", protoFieldName, " != nil {")
@@ -455,9 +474,7 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 		}
 		// Skip message fields — handle recursively below
 		// This covers both singular (isNestedMessage) and repeated messages.
-		if f.Kind == FieldKindMessage && !f.IsMap &&
-			f.Kind != FieldKindTimestamp && f.Kind != FieldKindDuration && !f.Kind.IsWrapper() &&
-			f.Kind != FieldKindFieldMask && f.Kind != FieldKindStruct && f.Kind != FieldKindListValue {
+		if f.Kind == FieldKindMessage && !f.IsMap {
 			continue
 		}
 		fieldName := f.PascalName
@@ -547,8 +564,7 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 			g.P("\tif ", recv, ".", fieldName, " != nil {")
 			g.P("\t\td.", fieldName, " = ", recv, ".", fieldName, ".ToDomain()")
 			g.P("\t}")
-		} else if f.Kind == FieldKindMessage && f.Repeated &&
-			f.Kind != FieldKindTimestamp && f.Kind != FieldKindDuration && !f.Kind.IsWrapper() {
+		} else if f.Kind == FieldKindMessage && f.Repeated {
 			// Repeated message: loop-based element-wise conversion
 			nestedDomainType := f.MessageTypeName
 			g.P("\tif len(", recv, ".", fieldName, ") > 0 {")
@@ -587,8 +603,7 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 			g.P("\t\t", recv, ".", fieldName, " = &", nestedType, "{}")
 			g.P("\t\t", recv, ".", fieldName, ".FromDomain(d.", fieldName, ")")
 			g.P("\t}")
-		} else if f.Kind == FieldKindMessage && f.Repeated &&
-			f.Kind != FieldKindTimestamp && f.Kind != FieldKindDuration && !f.Kind.IsWrapper() {
+		} else if f.Kind == FieldKindMessage && f.Repeated {
 			// Repeated message: loop-based element-wise conversion
 			nestedType := f.MessageTypeName + storageSuffix
 			g.P("\tif len(d.", fieldName, ") > 0 {")
