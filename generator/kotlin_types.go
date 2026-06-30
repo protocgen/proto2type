@@ -165,6 +165,12 @@ func kotlinSingularType(f DomainField) string {
 	case FieldKindMessage:
 		return f.MessageTypeName + "?"
 	case FieldKindEnum:
+		if f.EnumAsString {
+			if f.Optional {
+				return "String?"
+			}
+			return "String"
+		}
 		if f.Optional {
 			return f.EnumTypeName + "?"
 		}
@@ -283,6 +289,9 @@ func kotlinDefaultValue(f DomainField) string {
 	case FieldKindEnum:
 		if f.Optional {
 			return "null"
+		}
+		if f.EnumAsString {
+			return "\"\""
 		}
 		return f.EnumTypeName + ".entries.first()"
 	case FieldKindStruct:

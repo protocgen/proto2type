@@ -273,6 +273,17 @@ func TestEscapeKotlinKeyword(t *testing.T) {
 		{"typealias", "`typealias`"},
 		{"typeof", "`typeof`"},
 		{"while", "`while`"},
+		// Soft/modifier keywords (KT-4) — must also be escaped as val names.
+		{"data", "`data`"},
+		{"open", "`open`"},
+		{"internal", "`internal`"},
+		{"inline", "`inline`"},
+		{"operator", "`operator`"},
+		{"sealed", "`sealed`"},
+		{"companion", "`companion`"},
+		{"suspend", "`suspend`"},
+		{"abstract", "`abstract`"},
+		{"enum", "`enum`"},
 		// Non-keywords should pass through unchanged.
 		{"name", "name"},
 		{"email", "email"},
