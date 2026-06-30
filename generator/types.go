@@ -195,3 +195,14 @@ func isWellKnownAny(field *protogen.Field) bool {
 	return field.Desc.Kind() == protoreflect.MessageKind &&
 		string(field.Desc.Message().FullName()) == "google.protobuf.Any"
 }
+
+// isWellKnownType returns true if the field is any google.protobuf well-known type.
+// These are mapped to Go value types (time.Time, time.Duration, *string, etc.)
+// rather than user-defined message pointers.
+func isWellKnownType(field *protogen.Field) bool {
+	return isWellKnownTimestamp(field) || isWellKnownDuration(field) ||
+		isWellKnownWrapper(field) || isWellKnownStruct(field) ||
+		isWellKnownValue(field) || isWellKnownListValue(field) ||
+		isWellKnownFieldMask(field) || isWellKnownEmpty(field) ||
+		isWellKnownAny(field)
+}

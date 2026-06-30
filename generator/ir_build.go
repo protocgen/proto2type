@@ -294,7 +294,7 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 func buildDomainEnum(enum *protogen.Enum, parentName string) *DomainEnum {
 	enumName := toPascalCase(string(enum.Desc.Name()))
 	if parentName != "" {
-		enumName = parentName + "_" + enumName
+		enumName = parentName + enumName
 	}
 
 	de := &DomainEnum{
@@ -356,11 +356,11 @@ func buildDomainOneof(msg *protogen.Message, oneof *protogen.Oneof, msgIRName st
 // ---------------------------------------------------------------------------
 
 // irMessageName returns the flattened IR name for a message.
-// Top-level: PascalCase(name). Nested: Parent_Child.
+// Top-level: PascalCase(name). Nested: ParentChild (PascalCase concat).
 func irMessageName(msg *protogen.Message, parentName string) string {
 	name := toPascalCase(string(msg.Desc.Name()))
 	if parentName != "" {
-		return parentName + "_" + name
+		return parentName + name
 	}
 	return name
 }

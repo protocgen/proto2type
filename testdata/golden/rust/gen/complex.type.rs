@@ -44,14 +44,14 @@ impl std::fmt::Display for Priority {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[repr(i32)]
-pub enum Settings_Theme {
+pub enum SettingsTheme {
     #[default]
     ThemeUnspecified = 0,
     ThemeLight = 1,
     ThemeDark = 2,
 }
 
-impl Settings_Theme {
+impl SettingsTheme {
     pub fn from_i32(value: i32) -> Option<Self> {
         match value {
             0 => Some(Self::ThemeUnspecified),
@@ -62,7 +62,7 @@ impl Settings_Theme {
     }
 }
 
-impl std::fmt::Display for Settings_Theme {
+impl std::fmt::Display for SettingsTheme {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ThemeUnspecified => write!(f, "THEME_UNSPECIFIED"),
@@ -96,7 +96,7 @@ pub struct Organization {
 /// Domain representation of test.v1.Organization.Department.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct Organization_Department {
+pub struct OrganizationDepartment {
     pub name: String,
     #[serde(default)]
     pub teams: Vec<OrganizationDepartmentTeam>,
@@ -105,7 +105,7 @@ pub struct Organization_Department {
 /// Domain representation of test.v1.Organization.Department.Team.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
-pub struct Organization_Department_Team {
+pub struct OrganizationDepartmentTeam {
     pub name: String,
     #[serde(default)]
     pub members: Vec<String>,

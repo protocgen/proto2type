@@ -35,8 +35,10 @@ func generateGoFieldMask(g *protogen.GeneratedFile, msg *protogen.Message) {
 			g.P("\t\t\t} else {")
 			g.P("\t\t\t\tdst.", fieldName, " = nil")
 			g.P("\t\t\t}")
-		} else if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() {
-			// Deep copy message pointer fields (GO-2)
+		} else if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() && !isWellKnownType(field) {
+			// Deep copy user-defined message pointer fields (GO-2).
+			// WKTs (Timestamp, Duration, wrappers) map to Go value types
+			// and don't need pointer deep copy.
 			g.P("\t\t\tif src.", fieldName, " != nil {")
 			g.P("\t\t\t\tclone := *src.", fieldName)
 			g.P("\t\t\t\tdst.", fieldName, " = &clone")

@@ -29,13 +29,13 @@ enum class Priority {
 }
 
 @Serializable
-enum class Settings_Theme {
+enum class SettingsTheme {
     @SerialName("THEME_UNSPECIFIED") THEME_UNSPECIFIED,
     @SerialName("THEME_LIGHT") THEME_LIGHT,
     @SerialName("THEME_DARK") THEME_DARK;
 
     companion object {
-        fun fromValue(value: Int): Settings_Theme? = when(value) {
+        fun fromValue(value: Int): SettingsTheme? = when(value) {
             0 -> THEME_UNSPECIFIED
             1 -> THEME_LIGHT
             2 -> THEME_DARK
@@ -59,13 +59,13 @@ data class Organization(
 )
 
 @Serializable
-data class Organization_Department(
+data class OrganizationDepartment(
     val name: String = "",
     val teams: List<OrganizationDepartmentTeam> = emptyList()
 )
 
 @Serializable
-data class Organization_Department_Team(
+data class OrganizationDepartmentTeam(
     val name: String = "",
     val members: List<String> = emptyList()
 )
