@@ -193,7 +193,27 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 				g.P("\t\t}")
 				g.P("\t}")
 			default:
-				if f.Kind.IsWrapper() {
+				if f.Kind == FieldKindWrapperBytes {
+					// Repeated BytesValue wrapper: deep copy to prevent aliasing (SEC-3)
+					wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+						GoName:       "Bytes",
+					})
+					wrapperType := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+						GoName:       "BytesValue",
+					})
+					g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+					g.P("\t\tout.", protoFieldName, " = make([]*", wrapperType, ", len(", recv, ".", domainFieldName, "))")
+					g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+					g.P("\t\t\tif v != nil {")
+					g.P("\t\t\t\tb := make([]byte, len(*v))")
+					g.P("\t\t\t\tcopy(b, *v)")
+					g.P("\t\t\t\tout.", protoFieldName, "[i] = ", wrapperFunc, "(b)")
+					g.P("\t\t\t}")
+					g.P("\t\t}")
+					g.P("\t}")
+				} else if f.Kind.IsWrapper() {
 					// Repeated wrapper: domain []*T → proto []*wrapperspb.T
 					funcName := irWrapperPbFuncName(f.Kind)
 					wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
@@ -516,7 +536,19 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 				g.P("\t\t}")
 				g.P("\t}")
 			default:
-				if f.Kind.IsWrapper() {
+				if f.Kind == FieldKindWrapperBytes {
+					// Repeated BytesValue wrapper: deep copy to prevent aliasing (SEC-3)
+					g.P("\tif len(pb.", protoFieldName, ") > 0 {")
+					g.P("\t\t", recv, ".", domainFieldName, " = make([]*[]byte, len(pb.", protoFieldName, "))")
+					g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
+					g.P("\t\t\tif v != nil {")
+					g.P("\t\t\t\tb := make([]byte, len(v.GetValue()))")
+					g.P("\t\t\t\tcopy(b, v.GetValue())")
+					g.P("\t\t\t\t", recv, ".", domainFieldName, "[i] = &b")
+					g.P("\t\t\t}")
+					g.P("\t\t}")
+					g.P("\t}")
+				} else if f.Kind.IsWrapper() {
 					// Repeated wrapper: proto []*wrapperspb.T → domain []*T
 					g.P("\tif len(pb.", protoFieldName, ") > 0 {")
 					g.P("\t\tfor _, v := range pb.", protoFieldName, " {")
