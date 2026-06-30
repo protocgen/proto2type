@@ -22,7 +22,16 @@ func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
 			continue
 		}
 		g.P("\t\tcase \"", f.Name, "\":")
-		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
+		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && f.Optional {
+			// Deep copy optional bytes (*[]byte): deref, copy, re-ref
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tb := make([]byte, len(*src.", f.PascalName, "))")
+			g.P("\t\t\t\tcopy(b, *src.", f.PascalName, ")")
+			g.P("\t\t\t\tdst.", f.PascalName, " = &b")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 			// Deep copy bytes fields (SEC-3)
 			g.P("\t\t\tif src.", f.PascalName, " != nil {")
 			g.P("\t\t\t\tdst.", f.PascalName, " = make([]byte, len(src.", f.PascalName, "))")
@@ -40,16 +49,16 @@ func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\t\t\t} else {")
 			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
 			g.P("\t\t\t}")
-		} else if f.Kind == FieldKindFieldMask || f.Kind == FieldKindListValue {
-			// Deep copy slice WKTs ([]string or []any)
+		} else if (f.Kind == FieldKindFieldMask || f.Kind == FieldKindListValue) && !f.Repeated && !f.IsMap {
+			// Deep copy singular slice WKTs ([]string or []any)
 			g.P("\t\t\tif src.", f.PascalName, " != nil {")
 			g.P("\t\t\t\tdst.", f.PascalName, " = make(", goDomainFieldTypeFromIR(f), ", len(src.", f.PascalName, "))")
 			g.P("\t\t\t\tcopy(dst.", f.PascalName, ", src.", f.PascalName, ")")
 			g.P("\t\t\t} else {")
 			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
 			g.P("\t\t\t}")
-		} else if f.Kind == FieldKindStruct {
-			// Deep copy map WKT (map[string]any)
+		} else if f.Kind == FieldKindStruct && !f.Repeated && !f.IsMap {
+			// Deep copy singular map WKT (map[string]any)
 			g.P("\t\t\tif src.", f.PascalName, " != nil {")
 			g.P("\t\t\t\tdst.", f.PascalName, " = make(map[string]any, len(src.", f.PascalName, "))")
 			g.P("\t\t\t\tfor k, v := range src.", f.PascalName, " {")

@@ -67,6 +67,10 @@ pub struct UserRow {
     pub tags: String,
     pub deleted_at: Option<i64>,
     pub previous_status: Option<i32>,
+    pub update_mask: String,
+    pub extra_metadata: String,
+    pub preferences: String,
+    pub avatar_thumbnail: Option<Vec<u8>>,
 }
 
 impl UserRow {
@@ -91,6 +95,10 @@ impl UserRow {
             tags: row.get("tags")?,
             deleted_at: row.get("deleted_at")?,
             previous_status: row.get("previous_status")?,
+            update_mask: row.get("update_mask")?,
+            extra_metadata: row.get("extra_metadata")?,
+            preferences: row.get("preferences")?,
+            avatar_thumbnail: row.get("avatar_thumbnail")?,
         })
     }
 
@@ -115,6 +123,10 @@ impl UserRow {
             tags: serde_json::from_str(&self.tags)?,
             deleted_at: match self.deleted_at { Some(ms) => Some(epoch_ms_to_datetime(ms)?), None => None },
             previous_status: self.previous_status.map(|v| UserStatus::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?,
+            update_mask: serde_json::from_str(&self.update_mask)?,
+            extra_metadata: serde_json::from_str(&self.extra_metadata)?,
+            preferences: serde_json::from_str(&self.preferences)?,
+            avatar_thumbnail: self.avatar_thumbnail.clone(),
         })
     }
 
@@ -139,6 +151,10 @@ impl UserRow {
             tags: serde_json::from_str(&self.tags)?,
             deleted_at: match self.deleted_at { Some(ms) => Some(epoch_ms_to_datetime(ms)?), None => None },
             previous_status: self.previous_status.map(|v| UserStatus::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?,
+            update_mask: serde_json::from_str(&self.update_mask)?,
+            extra_metadata: serde_json::from_str(&self.extra_metadata)?,
+            preferences: serde_json::from_str(&self.preferences)?,
+            avatar_thumbnail: self.avatar_thumbnail,
         })
     }
 
@@ -163,6 +179,10 @@ impl UserRow {
             tags: serde_json::to_string(&d.tags)?,
             deleted_at: d.deleted_at.as_ref().map(|dt| datetime_to_epoch_ms(dt)),
             previous_status: d.previous_status.map(|v| v as i32),
+            update_mask: serde_json::to_string(&d.update_mask)?,
+            extra_metadata: serde_json::to_string(&d.extra_metadata)?,
+            preferences: serde_json::to_string(&d.preferences)?,
+            avatar_thumbnail: d.avatar_thumbnail.clone(),
         })
     }
 }

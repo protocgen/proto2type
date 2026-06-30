@@ -48,10 +48,26 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			continue
 		}
 		if f.Optional || f.Kind.IsWrapper() {
-			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-			g.P("\t\tv := *", recv, ".", f.PascalName)
-			g.P("\t\tc.", f.PascalName, " = &v")
-			g.P("\t}")
+			// Special case: optional bytes needs deep copy of the underlying slice
+			if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
+				g.P("\tif ", recv, ".", f.PascalName, " != nil {")
+				g.P("\t\tb := make([]byte, len(*", recv, ".", f.PascalName, "))")
+				g.P("\t\tcopy(b, *", recv, ".", f.PascalName, ")")
+				g.P("\t\tc.", f.PascalName, " = &b")
+				g.P("\t}")
+			} else if f.Kind == FieldKindWrapperBytes {
+				// *[]byte wrapper: deep copy the underlying bytes
+				g.P("\tif ", recv, ".", f.PascalName, " != nil {")
+				g.P("\t\tb := make([]byte, len(*", recv, ".", f.PascalName, "))")
+				g.P("\t\tcopy(b, *", recv, ".", f.PascalName, ")")
+				g.P("\t\tc.", f.PascalName, " = &b")
+				g.P("\t}")
+			} else {
+				g.P("\tif ", recv, ".", f.PascalName, " != nil {")
+				g.P("\t\tv := *", recv, ".", f.PascalName)
+				g.P("\t\tc.", f.PascalName, " = &v")
+				g.P("\t}")
+			}
 		}
 	}
 
@@ -87,12 +103,12 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 		g.P("\t}")
 	}
 
-	// Deep copy singular bytes fields (not repeated — those handled above)
+	// Deep copy singular bytes fields (not repeated or optional — those handled above)
 	for _, f := range dm.Fields {
 		if f.IsOneof {
 			continue
 		}
-		if f.Kind != FieldKindScalar || f.ScalarKind != protoreflect.BytesKind || f.Repeated {
+		if f.Kind != FieldKindScalar || f.ScalarKind != protoreflect.BytesKind || f.Repeated || f.Optional {
 			continue
 		}
 		g.P("\tif ", recv, ".", f.PascalName, " != nil {")
@@ -155,18 +171,27 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 		}
 		switch f.Kind {
 		case FieldKindFieldMask:
+			if f.Repeated || f.IsMap {
+				continue // handled by repeated/map loops
+			}
 			// []string: make + copy
 			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
 			g.P("\t\tc.", f.PascalName, " = make([]string, len(", recv, ".", f.PascalName, "))")
 			g.P("\t\tcopy(c.", f.PascalName, ", ", recv, ".", f.PascalName, ")")
 			g.P("\t}")
 		case FieldKindListValue:
+			if f.Repeated || f.IsMap {
+				continue
+			}
 			// []any: make + copy
 			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
 			g.P("\t\tc.", f.PascalName, " = make([]any, len(", recv, ".", f.PascalName, "))")
 			g.P("\t\tcopy(c.", f.PascalName, ", ", recv, ".", f.PascalName, ")")
 			g.P("\t}")
 		case FieldKindStruct:
+			if f.Repeated || f.IsMap {
+				continue
+			}
 			// map[string]any: iterate and copy
 			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
 			g.P("\t\tc.", f.PascalName, " = make(map[string]any, len(", recv, ".", f.PascalName, "))")
@@ -209,8 +234,8 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\tif ", recv, ".", f.PascalName, " != nil && !", recv, ".", f.PascalName, ".Equal(other.", f.PascalName, ") {")
 			g.P("\t\treturn false")
 			g.P("\t}")
-		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && !f.Repeated {
-			// Singular bytes: length + element comparison
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && !f.Repeated && !f.Optional {
+			// Singular bytes (non-optional): length + element comparison
 			g.P("\tif len(", recv, ".", f.PascalName, ") != len(other.", f.PascalName, ") {")
 			g.P("\t\treturn false")
 			g.P("\t}")
@@ -287,9 +312,23 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\tif (", recv, ".", f.PascalName, " == nil) != (other.", f.PascalName, " == nil) {")
 			g.P("\t\treturn false")
 			g.P("\t}")
-			g.P("\tif ", recv, ".", f.PascalName, " != nil && *", recv, ".", f.PascalName, " != *other.", f.PascalName, " {")
-			g.P("\t\treturn false")
-			g.P("\t}")
+			if (f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind) || f.Kind == FieldKindWrapperBytes {
+				// *[]byte: deref then compare bytes
+				g.P("\tif ", recv, ".", f.PascalName, " != nil {")
+				g.P("\t\tif len(*", recv, ".", f.PascalName, ") != len(*other.", f.PascalName, ") {")
+				g.P("\t\t\treturn false")
+				g.P("\t\t}")
+				g.P("\t\tfor i := range *", recv, ".", f.PascalName, " {")
+				g.P("\t\t\tif (*", recv, ".", f.PascalName, ")[i] != (*other.", f.PascalName, ")[i] {")
+				g.P("\t\t\t\treturn false")
+				g.P("\t\t\t}")
+				g.P("\t\t}")
+				g.P("\t}")
+			} else {
+				g.P("\tif ", recv, ".", f.PascalName, " != nil && *", recv, ".", f.PascalName, " != *other.", f.PascalName, " {")
+				g.P("\t\treturn false")
+				g.P("\t}")
+			}
 		} else if f.Kind == FieldKindTimestamp {
 			// time.Time: use .Equal() for monotonic clock safety
 			g.P("\tif !", recv, ".", f.PascalName, ".Equal(other.", f.PascalName, ") {")

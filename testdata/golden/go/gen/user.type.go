@@ -16,23 +16,27 @@ import "time"
 //
 // User represents a user account.
 type User struct {
-	ID             string            `json:"id,omitempty"`
-	Email          string            `json:"email,omitempty"`
-	DisplayName    string            `json:"display_name,omitempty"`
-	Active         bool              `json:"active,omitempty"`
-	Age            int32             `json:"age,omitempty"`
-	Roles          []string          `json:"roles,omitempty"`
-	Metadata       map[string]string `json:"metadata,omitempty"`
-	Address        *Address          `json:"address,omitempty"`
-	CreatedAt      time.Time         `json:"created_at,omitempty"`
-	SessionTimeout time.Duration     `json:"session_timeout,omitempty"`
-	Phone          *string           `json:"phone,omitempty"`
-	Avatar         []byte            `json:"avatar,omitempty"`
-	Nickname       *string           `json:"nickname,omitempty"`
-	Status         int32             `json:"status,omitempty"`
-	Tags           []*Tag            `json:"tags,omitempty"`
-	DeletedAt      *time.Time        `json:"deleted_at,omitempty"`
-	PreviousStatus *int32            `json:"previous_status,omitempty"`
+	ID              string            `json:"id,omitempty"`
+	Email           string            `json:"email,omitempty"`
+	DisplayName     string            `json:"display_name,omitempty"`
+	Active          bool              `json:"active,omitempty"`
+	Age             int32             `json:"age,omitempty"`
+	Roles           []string          `json:"roles,omitempty"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
+	Address         *Address          `json:"address,omitempty"`
+	CreatedAt       time.Time         `json:"created_at,omitempty"`
+	SessionTimeout  time.Duration     `json:"session_timeout,omitempty"`
+	Phone           *string           `json:"phone,omitempty"`
+	Avatar          []byte            `json:"avatar,omitempty"`
+	Nickname        *string           `json:"nickname,omitempty"`
+	Status          int32             `json:"status,omitempty"`
+	Tags            []*Tag            `json:"tags,omitempty"`
+	DeletedAt       *time.Time        `json:"deleted_at,omitempty"`
+	PreviousStatus  *int32            `json:"previous_status,omitempty"`
+	UpdateMask      []string          `json:"update_mask,omitempty"`
+	ExtraMetadata   map[string]any    `json:"extra_metadata,omitempty"`
+	Preferences     []any             `json:"preferences,omitempty"`
+	AvatarThumbnail *[]byte           `json:"avatar_thumbnail,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -81,6 +85,19 @@ func (u *User) ToProto() *pb.User {
 	if u.PreviousStatus != nil {
 		v := pb.UserStatus(*u.PreviousStatus)
 		out.PreviousStatus = &v
+	}
+	if u.UpdateMask != nil {
+		out.UpdateMask = u.UpdateMask.ToProto()
+	}
+	if u.ExtraMetadata != nil {
+		out.ExtraMetadata = u.ExtraMetadata.ToProto()
+	}
+	if u.Preferences != nil {
+		out.Preferences = u.Preferences.ToProto()
+	}
+	if u.AvatarThumbnail != nil {
+		out.AvatarThumbnail = make([]byte, len(u.AvatarThumbnail))
+		copy(out.AvatarThumbnail, u.AvatarThumbnail)
 	}
 	return out
 }
@@ -135,6 +152,22 @@ func (u *User) FromProto(pb *pb.User) {
 		v := int32(pb.GetPreviousStatus())
 		u.PreviousStatus = &v
 	}
+	if pb.UpdateMask != nil {
+		u.UpdateMask = &FieldMask{}
+		u.UpdateMask.FromProto(pb.UpdateMask)
+	}
+	if pb.ExtraMetadata != nil {
+		u.ExtraMetadata = &Struct{}
+		u.ExtraMetadata.FromProto(pb.ExtraMetadata)
+	}
+	if pb.Preferences != nil {
+		u.Preferences = &ListValue{}
+		u.Preferences.FromProto(pb.Preferences)
+	}
+	if pb.AvatarThumbnail != nil {
+		u.AvatarThumbnail = make([]byte, len(pb.AvatarThumbnail))
+		copy(u.AvatarThumbnail, pb.AvatarThumbnail)
+	}
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
@@ -188,6 +221,37 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			dst.DeletedAt = src.DeletedAt
 		case "previous_status":
 			dst.PreviousStatus = src.PreviousStatus
+		case "update_mask":
+			if src.UpdateMask != nil {
+				dst.UpdateMask = make([]string, len(src.UpdateMask))
+				copy(dst.UpdateMask, src.UpdateMask)
+			} else {
+				dst.UpdateMask = nil
+			}
+		case "extra_metadata":
+			if src.ExtraMetadata != nil {
+				dst.ExtraMetadata = make(map[string]any, len(src.ExtraMetadata))
+				for k, v := range src.ExtraMetadata {
+					dst.ExtraMetadata[k] = v
+				}
+			} else {
+				dst.ExtraMetadata = nil
+			}
+		case "preferences":
+			if src.Preferences != nil {
+				dst.Preferences = make([]any, len(src.Preferences))
+				copy(dst.Preferences, src.Preferences)
+			} else {
+				dst.Preferences = nil
+			}
+		case "avatar_thumbnail":
+			if src.AvatarThumbnail != nil {
+				b := make([]byte, len(*src.AvatarThumbnail))
+				copy(b, *src.AvatarThumbnail)
+				dst.AvatarThumbnail = &b
+			} else {
+				dst.AvatarThumbnail = nil
+			}
 		}
 	}
 }
@@ -223,6 +287,11 @@ func (u *User) Clone() *User {
 		v := *u.PreviousStatus
 		c.PreviousStatus = &v
 	}
+	if u.AvatarThumbnail != nil {
+		b := make([]byte, len(*u.AvatarThumbnail))
+		copy(b, *u.AvatarThumbnail)
+		c.AvatarThumbnail = &b
+	}
 	if u.Roles != nil {
 		c.Roles = make([]string, len(u.Roles))
 		copy(c.Roles, u.Roles)
@@ -247,6 +316,20 @@ func (u *User) Clone() *User {
 	}
 	if u.Address != nil {
 		c.Address = u.Address.Clone()
+	}
+	if u.UpdateMask != nil {
+		c.UpdateMask = make([]string, len(u.UpdateMask))
+		copy(c.UpdateMask, u.UpdateMask)
+	}
+	if u.ExtraMetadata != nil {
+		c.ExtraMetadata = make(map[string]any, len(u.ExtraMetadata))
+		for k, v := range u.ExtraMetadata {
+			c.ExtraMetadata[k] = v
+		}
+	}
+	if u.Preferences != nil {
+		c.Preferences = make([]any, len(u.Preferences))
+		copy(c.Preferences, u.Preferences)
 	}
 	return c
 }
@@ -351,6 +434,47 @@ func (u *User) Equal(other *User) bool {
 	}
 	if u.PreviousStatus != nil && *u.PreviousStatus != *other.PreviousStatus {
 		return false
+	}
+	if len(u.UpdateMask) != len(other.UpdateMask) {
+		return false
+	}
+	for i := range u.UpdateMask {
+		if u.UpdateMask[i] != other.UpdateMask[i] {
+			return false
+		}
+	}
+	if len(u.ExtraMetadata) != len(other.ExtraMetadata) {
+		return false
+	}
+	for k, v := range u.ExtraMetadata {
+		ov, ok := other.ExtraMetadata[k]
+		if !ok {
+			return false
+		}
+		if v != ov {
+			return false
+		}
+	}
+	if len(u.Preferences) != len(other.Preferences) {
+		return false
+	}
+	for i := range u.Preferences {
+		if u.Preferences[i] != other.Preferences[i] {
+			return false
+		}
+	}
+	if (u.AvatarThumbnail == nil) != (other.AvatarThumbnail == nil) {
+		return false
+	}
+	if u.AvatarThumbnail != nil {
+		if len(*u.AvatarThumbnail) != len(*other.AvatarThumbnail) {
+			return false
+		}
+		for i := range *u.AvatarThumbnail {
+			if (*u.AvatarThumbnail)[i] != (*other.AvatarThumbnail)[i] {
+				return false
+			}
+		}
 	}
 	return true
 }

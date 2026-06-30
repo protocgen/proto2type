@@ -15,23 +15,27 @@ import "time"
 
 // UserMongo is the MongoDB storage representation of test.v1.User.
 type UserMongo struct {
-	ID             string            `bson:"id,omitempty"`
-	Email          string            `bson:"email,omitempty"`
-	DisplayName    string            `bson:"display_name,omitempty"`
-	Active         bool              `bson:"active,omitempty"`
-	Age            int32             `bson:"age,omitempty"`
-	Roles          []string          `bson:"roles,omitempty"`
-	Metadata       map[string]string `bson:"metadata,omitempty"`
-	Address        *AddressMongo     `bson:"address,omitempty"`
-	CreatedAt      time.Time         `bson:"created_at,omitempty"`
-	SessionTimeout time.Duration     `bson:"session_timeout,omitempty"`
-	Phone          *string           `bson:"phone,omitempty"`
-	Avatar         []byte            `bson:"avatar,omitempty"`
-	Nickname       *string           `bson:"nickname,omitempty"`
-	Status         int32             `bson:"status,omitempty"`
-	Tags           []*TagMongo       `bson:"tags,omitempty"`
-	DeletedAt      time.Time         `bson:"deleted_at,omitempty"`
-	PreviousStatus int32             `bson:"previous_status,omitempty"`
+	ID              string            `bson:"id,omitempty"`
+	Email           string            `bson:"email,omitempty"`
+	DisplayName     string            `bson:"display_name,omitempty"`
+	Active          bool              `bson:"active,omitempty"`
+	Age             int32             `bson:"age,omitempty"`
+	Roles           []string          `bson:"roles,omitempty"`
+	Metadata        map[string]string `bson:"metadata,omitempty"`
+	Address         *AddressMongo     `bson:"address,omitempty"`
+	CreatedAt       time.Time         `bson:"created_at,omitempty"`
+	SessionTimeout  time.Duration     `bson:"session_timeout,omitempty"`
+	Phone           *string           `bson:"phone,omitempty"`
+	Avatar          []byte            `bson:"avatar,omitempty"`
+	Nickname        *string           `bson:"nickname,omitempty"`
+	Status          int32             `bson:"status,omitempty"`
+	Tags            []*TagMongo       `bson:"tags,omitempty"`
+	DeletedAt       time.Time         `bson:"deleted_at,omitempty"`
+	PreviousStatus  int32             `bson:"previous_status,omitempty"`
+	UpdateMask      []string          `bson:"update_mask,omitempty"`
+	ExtraMetadata   map[string]any    `bson:"extra_metadata,omitempty"`
+	Preferences     []any             `bson:"preferences,omitempty"`
+	AvatarThumbnail *[]byte           `bson:"avatar_thumbnail,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -80,6 +84,19 @@ func (u *UserMongo) ToProto() *pb.User {
 	if u.PreviousStatus != 0 {
 		v := pb.UserStatus(u.PreviousStatus)
 		out.PreviousStatus = &v
+	}
+	if u.UpdateMask != nil {
+		out.UpdateMask = u.UpdateMask.ToProto()
+	}
+	if u.ExtraMetadata != nil {
+		out.ExtraMetadata = u.ExtraMetadata.ToProto()
+	}
+	if u.Preferences != nil {
+		out.Preferences = u.Preferences.ToProto()
+	}
+	if u.AvatarThumbnail != nil {
+		out.AvatarThumbnail = make([]byte, len(u.AvatarThumbnail))
+		copy(out.AvatarThumbnail, u.AvatarThumbnail)
 	}
 	return out
 }
@@ -132,6 +149,22 @@ func (u *UserMongo) FromProto(pb *pb.User) {
 	if pb.PreviousStatus != nil {
 		u.PreviousStatus = int32(pb.GetPreviousStatus())
 	}
+	if pb.UpdateMask != nil {
+		u.UpdateMask = &FieldMaskMongo{}
+		u.UpdateMask.FromProto(pb.UpdateMask)
+	}
+	if pb.ExtraMetadata != nil {
+		u.ExtraMetadata = &StructMongo{}
+		u.ExtraMetadata.FromProto(pb.ExtraMetadata)
+	}
+	if pb.Preferences != nil {
+		u.Preferences = &ListValueMongo{}
+		u.Preferences.FromProto(pb.Preferences)
+	}
+	if pb.AvatarThumbnail != nil {
+		u.AvatarThumbnail = make([]byte, len(pb.AvatarThumbnail))
+		copy(u.AvatarThumbnail, pb.AvatarThumbnail)
+	}
 }
 
 // ToDomain converts to the domain type.
@@ -156,6 +189,10 @@ func (u *UserMongo) ToDomain() *User {
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
 		copy(d.Avatar, u.Avatar)
+	}
+	if u.AvatarThumbnail != nil {
+		d.AvatarThumbnail = make([]byte, len(u.AvatarThumbnail))
+		copy(d.AvatarThumbnail, u.AvatarThumbnail)
 	}
 	vDeletedAt := u.DeletedAt
 	d.DeletedAt = &vDeletedAt
@@ -215,6 +252,13 @@ func (u *UserMongo) FromDomain(d *User) {
 	}
 	if d.PreviousStatus != nil {
 		u.PreviousStatus = *d.PreviousStatus
+	}
+	u.UpdateMask = d.UpdateMask
+	u.ExtraMetadata = d.ExtraMetadata
+	u.Preferences = d.Preferences
+	if d.AvatarThumbnail != nil {
+		u.AvatarThumbnail = make([]byte, len(d.AvatarThumbnail))
+		copy(u.AvatarThumbnail, d.AvatarThumbnail)
 	}
 }
 

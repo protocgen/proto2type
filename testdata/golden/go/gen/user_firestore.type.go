@@ -15,23 +15,27 @@ import "time"
 
 // UserFirestore is the Firestore storage representation of test.v1.User.
 type UserFirestore struct {
-	ID             string            `firestore:"id,omitempty"`
-	Email          string            `firestore:"email,omitempty"`
-	DisplayName    string            `firestore:"display_name,omitempty"`
-	Active         bool              `firestore:"active,omitempty"`
-	Age            int32             `firestore:"age,omitempty"`
-	Roles          []string          `firestore:"roles,omitempty"`
-	Metadata       map[string]string `firestore:"metadata,omitempty"`
-	Address        *AddressFirestore `firestore:"address,omitempty"`
-	CreatedAt      time.Time         `firestore:"created_at,omitempty"`
-	SessionTimeout time.Duration     `firestore:"session_timeout,omitempty"`
-	Phone          *string           `firestore:"phone,omitempty"`
-	Avatar         []byte            `firestore:"avatar,omitempty"`
-	Nickname       *string           `firestore:"nickname,omitempty"`
-	Status         int32             `firestore:"status,omitempty"`
-	Tags           []*TagFirestore   `firestore:"tags,omitempty"`
-	DeletedAt      time.Time         `firestore:"deleted_at,omitempty"`
-	PreviousStatus int32             `firestore:"previous_status,omitempty"`
+	ID              string            `firestore:"id,omitempty"`
+	Email           string            `firestore:"email,omitempty"`
+	DisplayName     string            `firestore:"display_name,omitempty"`
+	Active          bool              `firestore:"active,omitempty"`
+	Age             int32             `firestore:"age,omitempty"`
+	Roles           []string          `firestore:"roles,omitempty"`
+	Metadata        map[string]string `firestore:"metadata,omitempty"`
+	Address         *AddressFirestore `firestore:"address,omitempty"`
+	CreatedAt       time.Time         `firestore:"created_at,omitempty"`
+	SessionTimeout  time.Duration     `firestore:"session_timeout,omitempty"`
+	Phone           *string           `firestore:"phone,omitempty"`
+	Avatar          []byte            `firestore:"avatar,omitempty"`
+	Nickname        *string           `firestore:"nickname,omitempty"`
+	Status          int32             `firestore:"status,omitempty"`
+	Tags            []*TagFirestore   `firestore:"tags,omitempty"`
+	DeletedAt       time.Time         `firestore:"deleted_at,omitempty"`
+	PreviousStatus  int32             `firestore:"previous_status,omitempty"`
+	UpdateMask      []string          `firestore:"update_mask,omitempty"`
+	ExtraMetadata   map[string]any    `firestore:"extra_metadata,omitempty"`
+	Preferences     []any             `firestore:"preferences,omitempty"`
+	AvatarThumbnail *[]byte           `firestore:"avatar_thumbnail,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -80,6 +84,19 @@ func (u *UserFirestore) ToProto() *pb.User {
 	if u.PreviousStatus != 0 {
 		v := pb.UserStatus(u.PreviousStatus)
 		out.PreviousStatus = &v
+	}
+	if u.UpdateMask != nil {
+		out.UpdateMask = u.UpdateMask.ToProto()
+	}
+	if u.ExtraMetadata != nil {
+		out.ExtraMetadata = u.ExtraMetadata.ToProto()
+	}
+	if u.Preferences != nil {
+		out.Preferences = u.Preferences.ToProto()
+	}
+	if u.AvatarThumbnail != nil {
+		out.AvatarThumbnail = make([]byte, len(u.AvatarThumbnail))
+		copy(out.AvatarThumbnail, u.AvatarThumbnail)
 	}
 	return out
 }
@@ -132,6 +149,22 @@ func (u *UserFirestore) FromProto(pb *pb.User) {
 	if pb.PreviousStatus != nil {
 		u.PreviousStatus = int32(pb.GetPreviousStatus())
 	}
+	if pb.UpdateMask != nil {
+		u.UpdateMask = &FieldMaskFirestore{}
+		u.UpdateMask.FromProto(pb.UpdateMask)
+	}
+	if pb.ExtraMetadata != nil {
+		u.ExtraMetadata = &StructFirestore{}
+		u.ExtraMetadata.FromProto(pb.ExtraMetadata)
+	}
+	if pb.Preferences != nil {
+		u.Preferences = &ListValueFirestore{}
+		u.Preferences.FromProto(pb.Preferences)
+	}
+	if pb.AvatarThumbnail != nil {
+		u.AvatarThumbnail = make([]byte, len(pb.AvatarThumbnail))
+		copy(u.AvatarThumbnail, pb.AvatarThumbnail)
+	}
 }
 
 // ToDomain converts to the domain type.
@@ -156,6 +189,10 @@ func (u *UserFirestore) ToDomain() *User {
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
 		copy(d.Avatar, u.Avatar)
+	}
+	if u.AvatarThumbnail != nil {
+		d.AvatarThumbnail = make([]byte, len(u.AvatarThumbnail))
+		copy(d.AvatarThumbnail, u.AvatarThumbnail)
 	}
 	vDeletedAt := u.DeletedAt
 	d.DeletedAt = &vDeletedAt
@@ -215,6 +252,13 @@ func (u *UserFirestore) FromDomain(d *User) {
 	}
 	if d.PreviousStatus != nil {
 		u.PreviousStatus = *d.PreviousStatus
+	}
+	u.UpdateMask = d.UpdateMask
+	u.ExtraMetadata = d.ExtraMetadata
+	u.Preferences = d.Preferences
+	if d.AvatarThumbnail != nil {
+		u.AvatarThumbnail = make([]byte, len(d.AvatarThumbnail))
+		copy(u.AvatarThumbnail, d.AvatarThumbnail)
 	}
 }
 
