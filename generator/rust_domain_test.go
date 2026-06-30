@@ -104,3 +104,48 @@ func TestEscapeRustKeyword_Exhaustive(t *testing.T) {
 		t.Errorf("keyword maps have %d entries but test expects %d", totalMapped, len(allKeywords))
 	}
 }
+
+func TestRustDomainSingularTypeFromIR_OptionalTimestamp(t *testing.T) {
+	f := &DomainField{Kind: FieldKindTimestamp, Optional: true}
+	got := rustDomainSingularTypeFromIR(f)
+	want := "Option<DateTime<Utc>>"
+	if got != want {
+		t.Errorf("rustDomainSingularTypeFromIR(optional Timestamp) = %q, want %q", got, want)
+	}
+}
+
+func TestRustDomainSingularTypeFromIR_NonOptionalTimestamp(t *testing.T) {
+	f := &DomainField{Kind: FieldKindTimestamp, Optional: false}
+	got := rustDomainSingularTypeFromIR(f)
+	want := "DateTime<Utc>"
+	if got != want {
+		t.Errorf("rustDomainSingularTypeFromIR(non-optional Timestamp) = %q, want %q", got, want)
+	}
+}
+
+func TestRustDomainSingularTypeFromIR_OptionalDuration(t *testing.T) {
+	f := &DomainField{Kind: FieldKindDuration, Optional: true}
+	got := rustDomainSingularTypeFromIR(f)
+	want := "Option<i64>"
+	if got != want {
+		t.Errorf("rustDomainSingularTypeFromIR(optional Duration) = %q, want %q", got, want)
+	}
+}
+
+func TestRustDomainSingularTypeFromIR_OptionalEnum(t *testing.T) {
+	f := &DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", Optional: true}
+	got := rustDomainSingularTypeFromIR(f)
+	want := "Option<UserStatus>"
+	if got != want {
+		t.Errorf("rustDomainSingularTypeFromIR(optional Enum) = %q, want %q", got, want)
+	}
+}
+
+func TestRustDomainSingularTypeFromIR_OptionalEnumAsString(t *testing.T) {
+	f := &DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", Optional: true, EnumAsString: true}
+	got := rustDomainSingularTypeFromIR(f)
+	want := "Option<String>"
+	if got != want {
+		t.Errorf("rustDomainSingularTypeFromIR(optional Enum as string) = %q, want %q", got, want)
+	}
+}

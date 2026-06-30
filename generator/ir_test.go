@@ -57,6 +57,8 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 		"nickname":        FieldKindWrapperString,
 		"status":          FieldKindEnum,
 		"tags":            FieldKindMessage, // repeated message
+		"deleted_at":      FieldKindTimestamp, // optional timestamp
+		"previous_status": FieldKindEnum, // optional enum
 	}
 
 	for _, f := range user.Fields {
@@ -427,5 +429,34 @@ func TestBuildDomainFile_EnumAsString(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestBuildDomainFile_OptionalTimestamp(t *testing.T) {
+	df := buildIRForProto(t, "user.proto", &Options{Domain: true})
+	user := irMustFindMessage(t, df.Messages, "User")
+	f := irFindField(t, user, "deleted_at")
+
+	if f.Kind != FieldKindTimestamp {
+		t.Errorf("deleted_at.Kind = %v, want %v", f.Kind, FieldKindTimestamp)
+	}
+	if !f.Optional {
+		t.Error("deleted_at.Optional = false, want true")
+	}
+}
+
+func TestBuildDomainFile_OptionalEnum(t *testing.T) {
+	df := buildIRForProto(t, "user.proto", &Options{Domain: true})
+	user := irMustFindMessage(t, df.Messages, "User")
+	f := irFindField(t, user, "previous_status")
+
+	if f.Kind != FieldKindEnum {
+		t.Errorf("previous_status.Kind = %v, want %v", f.Kind, FieldKindEnum)
+	}
+	if !f.Optional {
+		t.Error("previous_status.Optional = false, want true")
+	}
+	if f.EnumTypeName != "UserStatus" {
+		t.Errorf("previous_status.EnumTypeName = %q, want %q", f.EnumTypeName, "UserStatus")
 	}
 }

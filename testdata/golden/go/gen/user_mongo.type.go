@@ -30,6 +30,8 @@ type UserMongo struct {
 	Nickname       *string           `bson:"nickname,omitempty"`
 	Status         int32             `bson:"status,omitempty"`
 	Tags           []*TagMongo       `bson:"tags,omitempty"`
+	DeletedAt      time.Time         `bson:"deleted_at,omitempty"`
+	PreviousStatus int32             `bson:"previous_status,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -71,6 +73,13 @@ func (u *UserMongo) ToProto() *pb.User {
 				out.Tags[i] = v.ToProto()
 			}
 		}
+	}
+	if !u.DeletedAt.IsZero() {
+		out.DeletedAt = timestamppb.New(u.DeletedAt)
+	}
+	if u.PreviousStatus != "" {
+		v := pb.UserStatus(u.PreviousStatus)
+		out.PreviousStatus = &v
 	}
 	return out
 }
@@ -117,6 +126,12 @@ func (u *UserMongo) FromProto(pb *pb.User) {
 			}
 		}
 	}
+	if pb.DeletedAt != nil {
+		u.DeletedAt = pb.DeletedAt.AsTime()
+	}
+	if pb.PreviousStatus != nil {
+		u.PreviousStatus = int32(pb.GetPreviousStatus())
+	}
 }
 
 // ToDomain converts to the domain type.
@@ -137,6 +152,8 @@ func (u *UserMongo) ToDomain() *User {
 		Phone:          u.Phone,
 		Nickname:       u.Nickname,
 		Status:         u.Status,
+		DeletedAt:      u.DeletedAt,
+		PreviousStatus: u.PreviousStatus,
 	}
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
@@ -191,6 +208,8 @@ func (u *UserMongo) FromDomain(d *User) {
 			}
 		}
 	}
+	u.DeletedAt = d.DeletedAt
+	u.PreviousStatus = d.PreviousStatus
 }
 
 // AddressMongo is the MongoDB storage representation of test.v1.Address.

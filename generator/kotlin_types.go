@@ -150,12 +150,21 @@ func kotlinElementType(f DomainField) string {
 func kotlinSingularType(f DomainField) string {
 	switch f.Kind {
 	case FieldKindTimestamp:
+		if f.Optional {
+			return "Instant?"
+		}
 		return "Instant"
 	case FieldKindDuration:
+		if f.Optional {
+			return "Duration?"
+		}
 		return "Duration"
 	case FieldKindMessage:
 		return f.MessageTypeName + "?"
 	case FieldKindEnum:
+		if f.Optional {
+			return f.EnumTypeName + "?"
+		}
 		return f.EnumTypeName
 	case FieldKindStruct:
 		return "Map<String, Any?>"
@@ -257,12 +266,21 @@ func kotlinDefaultValue(f DomainField) string {
 
 	switch f.Kind {
 	case FieldKindTimestamp:
+		if f.Optional {
+			return "null"
+		}
 		return "Instant.fromEpochSeconds(0)"
 	case FieldKindDuration:
+		if f.Optional {
+			return "null"
+		}
 		return "Duration.ZERO"
 	case FieldKindMessage:
 		return "null"
 	case FieldKindEnum:
+		if f.Optional {
+			return "null"
+		}
 		return f.EnumTypeName + ".entries.first()"
 	case FieldKindStruct:
 		return "emptyMap()"

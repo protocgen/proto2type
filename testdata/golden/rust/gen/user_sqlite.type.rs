@@ -61,6 +61,8 @@ pub struct UserRow {
     pub status: i32,
     pub contact_method: Option<String>,
     pub tags: String,
+    pub deleted_at: i64,
+    pub previous_status: i32,
 }
 
 impl UserRow {
@@ -83,6 +85,8 @@ impl UserRow {
             status: row.get("status")?,
             contact_method: row.get("contact_method")?,
             tags: row.get("tags")?,
+            deleted_at: row.get("deleted_at")?,
+            previous_status: row.get("previous_status")?,
         })
     }
 
@@ -105,6 +109,8 @@ impl UserRow {
             status: UserStatus::from_i32(self.status).unwrap_or_default(),
             contact_method: match &self.contact_method { Some(s) => Some(serde_json::from_str(s)?), None => None },
             tags: serde_json::from_str(&self.tags)?,
+            deleted_at: epoch_ms_to_datetime(self.deleted_at)?,
+            previous_status: UserStatus::from_i32(self.previous_status).unwrap_or_default(),
         })
     }
 
@@ -127,6 +133,8 @@ impl UserRow {
             status: UserStatus::from_i32(self.status).unwrap_or_default(),
             contact_method: match self.contact_method { Some(s) => Some(serde_json::from_str(&s)?), None => None },
             tags: serde_json::from_str(&self.tags)?,
+            deleted_at: epoch_ms_to_datetime(self.deleted_at)?,
+            previous_status: UserStatus::from_i32(self.previous_status).unwrap_or_default(),
         })
     }
 
@@ -149,6 +157,8 @@ impl UserRow {
             status: d.status as i32,
             contact_method: match &d.contact_method { Some(v) => Some(serde_json::to_string(v)?), None => None },
             tags: serde_json::to_string(&d.tags)?,
+            deleted_at: datetime_to_epoch_ms(&d.deleted_at),
+            previous_status: d.previous_status,
         })
     }
 }

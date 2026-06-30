@@ -344,26 +344,56 @@ func rustDomainFieldTypeFromIR(f *DomainField) string {
 func rustDomainSingularTypeFromIR(f *DomainField) string {
 	switch f.Kind {
 	case FieldKindTimestamp:
+		if f.Optional {
+			return "Option<DateTime<Utc>>"
+		}
 		return "DateTime<Utc>"
 	case FieldKindDuration:
+		if f.Optional {
+			return "Option<i64>"
+		}
 		return "i64"
 	case FieldKindStruct:
+		if f.Optional {
+			return "Option<serde_json::Map<String, serde_json::Value>>"
+		}
 		return "serde_json::Map<String, serde_json::Value>"
 	case FieldKindValue:
+		if f.Optional {
+			return "Option<serde_json::Value>"
+		}
 		return "serde_json::Value"
 	case FieldKindListValue:
+		if f.Optional {
+			return "Option<Vec<serde_json::Value>>"
+		}
 		return "Vec<serde_json::Value>"
 	case FieldKindFieldMask:
+		if f.Optional {
+			return "Option<Vec<String>>"
+		}
 		return "Vec<String>"
 	case FieldKindEmpty:
+		if f.Optional {
+			return "Option<()>"
+		}
 		return "()"
 	case FieldKindAny:
+		if f.Optional {
+			return "Option<serde_json::Value>"
+		}
 		return "serde_json::Value"
 	case FieldKindMessage:
 		return "Option<Box<" + f.MessageTypeName + ">>"
 	case FieldKindEnum:
 		if f.EnumAsString {
+			if f.Optional {
+				return "Option<String>"
+			}
 			return "String"
+		}
+		if f.Optional {
+			return "Option<" + f.EnumTypeName + ">"
 		}
 		return f.EnumTypeName
 	case FieldKindScalar:

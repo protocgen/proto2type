@@ -79,6 +79,10 @@ pub struct User {
     pub contact_method: Option<UserContactMethod>,
     #[serde(default)]
     pub tags: Vec<Tag>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_status: Option<UserStatus>,
 }
 
 /// Domain representation of test.v1.Address.

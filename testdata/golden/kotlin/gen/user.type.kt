@@ -62,7 +62,9 @@ data class User(
     val nickname: String? = null,
     val status: UserStatus = UserStatus.entries.first(),
     @SerialName("contact_method") val contactMethod: UserContactMethod? = null,
-    val tags: List<Tag> = emptyList()
+    val tags: List<Tag> = emptyList(),
+    @Contextual @SerialName("deleted_at") val deletedAt: Instant? = null,
+    @SerialName("previous_status") val previousStatus: UserStatus? = null
 )
 
 /** Address is a nested message. */

@@ -101,9 +101,19 @@ func TestKotlinFieldType(t *testing.T) {
 			want: "Instant",
 		},
 		{
+			name: "optional timestamp",
+			f:    DomainField{Kind: FieldKindTimestamp, Optional: true},
+			want: "Instant?",
+		},
+		{
 			name: "duration",
 			f:    DomainField{Kind: FieldKindDuration},
 			want: "Duration",
+		},
+		{
+			name: "optional duration",
+			f:    DomainField{Kind: FieldKindDuration, Optional: true},
+			want: "Duration?",
 		},
 		{
 			name: "message",
@@ -119,6 +129,11 @@ func TestKotlinFieldType(t *testing.T) {
 			name: "enum",
 			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus"},
 			want: "UserStatus",
+		},
+		{
+			name: "optional enum",
+			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", Optional: true},
+			want: "UserStatus?",
 		},
 		{
 			name: "wrapper string",
@@ -244,9 +259,19 @@ func TestKotlinDefaultValue(t *testing.T) {
 			want: "Instant.fromEpochSeconds(0)",
 		},
 		{
+			name: "optional timestamp",
+			f:    DomainField{Kind: FieldKindTimestamp, Optional: true},
+			want: "null",
+		},
+		{
 			name: "duration",
 			f:    DomainField{Kind: FieldKindDuration},
 			want: "Duration.ZERO",
+		},
+		{
+			name: "optional duration",
+			f:    DomainField{Kind: FieldKindDuration, Optional: true},
+			want: "null",
 		},
 		{
 			name: "message",
@@ -262,6 +287,11 @@ func TestKotlinDefaultValue(t *testing.T) {
 			name: "enum",
 			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus"},
 			want: "UserStatus.entries.first()",
+		},
+		{
+			name: "optional enum",
+			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", Optional: true},
+			want: "null",
 		},
 		{
 			name: "wrapper string",

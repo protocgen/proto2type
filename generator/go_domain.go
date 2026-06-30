@@ -177,14 +177,26 @@ func goDomainFieldTypeFromIR(f *DomainField) string {
 func goDomainSingularTypeFromIR(f *DomainField) string {
 	switch f.Kind {
 	case FieldKindTimestamp:
+		if f.Optional {
+			return "*time.Time"
+		}
 		return "time.Time"
 	case FieldKindDuration:
+		if f.Optional {
+			return "*time.Duration"
+		}
 		return "time.Duration"
 	case FieldKindMessage:
 		return "*" + f.MessageTypeName
 	case FieldKindEnum:
 		if f.EnumAsString {
+			if f.Optional {
+				return "*string"
+			}
 			return "string"
+		}
+		if f.Optional {
+			return "*int32"
 		}
 		return "int32"
 	case FieldKindScalar:

@@ -361,6 +361,10 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 }
 
 // rustSqliteFieldType returns the SQLite-appropriate Rust type for a field.
+// TODO: proto3 optional handling for Timestamp, Duration, and Enum fields.
+// Optional Timestamp should be Option<i64>, optional Duration should be Option<i64>,
+// optional Enum should be Option<i32>. The from_row, to_domain, into_domain, and
+// from_domain conversion methods also need corresponding updates to handle Option.
 func rustSqliteFieldType(field *protogen.Field, opts *Options) string {
 	// Timestamps -> i64 (epoch_ms)
 	if isWellKnownTimestamp(field) {
