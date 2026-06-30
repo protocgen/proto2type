@@ -28,6 +28,11 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			continue
 		}
 
+		// Skip WKTs that map to reference types (slices/maps)
+		if f.Kind == FieldKindStruct || f.Kind == FieldKindListValue || f.Kind == FieldKindFieldMask {
+			continue
+		}
+
 		// Optional scalars and wrapper pointers: need to copy value, not pointer
 		if f.Optional || f.Kind.IsWrapper() {
 			continue
@@ -141,6 +146,35 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 		g.P("\tif ", recv, ".", f.PascalName, " != nil {")
 		g.P("\t\tc.", f.PascalName, " = ", recv, ".", f.PascalName, ".Clone()")
 		g.P("\t}")
+	}
+
+	// Deep copy WKT reference types (slices and maps)
+	for _, f := range dm.Fields {
+		if f.IsOneof {
+			continue
+		}
+		switch f.Kind {
+		case FieldKindFieldMask:
+			// []string: make + copy
+			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
+			g.P("\t\tc.", f.PascalName, " = make([]string, len(", recv, ".", f.PascalName, "))")
+			g.P("\t\tcopy(c.", f.PascalName, ", ", recv, ".", f.PascalName, ")")
+			g.P("\t}")
+		case FieldKindListValue:
+			// []any: make + copy
+			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
+			g.P("\t\tc.", f.PascalName, " = make([]any, len(", recv, ".", f.PascalName, "))")
+			g.P("\t\tcopy(c.", f.PascalName, ", ", recv, ".", f.PascalName, ")")
+			g.P("\t}")
+		case FieldKindStruct:
+			// map[string]any: iterate and copy
+			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
+			g.P("\t\tc.", f.PascalName, " = make(map[string]any, len(", recv, ".", f.PascalName, "))")
+			g.P("\t\tfor k, v := range ", recv, ".", f.PascalName, " {")
+			g.P("\t\t\tc.", f.PascalName, "[k] = v")
+			g.P("\t\t}")
+			g.P("\t}")
+		}
 	}
 
 	g.P("\treturn c")
@@ -260,6 +294,40 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 			// time.Time: use .Equal() for monotonic clock safety
 			g.P("\tif !", recv, ".", f.PascalName, ".Equal(other.", f.PascalName, ") {")
 			g.P("\t\treturn false")
+			g.P("\t}")
+		} else if f.Kind == FieldKindFieldMask {
+			// []string: compare length then elements
+			g.P("\tif len(", recv, ".", f.PascalName, ") != len(other.", f.PascalName, ") {")
+			g.P("\t\treturn false")
+			g.P("\t}")
+			g.P("\tfor i := range ", recv, ".", f.PascalName, " {")
+			g.P("\t\tif ", recv, ".", f.PascalName, "[i] != other.", f.PascalName, "[i] {")
+			g.P("\t\t\treturn false")
+			g.P("\t\t}")
+			g.P("\t}")
+		} else if f.Kind == FieldKindListValue {
+			// []any: compare length then elements
+			g.P("\tif len(", recv, ".", f.PascalName, ") != len(other.", f.PascalName, ") {")
+			g.P("\t\treturn false")
+			g.P("\t}")
+			g.P("\tfor i := range ", recv, ".", f.PascalName, " {")
+			g.P("\t\tif ", recv, ".", f.PascalName, "[i] != other.", f.PascalName, "[i] {")
+			g.P("\t\t\treturn false")
+			g.P("\t\t}")
+			g.P("\t}")
+		} else if f.Kind == FieldKindStruct {
+			// map[string]any: compare length then key-value pairs
+			g.P("\tif len(", recv, ".", f.PascalName, ") != len(other.", f.PascalName, ") {")
+			g.P("\t\treturn false")
+			g.P("\t}")
+			g.P("\tfor k, v := range ", recv, ".", f.PascalName, " {")
+			g.P("\t\tov, ok := other.", f.PascalName, "[k]")
+			g.P("\t\tif !ok {")
+			g.P("\t\t\treturn false")
+			g.P("\t\t}")
+			g.P("\t\tif v != ov {")
+			g.P("\t\t\treturn false")
+			g.P("\t\t}")
 			g.P("\t}")
 		} else {
 			// Scalars, enums, durations: ==

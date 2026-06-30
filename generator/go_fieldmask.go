@@ -40,6 +40,24 @@ func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\t\t\t} else {")
 			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
 			g.P("\t\t\t}")
+		} else if f.Kind == FieldKindFieldMask || f.Kind == FieldKindListValue {
+			// Deep copy slice WKTs ([]string or []any)
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make(", goDomainFieldTypeFromIR(f), ", len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tcopy(dst.", f.PascalName, ", src.", f.PascalName, ")")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
+		} else if f.Kind == FieldKindStruct {
+			// Deep copy map WKT (map[string]any)
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make(map[string]any, len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tfor k, v := range src.", f.PascalName, " {")
+			g.P("\t\t\t\t\tdst.", f.PascalName, "[k] = v")
+			g.P("\t\t\t\t}")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
 		} else {
 			g.P("\t\t\tdst.", f.PascalName, " = src.", f.PascalName)
 		}
