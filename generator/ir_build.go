@@ -148,6 +148,9 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 	}
 	if kind == FieldKindEnum {
 		df.EnumTypeName = irEnumNameFromDesc(field.Desc.Enum())
+		if enumDesc := field.Desc.Enum(); enumDesc.Values().Len() > 0 {
+			df.EnumDefaultName = string(enumDesc.Values().Get(0).Name())
+		}
 	}
 
 	return df

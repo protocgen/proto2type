@@ -181,9 +181,10 @@ func toCamelCase(s string) string {
 	return b.String()
 }
 
-// kotlinKeywords is the set of Kotlin hard keywords that must be escaped
-// with backticks to be used as identifiers.
+// kotlinKeywords is the set of Kotlin hard and soft keywords that must be escaped
+// with backticks to be used as val parameter names.
 var kotlinKeywords = map[string]bool{
+	// Hard keywords
 	"as": true, "break": true, "class": true, "continue": true,
 	"do": true, "else": true, "false": true, "for": true,
 	"fun": true, "if": true, "in": true, "interface": true,
@@ -191,6 +192,12 @@ var kotlinKeywords = map[string]bool{
 	"return": true, "super": true, "this": true, "throw": true,
 	"true": true, "try": true, "typealias": true, "typeof": true,
 	"val": true, "var": true, "when": true, "while": true,
+	// Soft/modifier keywords that cannot be used as val parameter names (KT-4)
+	"abstract": true, "actual": true, "companion": true, "data": true,
+	"enum": true, "expect": true, "external": true, "inner": true,
+	"inline": true, "internal": true, "open": true, "operator": true,
+	"override": true, "private": true, "protected": true, "public": true,
+	"sealed": true, "suspend": true,
 }
 
 // escapeKotlinKeyword wraps Kotlin reserved words in backticks.

@@ -553,7 +553,7 @@ func TestKotlinGoldenFiles(t *testing.T) {
 		t.Run(tt.path, func(t *testing.T) {
 			content, err := os.ReadFile(tt.path)
 			if err != nil {
-				t.Skipf("golden file not found: %s", tt.path)
+				t.Fatalf("golden file not found: %s", tt.path)
 				return
 			}
 			src := string(content)

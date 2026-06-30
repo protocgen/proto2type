@@ -168,6 +168,9 @@ type DomainField struct {
 	// EnumTypeName is the PascalCase IR enum type name for enum-typed fields.
 	// Empty for non-enum fields.
 	EnumTypeName string
+	// EnumDefaultName is the proto name of the first (zero-value) enum value.
+	// Used by backends with explicit defaults (Kotlin, Python) when EnumAsString is true.
+	EnumDefaultName string
 
 	// Optional is true for proto3 `optional` scalar fields.
 	Optional bool

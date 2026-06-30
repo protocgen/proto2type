@@ -136,6 +136,21 @@ func TestKotlinFieldType(t *testing.T) {
 			want: "UserStatus?",
 		},
 		{
+			name: "enum as string",
+			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", EnumAsString: true},
+			want: "String",
+		},
+		{
+			name: "optional enum as string",
+			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", Optional: true, EnumAsString: true},
+			want: "String?",
+		},
+		{
+			name: "repeated enum as string",
+			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", Repeated: true, EnumAsString: true},
+			want: "List<String>",
+		},
+		{
 			name: "wrapper string",
 			f:    DomainField{Kind: FieldKindWrapperString},
 			want: "String?",
@@ -292,6 +307,11 @@ func TestKotlinDefaultValue(t *testing.T) {
 			name: "optional enum",
 			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", Optional: true},
 			want: "null",
+		},
+		{
+			name: "enum as string",
+			f:    DomainField{Kind: FieldKindEnum, EnumTypeName: "UserStatus", EnumAsString: true, EnumDefaultName: "USER_STATUS_UNSPECIFIED"},
+			want: "\"USER_STATUS_UNSPECIFIED\"",
 		},
 		{
 			name: "wrapper string",

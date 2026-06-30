@@ -129,6 +129,9 @@ func kotlinElementType(f DomainField) string {
 	case FieldKindMessage:
 		return f.MessageTypeName
 	case FieldKindEnum:
+		if f.EnumAsString {
+			return "String"
+		}
 		return f.EnumTypeName
 	case FieldKindStruct:
 		return "Map<String, Any?>"
@@ -165,6 +168,12 @@ func kotlinSingularType(f DomainField) string {
 	case FieldKindMessage:
 		return f.MessageTypeName + "?"
 	case FieldKindEnum:
+		if f.EnumAsString {
+			if f.Optional {
+				return "String?"
+			}
+			return "String"
+		}
 		if f.Optional {
 			return f.EnumTypeName + "?"
 		}
@@ -283,6 +292,12 @@ func kotlinDefaultValue(f DomainField) string {
 	case FieldKindEnum:
 		if f.Optional {
 			return "null"
+		}
+		if f.EnumAsString {
+			if f.EnumDefaultName != "" {
+				return "\"" + f.EnumDefaultName + "\""
+			}
+			return "\"\""
 		}
 		return f.EnumTypeName + ".entries.first()"
 	case FieldKindStruct:
