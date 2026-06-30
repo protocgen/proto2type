@@ -42,8 +42,15 @@ func generateRustSqlite(gen *protogen.Plugin, file *protogen.File, opts *Options
 		generateRustEpochMsHelpers(g)
 	}
 
-	for _, msg := range file.Messages {
-		generateRustSqliteMessage(g, msg, opts)
+	// Build a lookup from FullName -> *protogen.Message for converter generation.
+	protoMsgMap := buildProtoMessageMap(file.Messages)
+
+	for _, dm := range df.Messages {
+		msg := protoMsgMap[dm.FullName]
+		if msg == nil {
+			return fmt.Errorf("proto2type: no protogen.Message found for IR message %q", dm.FullName)
+		}
+		generateRustSqliteMessage(g, dm, msg, protoMsgMap, opts)
 	}
 
 	return nil
@@ -122,55 +129,50 @@ func generateRustEpochMsHelpers(g *protogen.GeneratedFile) {
 }
 
 // generateRustSqliteMessage generates a SQLite Row struct and conversions for a message.
-func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) {
-	if isMessageSkipped(msg) {
+func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg *protogen.Message, protoMsgMap map[string]*protogen.Message, opts *Options) {
+	if dm.Skip {
 		return
 	}
 
-	name := rustMessageName(msg)
-	rowName := name + "Row"
-	domainName := name
+	rowName := dm.Name + "Row"
+	domainName := dm.Name
 
-	// Find document_id field
-	var docIDField *protogen.Field
-	for _, field := range msg.Fields {
-		if isDocumentID(field) {
-			docIDField = field
+	// Find document_id field name from IR
+	var docIDFieldName string
+	var docIDField *protogen.Field // kept for converter signature compat
+	for _, f := range dm.Fields {
+		if f.DocID {
+			docIDFieldName = f.Name
 			break
 		}
 	}
+	if docIDFieldName != "" && msg != nil {
+		for _, field := range msg.Fields {
+			if isDocumentID(field) {
+				docIDField = field
+				break
+			}
+		}
+	}
 
-	// Collect oneof groups
-	seenOneofs := map[string]bool{}
-
-	// Row struct
-	g.P("/// SQLite storage representation of ", msg.Desc.FullName(), ".")
+	// Row struct (from IR)
+	g.P("/// SQLite storage representation of ", dm.FullName, ".")
 	g.P("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]")
 	g.P("pub struct ", rowName, " {")
 
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
-			oneofName := string(field.Oneof.Desc.Name())
-			if !seenOneofs[oneofName] {
-				seenOneofs[oneofName] = true
-
-				// Oneof stored as JSON string
-				rustFieldName := escapeRustKeyword(toSnakeCase(oneofName))
-				g.P("    pub ", rustFieldName, ": Option<String>,")
-			}
+	for _, f := range dm.Fields {
+		if f.IsOneof {
+			// Oneof stored as JSON string
+			rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
+			g.P("    pub ", rustFieldName, ": Option<String>,")
 			continue
 		}
-		if isFieldSkipped(field) {
-			continue
-		}
-		// Document ID is excluded from the Row struct (passed separately)
-		if isDocumentID(field) {
-			continue
+		if f.DocID {
+			continue // Document ID passed separately
 		}
 
-		protoName := string(field.Desc.Name())
-		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
-		fieldType := rustSqliteFieldType(field, opts)
+		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
+		fieldType := rustSqliteFieldTypeFromIR(f)
 
 		g.P("    pub ", rustFieldName, ": ", fieldType, ",")
 	}
@@ -181,33 +183,23 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 	// impl block
 	g.P("impl ", rowName, " {")
 
-	// from_row: construct from rusqlite::Row
+	// from_row: construct from rusqlite::Row (from IR)
 	g.P("    /// Constructs a ", rowName, " from a rusqlite::Row using named column access.")
 	g.P("    pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {")
 	g.P("        Ok(Self {")
 
-	seenOneofs = map[string]bool{}
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
-			oneofName := string(field.Oneof.Desc.Name())
-			if !seenOneofs[oneofName] {
-				seenOneofs[oneofName] = true
-				rustFieldName := escapeRustKeyword(toSnakeCase(oneofName))
-				g.P("            ", rustFieldName, ": row.get(\"", oneofName, "\")?,")
-			}
+	for _, f := range dm.Fields {
+		if f.IsOneof {
+			rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
+			g.P("            ", rustFieldName, ": row.get(\"", f.Name, "\")?,")
 			continue
 		}
-		if isFieldSkipped(field) {
-			continue
-		}
-		if isDocumentID(field) {
+		if f.DocID {
 			continue
 		}
 
-		protoName := string(field.Desc.Name())
-		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
-
-		g.P("            ", rustFieldName, ": row.get(\"", protoName, "\")?,")
+		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
+		g.P("            ", rustFieldName, ": row.get(\"", f.Name, "\")?,")
 	}
 
 	g.P("        })")
@@ -224,7 +216,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 	}
 	g.P("        Ok(", domainName, " {")
 
-	seenOneofs = map[string]bool{}
+	seenOneofs := map[string]bool{}
 	for _, field := range msg.Fields {
 		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
 			oneofName := string(field.Oneof.Desc.Name())
@@ -356,11 +348,9 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 	}
 
 	// Nested messages
-	for _, nested := range msg.Messages {
-		if nested.Desc.IsMapEntry() {
-			continue
-		}
-		generateRustSqliteMessage(g, nested, opts)
+	for _, nested := range dm.NestedMessages {
+		nestedMsg := protoMsgMap[nested.FullName]
+		generateRustSqliteMessage(g, nested, nestedMsg, protoMsgMap, opts)
 	}
 }
 
@@ -441,6 +431,75 @@ func rustSqliteFieldType(field *protogen.Field, opts *Options) string {
 	}
 
 	return rustSqliteScalarType(field.Desc.Kind())
+}
+
+// rustSqliteFieldTypeFromIR returns the SQLite-appropriate Rust type for a field using the IR.
+func rustSqliteFieldTypeFromIR(f *DomainField) string {
+	// Repeated and map fields are always JSON-serialized in SQLite.
+	if f.Repeated || f.IsMap {
+		return "String"
+	}
+
+	switch f.Kind {
+	case FieldKindTimestamp, FieldKindDuration:
+		if f.Optional {
+			return "Option<i64>"
+		}
+		return "i64"
+	case FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindFieldMask, FieldKindEmpty, FieldKindAny:
+		return "String" // JSON serialized
+	case FieldKindMessage:
+		return "Option<String>" // JSON serialized, NULL for absent
+	case FieldKindEnum:
+		if f.EnumAsString {
+			if f.Optional {
+				return "Option<String>"
+			}
+			return "String"
+		}
+		if f.Optional {
+			return "Option<i32>"
+		}
+		return "i32"
+	case FieldKindScalar:
+		if f.Optional {
+			return "Option<" + rustSqliteScalarType(f.ScalarKind) + ">"
+		}
+		return rustSqliteScalarType(f.ScalarKind)
+	}
+
+	// Wrapper types -> Option<T> with underlying SQLite type
+	if f.Kind.IsWrapper() {
+		return rustSqliteWrapperTypeFromIR(f.Kind)
+	}
+
+	return rustSqliteScalarType(f.ScalarKind)
+}
+
+// rustSqliteWrapperTypeFromIR returns the SQLite Option type for a well-known wrapper from IR.
+func rustSqliteWrapperTypeFromIR(kind FieldKind) string {
+	switch kind {
+	case FieldKindWrapperString:
+		return "Option<String>"
+	case FieldKindWrapperBool:
+		return "Option<bool>"
+	case FieldKindWrapperInt32:
+		return "Option<i32>"
+	case FieldKindWrapperInt64:
+		return "Option<i64>"
+	case FieldKindWrapperUInt32:
+		return "Option<u32>"
+	case FieldKindWrapperUInt64:
+		return "Option<u64>"
+	case FieldKindWrapperFloat:
+		return "Option<f32>"
+	case FieldKindWrapperDouble:
+		return "Option<f64>"
+	case FieldKindWrapperBytes:
+		return "Option<Vec<u8>>"
+	default:
+		return "Option<String>"
+	}
 }
 
 // rustSqliteScalarType returns the SQLite-compatible Rust type for a scalar kind.
