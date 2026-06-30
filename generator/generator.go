@@ -30,4 +30,3 @@ func GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) erro
 		return fmt.Errorf("proto2type: unsupported language %q (supported: go, rust, kotlin)", opts.Lang)
 	}
 }
-
