@@ -157,7 +157,12 @@ func generateRustEnumFromIR(g *protogen.GeneratedFile, de *DomainEnum) {
 	g.P("impl ", de.Name, " {")
 	g.P("    pub fn from_i32(value: i32) -> Option<Self> {")
 	g.P("        match value {")
+	seenNumbers := make(map[int32]bool)
 	for _, val := range de.Values {
+		if seenNumbers[val.Number] {
+			continue
+		}
+		seenNumbers[val.Number] = true
 		g.P("            ", val.Number, " => Some(Self::", val.Name, "),")
 	}
 	g.P("            _ => None,")
@@ -477,6 +482,9 @@ func rustWrapperTypeFromIR(kind FieldKind) string {
 
 // rustMapValueTypeFromIR returns the Rust type for a map value using MapTypeInfo.
 func rustMapValueTypeFromIR(mv *MapTypeInfo, enumAsString bool) string {
+	if mv == nil {
+		return "serde_json::Value"
+	}
 	switch mv.Kind {
 	case FieldKindTimestamp:
 		return "DateTime<Utc>"

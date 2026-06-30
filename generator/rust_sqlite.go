@@ -368,10 +368,16 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, msg *protogen.Message,
 func rustSqliteFieldType(field *protogen.Field, opts *Options) string {
 	// Timestamps -> i64 (epoch_ms)
 	if isWellKnownTimestamp(field) {
+		if field.Desc.HasOptionalKeyword() {
+			return "Option<i64>"
+		}
 		return "i64"
 	}
 	// Durations -> i64 (milliseconds)
 	if isWellKnownDuration(field) {
+		if field.Desc.HasOptionalKeyword() {
+			return "Option<i64>"
+		}
 		return "i64"
 	}
 
@@ -414,7 +420,13 @@ func rustSqliteFieldType(field *protogen.Field, opts *Options) string {
 	// Enum types -> i32 in the database
 	if field.Desc.Kind() == protoreflect.EnumKind {
 		if isEnumAsString(field, opts) {
+			if field.Desc.HasOptionalKeyword() {
+				return "Option<String>"
+			}
 			return "String"
+		}
+		if field.Desc.HasOptionalKeyword() {
+			return "Option<i32>"
 		}
 		return "i32"
 	}
@@ -482,6 +494,9 @@ func rustSqliteWrapperType(field *protogen.Field) string {
 // rustSqliteToDomainConversion returns the expression to convert a SQLite row field to a domain field.
 func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts *Options) string {
 	if isWellKnownTimestamp(field) {
+		if field.Desc.HasOptionalKeyword() {
+			return fmt.Sprintf("match self.%s { Some(ms) => Some(epoch_ms_to_datetime(ms)?), None => None }", fieldName)
+		}
 		return fmt.Sprintf("epoch_ms_to_datetime(self.%s)?", fieldName)
 	}
 	// P0-1: Duration is i64 in both domain and SQLite, just copy
@@ -516,9 +531,15 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 	// Enum types: convert from i32 to Rust enum
 	if field.Desc.Kind() == protoreflect.EnumKind {
 		if isEnumAsString(field, opts) {
+			if field.Desc.HasOptionalKeyword() {
+				return fmt.Sprintf("self.%s.clone()", fieldName)
+			}
 			return fmt.Sprintf("self.%s.clone()", fieldName)
 		}
 		enumTypeName := rustEnumTypeName(field)
+		if field.Desc.HasOptionalKeyword() {
+			return fmt.Sprintf("self.%s.map(|v| %s::from_i32(v).unwrap_or_default())", fieldName, enumTypeName)
+		}
 		return fmt.Sprintf("%s::from_i32(self.%s).unwrap_or_default()", enumTypeName, fieldName)
 	}
 	// P0-3: unsigned types need cast from i64
@@ -547,6 +568,9 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 // Like rustSqliteToDomainConversion but moves String fields instead of cloning.
 func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opts *Options) string {
 	if isWellKnownTimestamp(field) {
+		if field.Desc.HasOptionalKeyword() {
+			return fmt.Sprintf("match self.%s { Some(ms) => Some(epoch_ms_to_datetime(ms)?), None => None }", fieldName)
+		}
 		return fmt.Sprintf("epoch_ms_to_datetime(self.%s)?", fieldName)
 	}
 	if isWellKnownDuration(field) {
@@ -583,6 +607,9 @@ func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opt
 			return fmt.Sprintf("self.%s", fieldName)
 		}
 		enumTypeName := rustEnumTypeName(field)
+		if field.Desc.HasOptionalKeyword() {
+			return fmt.Sprintf("self.%s.map(|v| %s::from_i32(v).unwrap_or_default())", fieldName, enumTypeName)
+		}
 		return fmt.Sprintf("%s::from_i32(self.%s).unwrap_or_default()", enumTypeName, fieldName)
 	}
 	// P0-3: unsigned types need cast from i64
@@ -610,6 +637,9 @@ func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opt
 // rustSqliteFromDomainConversion returns the expression to convert a domain field to a SQLite row field.
 func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opts *Options) string {
 	if isWellKnownTimestamp(field) {
+		if field.Desc.HasOptionalKeyword() {
+			return fmt.Sprintf("d.%s.as_ref().map(|dt| datetime_to_epoch_ms(dt))", fieldName)
+		}
 		return fmt.Sprintf("datetime_to_epoch_ms(&d.%s)", fieldName)
 	}
 	// P0-1: Duration is i64 in both domain and SQLite, just copy
@@ -656,16 +686,19 @@ func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opt
 	if field.Desc.Kind() == protoreflect.StringKind {
 		return fmt.Sprintf("d.%s.clone()", fieldName)
 	}
-	// Optional scalars
-	if field.Desc.HasOptionalKeyword() {
-		return fmt.Sprintf("d.%s", fieldName)
-	}
 	// Enum types: store as i32
 	if field.Desc.Kind() == protoreflect.EnumKind {
 		if isEnumAsString(field, opts) {
 			return fmt.Sprintf("d.%s.clone()", fieldName)
 		}
+		if field.Desc.HasOptionalKeyword() {
+			return fmt.Sprintf("d.%s.map(|v| v as i32)", fieldName)
+		}
 		return fmt.Sprintf("d.%s as i32", fieldName)
+	}
+	// Optional scalars
+	if field.Desc.HasOptionalKeyword() {
+		return fmt.Sprintf("d.%s", fieldName)
 	}
 	return fmt.Sprintf("d.%s", fieldName)
 }

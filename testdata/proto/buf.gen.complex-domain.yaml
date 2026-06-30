@@ -1,0 +1,12 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - complex.proto
+plugins:
+  # Rust domain types only (no storage backends)
+  - local: protoc-gen-proto2type
+    out: ../golden/rust/gen
+    opt:
+      - paths=source_relative
+      - lang=rust

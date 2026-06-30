@@ -190,7 +190,12 @@ func writeKotlinEnum(g *protogen.GeneratedFile, enum *DomainEnum) {
 	g.P()
 	g.P("    companion object {")
 	g.P("        fun fromValue(value: Int): ", enum.Name, "? = when(value) {")
+	seenNumbers := make(map[int32]bool)
 	for _, v := range enum.Values {
+		if seenNumbers[v.Number] {
+			continue
+		}
+		seenNumbers[v.Number] = true
 		kotlinName := pascalToUpperSnake(v.Name)
 		g.P("            ", v.Number, " -> ", kotlinName)
 	}
@@ -272,7 +277,7 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 	}
 
 	if len(lines) == 0 {
-		g.P("data class ", msg.Name, "()")
+		g.P("class ", msg.Name)
 	} else {
 		g.P("data class ", msg.Name, "(")
 		for i, line := range lines {

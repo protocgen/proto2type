@@ -54,6 +54,9 @@ func kotlinScalarDefault(kind protoreflect.Kind) string {
 
 // kotlinMapTypeInfoType returns the Kotlin type for a MapTypeInfo.
 func kotlinMapTypeInfoType(m *MapTypeInfo) string {
+	if m == nil {
+		return "Any?"
+	}
 	switch m.Kind {
 	case FieldKindScalar:
 		return kotlinScalarType(m.ScalarKind)

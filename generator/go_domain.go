@@ -242,6 +242,9 @@ func wrapperGoTypeFromIR(kind FieldKind) string {
 
 // goMapValueTypeFromIR returns the Go type for a map value using MapTypeInfo.
 func goMapValueTypeFromIR(mv *MapTypeInfo) string {
+	if mv == nil {
+		return "any"
+	}
 	switch mv.Kind {
 	case FieldKindTimestamp:
 		return "time.Time"
@@ -296,12 +299,14 @@ func irNeedsTime(msgs []*DomainMessage) bool {
 // buildProtoMessageMap builds a map from FullName to *protogen.Message, recursively.
 func buildProtoMessageMap(msgs []*protogen.Message) map[string]*protogen.Message {
 	m := make(map[string]*protogen.Message)
-	for _, msg := range msgs {
-		m[string(msg.Desc.FullName())] = msg
-		for k, v := range buildProtoMessageMap(msg.Messages) {
-			m[k] = v
+	var walk func([]*protogen.Message)
+	walk = func(list []*protogen.Message) {
+		for _, msg := range list {
+			m[string(msg.Desc.FullName())] = msg
+			walk(msg.Messages)
 		}
 	}
+	walk(msgs)
 	return m
 }
 

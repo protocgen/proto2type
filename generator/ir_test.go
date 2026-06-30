@@ -56,9 +56,9 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 		"avatar":          FieldKindScalar, // bytes
 		"nickname":        FieldKindWrapperString,
 		"status":          FieldKindEnum,
-		"tags":            FieldKindMessage, // repeated message
+		"tags":            FieldKindMessage,   // repeated message
 		"deleted_at":      FieldKindTimestamp, // optional timestamp
-		"previous_status": FieldKindEnum, // optional enum
+		"previous_status": FieldKindEnum,      // optional enum
 	}
 
 	for _, f := range user.Fields {
