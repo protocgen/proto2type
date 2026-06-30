@@ -301,7 +301,7 @@ func goStorageFieldTypeFromIR(f *DomainField, suffix string) string {
 	}
 	if f.IsMap {
 		keyType := goType(f.MapKey.ScalarKind)
-		valType := goStorageMapValueTypeFromIR(f.MapValue, suffix)
+		valType := goStorageMapValueTypeFromIR(f.MapValue, suffix, f.EnumAsString)
 		return fmt.Sprintf("map[%s]%s", keyType, valType)
 	}
 	return goStorageSingularTypeFromIR(f, suffix)
@@ -351,7 +351,7 @@ func goStorageSingularTypeFromIR(f *DomainField, suffix string) string {
 
 // goStorageMapValueTypeFromIR returns the Go type for a map value in a storage struct,
 // appending suffix to nested message type names.
-func goStorageMapValueTypeFromIR(mv *MapTypeInfo, suffix string) string {
+func goStorageMapValueTypeFromIR(mv *MapTypeInfo, suffix string, enumAsString bool) string {
 	if mv == nil {
 		return "any"
 	}
@@ -375,6 +375,9 @@ func goStorageMapValueTypeFromIR(mv *MapTypeInfo, suffix string) string {
 	case FieldKindMessage:
 		return "*" + mv.MessageTypeName + suffix
 	case FieldKindEnum:
+		if enumAsString {
+			return "string"
+		}
 		return "int32"
 	case FieldKindScalar:
 		return goType(mv.ScalarKind)

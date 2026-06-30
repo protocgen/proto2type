@@ -146,7 +146,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 			break
 		}
 	}
-	if docIDFieldName != "" && msg != nil {
+	if docIDFieldName != "" {
 		for _, field := range msg.Fields {
 			if isDocumentID(field) {
 				docIDField = field
@@ -350,6 +350,9 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 	// Nested messages
 	for _, nested := range dm.NestedMessages {
 		nestedMsg := protoMsgMap[nested.FullName]
+		if nestedMsg == nil {
+			continue
+		}
 		generateRustSqliteMessage(g, nested, nestedMsg, protoMsgMap, opts)
 	}
 }
