@@ -159,7 +159,12 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 		case "metadata":
 			dst.Metadata = src.Metadata
 		case "address":
-			dst.Address = src.Address
+			if src.Address != nil {
+				clone := *src.Address
+				dst.Address = &clone
+			} else {
+				dst.Address = nil
+			}
 		case "created_at":
 			dst.CreatedAt = src.CreatedAt
 		case "session_timeout":

@@ -45,10 +45,10 @@ func TestKotlin_NonContiguousEnumFromValue(t *testing.T) {
 func TestKotlin_NestedEnumTypeName(t *testing.T) {
 	file := buildIRForProto(t, "complex.proto", &Options{Lang: "kotlin", Domain: true})
 
-	theme := irFindEnum(t, file, "Settings_Theme")
+	theme := irFindEnum(t, file, "SettingsTheme")
 
 	if len(theme.Values) != 3 {
-		t.Errorf("Settings_Theme has %d values, want 3", len(theme.Values))
+		t.Errorf("SettingsTheme has %d values, want 3", len(theme.Values))
 	}
 }
 
@@ -56,9 +56,9 @@ func TestKotlin_DeeplyNestedMessageName(t *testing.T) {
 	file := buildIRForProto(t, "complex.proto", &Options{Lang: "kotlin", Domain: true})
 
 	// Should not panic / fatal — the message exists in the IR.
-	team := irMustFindMessage(t, file.Messages, "Organization_Department_Team")
-	if team.Name != "Organization_Department_Team" {
-		t.Errorf("got Name = %q, want %q", team.Name, "Organization_Department_Team")
+	team := irMustFindMessage(t, file.Messages, "OrganizationDepartmentTeam")
+	if team.Name != "OrganizationDepartmentTeam" {
+		t.Errorf("got Name = %q, want %q", team.Name, "OrganizationDepartmentTeam")
 	}
 }
 

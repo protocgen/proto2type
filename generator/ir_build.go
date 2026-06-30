@@ -73,6 +73,8 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options)
 				// correct proto declaration position.
 				dm.Fields = append(dm.Fields, &DomainField{
 					Name:          oneofName,
+					PascalName:    toPascalCase(oneofName),
+					CamelName:     toCamelCase(oneofName),
 					IsOneof:       true,
 					OneofTypeName: do.Name,
 				})
@@ -250,6 +252,8 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 			mi.Kind = FieldKindFieldMask
 		case "google.protobuf.Empty":
 			mi.Kind = FieldKindEmpty
+		case "google.protobuf.Any":
+			mi.Kind = FieldKindAny
 		case "google.protobuf.StringValue":
 			mi.Kind = FieldKindWrapperString
 		case "google.protobuf.BoolValue":
@@ -290,7 +294,7 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 func buildDomainEnum(enum *protogen.Enum, parentName string) *DomainEnum {
 	enumName := toPascalCase(string(enum.Desc.Name()))
 	if parentName != "" {
-		enumName = parentName + "_" + enumName
+		enumName = parentName + enumName
 	}
 
 	de := &DomainEnum{
@@ -352,23 +356,23 @@ func buildDomainOneof(msg *protogen.Message, oneof *protogen.Oneof, msgIRName st
 // ---------------------------------------------------------------------------
 
 // irMessageName returns the flattened IR name for a message.
-// Top-level: PascalCase(name). Nested: Parent_Child.
+// Top-level: PascalCase(name). Nested: ParentChild (PascalCase concat).
 func irMessageName(msg *protogen.Message, parentName string) string {
 	name := toPascalCase(string(msg.Desc.Name()))
 	if parentName != "" {
-		return parentName + "_" + name
+		return parentName + name
 	}
 	return name
 }
 
 // irMessageNameFromDesc builds the IR name from a MessageDescriptor,
-// using the same Parent_Child convention as rustMessageName / qualifiedMessageName.
+// using PascalCase concatenation for nested types (e.g. OrganizationDepartment).
 func irMessageNameFromDesc(md protoreflect.MessageDescriptor) string {
 	parent, ok := md.Parent().(protoreflect.MessageDescriptor)
 	if !ok {
 		return toPascalCase(string(md.Name()))
 	}
-	return irMessageNameFromDesc(parent) + "_" + toPascalCase(string(md.Name()))
+	return irMessageNameFromDesc(parent) + toPascalCase(string(md.Name()))
 }
 
 // cleanComment trims whitespace from a proto comment string and sanitises
@@ -382,11 +386,11 @@ func cleanComment(s string) string {
 }
 
 // irEnumNameFromDesc builds the IR name from an EnumDescriptor,
-// using the same Parent_Child convention as irMessageNameFromDesc.
+// using PascalCase concatenation for nested types.
 func irEnumNameFromDesc(ed protoreflect.EnumDescriptor) string {
 	parent, ok := ed.Parent().(protoreflect.MessageDescriptor)
 	if !ok {
 		return toPascalCase(string(ed.Name()))
 	}
-	return irMessageNameFromDesc(parent) + "_" + toPascalCase(string(ed.Name()))
+	return irMessageNameFromDesc(parent) + toPascalCase(string(ed.Name()))
 }

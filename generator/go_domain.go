@@ -86,6 +86,9 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 
 	for _, dm := range df.Messages {
 		msg := protoMsgMap[dm.FullName]
+		if msg == nil {
+			return fmt.Errorf("proto2type: no protogen.Message found for IR message %q", dm.FullName)
+		}
 		if err := generateGoDomainMessage(g, dm, msg, opts); err != nil {
 			return err
 		}

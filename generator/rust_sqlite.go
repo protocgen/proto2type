@@ -78,6 +78,7 @@ func generateRustConversionError(g *protogen.GeneratedFile, needsChrono bool) {
 	if needsChrono {
 		g.P("    InvalidTimestamp(i64),")
 	}
+	g.P("    InvalidEnumValue(i32),")
 	g.P("    Overflow,")
 	g.P("}")
 	g.P()
@@ -88,6 +89,7 @@ func generateRustConversionError(g *protogen.GeneratedFile, needsChrono bool) {
 	if needsChrono {
 		g.P(`            Self::InvalidTimestamp(ms) => write!(f, "invalid timestamp: {ms}ms"),`)
 	}
+	g.P(`            Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),`)
 	g.P(`            Self::Overflow => write!(f, "integer overflow during conversion"),`)
 	g.P("        }")
 	g.P("    }")
@@ -540,9 +542,9 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 		}
 		enumTypeName := rustEnumTypeName(field)
 		if field.Desc.HasOptionalKeyword() {
-			return fmt.Sprintf("self.%s.map(|v| %s::from_i32(v).unwrap_or_default())", fieldName, enumTypeName)
+			return fmt.Sprintf("self.%s.map(|v| %s::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?", fieldName, enumTypeName)
 		}
-		return fmt.Sprintf("%s::from_i32(self.%s).unwrap_or_default()", enumTypeName, fieldName)
+		return fmt.Sprintf("%s::from_i32(self.%s).ok_or(ConversionError::InvalidEnumValue(self.%s))?", enumTypeName, fieldName, fieldName)
 	}
 	// P0-3: unsigned types need cast from i64
 	if field.Desc.Kind() == protoreflect.Uint32Kind || field.Desc.Kind() == protoreflect.Fixed32Kind {
@@ -610,9 +612,9 @@ func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opt
 		}
 		enumTypeName := rustEnumTypeName(field)
 		if field.Desc.HasOptionalKeyword() {
-			return fmt.Sprintf("self.%s.map(|v| %s::from_i32(v).unwrap_or_default())", fieldName, enumTypeName)
+			return fmt.Sprintf("self.%s.map(|v| %s::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?", fieldName, enumTypeName)
 		}
-		return fmt.Sprintf("%s::from_i32(self.%s).unwrap_or_default()", enumTypeName, fieldName)
+		return fmt.Sprintf("%s::from_i32(self.%s).ok_or(ConversionError::InvalidEnumValue(self.%s))?", enumTypeName, fieldName, fieldName)
 	}
 	// P0-3: unsigned types need cast from i64
 	if field.Desc.Kind() == protoreflect.Uint32Kind || field.Desc.Kind() == protoreflect.Fixed32Kind {

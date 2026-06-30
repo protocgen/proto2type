@@ -56,13 +56,13 @@ func TestIR_NestedEnum(t *testing.T) {
 
 	var theme *DomainEnum
 	for _, e := range settings.NestedEnums {
-		if e.Name == "Settings_Theme" {
+		if e.Name == "SettingsTheme" {
 			theme = e
 			break
 		}
 	}
 	if theme == nil {
-		t.Fatalf("nested enum Settings_Theme not found; got enums: %v",
+		t.Fatalf("nested enum SettingsTheme not found; got enums: %v",
 			func() []string {
 				var names []string
 				for _, e := range settings.NestedEnums {
@@ -73,7 +73,7 @@ func TestIR_NestedEnum(t *testing.T) {
 	}
 
 	if len(theme.Values) != 3 {
-		t.Errorf("Settings_Theme has %d values, want 3", len(theme.Values))
+		t.Errorf("SettingsTheme has %d values, want 3", len(theme.Values))
 	}
 }
 
@@ -95,13 +95,13 @@ func TestIR_DeeplyNestedMessages(t *testing.T) {
 	// Organization should have a nested Department.
 	var dept *DomainMessage
 	for _, m := range org.NestedMessages {
-		if m.Name == "Organization_Department" {
+		if m.Name == "OrganizationDepartment" {
 			dept = m
 			break
 		}
 	}
 	if dept == nil {
-		t.Fatalf("Organization_Department not found in NestedMessages; got: %v",
+		t.Fatalf("OrganizationDepartment not found in NestedMessages; got: %v",
 			func() []string {
 				var names []string
 				for _, m := range org.NestedMessages {
@@ -114,13 +114,13 @@ func TestIR_DeeplyNestedMessages(t *testing.T) {
 	// Department should have a nested Team.
 	var team *DomainMessage
 	for _, m := range dept.NestedMessages {
-		if m.Name == "Organization_Department_Team" {
+		if m.Name == "OrganizationDepartmentTeam" {
 			team = m
 			break
 		}
 	}
 	if team == nil {
-		t.Fatalf("Organization_Department_Team not found in Department.NestedMessages; got: %v",
+		t.Fatalf("OrganizationDepartmentTeam not found in Department.NestedMessages; got: %v",
 			func() []string {
 				var names []string
 				for _, m := range dept.NestedMessages {
