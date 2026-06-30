@@ -116,9 +116,19 @@ func ApplyFieldMaskModelCatalogEntry(dst, src *ModelCatalogEntry, paths []string
 		case "provider_model_id":
 			dst.ProviderModelID = src.ProviderModelID
 		case "created_at":
-			dst.CreatedAt = src.CreatedAt
+			if src.CreatedAt != nil {
+				clone := *src.CreatedAt
+				dst.CreatedAt = &clone
+			} else {
+				dst.CreatedAt = nil
+			}
 		case "updated_at":
-			dst.UpdatedAt = src.UpdatedAt
+			if src.UpdatedAt != nil {
+				clone := *src.UpdatedAt
+				dst.UpdatedAt = &clone
+			} else {
+				dst.UpdatedAt = nil
+			}
 		case "notes":
 			dst.Notes = src.Notes
 		case "region":

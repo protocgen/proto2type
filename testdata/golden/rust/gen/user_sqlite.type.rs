@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 pub enum ConversionError {
     Json(serde_json::Error),
     InvalidTimestamp(i64),
+    InvalidEnumValue(i32),
     Overflow,
 }
 
@@ -19,6 +20,7 @@ impl std::fmt::Display for ConversionError {
         match self {
             Self::Json(e) => write!(f, "json: {e}"),
             Self::InvalidTimestamp(ms) => write!(f, "invalid timestamp: {ms}ms"),
+            Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),
             Self::Overflow => write!(f, "integer overflow during conversion"),
         }
     }
@@ -108,11 +110,11 @@ impl UserRow {
             phone: self.phone.clone(),
             avatar: self.avatar.clone(),
             nickname: self.nickname.clone(),
-            status: UserStatus::from_i32(self.status).unwrap_or_default(),
+            status: UserStatus::from_i32(self.status).ok_or(ConversionError::InvalidEnumValue(self.status))?,
             contact_method: match &self.contact_method { Some(s) => Some(serde_json::from_str(s)?), None => None },
             tags: serde_json::from_str(&self.tags)?,
             deleted_at: match self.deleted_at { Some(ms) => Some(epoch_ms_to_datetime(ms)?), None => None },
-            previous_status: self.previous_status.map(|v| UserStatus::from_i32(v).unwrap_or_default()),
+            previous_status: self.previous_status.map(|v| UserStatus::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?,
         })
     }
 
@@ -132,11 +134,11 @@ impl UserRow {
             phone: self.phone,
             avatar: self.avatar,
             nickname: self.nickname,
-            status: UserStatus::from_i32(self.status).unwrap_or_default(),
+            status: UserStatus::from_i32(self.status).ok_or(ConversionError::InvalidEnumValue(self.status))?,
             contact_method: match self.contact_method { Some(s) => Some(serde_json::from_str(&s)?), None => None },
             tags: serde_json::from_str(&self.tags)?,
             deleted_at: match self.deleted_at { Some(ms) => Some(epoch_ms_to_datetime(ms)?), None => None },
-            previous_status: self.previous_status.map(|v| UserStatus::from_i32(v).unwrap_or_default()),
+            previous_status: self.previous_status.map(|v| UserStatus::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?,
         })
     }
 

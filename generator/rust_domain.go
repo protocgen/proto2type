@@ -48,14 +48,13 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 	needsChrono := false
 	needsHashMap := false
 	needsSerde := false
-	needsSerdeJSON := false
 
 	for _, dm := range df.Messages {
 		if dm.Skip {
 			continue
 		}
 		needsSerde = true
-		irScanRustImports(dm, &needsChrono, &needsHashMap, &needsSerdeJSON)
+		irScanRustImports(dm, &needsChrono, &needsHashMap)
 	}
 
 	// Check if file has enums (need serde for enums too)
@@ -83,9 +82,6 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 	if needsHashMap {
 		g.P("use std::collections::HashMap;")
 	}
-	if needsSerdeJSON {
-		g.P("use serde_json;")
-	}
 	g.P()
 
 	// Generate top-level enums from IR
@@ -103,7 +99,7 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 }
 
 // irScanRustImports scans a DomainMessage (and its nested messages) for types that require imports.
-func irScanRustImports(dm *DomainMessage, needsChrono, needsHashMap, needsSerdeJSON *bool) {
+func irScanRustImports(dm *DomainMessage, needsChrono, needsHashMap *bool) {
 	if dm.Skip {
 		return
 	}
@@ -114,13 +110,9 @@ func irScanRustImports(dm *DomainMessage, needsChrono, needsHashMap, needsSerdeJ
 		if f.IsMap {
 			*needsHashMap = true
 		}
-		if f.Kind == FieldKindStruct || f.Kind == FieldKindValue ||
-			f.Kind == FieldKindListValue || f.Kind == FieldKindAny {
-			*needsSerdeJSON = true
-		}
 	}
 	for _, nested := range dm.NestedMessages {
-		irScanRustImports(nested, needsChrono, needsHashMap, needsSerdeJSON)
+		irScanRustImports(nested, needsChrono, needsHashMap)
 	}
 }
 
@@ -310,7 +302,9 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 		}
 
 		// #[serde(default)] for fields that should have default values
-		if f.Repeated || f.IsMap {
+		if f.Repeated || f.IsMap || f.Kind == FieldKindStruct ||
+			f.Kind == FieldKindValue || f.Kind == FieldKindListValue ||
+			f.Kind == FieldKindFieldMask {
 			attrs = append(attrs, `default`)
 		}
 

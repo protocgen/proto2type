@@ -655,8 +655,8 @@ func TestIRScanRustImports_Integration(t *testing.T) {
 
 	// User has Timestamp and map fields.
 	user := irFindDomainMessageInPlugin(t, gen, opts, "User")
-	var needsChrono, needsHashMap, needsSerdeJSON bool
-	irScanRustImports(user, &needsChrono, &needsHashMap, &needsSerdeJSON)
+	var needsChrono, needsHashMap bool
+	irScanRustImports(user, &needsChrono, &needsHashMap)
 
 	if !needsChrono {
 		t.Errorf("irScanRustImports(User): needsChrono = false, want true (User has Timestamp)")
@@ -667,17 +667,14 @@ func TestIRScanRustImports_Integration(t *testing.T) {
 
 	// Address has no Timestamps, maps, or JSON WKTs — all should be false.
 	addr := irFindDomainMessageInPlugin(t, gen, opts, "Address")
-	var addrChrono, addrHashMap, addrSerdeJSON bool
-	irScanRustImports(addr, &addrChrono, &addrHashMap, &addrSerdeJSON)
+	var addrChrono, addrHashMap bool
+	irScanRustImports(addr, &addrChrono, &addrHashMap)
 
 	if addrChrono {
 		t.Errorf("irScanRustImports(Address): needsChrono = true, want false")
 	}
 	if addrHashMap {
 		t.Errorf("irScanRustImports(Address): needsHashMap = true, want false")
-	}
-	if addrSerdeJSON {
-		t.Errorf("irScanRustImports(Address): needsSerdeJSON = true, want false")
 	}
 }
 

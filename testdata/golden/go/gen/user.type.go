@@ -159,11 +159,26 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 		case "metadata":
 			dst.Metadata = src.Metadata
 		case "address":
-			dst.Address = src.Address
+			if src.Address != nil {
+				clone := *src.Address
+				dst.Address = &clone
+			} else {
+				dst.Address = nil
+			}
 		case "created_at":
-			dst.CreatedAt = src.CreatedAt
+			if src.CreatedAt != nil {
+				clone := *src.CreatedAt
+				dst.CreatedAt = &clone
+			} else {
+				dst.CreatedAt = nil
+			}
 		case "session_timeout":
-			dst.SessionTimeout = src.SessionTimeout
+			if src.SessionTimeout != nil {
+				clone := *src.SessionTimeout
+				dst.SessionTimeout = &clone
+			} else {
+				dst.SessionTimeout = nil
+			}
 		case "phone":
 			dst.Phone = src.Phone
 		case "avatar":
@@ -174,13 +189,23 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 				dst.Avatar = nil
 			}
 		case "nickname":
-			dst.Nickname = src.Nickname
+			if src.Nickname != nil {
+				clone := *src.Nickname
+				dst.Nickname = &clone
+			} else {
+				dst.Nickname = nil
+			}
 		case "status":
 			dst.Status = src.Status
 		case "tags":
 			dst.Tags = src.Tags
 		case "deleted_at":
-			dst.DeletedAt = src.DeletedAt
+			if src.DeletedAt != nil {
+				clone := *src.DeletedAt
+				dst.DeletedAt = &clone
+			} else {
+				dst.DeletedAt = nil
+			}
 		case "previous_status":
 			dst.PreviousStatus = src.PreviousStatus
 		}

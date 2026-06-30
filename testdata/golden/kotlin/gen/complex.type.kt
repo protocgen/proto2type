@@ -47,7 +47,7 @@ enum class Settings_Theme {
 /** Message with a nested enum. */
 @Serializable
 data class Settings(
-    val theme: Settings_Theme = Settings_Theme.entries.first(),
+    val theme: SettingsTheme = SettingsTheme.entries.first(),
     val locale: String = ""
 )
 
@@ -55,13 +55,13 @@ data class Settings(
 @Serializable
 data class Organization(
     val name: String = "",
-    val departments: List<Organization_Department> = emptyList()
+    val departments: List<OrganizationDepartment> = emptyList()
 )
 
 @Serializable
 data class Organization_Department(
     val name: String = "",
-    val teams: List<Organization_Department_Team> = emptyList()
+    val teams: List<OrganizationDepartmentTeam> = emptyList()
 )
 
 @Serializable

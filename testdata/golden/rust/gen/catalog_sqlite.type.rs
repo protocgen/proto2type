@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 pub enum ConversionError {
     Json(serde_json::Error),
     InvalidTimestamp(i64),
+    InvalidEnumValue(i32),
     Overflow,
 }
 
@@ -19,6 +20,7 @@ impl std::fmt::Display for ConversionError {
         match self {
             Self::Json(e) => write!(f, "json: {e}"),
             Self::InvalidTimestamp(ms) => write!(f, "invalid timestamp: {ms}ms"),
+            Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),
             Self::Overflow => write!(f, "integer overflow during conversion"),
         }
     }
