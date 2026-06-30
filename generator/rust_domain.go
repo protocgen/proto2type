@@ -505,6 +505,8 @@ func rustMapValueTypeFromIR(mv *MapTypeInfo, enumAsString bool) string {
 		return "Vec<String>"
 	case FieldKindEmpty:
 		return "()"
+	case FieldKindAny:
+		return "serde_json::Value"
 	case FieldKindMessage:
 		return mv.MessageTypeName
 	case FieldKindEnum:
