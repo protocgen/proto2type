@@ -122,6 +122,14 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\t\t\t\tcopy(c.", f.PascalName, "[i], v)")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
+		} else if f.Kind.IsWrapper() {
+			// Repeated wrapper (e.g. []*string): deep copy each pointer
+			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
+			g.P("\t\t\tif v != nil {")
+			g.P("\t\t\t\tcpy := *v")
+			g.P("\t\t\t\tc.", f.PascalName, "[i] = &cpy")
+			g.P("\t\t\t}")
+			g.P("\t\t}")
 		} else {
 			// Scalar slices: copy is sufficient
 			g.P("\t\tcopy(c.", f.PascalName, ", ", recv, ".", f.PascalName, ")")
@@ -327,6 +335,15 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 				// Repeated WKT reference types: use reflect.DeepEqual for non-comparable elements
 				deepEqual := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "reflect", GoName: "DeepEqual"})
 				g.P("\t\tif !", deepEqual, "(", recv, ".", f.PascalName, "[i], other.", f.PascalName, "[i]) {")
+				g.P("\t\t\treturn false")
+				g.P("\t\t}")
+			} else if f.Kind.IsWrapper() {
+				// Repeated wrapper pointers: dereference-compare
+				g.P("\t\ta, b := ", recv, ".", f.PascalName, "[i], other.", f.PascalName, "[i]")
+				g.P("\t\tif (a == nil) != (b == nil) {")
+				g.P("\t\t\treturn false")
+				g.P("\t\t}")
+				g.P("\t\tif a != nil && *a != *b {")
 				g.P("\t\t\treturn false")
 				g.P("\t\t}")
 			} else {

@@ -132,7 +132,7 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 		protoFieldName := f.ProtoGoName
 
 		// Handle repeated WKT types with loop-based conversion.
-		if f.Repeated && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration || f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue) {
+		if f.Repeated && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration || f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue || f.Kind.IsWrapper()) {
 			switch f.Kind {
 			case FieldKindTimestamp:
 				tsNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/timestamppb", GoName: "New"})
@@ -192,6 +192,27 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 				g.P("\t\t\tout.", protoFieldName, "[i] = l")
 				g.P("\t\t}")
 				g.P("\t}")
+			default:
+				if f.Kind.IsWrapper() {
+					// Repeated wrapper: domain []*T → proto []*wrapperspb.T
+					funcName := irWrapperPbFuncName(f.Kind)
+					wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+						GoName:       funcName,
+					})
+					wrapperType := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+						GoName:       funcName + "Value",
+					})
+					g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+					g.P("\t\tout.", protoFieldName, " = make([]*", wrapperType, ", len(", recv, ".", domainFieldName, "))")
+					g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+					g.P("\t\t\tif v != nil {")
+					g.P("\t\t\t\tout.", protoFieldName, "[i] = ", wrapperFunc, "(*v)")
+					g.P("\t\t\t}")
+					g.P("\t\t}")
+					g.P("\t}")
+				}
 			}
 			continue
 		}
@@ -445,7 +466,7 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 		protoFieldName := f.ProtoGoName
 
 		// Handle repeated WKT types with loop-based conversion.
-		if f.Repeated && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration || f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue) {
+		if f.Repeated && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration || f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue || f.Kind.IsWrapper()) {
 			switch f.Kind {
 			case FieldKindTimestamp:
 				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
@@ -494,6 +515,20 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 				g.P("\t\t\t}")
 				g.P("\t\t}")
 				g.P("\t}")
+			default:
+				if f.Kind.IsWrapper() {
+					// Repeated wrapper: proto []*wrapperspb.T → domain []*T
+					g.P("\tif len(pb.", protoFieldName, ") > 0 {")
+					g.P("\t\tfor _, v := range pb.", protoFieldName, " {")
+					g.P("\t\t\tif v != nil {")
+					g.P("\t\t\t\tval := v.GetValue()")
+					g.P("\t\t\t\t", recv, ".", domainFieldName, " = append(", recv, ".", domainFieldName, ", &val)")
+					g.P("\t\t\t} else {")
+					g.P("\t\t\t\t", recv, ".", domainFieldName, " = append(", recv, ".", domainFieldName, ", nil)")
+					g.P("\t\t\t}")
+					g.P("\t\t}")
+					g.P("\t}")
+				}
 			}
 			continue
 		}
