@@ -13,6 +13,7 @@ import (
 func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
 	df := &DomainFile{
 		SourcePath: file.Desc.Path(),
+		Package:    string(file.Desc.Package()),
 	}
 
 	// Top-level enums.
@@ -66,7 +67,15 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options)
 			oneofName := string(field.Oneof.Desc.Name())
 			if !seenOneofs[oneofName] {
 				seenOneofs[oneofName] = true
-				dm.Oneofs = append(dm.Oneofs, buildDomainOneof(msg, field.Oneof, name, opts))
+				do := buildDomainOneof(msg, field.Oneof, name, opts)
+				dm.Oneofs = append(dm.Oneofs, do)
+				// Insert a collapsed oneof placeholder into Fields at the
+				// correct proto declaration position.
+				dm.Fields = append(dm.Fields, &DomainField{
+					Name:          oneofName,
+					IsOneof:       true,
+					OneofTypeName: do.Name,
+				})
 			}
 			continue
 		}
@@ -138,7 +147,7 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 		df.MessageTypeName = irMessageNameFromDesc(field.Desc.Message())
 	}
 	if kind == FieldKindEnum {
-		df.EnumTypeName = toPascalCase(string(field.Desc.Enum().Name()))
+		df.EnumTypeName = irEnumNameFromDesc(field.Desc.Enum())
 	}
 
 	return df
@@ -265,7 +274,7 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 
 	if valDesc.Kind() == protoreflect.EnumKind {
 		mi.Kind = FieldKindEnum
-		mi.EnumTypeName = toPascalCase(string(valDesc.Enum().Name()))
+		mi.EnumTypeName = irEnumNameFromDesc(valDesc.Enum())
 		return mi
 	}
 
@@ -278,7 +287,7 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 func buildDomainEnum(enum *protogen.Enum, parentName string) *DomainEnum {
 	enumName := toPascalCase(string(enum.Desc.Name()))
 	if parentName != "" {
-		enumName = parentName + enumName
+		enumName = parentName + "_" + enumName
 	}
 
 	de := &DomainEnum{
@@ -323,9 +332,9 @@ func buildDomainOneof(msg *protogen.Message, oneof *protogen.Oneof, msgIRName st
 			variant.TypeName = irMessageNameFromDesc(field.Desc.Message())
 		case FieldKindEnum:
 			if isEnumAsString(field, opts) {
-				// Leave TypeName empty; backends check EnumAsString.
+				variant.EnumAsString = true
 			} else {
-				variant.TypeName = toPascalCase(string(field.Desc.Enum().Name()))
+				variant.TypeName = irEnumNameFromDesc(field.Desc.Enum())
 			}
 		}
 
@@ -362,4 +371,14 @@ func irMessageNameFromDesc(md protoreflect.MessageDescriptor) string {
 // cleanComment trims whitespace from a proto comment string.
 func cleanComment(s string) string {
 	return strings.TrimSpace(s)
+}
+
+// irEnumNameFromDesc builds the IR name from an EnumDescriptor,
+// using the same Parent_Child convention as irMessageNameFromDesc.
+func irEnumNameFromDesc(ed protoreflect.EnumDescriptor) string {
+	parent, ok := ed.Parent().(protoreflect.MessageDescriptor)
+	if !ok {
+		return toPascalCase(string(ed.Name()))
+	}
+	return irMessageNameFromDesc(parent) + "_" + toPascalCase(string(ed.Name()))
 }

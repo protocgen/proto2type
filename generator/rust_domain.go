@@ -83,6 +83,9 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 	if needsHashMap {
 		g.P("use std::collections::HashMap;")
 	}
+	if needsSerdeJSON {
+		g.P("use serde_json;")
+	}
 	g.P()
 
 	// Generate top-level enums from IR
@@ -212,7 +215,7 @@ func rustOneofVariantTypeFromIR(v *OneofVariant) string {
 	case FieldKindMessage:
 		return "Box<" + v.TypeName + ">"
 	case FieldKindEnum:
-		if v.TypeName == "" {
+		if v.EnumAsString {
 			return "String"
 		}
 		return v.TypeName
@@ -260,15 +263,15 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 	g.P("#[non_exhaustive]")
 	g.P("pub struct ", name, " {")
 
-	// Emit oneof fields
-	for _, oo := range dm.Oneofs {
-		rustFieldName := escapeRustKeyword(toSnakeCase(oo.FieldName))
-		g.P("    #[serde(default, skip_serializing_if = \"Option::is_none\")]")
-		g.P("    pub ", rustFieldName, ": Option<", oo.Name, ">,")
-	}
-
-	// Emit regular fields
+	// Emit fields (including interleaved oneof placeholders)
 	for _, f := range dm.Fields {
+		if f.IsOneof {
+			rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
+			g.P("    #[serde(default, skip_serializing_if = \"Option::is_none\")]")
+			g.P("    pub ", rustFieldName, ": Option<", f.OneofTypeName, ">,")
+			continue
+		}
+
 		protoName := f.Name
 		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
 		fieldType := rustDomainFieldTypeFromIR(f)

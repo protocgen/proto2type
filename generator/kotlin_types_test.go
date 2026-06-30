@@ -241,7 +241,7 @@ func TestKotlinDefaultValue(t *testing.T) {
 		{
 			name: "timestamp",
 			f:    DomainField{Kind: FieldKindTimestamp},
-			want: "Instant.DISTANT_PAST",
+			want: "Instant.fromEpochSeconds(0)",
 		},
 		{
 			name: "duration",

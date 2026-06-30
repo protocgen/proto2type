@@ -113,6 +113,9 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg *
 	g.P("type ", name, " struct {")
 
 	for _, f := range dm.Fields {
+		if f.IsOneof {
+			continue // Go backend doesn't yet emit oneof struct fields.
+		}
 		fieldName := f.PascalName
 		fieldType := goDomainFieldTypeFromIR(f)
 
@@ -228,15 +231,36 @@ func wrapperGoTypeFromIR(kind FieldKind) string {
 // goMapValueTypeFromIR returns the Go type for a map value using MapTypeInfo.
 func goMapValueTypeFromIR(mv *MapTypeInfo) string {
 	switch mv.Kind {
+	case FieldKindTimestamp:
+		return "time.Time"
+	case FieldKindDuration:
+		return "time.Duration"
+	case FieldKindStruct:
+		return "map[string]any"
+	case FieldKindValue:
+		return "any"
+	case FieldKindListValue:
+		return "[]any"
+	case FieldKindFieldMask:
+		return "[]string"
+	case FieldKindEmpty:
+		return "struct{}"
+	case FieldKindAny:
+		return "any"
 	case FieldKindMessage:
 		return "*" + mv.MessageTypeName
 	case FieldKindEnum:
 		return "int32"
 	case FieldKindScalar:
 		return goType(mv.ScalarKind)
-	default:
-		return goType(mv.ScalarKind)
 	}
+
+	// Wrapper types
+	if mv.Kind.IsWrapper() {
+		return wrapperGoTypeFromIR(mv.Kind)
+	}
+
+	return goType(mv.ScalarKind)
 }
 
 // irNeedsTime returns true if any message field uses Timestamp or Duration.

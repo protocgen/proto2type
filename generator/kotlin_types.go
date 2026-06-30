@@ -218,6 +218,9 @@ func kotlinOneofVariantType(v *OneofVariant) string {
 	case FieldKindMessage:
 		return v.TypeName
 	case FieldKindEnum:
+		if v.EnumAsString {
+			return "String"
+		}
 		return v.TypeName
 	case FieldKindScalar:
 		return kotlinScalarType(v.ScalarKind)
@@ -254,7 +257,7 @@ func kotlinDefaultValue(f DomainField) string {
 
 	switch f.Kind {
 	case FieldKindTimestamp:
-		return "Instant.DISTANT_PAST"
+		return "Instant.fromEpochSeconds(0)"
 	case FieldKindDuration:
 		return "Duration.ZERO"
 	case FieldKindMessage:

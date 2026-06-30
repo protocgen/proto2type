@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // generateKotlin generates Kotlin output files for a proto file.
@@ -31,7 +32,7 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 	g.P()
 
 	// --- Package ---
-	pkg := string(file.Desc.Package())
+	pkg := ir.Package
 	if pkg != "" {
 		g.P("package ", pkg)
 		g.P()
@@ -42,7 +43,7 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 	needsSerialName := false
 	needsInstant := false
 	needsDuration := false
-	needsDurationCompanion := false
+	needsContextual := false
 
 	for _, e := range ir.Enums {
 		needsSerializable = true
@@ -57,7 +58,7 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 			continue
 		}
 		needsSerializable = true
-		scanKotlinImports(m, &needsSerialName, &needsInstant, &needsDuration, &needsDurationCompanion)
+		scanKotlinImports(m, &needsSerialName, &needsInstant, &needsDuration, &needsContextual)
 	}
 
 	// --- Emit imports ---
@@ -70,11 +71,11 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 	if needsSerializable {
 		g.P("import kotlinx.serialization.Serializable")
 	}
+	if needsContextual {
+		g.P("import kotlinx.serialization.Contextual")
+	}
 	if needsDuration {
 		g.P("import kotlin.time.Duration")
-	}
-	if needsDurationCompanion {
-		g.P("import kotlin.time.Duration.Companion.milliseconds")
 	}
 	if needsSerializable || needsInstant || needsDuration {
 		g.P()
@@ -97,9 +98,9 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 }
 
 // scanKotlinImports recursively scans a DomainMessage for import requirements.
-func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsDuration, needsDurationCompanion *bool) {
+func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsDuration, needsContextual *bool) {
 	for _, f := range msg.Fields {
-		scanKotlinFieldImports(f, needsSerialName, needsInstant, needsDuration, needsDurationCompanion)
+		scanKotlinFieldImports(f, needsSerialName, needsInstant, needsDuration, needsContextual)
 	}
 
 	// Oneofs always need @SerialName for variants.
@@ -133,17 +134,19 @@ func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsD
 		if nested.Skip {
 			continue
 		}
-		scanKotlinImports(nested, needsSerialName, needsInstant, needsDuration, needsDurationCompanion)
+		scanKotlinImports(nested, needsSerialName, needsInstant, needsDuration, needsContextual)
 	}
 }
 
 // scanKotlinFieldImports checks a single field for import requirements.
-func scanKotlinFieldImports(f *DomainField, needsSerialName, needsInstant, needsDuration, needsDurationCompanion *bool) {
+func scanKotlinFieldImports(f *DomainField, needsSerialName, needsInstant, needsDuration, needsContextual *bool) {
 	if f.Kind == FieldKindTimestamp {
 		*needsInstant = true
+		*needsContextual = true
 	}
 	if f.Kind == FieldKindDuration {
 		*needsDuration = true
+		*needsContextual = true
 	}
 
 	// Map values may be timestamps/durations too.
@@ -186,7 +189,13 @@ func writeKotlinEnum(g *protogen.GeneratedFile, enum *DomainEnum) {
 
 	g.P()
 	g.P("    companion object {")
-	g.P("        fun fromValue(value: Int): ", enum.Name, "? = entries.getOrNull(value)")
+	g.P("        fun fromValue(value: Int): ", enum.Name, "? = when(value) {")
+	for _, v := range enum.Values {
+		kotlinName := pascalToUpperSnake(v.Name)
+		g.P("            ", v.Number, " -> ", kotlinName)
+	}
+	g.P("            else -> null")
+	g.P("        }")
 	g.P("    }")
 	g.P("}")
 	g.P()
@@ -215,10 +224,29 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 	type fieldLine struct {
 		serialName string // empty if not needed
 		decl       string
+		contextual bool   // emit @Contextual annotation
+		comment    string // optional comment above the field
 	}
 	var lines []fieldLine
 
 	for _, f := range msg.Fields {
+		if f.IsOneof {
+			camel := escapeKotlinKeyword(toCamelCase(f.Name))
+			typ := kotlinOneofFieldType(f.OneofTypeName)
+			def := "null"
+
+			sn := ""
+			if camel != f.Name {
+				sn = f.Name
+			}
+
+			lines = append(lines, fieldLine{
+				serialName: sn,
+				decl:       fmt.Sprintf("val %s: %s = %s", camel, typ, def),
+			})
+			continue
+		}
+
 		camel := escapeKotlinKeyword(toCamelCase(f.Name))
 		typ := kotlinFieldType(*f)
 		def := kotlinDefaultValue(*f)
@@ -228,26 +256,18 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 			sn = f.Name
 		}
 
-		lines = append(lines, fieldLine{
-			serialName: sn,
-			decl:       fmt.Sprintf("val %s: %s = %s", camel, typ, def),
-		})
-	}
+		contextual := f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration
 
-	// Add oneof fields.
-	for _, oneof := range msg.Oneofs {
-		camel := escapeKotlinKeyword(toCamelCase(oneof.FieldName))
-		typ := kotlinOneofFieldType(oneof.Name)
-		def := "null"
-
-		sn := ""
-		if camel != oneof.FieldName {
-			sn = oneof.FieldName
+		var comment string
+		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
+			comment = "// Note: ByteArray uses referential equality. Override equals()/hashCode() if needed."
 		}
 
 		lines = append(lines, fieldLine{
 			serialName: sn,
 			decl:       fmt.Sprintf("val %s: %s = %s", camel, typ, def),
+			contextual: contextual,
+			comment:    comment,
 		})
 	}
 
@@ -258,12 +278,19 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 		for i, line := range lines {
 			trailingComma := ","
 			if i == len(lines)-1 {
-				trailingComma = ","
+				trailingComma = ""
+			}
+			if line.comment != "" {
+				g.P("    ", line.comment)
+			}
+			prefix := ""
+			if line.contextual {
+				prefix = "@Contextual "
 			}
 			if line.serialName != "" {
-				g.P("    @SerialName(\"", line.serialName, "\") ", line.decl, trailingComma)
+				g.P("    ", prefix, "@SerialName(\"", line.serialName, "\") ", line.decl, trailingComma)
 			} else {
-				g.P("    ", line.decl, trailingComma)
+				g.P("    ", prefix, line.decl, trailingComma)
 			}
 		}
 		g.P(")")
@@ -281,6 +308,10 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 
 // writeKotlinOneof writes a sealed class for a oneof group.
 func writeKotlinOneof(g *protogen.GeneratedFile, oneof *DomainOneof) {
+	g.P("/**")
+	g.P(" * Oneof group: ", oneof.FieldName, ".")
+	g.P(" * Serialized using kotlinx.serialization polymorphic format (not protobuf JSON).")
+	g.P(" */")
 	g.P("@Serializable")
 	g.P("sealed class ", oneof.Name, " {")
 

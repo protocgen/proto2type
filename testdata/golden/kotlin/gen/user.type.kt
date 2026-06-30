@@ -7,6 +7,7 @@ package test.v1
 import kotlinx.datetime.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Contextual
 import kotlin.time.Duration
 
 /** UserStatus represents the user's account status. */
@@ -18,10 +19,20 @@ enum class UserStatus {
     @SerialName("USER_STATUS_DELETED") DELETED;
 
     companion object {
-        fun fromValue(value: Int): UserStatus? = entries.getOrNull(value)
+        fun fromValue(value: Int): UserStatus? = when(value) {
+            0 -> UNSPECIFIED
+            1 -> ACTIVE
+            2 -> SUSPENDED
+            3 -> DELETED
+            else -> null
+        }
     }
 }
 
+/**
+ * Oneof group: contact_method.
+ * Serialized using kotlinx.serialization polymorphic format (not protobuf JSON).
+ */
 @Serializable
 sealed class UserContactMethod {
     @Serializable
@@ -43,14 +54,15 @@ data class User(
     val roles: List<String> = emptyList(),
     val metadata: Map<String, String> = emptyMap(),
     val address: Address? = null,
-    @SerialName("created_at") val createdAt: Instant = Instant.DISTANT_PAST,
-    @SerialName("session_timeout") val sessionTimeout: Duration = Duration.ZERO,
+    @Contextual @SerialName("created_at") val createdAt: Instant = Instant.fromEpochSeconds(0),
+    @Contextual @SerialName("session_timeout") val sessionTimeout: Duration = Duration.ZERO,
     val phone: String? = null,
+    // Note: ByteArray uses referential equality. Override equals()/hashCode() if needed.
     val avatar: ByteArray = byteArrayOf(),
     val nickname: String? = null,
     val status: UserStatus = UserStatus.entries.first(),
-    val tags: List<Tag> = emptyList(),
     @SerialName("contact_method") val contactMethod: UserContactMethod? = null,
+    val tags: List<Tag> = emptyList()
 )
 
 /** Address is a nested message. */
@@ -60,13 +72,13 @@ data class Address(
     val city: String = "",
     val state: String = "",
     val zip: String = "",
-    val country: String = "",
+    val country: String = ""
 )
 
 /** Tag is a label with a key-value pair. */
 @Serializable
 data class Tag(
     val key: String = "",
-    val value: String = "",
+    val value: String = ""
 )
 

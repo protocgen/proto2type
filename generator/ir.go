@@ -117,6 +117,8 @@ func (k FieldKind) IsWrapper() bool {
 type DomainFile struct {
 	// SourcePath is the proto file path (e.g. "user.proto").
 	SourcePath string
+	// Package is the proto package name (e.g. "test.v1").
+	Package string
 	// Enums are the top-level enum definitions.
 	Enums []*DomainEnum
 	// Messages are the top-level message definitions.
@@ -201,6 +203,13 @@ type DomainField struct {
 	// Empty for non-oneof fields. (In the main Fields slice, oneof members
 	// are NOT present; they appear only in DomainOneof.Variants.)
 	OneofName string
+
+	// IsOneof is true when this field represents a collapsed oneof group
+	// in the Fields slice (inserted at the proto declaration position).
+	IsOneof bool
+	// OneofTypeName is the IR type name of the oneof enum (e.g. "UserContactMethod").
+	// Only set when IsOneof is true.
+	OneofTypeName string
 }
 
 // MapTypeInfo captures the kind and type name of a map key or value.
@@ -258,4 +267,6 @@ type OneofVariant struct {
 	ScalarKind protoreflect.Kind
 	// TypeName is the resolved type name for message/enum variants.
 	TypeName string
+	// EnumAsString is true when the enum should be serialised as its string name.
+	EnumAsString bool
 }

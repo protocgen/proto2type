@@ -18,5 +18,5 @@ pre-push:
     golden-check:
       run: |
         go build -o /tmp/protoc-gen-proto2type .
-        PATH="/tmp:$PATH" bash -c 'cd testdata/proto && buf generate && buf generate --template buf.gen.rust.yaml'
+        PATH="/tmp:$PATH" bash -c 'cd testdata/proto && buf generate && buf generate --template buf.gen.rust.yaml && buf generate --template buf.gen.kotlin.yaml'
         git diff --exit-code testdata/golden/

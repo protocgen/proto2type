@@ -112,7 +112,7 @@ func TestKotlinFieldDefault_Integration(t *testing.T) {
 		{"roles", "emptyList()"},
 		{"metadata", "emptyMap()"},
 		{"address", "null"},
-		{"created_at", "Instant.DISTANT_PAST"},
+		{"created_at", "Instant.fromEpochSeconds(0)"},
 		{"session_timeout", "Duration.ZERO"},
 		{"phone", "null"},
 		{"avatar", "byteArrayOf()"},

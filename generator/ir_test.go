@@ -60,6 +60,10 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 	}
 
 	for _, f := range user.Fields {
+		if f.IsOneof {
+			// Collapsed oneof placeholders are not checked for Kind.
+			continue
+		}
 		want, ok := wantFields[f.Name]
 		if !ok {
 			t.Errorf("unexpected field %q in IR", f.Name)
