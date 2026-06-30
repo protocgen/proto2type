@@ -110,8 +110,15 @@ type User struct {
 	Preferences   *structpb.ListValue    `protobuf:"bytes,22,opt,name=preferences,proto3" json:"preferences,omitempty"`
 	// Optional bytes
 	AvatarThumbnail []byte `protobuf:"bytes,23,opt,name=avatar_thumbnail,json=avatarThumbnail,proto3,oneof" json:"avatar_thumbnail,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Repeated WKT reference types (Issue #52)
+	FieldMasks []*fieldmaskpb.FieldMask `protobuf:"bytes,24,rep,name=field_masks,json=fieldMasks,proto3" json:"field_masks,omitempty"`
+	Structs    []*structpb.Struct       `protobuf:"bytes,25,rep,name=structs,proto3" json:"structs,omitempty"`
+	Lists      []*structpb.ListValue    `protobuf:"bytes,26,rep,name=lists,proto3" json:"lists,omitempty"`
+	// WKT map values (Issue #53)
+	EventTimes    map[string]*timestamppb.Timestamp `protobuf:"bytes,27,rep,name=event_times,json=eventTimes,proto3" json:"event_times,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Configs       map[string]*structpb.Struct       `protobuf:"bytes,28,rep,name=configs,proto3" json:"configs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *User) Reset() {
@@ -316,6 +323,41 @@ func (x *User) GetAvatarThumbnail() []byte {
 	return nil
 }
 
+func (x *User) GetFieldMasks() []*fieldmaskpb.FieldMask {
+	if x != nil {
+		return x.FieldMasks
+	}
+	return nil
+}
+
+func (x *User) GetStructs() []*structpb.Struct {
+	if x != nil {
+		return x.Structs
+	}
+	return nil
+}
+
+func (x *User) GetLists() []*structpb.ListValue {
+	if x != nil {
+		return x.Lists
+	}
+	return nil
+}
+
+func (x *User) GetEventTimes() map[string]*timestamppb.Timestamp {
+	if x != nil {
+		return x.EventTimes
+	}
+	return nil
+}
+
+func (x *User) GetConfigs() map[string]*structpb.Struct {
+	if x != nil {
+		return x.Configs
+	}
+	return nil
+}
+
 type isUser_ContactMethod interface {
 	isUser_ContactMethod()
 }
@@ -467,7 +509,7 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xfc\b\n" +
+	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xc4\f\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
@@ -495,10 +537,23 @@ const file_user_proto_rawDesc = "" +
 	"updateMask\x12>\n" +
 	"\x0eextra_metadata\x18\x15 \x01(\v2\x17.google.protobuf.StructR\rextraMetadata\x12<\n" +
 	"\vpreferences\x18\x16 \x01(\v2\x1a.google.protobuf.ListValueR\vpreferences\x12.\n" +
-	"\x10avatar_thumbnail\x18\x17 \x01(\fH\x04R\x0favatarThumbnail\x88\x01\x01\x1a;\n" +
+	"\x10avatar_thumbnail\x18\x17 \x01(\fH\x04R\x0favatarThumbnail\x88\x01\x01\x12;\n" +
+	"\vfield_masks\x18\x18 \x03(\v2\x1a.google.protobuf.FieldMaskR\n" +
+	"fieldMasks\x121\n" +
+	"\astructs\x18\x19 \x03(\v2\x17.google.protobuf.StructR\astructs\x120\n" +
+	"\x05lists\x18\x1a \x03(\v2\x1a.google.protobuf.ListValueR\x05lists\x12>\n" +
+	"\vevent_times\x18\x1b \x03(\v2\x1d.test.v1.User.EventTimesEntryR\n" +
+	"eventTimes\x124\n" +
+	"\aconfigs\x18\x1c \x03(\v2\x1a.test.v1.User.ConfigsEntryR\aconfigs\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x10\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aY\n" +
+	"\x0fEventTimesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
+	"\x05value\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05value:\x028\x01\x1aS\n" +
+	"\fConfigsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x05value:\x028\x01B\x10\n" +
 	"\x0econtact_methodB\b\n" +
 	"\x06_phoneB\r\n" +
 	"\v_deleted_atB\x12\n" +
@@ -533,38 +588,47 @@ func file_user_proto_rawDescGZIP() []byte {
 }
 
 var file_user_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_user_proto_goTypes = []any{
 	(UserStatus)(0),                // 0: test.v1.UserStatus
 	(*User)(nil),                   // 1: test.v1.User
 	(*Address)(nil),                // 2: test.v1.Address
 	(*Tag)(nil),                    // 3: test.v1.Tag
 	nil,                            // 4: test.v1.User.MetadataEntry
-	(*timestamppb.Timestamp)(nil),  // 5: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),    // 6: google.protobuf.Duration
-	(*wrapperspb.StringValue)(nil), // 7: google.protobuf.StringValue
-	(*fieldmaskpb.FieldMask)(nil),  // 8: google.protobuf.FieldMask
-	(*structpb.Struct)(nil),        // 9: google.protobuf.Struct
-	(*structpb.ListValue)(nil),     // 10: google.protobuf.ListValue
+	nil,                            // 5: test.v1.User.EventTimesEntry
+	nil,                            // 6: test.v1.User.ConfigsEntry
+	(*timestamppb.Timestamp)(nil),  // 7: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),    // 8: google.protobuf.Duration
+	(*wrapperspb.StringValue)(nil), // 9: google.protobuf.StringValue
+	(*fieldmaskpb.FieldMask)(nil),  // 10: google.protobuf.FieldMask
+	(*structpb.Struct)(nil),        // 11: google.protobuf.Struct
+	(*structpb.ListValue)(nil),     // 12: google.protobuf.ListValue
 }
 var file_user_proto_depIdxs = []int32{
 	4,  // 0: test.v1.User.metadata:type_name -> test.v1.User.MetadataEntry
 	2,  // 1: test.v1.User.address:type_name -> test.v1.Address
-	5,  // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	6,  // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
-	7,  // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
+	7,  // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	8,  // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
+	9,  // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
 	0,  // 5: test.v1.User.status:type_name -> test.v1.UserStatus
 	3,  // 6: test.v1.User.tags:type_name -> test.v1.Tag
-	5,  // 7: test.v1.User.deleted_at:type_name -> google.protobuf.Timestamp
+	7,  // 7: test.v1.User.deleted_at:type_name -> google.protobuf.Timestamp
 	0,  // 8: test.v1.User.previous_status:type_name -> test.v1.UserStatus
-	8,  // 9: test.v1.User.update_mask:type_name -> google.protobuf.FieldMask
-	9,  // 10: test.v1.User.extra_metadata:type_name -> google.protobuf.Struct
-	10, // 11: test.v1.User.preferences:type_name -> google.protobuf.ListValue
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	10, // 9: test.v1.User.update_mask:type_name -> google.protobuf.FieldMask
+	11, // 10: test.v1.User.extra_metadata:type_name -> google.protobuf.Struct
+	12, // 11: test.v1.User.preferences:type_name -> google.protobuf.ListValue
+	10, // 12: test.v1.User.field_masks:type_name -> google.protobuf.FieldMask
+	11, // 13: test.v1.User.structs:type_name -> google.protobuf.Struct
+	12, // 14: test.v1.User.lists:type_name -> google.protobuf.ListValue
+	5,  // 15: test.v1.User.event_times:type_name -> test.v1.User.EventTimesEntry
+	6,  // 16: test.v1.User.configs:type_name -> test.v1.User.ConfigsEntry
+	7,  // 17: test.v1.User.EventTimesEntry.value:type_name -> google.protobuf.Timestamp
+	11, // 18: test.v1.User.ConfigsEntry.value:type_name -> google.protobuf.Struct
+	19, // [19:19] is the sub-list for method output_type
+	19, // [19:19] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_user_proto_init() }
@@ -582,7 +646,7 @@ func file_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_proto_rawDesc), len(file_user_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

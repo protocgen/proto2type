@@ -71,6 +71,11 @@ pub struct UserRow {
     pub extra_metadata: String,
     pub preferences: String,
     pub avatar_thumbnail: Option<Vec<u8>>,
+    pub field_masks: String,
+    pub structs: String,
+    pub lists: String,
+    pub event_times: String,
+    pub configs: String,
 }
 
 impl UserRow {
@@ -99,6 +104,11 @@ impl UserRow {
             extra_metadata: row.get("extra_metadata")?,
             preferences: row.get("preferences")?,
             avatar_thumbnail: row.get("avatar_thumbnail")?,
+            field_masks: row.get("field_masks")?,
+            structs: row.get("structs")?,
+            lists: row.get("lists")?,
+            event_times: row.get("event_times")?,
+            configs: row.get("configs")?,
         })
     }
 
@@ -127,6 +137,11 @@ impl UserRow {
             extra_metadata: serde_json::from_str(&self.extra_metadata)?,
             preferences: serde_json::from_str(&self.preferences)?,
             avatar_thumbnail: self.avatar_thumbnail.clone(),
+            field_masks: serde_json::from_str(&self.field_masks)?,
+            structs: serde_json::from_str(&self.structs)?,
+            lists: serde_json::from_str(&self.lists)?,
+            event_times: serde_json::from_str(&self.event_times)?,
+            configs: serde_json::from_str(&self.configs)?,
         })
     }
 
@@ -155,6 +170,11 @@ impl UserRow {
             extra_metadata: serde_json::from_str(&self.extra_metadata)?,
             preferences: serde_json::from_str(&self.preferences)?,
             avatar_thumbnail: self.avatar_thumbnail,
+            field_masks: serde_json::from_str(&self.field_masks)?,
+            structs: serde_json::from_str(&self.structs)?,
+            lists: serde_json::from_str(&self.lists)?,
+            event_times: serde_json::from_str(&self.event_times)?,
+            configs: serde_json::from_str(&self.configs)?,
         })
     }
 
@@ -183,6 +203,11 @@ impl UserRow {
             extra_metadata: serde_json::to_string(&d.extra_metadata)?,
             preferences: serde_json::to_string(&d.preferences)?,
             avatar_thumbnail: d.avatar_thumbnail.clone(),
+            field_masks: serde_json::to_string(&d.field_masks)?,
+            structs: serde_json::to_string(&d.structs)?,
+            lists: serde_json::to_string(&d.lists)?,
+            event_times: serde_json::to_string(&d.event_times)?,
+            configs: serde_json::to_string(&d.configs)?,
         })
     }
 }

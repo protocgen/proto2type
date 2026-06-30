@@ -91,6 +91,16 @@ pub struct User {
     pub preferences: Vec<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar_thumbnail: Option<Vec<u8>>,
+    #[serde(default)]
+    pub field_masks: Vec<Vec<String>>,
+    #[serde(default)]
+    pub structs: Vec<serde_json::Map<String, serde_json::Value>>,
+    #[serde(default)]
+    pub lists: Vec<Vec<serde_json::Value>>,
+    #[serde(default)]
+    pub event_times: HashMap<String, DateTime<Utc>>,
+    #[serde(default)]
+    pub configs: HashMap<String, serde_json::Map<String, serde_json::Value>>,
 }
 
 /// Domain representation of test.v1.Address.

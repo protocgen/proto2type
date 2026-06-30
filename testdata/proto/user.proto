@@ -49,6 +49,15 @@ message User {
 
   // Optional bytes
   optional bytes avatar_thumbnail = 23;
+
+  // Repeated WKT reference types (Issue #52)
+  repeated google.protobuf.FieldMask field_masks = 24;
+  repeated google.protobuf.Struct structs = 25;
+  repeated google.protobuf.ListValue lists = 26;
+
+  // WKT map values (Issue #53)
+  map<string, google.protobuf.Timestamp> event_times = 27;
+  map<string, google.protobuf.Struct> configs = 28;
 }
 
 // Address is a nested message.
