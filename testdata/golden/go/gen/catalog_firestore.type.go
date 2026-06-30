@@ -70,6 +70,7 @@ func (m *ModelCatalogEntryFirestore) FromProto(pb *pb.ModelCatalogEntry) {
 	m.Category = pb.Category
 	m.ContextWindow = pb.ContextWindow
 	m.DiscountPercent = pb.DiscountPercent
+	m.Aliases = pb.Aliases
 	m.ProviderModelID = pb.ProviderModelId
 	if pb.CreatedAt != nil {
 		m.CreatedAt = pb.CreatedAt.AsTime()

@@ -89,9 +89,6 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 			case FieldKindTimestamp, FieldKindDuration, FieldKindStruct, FieldKindListValue, FieldKindFieldMask:
 				continue
 			}
-			if f.MapValue.Kind.IsWrapper() {
-				continue
-			}
 		}
 		// Skip bytes fields — handle with copy below (SEC-3)
 		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
@@ -135,7 +132,7 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 		protoFieldName := f.ProtoGoName
 
 		// Handle repeated WKT types with loop-based conversion.
-		if f.Repeated {
+		if f.Repeated && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration || f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue) {
 			switch f.Kind {
 			case FieldKindTimestamp:
 				tsNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/timestamppb", GoName: "New"})
@@ -200,7 +197,7 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 		}
 
 		// Handle map fields with WKT values.
-		if f.IsMap && f.MapValue != nil {
+		if f.IsMap && f.MapValue != nil && (f.MapValue.Kind == FieldKindTimestamp || f.MapValue.Kind == FieldKindDuration || f.MapValue.Kind == FieldKindFieldMask || f.MapValue.Kind == FieldKindStruct || f.MapValue.Kind == FieldKindListValue) {
 			switch f.MapValue.Kind {
 			case FieldKindTimestamp:
 				tsNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/timestamppb", GoName: "New"})
@@ -448,7 +445,7 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 		protoFieldName := f.ProtoGoName
 
 		// Handle repeated WKT types with loop-based conversion.
-		if f.Repeated {
+		if f.Repeated && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration || f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue) {
 			switch f.Kind {
 			case FieldKindTimestamp:
 				g.P("\tif len(pb.", protoFieldName, ") > 0 {")

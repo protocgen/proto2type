@@ -80,6 +80,14 @@ func (u *User) ToProto() *pb.User {
 	if u.Nickname != nil {
 		out.Nickname = wrapperspb.String(*u.Nickname)
 	}
+	if len(u.Tags) > 0 {
+		out.Tags = make([]*pb.Tag, len(u.Tags))
+		for i, v := range u.Tags {
+			if v != nil {
+				out.Tags[i] = v.ToProto()
+			}
+		}
+	}
 	if u.DeletedAt != nil {
 		out.DeletedAt = timestamppb.New(*u.DeletedAt)
 	}
@@ -172,6 +180,7 @@ func (u *User) FromProto(pb *pb.User) {
 	u.DisplayName = pb.DisplayName
 	u.Active = pb.Active
 	u.Age = pb.Age
+	u.Roles = pb.Roles
 	u.Metadata = pb.Metadata
 	if pb.Address != nil {
 		u.Address = &Address{}
@@ -193,6 +202,16 @@ func (u *User) FromProto(pb *pb.User) {
 		u.Nickname = &v
 	}
 	u.Status = int32(pb.Status)
+	if len(pb.Tags) > 0 {
+		u.Tags = make([]*Tag, len(pb.Tags))
+		for i, v := range pb.Tags {
+			if v != nil {
+				elem := &Tag{}
+				elem.FromProto(v)
+				u.Tags[i] = elem
+			}
+		}
+	}
 	if pb.DeletedAt != nil {
 		v := pb.DeletedAt.AsTime()
 		u.DeletedAt = &v
