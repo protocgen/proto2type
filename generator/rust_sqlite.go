@@ -465,6 +465,7 @@ func rustSqliteFieldTypeFromIR(f *DomainField) string {
 		if f.Optional {
 			return "Option<" + rustSqliteScalarType(f.ScalarKind) + ">"
 		}
+
 		return rustSqliteScalarType(f.ScalarKind)
 	}
 
