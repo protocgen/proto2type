@@ -171,8 +171,8 @@ jobs:
           echo '// Auto-generated compile check' > /tmp/rust-compile-check/src/lib.rs
           for domain_file in testdata/golden/rust/gen/*.type.rs; do
             base=$(basename "$domain_file" .type.rs)
-            # Skip sqlite files, they'll be handled as submodules
-            if echo "$base" | grep -q '_sqlite$'; then
+            # Skip sqlite and buffa files, they'll be handled as submodules
+            if echo "$base" | grep -qE '_sqlite$|_buffa$'; then
               continue
             fi
             # Create module directory
