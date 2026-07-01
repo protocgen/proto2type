@@ -31,6 +31,33 @@ func irWrapperPbFuncName(kind FieldKind) string {
 	}
 }
 
+// irWrapperGoSliceType returns the Go slice type for a repeated wrapper field.
+// e.g. FieldKindWrapperString → "[]*string"
+func irWrapperGoSliceType(kind FieldKind) string {
+	switch kind {
+	case FieldKindWrapperBool:
+		return "[]*bool"
+	case FieldKindWrapperInt32:
+		return "[]*int32"
+	case FieldKindWrapperInt64:
+		return "[]*int64"
+	case FieldKindWrapperUInt32:
+		return "[]*uint32"
+	case FieldKindWrapperUInt64:
+		return "[]*uint64"
+	case FieldKindWrapperFloat:
+		return "[]*float32"
+	case FieldKindWrapperDouble:
+		return "[]*float64"
+	case FieldKindWrapperString:
+		return "[]*string"
+	case FieldKindWrapperBytes:
+		return "[]*[]byte"
+	default:
+		return "[]any"
+	}
+}
+
 // generateConverters generates ToProto() and FromProto() methods for a message struct.
 // structSuffix is "" for domain, "Firestore" for Firestore, "Mongo" for Mongo, etc.
 func generateConverters(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix string, opts *Options) {
@@ -551,12 +578,11 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 				} else if f.Kind.IsWrapper() {
 					// Repeated wrapper: proto []*wrapperspb.T → domain []*T
 					g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-					g.P("\t\tfor _, v := range pb.", protoFieldName, " {")
+					g.P("\t\t", recv, ".", domainFieldName, " = make(", irWrapperGoSliceType(f.Kind), ", len(pb.", protoFieldName, "))")
+					g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
 					g.P("\t\t\tif v != nil {")
 					g.P("\t\t\t\tval := v.GetValue()")
-					g.P("\t\t\t\t", recv, ".", domainFieldName, " = append(", recv, ".", domainFieldName, ", &val)")
-					g.P("\t\t\t} else {")
-					g.P("\t\t\t\t", recv, ".", domainFieldName, " = append(", recv, ".", domainFieldName, ", nil)")
+					g.P("\t\t\t\t", recv, ".", domainFieldName, "[i] = &val")
 					g.P("\t\t\t}")
 					g.P("\t\t}")
 					g.P("\t}")
