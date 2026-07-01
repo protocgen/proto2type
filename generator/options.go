@@ -25,4 +25,8 @@ type Options struct {
 	// When set, generated types use this as their Go import path and the converters
 	// import the proto types from the original go_package in the .proto file.
 	GoPackage string
+
+	// RustExhaustive controls whether Rust structs are generated as exhaustive (omitting #[non_exhaustive]).
+	// Default: false. Set to true for vendored codegen where the consumer owns the types.
+	RustExhaustive bool
 }

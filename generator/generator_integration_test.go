@@ -721,3 +721,53 @@ func TestRustDomainFieldTypeFromIR_Integration(t *testing.T) {
 		})
 	}
 }
+
+func TestRustExhaustiveOption_ZeroValue(t *testing.T) {
+	// Verify that the zero-value Options{} defaults to RustExhaustive=false,
+	// which means #[non_exhaustive] IS emitted (the safe default).
+	opts := Options{}
+	if opts.RustExhaustive {
+		t.Error("Options{}.RustExhaustive should be false (zero value), so #[non_exhaustive] is emitted by default")
+	}
+}
+
+func TestRustExhaustiveOption_GeneratedOutput(t *testing.T) {
+	fds := buildFileDescriptorSet(t)
+	gen := newPlugin(t, fds, []string{"user.proto"})
+
+	tests := []struct {
+		name          string
+		exhaustive    bool
+		wantAttribute bool
+	}{
+		{"default emits non_exhaustive", false, true},
+		{"exhaustive omits non_exhaustive", true, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := &Options{Lang: "rust", Domain: true, RustExhaustive: tt.exhaustive}
+			for _, f := range gen.Files {
+				if !f.Generate {
+					continue
+				}
+				g := gen.NewGeneratedFile("test_"+tt.name+".rs", f.GoImportPath)
+				df := BuildDomainFile(f, opts)
+				for _, dm := range df.Messages {
+					err := generateRustDomainMessageFromIR(g, dm, opts)
+					if err != nil {
+						t.Fatalf("generateRustDomainMessageFromIR: %v", err)
+					}
+				}
+				content, err := g.Content()
+				if err != nil {
+					t.Fatalf("g.Content(): %v", err)
+				}
+				got := strings.Contains(string(content), "#[non_exhaustive]")
+				if got != tt.wantAttribute {
+					t.Errorf("#[non_exhaustive] present = %v, want %v (RustExhaustive=%v)", got, tt.wantAttribute, tt.exhaustive)
+				}
+			}
+		})
+	}
+}
