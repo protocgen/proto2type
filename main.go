@@ -36,6 +36,7 @@ func main() {
 	flags.BoolVar(&opts.EnumAsString, "enum_as_string", false, "store enums as string names")
 	flags.BoolVar(&opts.OmitemptyDefault, "omitempty_default", true, "default omitempty for optional fields")
 	flags.StringVar(&opts.GoPackage, "go_package", "", "override Go package for generated types (import path;package_name)")
+	flags.BoolVar(&opts.RustExhaustive, "rust_exhaustive", false, "generate exhaustive Rust structs (omit #[non_exhaustive])")
 
 	protogen.Options{
 		ParamFunc: flags.Set,

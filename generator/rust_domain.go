@@ -268,7 +268,9 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 
 	// Derive attributes
 	g.P("#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]")
-	g.P("#[non_exhaustive]")
+	if !opts.RustExhaustive {
+		g.P("#[non_exhaustive]")
+	}
 	g.P("pub struct ", name, " {")
 
 	// Emit fields (including interleaved oneof placeholders)
