@@ -273,6 +273,30 @@ func TestIR_RecursiveMessage(t *testing.T) {
 	if parent.MessageTypeName != "TreeNode" {
 		t.Errorf("parent.MessageTypeName = %q, want %q", parent.MessageTypeName, "TreeNode")
 	}
+
+	// NeedsBox: parent should need Box (recursive self-reference),
+	// children should NOT (repeated fields use Vec which provides indirection).
+	if !parent.NeedsBox {
+		t.Error("parent.NeedsBox = false, want true (recursive self-reference)")
+	}
+	if children.NeedsBox {
+		t.Error("children.NeedsBox = true, want false (repeated field, Vec provides indirection)")
+	}
+}
+
+func TestIR_NonRecursiveMessage_NoBox(t *testing.T) {
+	file := buildIRForProto(t, "user.proto", &Options{Domain: true})
+
+	user := irMustFindMessage(t, file.Messages, "User")
+	address := irFindField(t, user, "address")
+
+	if address.Kind != FieldKindMessage {
+		t.Errorf("address.Kind = %v, want FieldKindMessage", address.Kind)
+	}
+	// Address does not reference User, so NeedsBox should be false.
+	if address.NeedsBox {
+		t.Error("address.NeedsBox = true, want false (Address is not recursive)")
+	}
 }
 
 func TestIR_SkipAnnotation(t *testing.T) {

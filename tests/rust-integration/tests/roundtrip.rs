@@ -57,13 +57,13 @@ fn sample_user() -> User {
         m.insert("tier".into(), "premium".into());
         m
     };
-    u.address = Some(Box::new(make_address(
+    u.address = Some(make_address(
         "123 Main St",
         "Springfield",
         "IL",
         "62701",
         "US",
-    )));
+    ));
     u.created_at = Utc.with_ymd_and_hms(2024, 1, 15, 10, 30, 0).unwrap();
     u.session_timeout = 3_600_000;
     u.phone = Some("+15551234567".into());
@@ -569,13 +569,13 @@ fn test_unicode_roundtrip() {
     let mut user = User::default();
     user.display_name = "日本語テスト 🎉".into();
     user.email = "用户@例え.jp".into();
-    user.address = Some(Box::new(make_address(
+    user.address = Some(make_address(
         "東京都渋谷区",
         "東京",
         "東京都",
         "150-0002",
         "日本",
-    )));
+    ));
     let row = UserRow::from_domain(&user).expect("from_domain");
     let back = row.to_domain().expect("to_domain");
     assert_eq!(user, back);

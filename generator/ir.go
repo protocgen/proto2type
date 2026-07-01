@@ -173,6 +173,10 @@ type DomainField struct {
 	// MessageTypeName is the PascalCase IR type name for message-typed fields.
 	// Empty for scalars and WKTs.
 	MessageTypeName string
+	// NeedsBox is true when a message-typed field requires heap allocation
+	// (Box<T> in Rust) because the type is part of a recursive cycle.
+	// False for non-recursive message fields (which can use Option<T> directly).
+	NeedsBox bool
 	// EnumTypeName is the PascalCase IR enum type name for enum-typed fields.
 	// Empty for non-enum fields.
 	EnumTypeName string
@@ -292,4 +296,7 @@ type OneofVariant struct {
 	TypeName string
 	// EnumAsString is true when the enum should be serialised as its string name.
 	EnumAsString bool
+	// NeedsBox is true when a message-typed variant requires heap allocation
+	// because the type is part of a recursive cycle.
+	NeedsBox bool
 }

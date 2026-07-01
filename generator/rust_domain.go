@@ -221,7 +221,10 @@ func rustOneofVariantTypeFromIR(v *OneofVariant) string {
 	case FieldKindEmpty:
 		return "()"
 	case FieldKindMessage:
-		return "Box<" + v.TypeName + ">"
+		if v.NeedsBox {
+			return "Box<" + v.TypeName + ">"
+		}
+		return v.TypeName
 	case FieldKindEnum:
 		if v.EnumAsString {
 			return "String"
@@ -396,7 +399,10 @@ func rustDomainSingularTypeFromIR(f *DomainField) string {
 		}
 		return "serde_json::Value"
 	case FieldKindMessage:
-		return "Option<Box<" + f.MessageTypeName + ">>"
+		if f.NeedsBox {
+			return "Option<Box<" + f.MessageTypeName + ">>"
+		}
+		return "Option<" + f.MessageTypeName + ">"
 	case FieldKindEnum:
 		if f.EnumAsString {
 			if f.Optional {

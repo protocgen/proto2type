@@ -65,7 +65,7 @@ pub struct User {
     #[serde(default)]
     pub metadata: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub address: Option<Box<Address>>,
+    pub address: Option<Address>,
     pub created_at: DateTime<Utc>,
     /// Duration in milliseconds
     pub session_timeout: i64,

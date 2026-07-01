@@ -155,6 +155,12 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 		}
 	}
 
+	// Build a lookup from proto field name to NeedsBox flag.
+	needsBoxMap := make(map[string]bool)
+	for _, f := range dm.Fields {
+		needsBoxMap[f.Name] = f.NeedsBox
+	}
+
 	// Row struct (from IR)
 	g.P("/// SQLite storage representation of ", dm.FullName, ".")
 	g.P("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]")
@@ -240,7 +246,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 			continue
 		}
 
-		conversion := rustSqliteToDomainConversion(field, rustFieldName, opts)
+		conversion := rustSqliteToDomainConversion(field, rustFieldName, opts, needsBoxMap[protoName])
 		g.P("            ", rustFieldName, ": ", conversion, ",")
 	}
 
@@ -282,7 +288,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 			continue
 		}
 
-		conversion := rustSqliteIntoDomainConversion(field, rustFieldName, opts)
+		conversion := rustSqliteIntoDomainConversion(field, rustFieldName, opts, needsBoxMap[protoName])
 		g.P("            ", rustFieldName, ": ", conversion, ",")
 	}
 
@@ -316,7 +322,7 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 		protoName := string(field.Desc.Name())
 		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
 
-		conversion := rustSqliteFromDomainConversion(field, rustFieldName, opts)
+		conversion := rustSqliteFromDomainConversion(field, rustFieldName, opts, needsBoxMap[protoName])
 		g.P("            ", rustFieldName, ": ", conversion, ",")
 	}
 
@@ -559,7 +565,7 @@ func rustSqliteWrapperType(field *protogen.Field) string {
 }
 
 // rustSqliteToDomainConversion returns the expression to convert a SQLite row field to a domain field.
-func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts *Options) string {
+func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts *Options, needsBox bool) string {
 	if isWellKnownTimestamp(field) {
 		if field.Desc.HasOptionalKeyword() {
 			return fmt.Sprintf("match self.%s { Some(ms) => Some(epoch_ms_to_datetime(ms)?), None => None }", fieldName)
@@ -585,7 +591,10 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 	}
 	// Nested message: deserialize from Option<String> (P1-12)
 	if isNestedMessage(field) {
-		return fmt.Sprintf("match &self.%s { Some(s) => Some(Box::new(serde_json::from_str(s)?)), None => None }", fieldName)
+		if needsBox {
+			return fmt.Sprintf("match &self.%s { Some(s) => Some(Box::new(serde_json::from_str(s)?)), None => None }", fieldName)
+		}
+		return fmt.Sprintf("match &self.%s { Some(s) => Some(serde_json::from_str(s)?), None => None }", fieldName)
 	}
 	// Repeated: deserialize from JSON string
 	if field.Desc.IsList() {
@@ -633,7 +642,7 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 
 // rustSqliteIntoDomainConversion returns the expression for consuming conversion (into_domain).
 // Like rustSqliteToDomainConversion but moves String fields instead of cloning.
-func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opts *Options) string {
+func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opts *Options, needsBox bool) string {
 	if isWellKnownTimestamp(field) {
 		if field.Desc.HasOptionalKeyword() {
 			return fmt.Sprintf("match self.%s { Some(ms) => Some(epoch_ms_to_datetime(ms)?), None => None }", fieldName)
@@ -658,7 +667,10 @@ func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opt
 	}
 	// Nested message: deserialize from Option<String>
 	if isNestedMessage(field) {
-		return fmt.Sprintf("match self.%s { Some(s) => Some(Box::new(serde_json::from_str(&s)?)), None => None }", fieldName)
+		if needsBox {
+			return fmt.Sprintf("match self.%s { Some(s) => Some(Box::new(serde_json::from_str(&s)?)), None => None }", fieldName)
+		}
+		return fmt.Sprintf("match self.%s { Some(s) => Some(serde_json::from_str(&s)?), None => None }", fieldName)
 	}
 	// Repeated: deserialize from JSON string
 	if field.Desc.IsList() {
@@ -702,7 +714,7 @@ func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opt
 }
 
 // rustSqliteFromDomainConversion returns the expression to convert a domain field to a SQLite row field.
-func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opts *Options) string {
+func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opts *Options, needsBox bool) string {
 	if isWellKnownTimestamp(field) {
 		if field.Desc.HasOptionalKeyword() {
 			return fmt.Sprintf("d.%s.as_ref().map(|dt| datetime_to_epoch_ms(dt))", fieldName)
@@ -728,7 +740,10 @@ func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opt
 	}
 	// Nested message: serialize to Option<String> (P1-12)
 	if isNestedMessage(field) {
-		return fmt.Sprintf("match &d.%s { Some(v) => Some(serde_json::to_string(v.as_ref())?), None => None }", fieldName)
+		if needsBox {
+			return fmt.Sprintf("match &d.%s { Some(v) => Some(serde_json::to_string(v.as_ref())?), None => None }", fieldName)
+		}
+		return fmt.Sprintf("match &d.%s { Some(v) => Some(serde_json::to_string(v)?), None => None }", fieldName)
 	}
 	// Repeated: serialize to JSON string
 	if field.Desc.IsList() {
