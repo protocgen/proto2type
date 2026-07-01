@@ -222,30 +222,30 @@ var file_proto_proto2type_options_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MessageOptions)(nil),
 		ExtensionType: (*MessageOptions)(nil),
-		Field:         90100,
+		Field:         1307,
 		Name:          "proto2type.message",
-		Tag:           "bytes,90100,opt,name=message",
+		Tag:           "bytes,1307,opt,name=message",
 		Filename:      "proto/proto2type/options.proto",
 	},
 	{
 		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
 		ExtensionType: (*FieldOptions)(nil),
-		Field:         90100,
+		Field:         1307,
 		Name:          "proto2type.field",
-		Tag:           "bytes,90100,opt,name=field",
+		Tag:           "bytes,1307,opt,name=field",
 		Filename:      "proto/proto2type/options.proto",
 	},
 }
 
 // Extension fields to descriptorpb.MessageOptions.
 var (
-	// optional proto2type.MessageOptions message = 90100;
+	// optional proto2type.MessageOptions message = 1307;
 	E_Message = &file_proto_proto2type_options_proto_extTypes[0]
 )
 
 // Extension fields to descriptorpb.FieldOptions.
 var (
-	// optional proto2type.FieldOptions field = 90100;
+	// optional proto2type.FieldOptions field = 1307;
 	E_Field = &file_proto_proto2type_options_proto_extTypes[1]
 )
 
@@ -269,9 +269,11 @@ const file_proto_proto2type_options_proto_rawDesc = "" +
 	"\fOptionalBool\x12\x1d\n" +
 	"\x19OPTIONAL_BOOL_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12OPTIONAL_BOOL_TRUE\x10\x01\x12\x17\n" +
-	"\x13OPTIONAL_BOOL_FALSE\x10\x02:W\n" +
-	"\amessage\x12\x1f.google.protobuf.MessageOptions\x18\xf4\xbf\x05 \x01(\v2\x1a.proto2type.MessageOptionsR\amessage:O\n" +
-	"\x05field\x12\x1d.google.protobuf.FieldOptions\x18\xf4\xbf\x05 \x01(\v2\x18.proto2type.FieldOptionsR\x05fieldB2Z0github.com/protocgen/proto2type/proto/proto2typeb\x06proto3"
+	"\x13OPTIONAL_BOOL_FALSE\x10\x02:V\n" +
+	"\amessage\x12\x1f.google.protobuf.MessageOptions\x18\x9b\n" +
+	" \x01(\v2\x1a.proto2type.MessageOptionsR\amessage:N\n" +
+	"\x05field\x12\x1d.google.protobuf.FieldOptions\x18\x9b\n" +
+	" \x01(\v2\x18.proto2type.FieldOptionsR\x05fieldB2Z0github.com/protocgen/proto2type/proto/proto2typeb\x06proto3"
 
 var (
 	file_proto_proto2type_options_proto_rawDescOnce sync.Once

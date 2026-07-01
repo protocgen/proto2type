@@ -6,12 +6,10 @@ import "google/protobuf/descriptor.proto";
 option go_package = "github.com/protocgen/proto2type/proto/proto2type";
 
 // Message-level options for proto2type.
-// Extension number 90100 is in the range reserved for internal/organizational use
-// (50000-99999) per the Protocol Buffers documentation. This number was chosen to
-// avoid conflicts with other protobuf plugins. If you encounter a collision, you
-// may change it — the number only needs to be unique within your descriptor pool.
+// Extension number 1307 is permanently registered in the Protocol Buffers
+// global registry (protocolbuffers/protobuf#28153).
 extend google.protobuf.MessageOptions {
-  MessageOptions message = 90100;
+  MessageOptions message = 1307;
 }
 
 message MessageOptions {
@@ -21,7 +19,7 @@ message MessageOptions {
 
 // Field-level options for proto2type.
 extend google.protobuf.FieldOptions {
-  FieldOptions field = 90100;
+  FieldOptions field = 1307;
 }
 
 message FieldOptions {
