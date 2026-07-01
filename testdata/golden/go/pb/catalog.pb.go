@@ -184,9 +184,9 @@ var File_catalog_proto protoreflect.FileDescriptor
 
 const file_catalog_proto_rawDesc = "" +
 	"\n" +
-	"\rcatalog.proto\x12\atest.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18proto2type/options.proto\"\xd1\x04\n" +
-	"\x11ModelCatalogEntry\x12!\n" +
-	"\bmodel_id\x18\x01 \x01(\tB\x06\xa2\xff+\x02\b\x01R\amodelId\x12\x1a\n" +
+	"\rcatalog.proto\x12\atest.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18proto2type/options.proto\"\xce\x04\n" +
+	"\x11ModelCatalogEntry\x12 \n" +
+	"\bmodel_id\x18\x01 \x01(\tB\x05\xdaQ\x02\b\x01R\amodelId\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12*\n" +
 	"\x11input_per_million\x18\x04 \x01(\x01R\x0finputPerMillion\x12,\n" +
@@ -198,10 +198,10 @@ const file_catalog_proto_rawDesc = "" +
 	"\aaliases\x18\f \x03(\tR\aaliases\x12*\n" +
 	"\x11provider_model_id\x18\x0e \x01(\tR\x0fproviderModelId\x129\n" +
 	"\n" +
-	"created_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12A\n" +
+	"created_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12@\n" +
 	"\n" +
-	"updated_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampB\x06\xa2\xff+\x02\x10\x01R\tupdatedAt\x12\x1c\n" +
-	"\x05notes\x18\x10 \x01(\tB\x06\xa2\xff+\x02(\x01R\x05notes\x12\x16\n" +
+	"updated_at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampB\x05\xdaQ\x02\x10\x01R\tupdatedAt\x12\x1b\n" +
+	"\x05notes\x18\x10 \x01(\tB\x05\xdaQ\x02(\x01R\x05notes\x12\x16\n" +
 	"\x06region\x18\x11 \x01(\tR\x06regionB7Z5github.com/protocgen/proto2type/testdata/golden/go/pbb\x06proto3"
 
 var (

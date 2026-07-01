@@ -6,8 +6,10 @@ import "google/protobuf/descriptor.proto";
 option go_package = "github.com/protocgen/proto2type/proto/proto2type";
 
 // Message-level options for proto2type.
+// Extension number 1307 is permanently registered in the Protocol Buffers
+// global registry (protocolbuffers/protobuf#28153).
 extend google.protobuf.MessageOptions {
-  MessageOptions message = 90100;
+  MessageOptions message = 1307;
 }
 
 message MessageOptions {
@@ -17,7 +19,7 @@ message MessageOptions {
 
 // Field-level options for proto2type.
 extend google.protobuf.FieldOptions {
-  FieldOptions field = 90100;
+  FieldOptions field = 1307;
 }
 
 message FieldOptions {
@@ -40,6 +42,10 @@ message FieldOptions {
 
   // Flatten nested message fields into parent (Mongo: bson:",inline").
   bool inline = 6;
+
+  // Store this enum field as its string name instead of int32.
+  // Per-field override for the global enum_as_string plugin option.
+  OptionalBool enum_as_string = 7;
 }
 
 enum OptionalBool {
