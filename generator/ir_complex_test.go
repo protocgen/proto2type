@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -363,4 +365,113 @@ func TestIR_DocumentID(t *testing.T) {
 	if !id.DocID {
 		t.Error("id.DocID = false, want true")
 	}
+}
+
+func TestDetectNameCollisions_MessageMessage(t *testing.T) {
+	// Simulate: message Foo_Bar {} and message Foo { message Bar {} }
+	// Both flatten to "FooBar".
+	df := &DomainFile{
+		Messages: []*DomainMessage{
+			{Name: "FooBar", FullName: "test.v1.Foo_Bar"},
+			{Name: "Baz", FullName: "test.v1.Baz", NestedMessages: []*DomainMessage{
+				// Won't collide — different name
+			}},
+		},
+	}
+
+	// No collision yet — should not panic.
+	detectNameCollisions(df)
+
+	// Now add a collision.
+	df.Messages = append(df.Messages, &DomainMessage{
+		Name: "FooBar", FullName: "test.v1.Foo.Bar",
+	})
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for message name collision, got none")
+		}
+		msg := fmt.Sprintf("%v", r)
+		if !strings.Contains(msg, "FooBar") || !strings.Contains(msg, "collision") {
+			t.Errorf("panic message should mention 'FooBar' and 'collision', got: %s", msg)
+		}
+	}()
+	detectNameCollisions(df)
+}
+
+func TestDetectNameCollisions_EnumMessage(t *testing.T) {
+	// Simulate: message Status {} and enum Status {}
+	// Both produce IR name "Status".
+	df := &DomainFile{
+		Messages: []*DomainMessage{
+			{Name: "Status", FullName: "test.v1.Status"},
+		},
+		Enums: []*DomainEnum{
+			{Name: "Status", FullName: "test.v1.StatusEnum"},
+		},
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for enum-message name collision, got none")
+		}
+	}()
+	detectNameCollisions(df)
+}
+
+func TestDetectNameCollisions_NoCollision(t *testing.T) {
+	// Verify no panic for existing test protos.
+	for _, protoFile := range []string{"user.proto", "complex.proto", "catalog.proto"} {
+		t.Run(protoFile, func(t *testing.T) {
+			// buildIRForProto calls BuildDomainFile which calls detectNameCollisions.
+			// If it panics, the test fails.
+			buildIRForProto(t, protoFile, &Options{Domain: true})
+		})
+	}
+}
+
+func TestDetectNameCollisions_NestedMessage(t *testing.T) {
+	// Top-level "FooBar" collides with nested message Foo -> Bar = "FooBar".
+	df := &DomainFile{
+		Messages: []*DomainMessage{
+			{Name: "FooBar", FullName: "test.v1.FooBar"},
+			{Name: "Foo", FullName: "test.v1.Foo", NestedMessages: []*DomainMessage{
+				{Name: "FooBar", FullName: "test.v1.Foo.Bar"},
+			}},
+		},
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for nested message name collision, got none")
+		}
+		msg := fmt.Sprintf("%v", r)
+		if !strings.Contains(msg, "FooBar") {
+			t.Errorf("panic should mention 'FooBar', got: %s", msg)
+		}
+	}()
+	detectNameCollisions(df)
+}
+
+func TestDetectNameCollisions_NestedEnum(t *testing.T) {
+	// Nested enum name collides with top-level message.
+	df := &DomainFile{
+		Messages: []*DomainMessage{
+			{Name: "FooBar", FullName: "test.v1.FooBar"},
+			{Name: "Foo", FullName: "test.v1.Foo", NestedEnums: []*DomainEnum{
+				{Name: "FooBar", FullName: "test.v1.Foo.Bar"},
+			}},
+		},
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for nested enum name collision, got none")
+		}
+	}()
+	detectNameCollisions(df)
 }

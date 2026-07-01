@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"fmt"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -16,6 +15,12 @@ const maxNestingDepth = 64
 // BuildDomainFile builds the IR for a single proto source file.
 // It consolidates the scanning/walking logic that was previously duplicated
 // across go_domain.go and rust_domain.go.
+//
+// NOTE: Cross-package type references (PB-3) are not yet handled. The IR
+// currently processes one file at a time and uses bare PascalCase names
+// for MessageTypeName/EnumTypeName. When multi-file IR support is added,
+// irMessageNameFromDesc and irEnumNameFromDesc will need package-qualified
+// names to disambiguate types from different proto packages.
 func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
 	df := &DomainFile{
 		SourcePath: file.Desc.Path(),
@@ -35,6 +40,11 @@ func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
 		}
 	}
 
+	// Post-process: detect flattened name collisions (PB-4).
+	// e.g. message Foo_Bar {} and message Foo { message Bar {} } both
+	// flatten to "FooBar", which would produce duplicate type names.
+	detectNameCollisions(df)
+
 	// Post-process: detect recursive types and set NeedsBox on fields
 	// that participate in type cycles (e.g. TreeNode.parent -> TreeNode).
 	markRecursiveFields(df)
@@ -49,7 +59,7 @@ func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
 // Returns nil if the message is skipped.
 func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options, depth int) *DomainMessage {
 	if depth >= maxNestingDepth {
-		panic(fmt.Sprintf("proto2type: message %q exceeds maximum nesting depth of %d", msg.Desc.FullName(), maxNestingDepth))
+		irPanic("proto2type: message %q exceeds maximum nesting depth of %d", msg.Desc.FullName(), maxNestingDepth)
 	}
 	if isMessageSkipped(msg) {
 		return &DomainMessage{
@@ -329,8 +339,9 @@ func buildDomainEnum(enum *protogen.Enum, parentName string) *DomainEnum {
 	}
 
 	de := &DomainEnum{
-		Name:    enumName,
-		Comment: cleanComment(string(enum.Comments.Leading)),
+		Name:     enumName,
+		FullName: string(enum.Desc.FullName()),
+		Comment:  cleanComment(string(enum.Comments.Leading)),
 	}
 
 	for i, val := range enum.Values {
@@ -424,6 +435,53 @@ func irEnumNameFromDesc(ed protoreflect.EnumDescriptor) string {
 		return toPascalCase(string(ed.Name()))
 	}
 	return irMessageNameFromDesc(parent) + toPascalCase(string(ed.Name()))
+}
+
+// ---------------------------------------------------------------------------
+// Flattened name collision detection
+// ---------------------------------------------------------------------------
+
+// detectNameCollisions walks all messages and enums in the IR and panics if
+// two types produce the same flattened name. This catches cases like:
+//
+//	message Foo_Bar {}          → "FooBar"
+//	message Foo { message Bar {} } → "FooBar"   (collision!)
+func detectNameCollisions(df *DomainFile) {
+	// name → proto full name of the first type that claimed it.
+	seen := make(map[string]string)
+
+	collectMessageNames(df.Messages, seen)
+
+	for _, e := range df.Enums {
+		recordName(seen, e.Name, e.FullName)
+	}
+}
+
+// collectMessageNames recursively collects message (and nested enum) names,
+// panicking on duplicates.
+func collectMessageNames(msgs []*DomainMessage, seen map[string]string) {
+	for _, msg := range msgs {
+		if msg.Skip {
+			continue
+		}
+		recordName(seen, msg.Name, msg.FullName)
+
+		// Nested enums inside this message.
+		for _, e := range msg.NestedEnums {
+			recordName(seen, e.Name, e.FullName)
+		}
+
+		collectMessageNames(msg.NestedMessages, seen)
+	}
+}
+
+// recordName checks if name is already in seen and panics with a collision
+// error if so; otherwise it records it.
+func recordName(seen map[string]string, name, fullName string) {
+	if prev, ok := seen[name]; ok {
+		irPanic("proto2type: name collision — %q and %q both flatten to %q", fullName, prev, name)
+	}
+	seen[name] = fullName
 }
 
 // ---------------------------------------------------------------------------
