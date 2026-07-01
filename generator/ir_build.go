@@ -35,6 +35,10 @@ func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
 		}
 	}
 
+	// Post-process: detect recursive types and set NeedsBox on fields
+	// that participate in type cycles (e.g. TreeNode.parent -> TreeNode).
+	markRecursiveFields(df)
+
 	return df
 }
 
@@ -420,4 +424,98 @@ func irEnumNameFromDesc(ed protoreflect.EnumDescriptor) string {
 		return toPascalCase(string(ed.Name()))
 	}
 	return irMessageNameFromDesc(parent) + toPascalCase(string(ed.Name()))
+}
+
+// ---------------------------------------------------------------------------
+// Recursive type detection
+// ---------------------------------------------------------------------------
+
+// markRecursiveFields detects message types that are part of recursive cycles
+// and sets NeedsBox=true on singular message fields that reference them.
+//
+// Algorithm: build a directed graph (message name → set of referenced message
+// names from singular fields), then for each message check if any singular
+// field type is reachable back to the containing message via DFS.
+// Repeated fields and map values don't need Box because Vec/HashMap already
+// provide heap indirection.
+func markRecursiveFields(df *DomainFile) {
+	// Build adjacency list: message name → set of singular message-typed field names.
+	// We only consider singular (non-repeated, non-map) message fields because
+	// Vec<T> and HashMap<K,V> already break the infinite-size struct.
+	adj := make(map[string][]string)
+	collectEdges(df.Messages, adj)
+
+	// Mark fields whose type can reach back to the containing message.
+	markFieldsInMessages(df.Messages, adj)
+}
+
+// collectEdges recursively gathers singular message-field edges into adj.
+func collectEdges(msgs []*DomainMessage, adj map[string][]string) {
+	for _, msg := range msgs {
+		if msg.Skip {
+			continue
+		}
+		for _, f := range msg.Fields {
+			if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
+				adj[msg.Name] = append(adj[msg.Name], f.MessageTypeName)
+			}
+		}
+		// Oneof variants with message types also need edges.
+		for _, o := range msg.Oneofs {
+			for _, v := range o.Variants {
+				if v.Kind == FieldKindMessage {
+					adj[msg.Name] = append(adj[msg.Name], v.TypeName)
+				}
+			}
+		}
+		collectEdges(msg.NestedMessages, adj)
+	}
+}
+
+// canReachSelf returns true if 'target' is reachable from 'current' via the
+// adjacency list. Uses DFS with a visited set to avoid infinite loops.
+func canReachSelf(target, current string, adj map[string][]string, visited map[string]bool) bool {
+	for _, next := range adj[current] {
+		if next == target {
+			return true
+		}
+		if visited[next] {
+			continue
+		}
+		visited[next] = true
+		if canReachSelf(target, next, adj, visited) {
+			return true
+		}
+	}
+	return false
+}
+
+// markFieldsInMessages sets NeedsBox on singular message fields where the
+// field's type can reach back to the containing message via the type graph.
+// This uses actual reachability (not global recursive membership) to avoid
+// false positives when independent recursive cycles exist.
+func markFieldsInMessages(msgs []*DomainMessage, adj map[string][]string) {
+	for _, msg := range msgs {
+		if msg.Skip {
+			continue
+		}
+		for _, f := range msg.Fields {
+			if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
+				// Check if the field's type can reach back to the containing message.
+				if canReachSelf(msg.Name, f.MessageTypeName, adj, make(map[string]bool)) {
+					f.NeedsBox = true
+				}
+			}
+		}
+		for _, o := range msg.Oneofs {
+			for _, v := range o.Variants {
+				if v.Kind == FieldKindMessage {
+					if canReachSelf(msg.Name, v.TypeName, adj, make(map[string]bool)) {
+						v.NeedsBox = true
+					}
+				}
+			}
+		}
+		markFieldsInMessages(msg.NestedMessages, adj)
+	}
 }

@@ -201,8 +201,9 @@ func rustDomainSingularType(field *protogen.Field, opts *Options) string {
 	}
 
 	// Message types (nested) -> Option<Box<T>>
-	// TODO(P1-11): Box<T> is used for all nested messages but is only necessary
-	// for recursive types. Implementing recursion detection is deferred.
+	// NOTE: This legacy path boxes all messages unconditionally.
+	// The IR-based path (rustDomainSingularTypeFromIR) uses NeedsBox
+	// to only box recursive types. This path is kept for compatibility.
 	if field.Desc.Kind() == protoreflect.MessageKind {
 		return "Option<Box<" + rustMessageName(field.Message) + ">>"
 	}

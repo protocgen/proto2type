@@ -382,7 +382,7 @@ func TestRustSqliteConversions_Integration(t *testing.T) {
 		})
 
 		t.Run(fieldName+"/to_domain", func(t *testing.T) {
-			got := rustSqliteToDomainConversion(field, rustFieldName, opts)
+			got := rustSqliteToDomainConversion(field, rustFieldName, opts, false)
 			if got == "" {
 				t.Errorf("rustSqliteToDomainConversion(%q) returned empty", fieldName)
 			}
@@ -390,7 +390,7 @@ func TestRustSqliteConversions_Integration(t *testing.T) {
 		})
 
 		t.Run(fieldName+"/from_domain", func(t *testing.T) {
-			got := rustSqliteFromDomainConversion(field, rustFieldName, opts)
+			got := rustSqliteFromDomainConversion(field, rustFieldName, opts, false)
 			if got == "" {
 				t.Errorf("rustSqliteFromDomainConversion(%q) returned empty", fieldName)
 			}
@@ -398,7 +398,7 @@ func TestRustSqliteConversions_Integration(t *testing.T) {
 		})
 
 		t.Run(fieldName+"/into_domain", func(t *testing.T) {
-			got := rustSqliteIntoDomainConversion(field, rustFieldName, opts)
+			got := rustSqliteIntoDomainConversion(field, rustFieldName, opts, false)
 			if got == "" {
 				t.Errorf("rustSqliteIntoDomainConversion(%q) returned empty", fieldName)
 			}
@@ -442,12 +442,75 @@ func TestRustSqliteSpecificConversions_Integration(t *testing.T) {
 				t.Errorf("rustSqliteFieldType(%q) = %q, want %q", tt.field, gotType, tt.sqlType)
 			}
 
-			gotConv := rustSqliteToDomainConversion(field, rustFieldName, opts)
+			gotConv := rustSqliteToDomainConversion(field, rustFieldName, opts, false)
 			if !strings.Contains(gotConv, tt.toDomain) {
 				t.Errorf("rustSqliteToDomainConversion(%q) = %q, want substring %q", tt.field, gotConv, tt.toDomain)
 			}
 		})
 	}
+}
+
+func TestRustSqliteConversions_NeedsBox(t *testing.T) {
+	fds := buildFileDescriptorSet(t)
+	gen := newPlugin(t, fds, []string{"complex.proto"})
+	msg := findMessage(t, gen, "TreeNode")
+	opts := &Options{Lang: "rust", Domain: true, Backend: "sqlite"}
+
+	// Find the "parent" field (TreeNode -> TreeNode, recursive self-reference).
+	var parentField *protogen.Field
+	for _, f := range msg.Fields {
+		if string(f.Desc.Name()) == "parent" {
+			parentField = f
+			break
+		}
+	}
+	if parentField == nil {
+		t.Fatal("TreeNode.parent field not found")
+	}
+
+	rustFieldName := "parent"
+
+	t.Run("to_domain/boxed", func(t *testing.T) {
+		got := rustSqliteToDomainConversion(parentField, rustFieldName, opts, true)
+		if !strings.Contains(got, "Box::new") {
+			t.Errorf("to_domain with needsBox=true should contain Box::new, got %q", got)
+		}
+	})
+
+	t.Run("to_domain/unboxed", func(t *testing.T) {
+		got := rustSqliteToDomainConversion(parentField, rustFieldName, opts, false)
+		if strings.Contains(got, "Box::new") {
+			t.Errorf("to_domain with needsBox=false should NOT contain Box::new, got %q", got)
+		}
+	})
+
+	t.Run("into_domain/boxed", func(t *testing.T) {
+		got := rustSqliteIntoDomainConversion(parentField, rustFieldName, opts, true)
+		if !strings.Contains(got, "Box::new") {
+			t.Errorf("into_domain with needsBox=true should contain Box::new, got %q", got)
+		}
+	})
+
+	t.Run("into_domain/unboxed", func(t *testing.T) {
+		got := rustSqliteIntoDomainConversion(parentField, rustFieldName, opts, false)
+		if strings.Contains(got, "Box::new") {
+			t.Errorf("into_domain with needsBox=false should NOT contain Box::new, got %q", got)
+		}
+	})
+
+	t.Run("from_domain/boxed", func(t *testing.T) {
+		got := rustSqliteFromDomainConversion(parentField, rustFieldName, opts, true)
+		if !strings.Contains(got, "as_ref()") {
+			t.Errorf("from_domain with needsBox=true should contain as_ref(), got %q", got)
+		}
+	})
+
+	t.Run("from_domain/unboxed", func(t *testing.T) {
+		got := rustSqliteFromDomainConversion(parentField, rustFieldName, opts, false)
+		if strings.Contains(got, "as_ref()") {
+			t.Errorf("from_domain with needsBox=false should NOT contain as_ref(), got %q", got)
+		}
+	})
 }
 
 // --- Pure function tests (no protoc needed) ---
@@ -562,17 +625,17 @@ func TestRustSqliteCatalogConversions_Integration(t *testing.T) {
 
 			// Document ID fields are excluded from SQLite conversions but
 			// we can still test the functions don't panic
-			toDomain := rustSqliteToDomainConversion(field, rustFieldName, opts)
+			toDomain := rustSqliteToDomainConversion(field, rustFieldName, opts, false)
 			if toDomain == "" {
 				t.Errorf("rustSqliteToDomainConversion(%q) returned empty", fieldName)
 			}
 
-			fromDomain := rustSqliteFromDomainConversion(field, rustFieldName, opts)
+			fromDomain := rustSqliteFromDomainConversion(field, rustFieldName, opts, false)
 			if fromDomain == "" {
 				t.Errorf("rustSqliteFromDomainConversion(%q) returned empty", fieldName)
 			}
 
-			intoDomain := rustSqliteIntoDomainConversion(field, rustFieldName, opts)
+			intoDomain := rustSqliteIntoDomainConversion(field, rustFieldName, opts, false)
 			if intoDomain == "" {
 				t.Errorf("rustSqliteIntoDomainConversion(%q) returned empty", fieldName)
 			}
@@ -628,7 +691,7 @@ func TestRustDomainFieldTypeFromIR_SpecificTypes(t *testing.T) {
 		{"age", "i32"},
 		{"roles", "Vec<String>"},
 		{"metadata", "HashMap<String, String>"},
-		{"address", "Option<Box<Address>>"},
+		{"address", "Option<Address>"},
 		{"session_timeout", "i64"},
 		{"phone", "Option<String>"},
 		{"avatar", "Vec<u8>"},
