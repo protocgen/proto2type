@@ -68,7 +68,12 @@ data class User(
     @SerialName("extra_metadata") val extraMetadata: Map<String, Any?> = emptyMap(),
     val preferences: List<Any?> = emptyList(),
     // Note: ByteArray uses referential equality. Override equals()/hashCode() if needed.
-    @SerialName("avatar_thumbnail") val avatarThumbnail: ByteArray? = null
+    @SerialName("avatar_thumbnail") val avatarThumbnail: ByteArray? = null,
+    @SerialName("field_masks") val fieldMasks: List<List<String>> = emptyList(),
+    val structs: List<Map<String, Any?>> = emptyList(),
+    val lists: List<List<Any?>> = emptyList(),
+    @SerialName("event_times") val eventTimes: Map<String, Instant> = emptyMap(),
+    val configs: Map<String, Map<String, Any?>> = emptyMap()
 )
 
 /** Address is a nested message. */

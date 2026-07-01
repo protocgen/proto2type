@@ -11,6 +11,7 @@ import (
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 	log "log"
+	reflect "reflect"
 )
 
 import "time"
@@ -19,27 +20,32 @@ import "time"
 //
 // User represents a user account.
 type User struct {
-	ID              string            `json:"id,omitempty"`
-	Email           string            `json:"email,omitempty"`
-	DisplayName     string            `json:"display_name,omitempty"`
-	Active          bool              `json:"active,omitempty"`
-	Age             int32             `json:"age,omitempty"`
-	Roles           []string          `json:"roles,omitempty"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
-	Address         *Address          `json:"address,omitempty"`
-	CreatedAt       time.Time         `json:"created_at,omitempty"`
-	SessionTimeout  time.Duration     `json:"session_timeout,omitempty"`
-	Phone           *string           `json:"phone,omitempty"`
-	Avatar          []byte            `json:"avatar,omitempty"`
-	Nickname        *string           `json:"nickname,omitempty"`
-	Status          int32             `json:"status,omitempty"`
-	Tags            []*Tag            `json:"tags,omitempty"`
-	DeletedAt       *time.Time        `json:"deleted_at,omitempty"`
-	PreviousStatus  *int32            `json:"previous_status,omitempty"`
-	UpdateMask      []string          `json:"update_mask,omitempty"`
-	ExtraMetadata   map[string]any    `json:"extra_metadata,omitempty"`
-	Preferences     []any             `json:"preferences,omitempty"`
-	AvatarThumbnail *[]byte           `json:"avatar_thumbnail,omitempty"`
+	ID              string                    `json:"id,omitempty"`
+	Email           string                    `json:"email,omitempty"`
+	DisplayName     string                    `json:"display_name,omitempty"`
+	Active          bool                      `json:"active,omitempty"`
+	Age             int32                     `json:"age,omitempty"`
+	Roles           []string                  `json:"roles,omitempty"`
+	Metadata        map[string]string         `json:"metadata,omitempty"`
+	Address         *Address                  `json:"address,omitempty"`
+	CreatedAt       time.Time                 `json:"created_at,omitempty"`
+	SessionTimeout  time.Duration             `json:"session_timeout,omitempty"`
+	Phone           *string                   `json:"phone,omitempty"`
+	Avatar          []byte                    `json:"avatar,omitempty"`
+	Nickname        *string                   `json:"nickname,omitempty"`
+	Status          int32                     `json:"status,omitempty"`
+	Tags            []*Tag                    `json:"tags,omitempty"`
+	DeletedAt       *time.Time                `json:"deleted_at,omitempty"`
+	PreviousStatus  *int32                    `json:"previous_status,omitempty"`
+	UpdateMask      []string                  `json:"update_mask,omitempty"`
+	ExtraMetadata   map[string]any            `json:"extra_metadata,omitempty"`
+	Preferences     []any                     `json:"preferences,omitempty"`
+	AvatarThumbnail *[]byte                   `json:"avatar_thumbnail,omitempty"`
+	FieldMasks      [][]string                `json:"field_masks,omitempty"`
+	Structs         []map[string]any          `json:"structs,omitempty"`
+	Lists           [][]any                   `json:"lists,omitempty"`
+	EventTimes      map[string]time.Time      `json:"event_times,omitempty"`
+	Configs         map[string]map[string]any `json:"configs,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -114,6 +120,53 @@ func (u *User) ToProto() *pb.User {
 		out.AvatarThumbnail = make([]byte, len(*u.AvatarThumbnail))
 		copy(out.AvatarThumbnail, *u.AvatarThumbnail)
 	}
+	if len(u.FieldMasks) > 0 {
+		out.FieldMasks = make([]*fieldmaskpb.FieldMask, len(u.FieldMasks))
+		for i, v := range u.FieldMasks {
+			paths := make([]string, len(v))
+			copy(paths, v)
+			out.FieldMasks[i] = &fieldmaskpb.FieldMask{Paths: paths}
+		}
+	}
+	if len(u.Structs) > 0 {
+		out.Structs = make([]*structpb.Struct, len(u.Structs))
+		for i, v := range u.Structs {
+			s, err := structpb.NewStruct(v)
+			if err != nil {
+				log.Printf("proto2type: failed to convert %s.Structs[%d] to Struct: %v", "User", i, err)
+				continue
+			}
+			out.Structs[i] = s
+		}
+	}
+	if len(u.Lists) > 0 {
+		out.Lists = make([]*structpb.ListValue, len(u.Lists))
+		for i, v := range u.Lists {
+			l, err := structpb.NewList(v)
+			if err != nil {
+				log.Printf("proto2type: failed to convert %s.Lists[%d] to ListValue: %v", "User", i, err)
+				continue
+			}
+			out.Lists[i] = l
+		}
+	}
+	if len(u.EventTimes) > 0 {
+		out.EventTimes = make(map[string]*timestamppb.Timestamp, len(u.EventTimes))
+		for k, v := range u.EventTimes {
+			out.EventTimes[k] = timestamppb.New(v)
+		}
+	}
+	if len(u.Configs) > 0 {
+		out.Configs = make(map[string]*structpb.Struct, len(u.Configs))
+		for k, v := range u.Configs {
+			s, err := structpb.NewStruct(v)
+			if err != nil {
+				log.Printf("proto2type: failed to convert %s.Configs[%s] to Struct: %v", "User", k, err)
+				continue
+			}
+			out.Configs[k] = s
+		}
+	}
 	return out
 }
 
@@ -182,6 +235,48 @@ func (u *User) FromProto(pb *pb.User) {
 		b := make([]byte, len(pb.AvatarThumbnail))
 		copy(b, pb.AvatarThumbnail)
 		u.AvatarThumbnail = &b
+	}
+	if len(pb.FieldMasks) > 0 {
+		u.FieldMasks = make([][]string, len(pb.FieldMasks))
+		for i, v := range pb.FieldMasks {
+			if v != nil {
+				src := v.GetPaths()
+				u.FieldMasks[i] = make([]string, len(src))
+				copy(u.FieldMasks[i], src)
+			}
+		}
+	}
+	if len(pb.Structs) > 0 {
+		u.Structs = make([]map[string]any, len(pb.Structs))
+		for i, v := range pb.Structs {
+			if v != nil {
+				u.Structs[i] = v.AsMap()
+			}
+		}
+	}
+	if len(pb.Lists) > 0 {
+		u.Lists = make([][]any, len(pb.Lists))
+		for i, v := range pb.Lists {
+			if v != nil {
+				u.Lists[i] = v.AsSlice()
+			}
+		}
+	}
+	if len(pb.EventTimes) > 0 {
+		u.EventTimes = make(map[string]time.Time, len(pb.EventTimes))
+		for k, v := range pb.EventTimes {
+			if v != nil {
+				u.EventTimes[k] = v.AsTime()
+			}
+		}
+	}
+	if len(pb.Configs) > 0 {
+		u.Configs = make(map[string]map[string]any, len(pb.Configs))
+		for k, v := range pb.Configs {
+			if v != nil {
+				u.Configs[k] = v.AsMap()
+			}
+		}
 	}
 }
 
@@ -267,6 +362,16 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			} else {
 				dst.AvatarThumbnail = nil
 			}
+		case "field_masks":
+			dst.FieldMasks = src.FieldMasks
+		case "structs":
+			dst.Structs = src.Structs
+		case "lists":
+			dst.Lists = src.Lists
+		case "event_times":
+			dst.EventTimes = src.EventTimes
+		case "configs":
+			dst.Configs = src.Configs
 		}
 	}
 }
@@ -319,6 +424,35 @@ func (u *User) Clone() *User {
 			}
 		}
 	}
+	if u.FieldMasks != nil {
+		c.FieldMasks = make([][]string, len(u.FieldMasks))
+		for i, v := range u.FieldMasks {
+			if v != nil {
+				c.FieldMasks[i] = make([]string, len(v))
+				copy(c.FieldMasks[i], v)
+			}
+		}
+	}
+	if u.Structs != nil {
+		c.Structs = make([]map[string]any, len(u.Structs))
+		for i, v := range u.Structs {
+			if v != nil {
+				c.Structs[i] = make(map[string]any, len(v))
+				for mk, mv := range v {
+					c.Structs[i][mk] = mv
+				}
+			}
+		}
+	}
+	if u.Lists != nil {
+		c.Lists = make([][]any, len(u.Lists))
+		for i, v := range u.Lists {
+			if v != nil {
+				c.Lists[i] = make([]any, len(v))
+				copy(c.Lists[i], v)
+			}
+		}
+	}
 	if u.Avatar != nil {
 		c.Avatar = make([]byte, len(u.Avatar))
 		copy(c.Avatar, u.Avatar)
@@ -327,6 +461,26 @@ func (u *User) Clone() *User {
 		c.Metadata = make(map[string]string, len(u.Metadata))
 		for k, v := range u.Metadata {
 			c.Metadata[k] = v
+		}
+	}
+	if u.EventTimes != nil {
+		c.EventTimes = make(map[string]time.Time, len(u.EventTimes))
+		for k, v := range u.EventTimes {
+			c.EventTimes[k] = v
+		}
+	}
+	if u.Configs != nil {
+		c.Configs = make(map[string]map[string]any, len(u.Configs))
+		for k, v := range u.Configs {
+			if v != nil {
+				m := make(map[string]any, len(v))
+				for mk, mv := range v {
+					m[mk] = mv
+				}
+				c.Configs[k] = m
+			} else {
+				c.Configs[k] = nil
+			}
 		}
 	}
 	if u.Address != nil {
@@ -458,25 +612,11 @@ func (u *User) Equal(other *User) bool {
 			return false
 		}
 	}
-	if len(u.ExtraMetadata) != len(other.ExtraMetadata) {
+	if !reflect.DeepEqual(u.ExtraMetadata, other.ExtraMetadata) {
 		return false
 	}
-	for k, v := range u.ExtraMetadata {
-		ov, ok := other.ExtraMetadata[k]
-		if !ok {
-			return false
-		}
-		if v != ov {
-			return false
-		}
-	}
-	if len(u.Preferences) != len(other.Preferences) {
+	if !reflect.DeepEqual(u.Preferences, other.Preferences) {
 		return false
-	}
-	for i := range u.Preferences {
-		if u.Preferences[i] != other.Preferences[i] {
-			return false
-		}
 	}
 	if (u.AvatarThumbnail == nil) != (other.AvatarThumbnail == nil) {
 		return false
@@ -489,6 +629,54 @@ func (u *User) Equal(other *User) bool {
 			if (*u.AvatarThumbnail)[i] != (*other.AvatarThumbnail)[i] {
 				return false
 			}
+		}
+	}
+	if len(u.FieldMasks) != len(other.FieldMasks) {
+		return false
+	}
+	for i := range u.FieldMasks {
+		if !reflect.DeepEqual(u.FieldMasks[i], other.FieldMasks[i]) {
+			return false
+		}
+	}
+	if len(u.Structs) != len(other.Structs) {
+		return false
+	}
+	for i := range u.Structs {
+		if !reflect.DeepEqual(u.Structs[i], other.Structs[i]) {
+			return false
+		}
+	}
+	if len(u.Lists) != len(other.Lists) {
+		return false
+	}
+	for i := range u.Lists {
+		if !reflect.DeepEqual(u.Lists[i], other.Lists[i]) {
+			return false
+		}
+	}
+	if len(u.EventTimes) != len(other.EventTimes) {
+		return false
+	}
+	for k, v := range u.EventTimes {
+		ov, ok := other.EventTimes[k]
+		if !ok {
+			return false
+		}
+		if v != ov {
+			return false
+		}
+	}
+	if len(u.Configs) != len(other.Configs) {
+		return false
+	}
+	for k, v := range u.Configs {
+		ov, ok := other.Configs[k]
+		if !ok {
+			return false
+		}
+		if !reflect.DeepEqual(v, ov) {
+			return false
 		}
 	}
 	return true

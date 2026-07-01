@@ -18,27 +18,32 @@ import "time"
 
 // UserMongo is the MongoDB storage representation of test.v1.User.
 type UserMongo struct {
-	ID              string            `bson:"id,omitempty"`
-	Email           string            `bson:"email,omitempty"`
-	DisplayName     string            `bson:"display_name,omitempty"`
-	Active          bool              `bson:"active,omitempty"`
-	Age             int32             `bson:"age,omitempty"`
-	Roles           []string          `bson:"roles,omitempty"`
-	Metadata        map[string]string `bson:"metadata,omitempty"`
-	Address         *AddressMongo     `bson:"address,omitempty"`
-	CreatedAt       time.Time         `bson:"created_at,omitempty"`
-	SessionTimeout  time.Duration     `bson:"session_timeout,omitempty"`
-	Phone           *string           `bson:"phone,omitempty"`
-	Avatar          []byte            `bson:"avatar,omitempty"`
-	Nickname        *string           `bson:"nickname,omitempty"`
-	Status          int32             `bson:"status,omitempty"`
-	Tags            []*TagMongo       `bson:"tags,omitempty"`
-	DeletedAt       time.Time         `bson:"deleted_at,omitempty"`
-	PreviousStatus  int32             `bson:"previous_status,omitempty"`
-	UpdateMask      []string          `bson:"update_mask,omitempty"`
-	ExtraMetadata   map[string]any    `bson:"extra_metadata,omitempty"`
-	Preferences     []any             `bson:"preferences,omitempty"`
-	AvatarThumbnail *[]byte           `bson:"avatar_thumbnail,omitempty"`
+	ID              string                    `bson:"id,omitempty"`
+	Email           string                    `bson:"email,omitempty"`
+	DisplayName     string                    `bson:"display_name,omitempty"`
+	Active          bool                      `bson:"active,omitempty"`
+	Age             int32                     `bson:"age,omitempty"`
+	Roles           []string                  `bson:"roles,omitempty"`
+	Metadata        map[string]string         `bson:"metadata,omitempty"`
+	Address         *AddressMongo             `bson:"address,omitempty"`
+	CreatedAt       time.Time                 `bson:"created_at,omitempty"`
+	SessionTimeout  time.Duration             `bson:"session_timeout,omitempty"`
+	Phone           *string                   `bson:"phone,omitempty"`
+	Avatar          []byte                    `bson:"avatar,omitempty"`
+	Nickname        *string                   `bson:"nickname,omitempty"`
+	Status          int32                     `bson:"status,omitempty"`
+	Tags            []*TagMongo               `bson:"tags,omitempty"`
+	DeletedAt       time.Time                 `bson:"deleted_at,omitempty"`
+	PreviousStatus  int32                     `bson:"previous_status,omitempty"`
+	UpdateMask      []string                  `bson:"update_mask,omitempty"`
+	ExtraMetadata   map[string]any            `bson:"extra_metadata,omitempty"`
+	Preferences     []any                     `bson:"preferences,omitempty"`
+	AvatarThumbnail *[]byte                   `bson:"avatar_thumbnail,omitempty"`
+	FieldMasks      [][]string                `bson:"field_masks,omitempty"`
+	Structs         []map[string]any          `bson:"structs,omitempty"`
+	Lists           [][]any                   `bson:"lists,omitempty"`
+	EventTimes      map[string]time.Time      `bson:"event_times,omitempty"`
+	Configs         map[string]map[string]any `bson:"configs,omitempty"`
 }
 
 // WARNING: oneof fields in User are not yet supported by proto2type.
@@ -113,6 +118,53 @@ func (u *UserMongo) ToProto() *pb.User {
 		out.AvatarThumbnail = make([]byte, len(*u.AvatarThumbnail))
 		copy(out.AvatarThumbnail, *u.AvatarThumbnail)
 	}
+	if len(u.FieldMasks) > 0 {
+		out.FieldMasks = make([]*fieldmaskpb.FieldMask, len(u.FieldMasks))
+		for i, v := range u.FieldMasks {
+			paths := make([]string, len(v))
+			copy(paths, v)
+			out.FieldMasks[i] = &fieldmaskpb.FieldMask{Paths: paths}
+		}
+	}
+	if len(u.Structs) > 0 {
+		out.Structs = make([]*structpb.Struct, len(u.Structs))
+		for i, v := range u.Structs {
+			s, err := structpb.NewStruct(v)
+			if err != nil {
+				log.Printf("proto2type: failed to convert %s.Structs[%d] to Struct: %v", "UserMongo", i, err)
+				continue
+			}
+			out.Structs[i] = s
+		}
+	}
+	if len(u.Lists) > 0 {
+		out.Lists = make([]*structpb.ListValue, len(u.Lists))
+		for i, v := range u.Lists {
+			l, err := structpb.NewList(v)
+			if err != nil {
+				log.Printf("proto2type: failed to convert %s.Lists[%d] to ListValue: %v", "UserMongo", i, err)
+				continue
+			}
+			out.Lists[i] = l
+		}
+	}
+	if len(u.EventTimes) > 0 {
+		out.EventTimes = make(map[string]*timestamppb.Timestamp, len(u.EventTimes))
+		for k, v := range u.EventTimes {
+			out.EventTimes[k] = timestamppb.New(v)
+		}
+	}
+	if len(u.Configs) > 0 {
+		out.Configs = make(map[string]*structpb.Struct, len(u.Configs))
+		for k, v := range u.Configs {
+			s, err := structpb.NewStruct(v)
+			if err != nil {
+				log.Printf("proto2type: failed to convert %s.Configs[%s] to Struct: %v", "UserMongo", k, err)
+				continue
+			}
+			out.Configs[k] = s
+		}
+	}
 	return out
 }
 
@@ -180,6 +232,48 @@ func (u *UserMongo) FromProto(pb *pb.User) {
 		copy(b, pb.AvatarThumbnail)
 		u.AvatarThumbnail = &b
 	}
+	if len(pb.FieldMasks) > 0 {
+		u.FieldMasks = make([][]string, len(pb.FieldMasks))
+		for i, v := range pb.FieldMasks {
+			if v != nil {
+				src := v.GetPaths()
+				u.FieldMasks[i] = make([]string, len(src))
+				copy(u.FieldMasks[i], src)
+			}
+		}
+	}
+	if len(pb.Structs) > 0 {
+		u.Structs = make([]map[string]any, len(pb.Structs))
+		for i, v := range pb.Structs {
+			if v != nil {
+				u.Structs[i] = v.AsMap()
+			}
+		}
+	}
+	if len(pb.Lists) > 0 {
+		u.Lists = make([][]any, len(pb.Lists))
+		for i, v := range pb.Lists {
+			if v != nil {
+				u.Lists[i] = v.AsSlice()
+			}
+		}
+	}
+	if len(pb.EventTimes) > 0 {
+		u.EventTimes = make(map[string]time.Time, len(pb.EventTimes))
+		for k, v := range pb.EventTimes {
+			if v != nil {
+				u.EventTimes[k] = v.AsTime()
+			}
+		}
+	}
+	if len(pb.Configs) > 0 {
+		u.Configs = make(map[string]map[string]any, len(pb.Configs))
+		for k, v := range pb.Configs {
+			if v != nil {
+				u.Configs[k] = v.AsMap()
+			}
+		}
+	}
 }
 
 // ToDomain converts to the domain type.
@@ -203,6 +297,11 @@ func (u *UserMongo) ToDomain() *User {
 		UpdateMask:     u.UpdateMask,
 		ExtraMetadata:  u.ExtraMetadata,
 		Preferences:    u.Preferences,
+		FieldMasks:     u.FieldMasks,
+		Structs:        u.Structs,
+		Lists:          u.Lists,
+		EventTimes:     u.EventTimes,
+		Configs:        u.Configs,
 	}
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
@@ -280,6 +379,11 @@ func (u *UserMongo) FromDomain(d *User) {
 		copy(b, *d.AvatarThumbnail)
 		u.AvatarThumbnail = &b
 	}
+	u.FieldMasks = d.FieldMasks
+	u.Structs = d.Structs
+	u.Lists = d.Lists
+	u.EventTimes = d.EventTimes
+	u.Configs = d.Configs
 }
 
 // AddressMongo is the MongoDB storage representation of test.v1.Address.

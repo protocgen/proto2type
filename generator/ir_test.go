@@ -63,6 +63,11 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 		"extra_metadata":   FieldKindStruct,    // WKT reference
 		"preferences":      FieldKindListValue, // WKT reference
 		"avatar_thumbnail": FieldKindScalar,    // optional bytes
+		"field_masks":      FieldKindFieldMask, // repeated WKT reference
+		"structs":          FieldKindStruct,    // repeated WKT reference
+		"lists":            FieldKindListValue, // repeated WKT reference
+		"event_times":      FieldKindMessage,   // map fields outer Kind=Message
+		"configs":          FieldKindMessage,   // map fields outer Kind=Message
 	}
 
 	for _, f := range user.Fields {
