@@ -252,6 +252,8 @@ type DomainEnum struct {
 	// Name is the PascalCase type name. For nested enums this is prefixed
 	// with the parent message name (e.g. "UserSettings_Theme").
 	Name string
+	// FullName is the fully-qualified proto name (e.g. "test.v1.UserStatus").
+	FullName string
 	// Comment is the leading proto comment.
 	Comment string
 	// Values in declaration order.
