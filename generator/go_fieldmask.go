@@ -40,12 +40,10 @@ func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
 			g.P("\t\t\t}")
 		} else if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
-			// Deep copy user-defined message pointer fields (GO-2).
-			// WKTs (Timestamp, Duration, wrappers) map to Go value types
-			// and don't need pointer deep copy.
+			// Deep copy user-defined message pointer fields via Clone() (GO-2).
+			// Clone() is generated for all domain structs and performs recursive deep copy.
 			g.P("\t\t\tif src.", f.PascalName, " != nil {")
-			g.P("\t\t\t\tclone := *src.", f.PascalName)
-			g.P("\t\t\t\tdst.", f.PascalName, " = &clone")
+			g.P("\t\t\t\tdst.", f.PascalName, " = src.", f.PascalName, ".Clone()")
 			g.P("\t\t\t} else {")
 			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
 			g.P("\t\t\t}")

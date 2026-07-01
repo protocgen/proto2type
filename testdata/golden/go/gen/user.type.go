@@ -303,8 +303,7 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			dst.Metadata = src.Metadata
 		case "address":
 			if src.Address != nil {
-				clone := *src.Address
-				dst.Address = &clone
+				dst.Address = src.Address.Clone()
 			} else {
 				dst.Address = nil
 			}
