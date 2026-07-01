@@ -1,11 +1,17 @@
 package generator
 
 import (
+	"fmt"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
+
+// maxNestingDepth is the maximum allowed depth for nested proto messages.
+// Deeply nested messages (100+ levels) could cause stack overflow; this
+// guard fails gracefully with a clear error.
+const maxNestingDepth = 64
 
 // BuildDomainFile builds the IR for a single proto source file.
 // It consolidates the scanning/walking logic that was previously duplicated
@@ -23,7 +29,7 @@ func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
 
 	// Top-level messages.
 	for _, msg := range file.Messages {
-		dm := buildDomainMessage(msg, "", opts)
+		dm := buildDomainMessage(msg, "", opts, 0)
 		if dm != nil {
 			df.Messages = append(df.Messages, dm)
 		}
@@ -35,8 +41,12 @@ func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
 // buildDomainMessage recursively builds the IR for a message and its children.
 // parentName is empty for top-level messages; for nested messages it is the
 // flattened parent name (e.g. "User" → nested "Settings" becomes "User_Settings").
+// depth tracks the current nesting level; exceeding maxNestingDepth panics.
 // Returns nil if the message is skipped.
-func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options) *DomainMessage {
+func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options, depth int) *DomainMessage {
+	if depth >= maxNestingDepth {
+		panic(fmt.Sprintf("proto2type: message %q exceeds maximum nesting depth of %d", msg.Desc.FullName(), maxNestingDepth))
+	}
 	if isMessageSkipped(msg) {
 		return &DomainMessage{
 			Name:     irMessageName(msg, parentName),
@@ -107,7 +117,7 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options)
 		if nested.Desc.IsMapEntry() {
 			continue
 		}
-		child := buildDomainMessage(nested, name, opts)
+		child := buildDomainMessage(nested, name, opts, depth+1)
 		if child != nil {
 			dm.NestedMessages = append(dm.NestedMessages, child)
 		}

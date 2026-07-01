@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"fmt"
+	"path"
 	"strings"
 	"unicode"
 )
@@ -84,10 +86,29 @@ func receiverName(typeName string) string {
 }
 
 // outputFilename returns the output filename for a given proto file.
+// It validates that the resulting path contains no path traversal components.
 func outputFilename(protoPath, suffix string) string {
 	// Strip .proto extension
 	base := strings.TrimSuffix(protoPath, ".proto")
-	return base + suffix
+	result := base + suffix
+
+	// Defense-in-depth: reject paths with ".." components that could escape
+	// the output directory. Protoc validates this upstream, but we guard here
+	// to prevent directory traversal if the function is called with untrusted input.
+	// Normalize backslashes to forward slashes for cross-platform safety,
+	// then use path (POSIX) package since protoc paths are always forward-slash.
+	normalized := strings.ReplaceAll(result, "\\", "/")
+	cleaned := path.Clean(normalized)
+	// Detect Windows drive-letter absolute paths (e.g. "C:/foo") which
+	// path.IsAbs does not catch since it's POSIX-only.
+	isWindowsAbs := len(cleaned) >= 3 &&
+		((cleaned[0] >= 'A' && cleaned[0] <= 'Z') || (cleaned[0] >= 'a' && cleaned[0] <= 'z')) &&
+		cleaned[1] == ':' && cleaned[2] == '/'
+	if path.IsAbs(cleaned) || isWindowsAbs || strings.HasPrefix(cleaned, "../") || cleaned == ".." {
+		panic(fmt.Sprintf("proto2type: path traversal detected in output filename: %q", result))
+	}
+
+	return cleaned
 }
 
 // parseGoPackage parses a go_package string in the format "import/path;package_name"

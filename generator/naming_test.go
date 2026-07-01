@@ -80,6 +80,31 @@ func TestOutputFilename(t *testing.T) {
 	}
 }
 
+func TestOutputFilename_PathTraversal(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"dotdot prefix", "../../etc/passwd.proto"},
+		{"dotdot mid", "foo/../../etc/passwd.proto"},
+		{"absolute unix", "/etc/passwd.proto"},
+		{"bare dotdot", "../.proto"},
+		{"windows backslash traversal", "foo\\..\\..\\etc\\passwd.proto"},
+		{"windows absolute drive", "C:\\tmp\\foo.proto"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Errorf("outputFilename(%q, ...) should panic on path traversal", tt.path)
+				}
+			}()
+			outputFilename(tt.path, ".type.go")
+		})
+	}
+}
+
 func TestParseGoPackage(t *testing.T) {
 	tests := []struct {
 		input       string
