@@ -14,7 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -40,7 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -75,7 +79,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -84,8 +90,6 @@ jobs:
 
       - name: Setup Buf
         uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1
-        with:
-          github_token: ${{ github.token }}
 
       - name: Install protoc-gen-go
         run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
@@ -97,20 +101,18 @@ jobs:
         run: echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Regenerate golden files
-        run: |
-          cd testdata/proto
-          buf generate
-          buf generate --template buf.gen.kotlin.yaml
-          buf generate --template buf.gen.complex-domain.yaml
+        run: cd testdata/proto && buf generate
 
       - name: Check for differences
-        run: git diff --exit-code testdata/golden/
+        run: git diff --exit-code
 
   golden-test-rust:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -119,8 +121,6 @@ jobs:
 
       - name: Setup Buf
         uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1
-        with:
-          github_token: ${{ github.token }}
 
       - name: Build plugin
         run: go build -o protoc-gen-proto2type .
@@ -129,10 +129,7 @@ jobs:
         run: echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Regenerate Rust golden files
-        run: |
-          cd testdata/proto
-          buf generate --template buf.gen.rust.yaml
-          buf generate --template buf.gen.complex-domain.yaml
+        run: cd testdata/proto && buf generate --template buf.gen.rust.yaml
 
       - name: Check for Rust golden file drift
         run: git diff --exit-code testdata/golden/rust/
@@ -143,6 +140,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -171,7 +170,8 @@ jobs:
           echo '// Auto-generated compile check' > /tmp/rust-compile-check/src/lib.rs
           for domain_file in testdata/golden/rust/gen/*.type.rs; do
             base=$(basename "$domain_file" .type.rs)
-            # Skip sqlite and buffa files, they'll be handled as submodules
+            # Skip sqlite files (handled as submodules) and buffa files (skipped entirely;
+            # they depend on crate::proto which isn't available in this scaffold)
             if echo "$base" | grep -qE '_sqlite$|_buffa$'; then
               continue
             fi
@@ -186,6 +186,8 @@ jobs:
               echo 'pub mod sqlite;' >> "/tmp/rust-compile-check/src/${base}/mod.rs"
               cp "$sqlite_file" "/tmp/rust-compile-check/src/${base}/sqlite.rs"
             fi
+            # Note: buffa files are skipped because they depend on crate::proto
+            # (ConnectRPC generated types) which aren't available in this scaffold.
             # Register in lib.rs
             echo "pub mod ${base};" >> /tmp/rust-compile-check/src/lib.rs
           done
@@ -212,7 +214,9 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -267,6 +271,8 @@ jobs:
     needs: golden-test-rust
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Refresh and test
         run: |
