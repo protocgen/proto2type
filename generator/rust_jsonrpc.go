@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -135,6 +136,7 @@ func jsonrpcScanImports(dm *DomainMessage, msgMap map[string]*DomainMessage, nee
 		if v.Kind == FieldKindTimestamp {
 			*needsChrono = true
 		}
+		// FieldKindDuration maps to i64 — no extra import needed.
 		if v.Kind == FieldKindStruct || v.Kind == FieldKindValue || v.Kind == FieldKindListValue {
 			*needsSerdeJson = true
 		}
@@ -181,10 +183,13 @@ func generateRustJsonrpcEnum(g *protogen.GeneratedFile, dm *DomainMessage, msgMa
 	}
 	g.P("pub enum ", enumName, " {")
 
-	for _, v := range oneof.Variants {
-		// Look up the variant's message in the IR to get its fields.
-		variantMsg := msgMap[v.TypeName]
+	// Build a set of hoisted field names for collision detection.
+	hoistedNames := make(map[string]bool, len(hoistedFields))
+	for _, f := range hoistedFields {
+		hoistedNames[escapeRustKeyword(toSnakeCase(f.PascalName))] = true
+	}
 
+	for _, v := range oneof.Variants {
 		g.P("    ", v.Name, " {")
 
 		// Hoisted fields first.
@@ -193,12 +198,26 @@ func generateRustJsonrpcEnum(g *protogen.GeneratedFile, dm *DomainMessage, msgMa
 		}
 
 		// Inlined fields from the variant's message.
-		if variantMsg != nil {
-			for _, vf := range variantMsg.Fields {
-				emitJsonrpcField(g, vf, "        ")
+		if v.Kind == FieldKindMessage {
+			variantMsg := msgMap[v.TypeName]
+			if variantMsg != nil {
+				for _, vf := range variantMsg.Fields {
+					// Skip inlined fields that collide with hoisted fields.
+					fieldName := escapeRustKeyword(toSnakeCase(vf.PascalName))
+					if hoistedNames[fieldName] {
+						log.Printf("proto2type: jsonrpc: skipping inlined field %q in variant %q (collides with hoisted field)", fieldName, v.Name)
+						continue
+					}
+					emitJsonrpcField(g, vf, "        ")
+				}
+			} else {
+				// Variant message not found in IR — may be from a different file.
+				log.Printf("proto2type: jsonrpc: variant %q references message %q not found in IR; emitting as opaque value", v.Name, v.TypeName)
+				g.P("        value: serde_json::Value,")
 			}
-		} else if v.Kind == FieldKindScalar || v.Kind == FieldKindEnum {
-			// Scalar/enum variant (not a message) — emit the value directly.
+		} else {
+			// Bare WKT or scalar variant (not wrapped in a message).
+			// Emit a single "value" field with the appropriate type.
 			fieldType := rustJsonrpcVariantScalarType(v)
 			g.P("        value: ", fieldType, ",")
 		}

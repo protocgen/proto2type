@@ -5,6 +5,7 @@ package test.streaming;
 option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb;pb";
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 
 // StreamEvent is the canonical jsonrpc test case:
 // 1 scalar field + 1 oneof with message variants.
@@ -50,4 +51,16 @@ message NonEligible {
 message MultiOneof {
   oneof a { string x = 1; }
   oneof b { string y = 2; }
+}
+
+// WktEvent has bare WKT-typed oneof variants (not wrapped in messages).
+// Tests that the jsonrpc backend correctly emits value fields for these.
+message WktEvent {
+  string event_id = 1;
+
+  oneof payload {
+    google.protobuf.Timestamp timestamp = 2;
+    google.protobuf.Struct metadata = 3;
+    string raw = 4;
+  }
 }

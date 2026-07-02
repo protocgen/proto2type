@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json;
+use chrono::{DateTime, Utc};
 
 use super::*;
 
@@ -36,6 +37,26 @@ pub enum StreamEventRpc {
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         code: Option<String>,
+    },
+}
+
+/// Flat JSON-RPC representation of WktEvent.
+/// Generated from proto message with oneof 'payload'.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum WktEventRpc {
+    Timestamp {
+        event_id: String,
+        value: DateTime<Utc>,
+    },
+    Metadata {
+        event_id: String,
+        value: serde_json::Value,
+    },
+    Raw {
+        event_id: String,
+        value: String,
     },
 }
 
