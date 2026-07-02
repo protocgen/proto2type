@@ -396,7 +396,7 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 				protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
 				protoMessage := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Message"})
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
-				g.P("\t\tif m, ok := (*", recv, ".", v.Name, ").(" , protoMessage, "); ok {")
+				g.P("\t\tif m, ok := (*", recv, ".", v.Name, ").(", protoMessage, "); ok {")
 				g.P("\t\t\tval := any(", protoClone, "(m))")
 				g.P("\t\t\tc.", v.Name, " = &val")
 				g.P("\t\t} else {")
