@@ -505,6 +505,7 @@ func (s *DocumentFirestore) FromDomain(d *Document) {
 		return
 	}
 	s.ID = d.ID
+	s.SettingsMap = nil
 	if len(d.SettingsMap) > 0 {
 		s.SettingsMap = make(map[string]*SettingsFirestore, len(d.SettingsMap))
 		for k, v := range d.SettingsMap {
@@ -744,6 +745,8 @@ func (e *EventFirestore) FromDomain(d *Event) {
 	if d.SettingsUpdate != nil {
 		e.SettingsUpdate = &SettingsFirestore{}
 		e.SettingsUpdate.FromDomain(d.SettingsUpdate)
+	} else {
+		e.SettingsUpdate = nil
 	}
 	e.PriorityChange = d.PriorityChange
 }
