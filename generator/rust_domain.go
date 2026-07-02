@@ -21,8 +21,10 @@ func generateRust(gen *protogen.Plugin, file *protogen.File, opts *Options) erro
 		switch opts.Backend {
 		case "sqlite":
 			return generateRustSqlite(gen, file, opts)
+		case "buffa":
+			return generateRustBuffa(gen, file, opts)
 		default:
-			return fmt.Errorf("proto2type: unsupported Rust backend %q (supported: sqlite)", opts.Backend)
+			return fmt.Errorf("proto2type: unsupported Rust backend %q (supported: sqlite, buffa)", opts.Backend)
 		}
 	}
 

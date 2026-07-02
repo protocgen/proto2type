@@ -30,13 +30,14 @@ func main() {
 	opts := &generator.Options{}
 
 	flags.StringVar(&opts.Lang, "lang", "go", "target language: go, python, kotlin, typescript")
-	flags.StringVar(&opts.Backend, "backend", "", "storage backend: firestore, mongo, dynamodb, datastore, spanner")
+	flags.StringVar(&opts.Backend, "backend", "", "storage backend: firestore, mongo, dynamodb, datastore, spanner, sqlite, buffa")
 	flags.BoolVar(&opts.Domain, "domain", true, "generate domain types + proto converters")
 	flags.StringVar(&opts.OutputFile, "output_file", "", "override output filename")
 	flags.BoolVar(&opts.EnumAsString, "enum_as_string", false, "store enums as string names")
 	flags.BoolVar(&opts.OmitemptyDefault, "omitempty_default", true, "default omitempty for optional fields")
 	flags.StringVar(&opts.GoPackage, "go_package", "", "override Go package for generated types (import path;package_name)")
 	flags.BoolVar(&opts.RustExhaustive, "rust_exhaustive", false, "generate exhaustive Rust structs (omit #[non_exhaustive])")
+	flags.StringVar(&opts.BufModule, "buffa_module", "", "Rust module path for buffa proto types (required for backend=buffa)")
 
 	protogen.Options{
 		ParamFunc: flags.Set,

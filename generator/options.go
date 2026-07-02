@@ -29,4 +29,8 @@ type Options struct {
 	// RustExhaustive controls whether Rust structs are generated as exhaustive (omitting #[non_exhaustive]).
 	// Default: false. Set to true for vendored codegen where the consumer owns the types.
 	RustExhaustive bool
+
+	// BufModule is the Rust module path where buffa-generated proto types live.
+	// Required for backend=buffa (e.g. "crate::proto::candela::harness::v1").
+	BufModule string
 }
