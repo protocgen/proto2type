@@ -245,6 +245,10 @@ type MapTypeInfo struct {
 	ScalarKind      protoreflect.Kind
 	MessageTypeName string
 	EnumTypeName    string
+
+	// ProtoGoIdent is the protogen.GoIdent for the map value message type.
+	// Used by Go backend converters for QualifiedGoIdent (e.g. pb.Settings).
+	ProtoGoIdent protogen.GoIdent
 }
 
 // DomainEnum is the IR for a proto enum.

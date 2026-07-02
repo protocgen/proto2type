@@ -168,7 +168,7 @@ func (u *User) ToProto() *pb.User {
 		for k, v := range u.Configs {
 			s, err := structpb.NewStruct(v)
 			if err != nil {
-				log.Printf("proto2type: failed to convert %s.Configs[%s] to Struct: %v", "User", k, err)
+				log.Printf("proto2type: failed to convert %s.Configs[%v] to Struct: %v", "User", k, err)
 				continue
 			}
 			out.Configs[k] = s
@@ -187,23 +187,30 @@ func (u *User) FromProto(msg *pb.User) {
 	u.DisplayName = msg.DisplayName
 	u.Active = msg.Active
 	u.Age = msg.Age
+	u.Roles = nil
 	u.Roles = msg.Roles
+	u.Metadata = nil
 	u.Metadata = msg.Metadata
+	u.Address = nil
 	if msg.Address != nil {
 		u.Address = &Address{}
 		u.Address.FromProto(msg.Address)
 	}
+	u.CreatedAt = time.Time{}
 	if msg.CreatedAt != nil {
 		u.CreatedAt = msg.CreatedAt.AsTime()
 	}
+	u.SessionTimeout = 0
 	if msg.SessionTimeout != nil {
 		u.SessionTimeout = msg.SessionTimeout.AsDuration()
 	}
 	u.Phone = msg.Phone
+	u.Avatar = nil
 	if msg.Avatar != nil {
 		u.Avatar = make([]byte, len(msg.Avatar))
 		copy(u.Avatar, msg.Avatar)
 	}
+	u.Nickname = nil
 	if msg.Nickname != nil {
 		v := msg.Nickname.GetValue()
 		u.Nickname = &v
@@ -217,6 +224,7 @@ func (u *User) FromProto(msg *pb.User) {
 	case *pb.User_ContactPhone:
 		u.ContactPhone = &v.ContactPhone
 	}
+	u.Tags = nil
 	if len(msg.Tags) > 0 {
 		u.Tags = make([]*Tag, len(msg.Tags))
 		for i, v := range msg.Tags {
@@ -227,6 +235,7 @@ func (u *User) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.DeletedAt = nil
 	if msg.DeletedAt != nil {
 		v := msg.DeletedAt.AsTime()
 		u.DeletedAt = &v
@@ -235,22 +244,27 @@ func (u *User) FromProto(msg *pb.User) {
 		v := int32(msg.GetPreviousStatus())
 		u.PreviousStatus = &v
 	}
+	u.UpdateMask = nil
 	if msg.UpdateMask != nil {
 		src := msg.UpdateMask.GetPaths()
 		u.UpdateMask = make([]string, len(src))
 		copy(u.UpdateMask, src)
 	}
+	u.ExtraMetadata = nil
 	if msg.ExtraMetadata != nil {
 		u.ExtraMetadata = msg.ExtraMetadata.AsMap()
 	}
+	u.Preferences = nil
 	if msg.Preferences != nil {
 		u.Preferences = msg.Preferences.AsSlice()
 	}
+	u.AvatarThumbnail = nil
 	if msg.AvatarThumbnail != nil {
 		b := make([]byte, len(msg.AvatarThumbnail))
 		copy(b, msg.AvatarThumbnail)
 		u.AvatarThumbnail = &b
 	}
+	u.FieldMasks = nil
 	if len(msg.FieldMasks) > 0 {
 		u.FieldMasks = make([][]string, len(msg.FieldMasks))
 		for i, v := range msg.FieldMasks {
@@ -261,6 +275,7 @@ func (u *User) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.Structs = nil
 	if len(msg.Structs) > 0 {
 		u.Structs = make([]map[string]any, len(msg.Structs))
 		for i, v := range msg.Structs {
@@ -269,6 +284,7 @@ func (u *User) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.Lists = nil
 	if len(msg.Lists) > 0 {
 		u.Lists = make([][]any, len(msg.Lists))
 		for i, v := range msg.Lists {
@@ -277,6 +293,7 @@ func (u *User) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.EventTimes = nil
 	if len(msg.EventTimes) > 0 {
 		u.EventTimes = make(map[string]time.Time, len(msg.EventTimes))
 		for k, v := range msg.EventTimes {
@@ -285,6 +302,7 @@ func (u *User) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.Configs = nil
 	if len(msg.Configs) > 0 {
 		u.Configs = make(map[string]map[string]any, len(msg.Configs))
 		for k, v := range msg.Configs {
@@ -354,17 +372,13 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			}
 		case "extra_metadata":
 			if src.ExtraMetadata != nil {
-				dst.ExtraMetadata = make(map[string]any, len(src.ExtraMetadata))
-				for k, v := range src.ExtraMetadata {
-					dst.ExtraMetadata[k] = v
-				}
+				dst.ExtraMetadata = deepCopyValue(src.ExtraMetadata).(map[string]any)
 			} else {
 				dst.ExtraMetadata = nil
 			}
 		case "preferences":
 			if src.Preferences != nil {
-				dst.Preferences = make([]any, len(src.Preferences))
-				copy(dst.Preferences, src.Preferences)
+				dst.Preferences = deepCopyValue(src.Preferences).([]any)
 			} else {
 				dst.Preferences = nil
 			}
@@ -377,15 +391,55 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 				dst.AvatarThumbnail = nil
 			}
 		case "field_masks":
-			dst.FieldMasks = src.FieldMasks
+			if src.FieldMasks != nil {
+				dst.FieldMasks = make([][]string, len(src.FieldMasks))
+				for i, v := range src.FieldMasks {
+					if v != nil {
+						s := make([]string, len(v))
+						copy(s, v)
+						dst.FieldMasks[i] = s
+					}
+				}
+			} else {
+				dst.FieldMasks = nil
+			}
 		case "structs":
-			dst.Structs = src.Structs
+			if src.Structs != nil {
+				dst.Structs = make([]map[string]any, len(src.Structs))
+				for i, v := range src.Structs {
+					if v != nil {
+						dst.Structs[i] = deepCopyValue(v).(map[string]any)
+					}
+				}
+			} else {
+				dst.Structs = nil
+			}
 		case "lists":
-			dst.Lists = src.Lists
+			if src.Lists != nil {
+				dst.Lists = make([][]any, len(src.Lists))
+				for i, v := range src.Lists {
+					if v != nil {
+						dst.Lists[i] = deepCopyValue(v).([]any)
+					}
+				}
+			} else {
+				dst.Lists = nil
+			}
 		case "event_times":
 			dst.EventTimes = src.EventTimes
 		case "configs":
-			dst.Configs = src.Configs
+			if src.Configs != nil {
+				dst.Configs = make(map[string]map[string]any, len(src.Configs))
+				for k, v := range src.Configs {
+					if v != nil {
+						dst.Configs[k] = deepCopyValue(v).(map[string]any)
+					} else {
+						dst.Configs[k] = nil
+					}
+				}
+			} else {
+				dst.Configs = nil
+			}
 		}
 	}
 }
@@ -451,10 +505,7 @@ func (u *User) Clone() *User {
 		c.Structs = make([]map[string]any, len(u.Structs))
 		for i, v := range u.Structs {
 			if v != nil {
-				c.Structs[i] = make(map[string]any, len(v))
-				for mk, mv := range v {
-					c.Structs[i][mk] = mv
-				}
+				c.Structs[i] = deepCopyValue(v).(map[string]any)
 			}
 		}
 	}
@@ -462,8 +513,7 @@ func (u *User) Clone() *User {
 		c.Lists = make([][]any, len(u.Lists))
 		for i, v := range u.Lists {
 			if v != nil {
-				c.Lists[i] = make([]any, len(v))
-				copy(c.Lists[i], v)
+				c.Lists[i] = deepCopyValue(v).([]any)
 			}
 		}
 	}
@@ -487,11 +537,7 @@ func (u *User) Clone() *User {
 		c.Configs = make(map[string]map[string]any, len(u.Configs))
 		for k, v := range u.Configs {
 			if v != nil {
-				m := make(map[string]any, len(v))
-				for mk, mv := range v {
-					m[mk] = mv
-				}
-				c.Configs[k] = m
+				c.Configs[k] = deepCopyValue(v).(map[string]any)
 			} else {
 				c.Configs[k] = nil
 			}
@@ -505,14 +551,10 @@ func (u *User) Clone() *User {
 		copy(c.UpdateMask, u.UpdateMask)
 	}
 	if u.ExtraMetadata != nil {
-		c.ExtraMetadata = make(map[string]any, len(u.ExtraMetadata))
-		for k, v := range u.ExtraMetadata {
-			c.ExtraMetadata[k] = v
-		}
+		c.ExtraMetadata = deepCopyValue(u.ExtraMetadata).(map[string]any)
 	}
 	if u.Preferences != nil {
-		c.Preferences = make([]any, len(u.Preferences))
-		copy(c.Preferences, u.Preferences)
+		c.Preferences = deepCopyValue(u.Preferences).([]any)
 	}
 	if u.ContactEmail != nil {
 		v := *u.ContactEmail

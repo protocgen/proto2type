@@ -166,7 +166,7 @@ func (u *UserFirestore) ToProto() *pb.User {
 		for k, v := range u.Configs {
 			s, err := structpb.NewStruct(v)
 			if err != nil {
-				log.Printf("proto2type: failed to convert %s.Configs[%s] to Struct: %v", "UserFirestore", k, err)
+				log.Printf("proto2type: failed to convert %s.Configs[%v] to Struct: %v", "UserFirestore", k, err)
 				continue
 			}
 			out.Configs[k] = s
@@ -185,23 +185,30 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 	u.DisplayName = msg.DisplayName
 	u.Active = msg.Active
 	u.Age = msg.Age
+	u.Roles = nil
 	u.Roles = msg.Roles
+	u.Metadata = nil
 	u.Metadata = msg.Metadata
+	u.Address = nil
 	if msg.Address != nil {
 		u.Address = &AddressFirestore{}
 		u.Address.FromProto(msg.Address)
 	}
+	u.CreatedAt = time.Time{}
 	if msg.CreatedAt != nil {
 		u.CreatedAt = msg.CreatedAt.AsTime()
 	}
+	u.SessionTimeout = 0
 	if msg.SessionTimeout != nil {
 		u.SessionTimeout = msg.SessionTimeout.AsDuration()
 	}
 	u.Phone = msg.Phone
+	u.Avatar = nil
 	if msg.Avatar != nil {
 		u.Avatar = make([]byte, len(msg.Avatar))
 		copy(u.Avatar, msg.Avatar)
 	}
+	u.Nickname = nil
 	if msg.Nickname != nil {
 		v := msg.Nickname.GetValue()
 		u.Nickname = &v
@@ -215,6 +222,7 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 	case *pb.User_ContactPhone:
 		u.ContactPhone = &v.ContactPhone
 	}
+	u.Tags = nil
 	if len(msg.Tags) > 0 {
 		u.Tags = make([]*TagFirestore, len(msg.Tags))
 		for i, v := range msg.Tags {
@@ -225,28 +233,34 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.DeletedAt = time.Time{}
 	if msg.DeletedAt != nil {
 		u.DeletedAt = msg.DeletedAt.AsTime()
 	}
 	if msg.PreviousStatus != nil {
 		u.PreviousStatus = int32(msg.GetPreviousStatus())
 	}
+	u.UpdateMask = nil
 	if msg.UpdateMask != nil {
 		src := msg.UpdateMask.GetPaths()
 		u.UpdateMask = make([]string, len(src))
 		copy(u.UpdateMask, src)
 	}
+	u.ExtraMetadata = nil
 	if msg.ExtraMetadata != nil {
 		u.ExtraMetadata = msg.ExtraMetadata.AsMap()
 	}
+	u.Preferences = nil
 	if msg.Preferences != nil {
 		u.Preferences = msg.Preferences.AsSlice()
 	}
+	u.AvatarThumbnail = nil
 	if msg.AvatarThumbnail != nil {
 		b := make([]byte, len(msg.AvatarThumbnail))
 		copy(b, msg.AvatarThumbnail)
 		u.AvatarThumbnail = &b
 	}
+	u.FieldMasks = nil
 	if len(msg.FieldMasks) > 0 {
 		u.FieldMasks = make([][]string, len(msg.FieldMasks))
 		for i, v := range msg.FieldMasks {
@@ -257,6 +271,7 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.Structs = nil
 	if len(msg.Structs) > 0 {
 		u.Structs = make([]map[string]any, len(msg.Structs))
 		for i, v := range msg.Structs {
@@ -265,6 +280,7 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.Lists = nil
 	if len(msg.Lists) > 0 {
 		u.Lists = make([][]any, len(msg.Lists))
 		for i, v := range msg.Lists {
@@ -273,6 +289,7 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.EventTimes = nil
 	if len(msg.EventTimes) > 0 {
 		u.EventTimes = make(map[string]time.Time, len(msg.EventTimes))
 		for k, v := range msg.EventTimes {
@@ -281,6 +298,7 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.Configs = nil
 	if len(msg.Configs) > 0 {
 		u.Configs = make(map[string]map[string]any, len(msg.Configs))
 		for k, v := range msg.Configs {

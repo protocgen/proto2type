@@ -10,6 +10,11 @@ import (
 	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
 )
 
+// emittedDeepCopyHelper tracks which Go import paths have already had the
+// deepCopyValue helper emitted, preventing redeclaration when multiple
+// proto files map to the same Go package.
+var emittedDeepCopyHelper = map[protogen.GoImportPath]bool{}
+
 // generateGo generates Go output files for a proto file.
 func generateGo(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	// Generate domain types if requested.
@@ -85,6 +90,13 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 		if err := generateGoDomainMessage(g, dm, opts); err != nil {
 			return err
 		}
+	}
+
+	// Emit the deepCopyValue helper if any message needs it for Clone,
+	// but only once per Go package (import path).
+	if irNeedsDeepCopyHelper(df.Messages) && !emittedDeepCopyHelper[goImportPath] {
+		emittedDeepCopyHelper[goImportPath] = true
+		generateGoDeepCopyHelper(g)
 	}
 
 	return nil

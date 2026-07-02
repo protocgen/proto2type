@@ -70,11 +70,14 @@ func (m *ModelCatalogEntryFirestore) FromProto(msg *pb.ModelCatalogEntry) {
 	m.Category = msg.Category
 	m.ContextWindow = msg.ContextWindow
 	m.DiscountPercent = msg.DiscountPercent
+	m.Aliases = nil
 	m.Aliases = msg.Aliases
 	m.ProviderModelID = msg.ProviderModelId
+	m.CreatedAt = time.Time{}
 	if msg.CreatedAt != nil {
 		m.CreatedAt = msg.CreatedAt.AsTime()
 	}
+	m.UpdatedAt = time.Time{}
 	if msg.UpdatedAt != nil {
 		m.UpdatedAt = msg.UpdatedAt.AsTime()
 	}
