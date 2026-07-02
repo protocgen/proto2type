@@ -538,6 +538,10 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 	for _, f := range dm.Fields {
 		if f.IsOneof {
 			oneof := findOneof(dm, f.OneofTypeName)
+			// Clear all variants so a reused receiver doesn't retain stale state.
+			for _, v := range oneof.Variants {
+				g.P("\t", recv, ".", v.Name, " = nil")
+			}
 			g.P("\tswitch v := msg.Get", oneof.ProtoGoName, "().(type) {")
 			for _, v := range oneof.Variants {
 				wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)

@@ -207,6 +207,8 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 		u.Nickname = &v
 	}
 	u.Status = int32(msg.Status)
+	u.ContactEmail = nil
+	u.ContactPhone = nil
 	switch v := msg.GetContactMethod().(type) {
 	case *pb.User_ContactEmail:
 		u.ContactEmail = &v.ContactEmail
