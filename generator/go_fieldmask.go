@@ -96,6 +96,98 @@ func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\t\t\t} else {")
 			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
 			g.P("\t\t\t}")
+		} else if f.Repeated && (f.Kind == FieldKindStruct || f.Kind == FieldKindListValue || f.Kind == FieldKindValue || f.Kind == FieldKindFieldMask) {
+			// Deep copy repeated WKT slices
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make(", goDomainFieldTypeFromIR(f), ", len(src.", f.PascalName, "))")
+			switch f.Kind {
+			case FieldKindStruct:
+				g.P("\t\t\t\tfor i, v := range src.", f.PascalName, " {")
+				g.P("\t\t\t\t\tif v != nil {")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[i] = deepCopyValue(v).(map[string]any)")
+				g.P("\t\t\t\t\t}")
+				g.P("\t\t\t\t}")
+			case FieldKindListValue:
+				g.P("\t\t\t\tfor i, v := range src.", f.PascalName, " {")
+				g.P("\t\t\t\t\tif v != nil {")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[i] = deepCopyValue(v).([]any)")
+				g.P("\t\t\t\t\t}")
+				g.P("\t\t\t\t}")
+			case FieldKindValue:
+				g.P("\t\t\t\tfor i, v := range src.", f.PascalName, " {")
+				g.P("\t\t\t\t\tdst.", f.PascalName, "[i] = deepCopyValue(v)")
+				g.P("\t\t\t\t}")
+			case FieldKindFieldMask:
+				g.P("\t\t\t\tfor i, v := range src.", f.PascalName, " {")
+				g.P("\t\t\t\t\tif v != nil {")
+				g.P("\t\t\t\t\t\ts := make([]string, len(v))")
+				g.P("\t\t\t\t\t\tcopy(s, v)")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[i] = s")
+				g.P("\t\t\t\t\t}")
+				g.P("\t\t\t\t}")
+			}
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
+		} else if f.Repeated && f.Kind == FieldKindAny {
+			// Deep copy repeated Any slices
+			protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+			protoMessage := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Message"})
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make([]any, len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tfor i, v := range src.", f.PascalName, " {")
+			g.P("\t\t\t\t\tif m, ok := v.(", protoMessage, "); ok {")
+			g.P("\t\t\t\t\t\tdst.", f.PascalName, "[i] = ", protoClone, "(m)")
+			g.P("\t\t\t\t\t} else {")
+			g.P("\t\t\t\t\t\tdst.", f.PascalName, "[i] = v")
+			g.P("\t\t\t\t\t}")
+			g.P("\t\t\t\t}")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
+		} else if f.IsMap && f.MapValue != nil && (f.MapValue.Kind == FieldKindStruct || f.MapValue.Kind == FieldKindListValue || f.MapValue.Kind == FieldKindValue || f.MapValue.Kind == FieldKindFieldMask || f.MapValue.Kind == FieldKindAny) {
+			// Deep copy map WKT fields — use same helpers as Clone
+			keyType := goType(f.MapKey.ScalarKind)
+			valType := goMapValueTypeFromIR(f.MapValue)
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make(map[", keyType, "]", valType, ", len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tfor k, v := range src.", f.PascalName, " {")
+			switch f.MapValue.Kind {
+			case FieldKindStruct:
+				g.P("\t\t\t\t\tif v != nil {")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[k] = deepCopyValue(v).(map[string]any)")
+				g.P("\t\t\t\t\t} else {")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[k] = nil")
+				g.P("\t\t\t\t\t}")
+			case FieldKindListValue:
+				g.P("\t\t\t\t\tif v != nil {")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[k] = deepCopyValue(v).([]any)")
+				g.P("\t\t\t\t\t} else {")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[k] = nil")
+				g.P("\t\t\t\t\t}")
+			case FieldKindValue:
+				g.P("\t\t\t\t\tdst.", f.PascalName, "[k] = deepCopyValue(v)")
+			case FieldKindFieldMask:
+				g.P("\t\t\t\t\tif v != nil {")
+				g.P("\t\t\t\t\t\ts := make([]string, len(v))")
+				g.P("\t\t\t\t\t\tcopy(s, v)")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[k] = s")
+				g.P("\t\t\t\t\t} else {")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[k] = nil")
+				g.P("\t\t\t\t\t}")
+			case FieldKindAny:
+				protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+				protoMessage := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Message"})
+				g.P("\t\t\t\t\tif m, ok := v.(", protoMessage, "); ok {")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[k] = ", protoClone, "(m)")
+				g.P("\t\t\t\t\t} else {")
+				g.P("\t\t\t\t\t\tdst.", f.PascalName, "[k] = v")
+				g.P("\t\t\t\t\t}")
+			}
+			g.P("\t\t\t\t}")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
 		} else {
 			g.P("\t\t\tdst.", f.PascalName, " = src.", f.PascalName)
 		}

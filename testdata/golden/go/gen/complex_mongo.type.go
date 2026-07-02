@@ -93,6 +93,7 @@ func (o *OrganizationMongo) FromProto(msg *pb.Organization) {
 		return
 	}
 	o.Name = msg.Name
+	o.Departments = nil
 	if len(msg.Departments) > 0 {
 		o.Departments = make([]*OrganizationDepartmentMongo, len(msg.Departments))
 		for i, v := range msg.Departments {
@@ -173,6 +174,7 @@ func (o *OrganizationDepartmentMongo) FromProto(msg *pb.Organization_Department)
 		return
 	}
 	o.Name = msg.Name
+	o.Teams = nil
 	if len(msg.Teams) > 0 {
 		o.Teams = make([]*OrganizationDepartmentTeamMongo, len(msg.Teams))
 		for i, v := range msg.Teams {
@@ -246,6 +248,7 @@ func (o *OrganizationDepartmentTeamMongo) FromProto(msg *pb.Organization_Departm
 		return
 	}
 	o.Name = msg.Name
+	o.Members = nil
 	o.Members = msg.Members
 }
 
@@ -438,6 +441,7 @@ func (d *DocumentMongo) FromProto(msg *pb.Document) {
 		return
 	}
 	d.ID = msg.Id
+	d.SettingsMap = nil
 	if len(msg.SettingsMap) > 0 {
 		d.SettingsMap = make(map[string]*SettingsMongo, len(msg.SettingsMap))
 		for k, v := range msg.SettingsMap {
@@ -448,26 +452,33 @@ func (d *DocumentMongo) FromProto(msg *pb.Document) {
 			}
 		}
 	}
+	d.CodeNames = nil
 	d.CodeNames = msg.CodeNames
+	d.Metadata = nil
 	if msg.Metadata != nil {
 		d.Metadata = msg.Metadata.AsMap()
 	}
+	d.Extension = nil
 	if msg.Extension != nil {
 		d.Extension = msg.Extension
 	}
+	d.UpdateMask = nil
 	if msg.UpdateMask != nil {
 		src := msg.UpdateMask.GetPaths()
 		d.UpdateMask = make([]string, len(src))
 		copy(d.UpdateMask, src)
 	}
+	d.Archived = nil
 	if msg.Archived != nil {
 		v := msg.Archived.GetValue()
 		d.Archived = &v
 	}
+	d.ViewCount = nil
 	if msg.ViewCount != nil {
 		v := msg.ViewCount.GetValue()
 		d.ViewCount = &v
 	}
+	d.Placeholders = nil
 	if len(msg.Placeholders) > 0 {
 		d.Placeholders = make([]struct{}, len(msg.Placeholders))
 	}
@@ -560,6 +571,7 @@ func (t *TreeNodeMongo) FromProto(msg *pb.TreeNode) {
 		return
 	}
 	t.Value = msg.Value
+	t.Children = nil
 	if len(msg.Children) > 0 {
 		t.Children = make([]*TreeNodeMongo, len(msg.Children))
 		for i, v := range msg.Children {
@@ -570,6 +582,7 @@ func (t *TreeNodeMongo) FromProto(msg *pb.TreeNode) {
 			}
 		}
 	}
+	t.Parent = nil
 	if msg.Parent != nil {
 		t.Parent = &TreeNodeMongo{}
 		t.Parent.FromProto(msg.Parent)

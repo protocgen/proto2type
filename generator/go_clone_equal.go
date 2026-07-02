@@ -366,6 +366,44 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 				g.P("\t\tv := *", recv, ".", v.Name)
 				g.P("\t\tc.", v.Name, " = &v")
 				g.P("\t}")
+			case FieldKindStruct:
+				// *map[string]any: deep copy via deepCopyValue
+				g.P("\tif ", recv, ".", v.Name, " != nil {")
+				g.P("\t\tval := deepCopyValue(*", recv, ".", v.Name, ").(map[string]any)")
+				g.P("\t\tc.", v.Name, " = &val")
+				g.P("\t}")
+			case FieldKindValue:
+				// *any: deep copy via deepCopyValue
+				g.P("\tif ", recv, ".", v.Name, " != nil {")
+				g.P("\t\tval := deepCopyValue(*", recv, ".", v.Name, ")")
+				g.P("\t\tc.", v.Name, " = &val")
+				g.P("\t}")
+			case FieldKindListValue:
+				// *[]any: deep copy via deepCopyValue
+				g.P("\tif ", recv, ".", v.Name, " != nil {")
+				g.P("\t\tval := deepCopyValue(*", recv, ".", v.Name, ").([]any)")
+				g.P("\t\tc.", v.Name, " = &val")
+				g.P("\t}")
+			case FieldKindFieldMask:
+				// *[]string: make + copy the slice
+				g.P("\tif ", recv, ".", v.Name, " != nil {")
+				g.P("\t\ts := make([]string, len(*", recv, ".", v.Name, "))")
+				g.P("\t\tcopy(s, *", recv, ".", v.Name, ")")
+				g.P("\t\tc.", v.Name, " = &s")
+				g.P("\t}")
+			case FieldKindAny:
+				// *any: if proto.Message, proto.Clone; else deepCopyValue
+				protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+				protoMessage := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Message"})
+				g.P("\tif ", recv, ".", v.Name, " != nil {")
+				g.P("\t\tif m, ok := (*", recv, ".", v.Name, ").(" , protoMessage, "); ok {")
+				g.P("\t\t\tval := any(", protoClone, "(m))")
+				g.P("\t\t\tc.", v.Name, " = &val")
+				g.P("\t\t} else {")
+				g.P("\t\t\tval := deepCopyValue(*", recv, ".", v.Name, ")")
+				g.P("\t\t\tc.", v.Name, " = &val")
+				g.P("\t\t}")
+				g.P("\t}")
 			default:
 				// Enum, Timestamp, Duration, etc. — all pointer types, copy value
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
@@ -578,6 +616,12 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 			switch v.Kind {
 			case FieldKindMessage:
 				g.P("\tif ", recv, ".", v.Name, " != nil && !", recv, ".", v.Name, ".Equal(other.", v.Name, ") {")
+				g.P("\t\treturn false")
+				g.P("\t}")
+			case FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindAny, FieldKindFieldMask:
+				// Non-comparable pointer types: use reflect.DeepEqual
+				deepEqual := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "reflect", GoName: "DeepEqual"})
+				g.P("\tif ", recv, ".", v.Name, " != nil && !", deepEqual, "(", recv, ".", v.Name, ", other.", v.Name, ") {")
 				g.P("\t\treturn false")
 				g.P("\t}")
 			default:

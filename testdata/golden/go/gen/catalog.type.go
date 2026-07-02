@@ -74,6 +74,7 @@ func (m *ModelCatalogEntry) FromProto(msg *pb.ModelCatalogEntry) {
 	m.Category = msg.Category
 	m.ContextWindow = msg.ContextWindow
 	m.DiscountPercent = msg.DiscountPercent
+	m.Aliases = nil
 	m.Aliases = msg.Aliases
 	m.ProviderModelID = msg.ProviderModelId
 	if msg.CreatedAt != nil {

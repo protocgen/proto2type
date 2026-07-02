@@ -126,13 +126,13 @@ func TestCloneIndependence(t *testing.T) {
 
 	// Mutate clone
 	cloned.SettingsMap["main"].Theme = 2
-	cloned.Metadata["nested"].(map[string]any)["key"] = "changed"
+	mustMap(t, cloned.Metadata["nested"])["key"] = "changed"
 
 	// Verify original is unchanged
 	if original.SettingsMap["main"].Theme != 1 {
 		t.Error("Clone leaked: SettingsMap mutation affected original")
 	}
-	if original.Metadata["nested"].(map[string]any)["key"] != "value" {
+	if mustMap(t, original.Metadata["nested"])["key"] != "value" {
 		t.Error("Clone leaked: Metadata mutation affected original")
 	}
 }
@@ -164,7 +164,7 @@ func TestCloneIndependenceAny(t *testing.T) {
 	if !ok {
 		t.Fatal("original Extension is not *anypb.Any")
 	}
-	if originalAny.TypeUrl == "mutated" {
+	if originalAny.GetTypeUrl() == "mutated" {
 		t.Error("Clone leaked: Any Extension mutation affected original")
 	}
 }
@@ -207,17 +207,17 @@ func TestUserCloneIndependence(t *testing.T) {
 	cloned := original.Clone()
 
 	// Mutate clone's nested structures
-	cloned.ExtraMetadata["nested"].(map[string]any)["k"] = "changed"
-	cloned.Preferences[1].(map[string]any)["deep"] = "changed"
+	mustMap(t, cloned.ExtraMetadata["nested"])["k"] = "changed"
+	mustMap(t, cloned.Preferences[1])["deep"] = "changed"
 	cloned.Configs["cfg"]["inner"] = "changed"
 	cloned.Structs[0]["s"] = "changed"
 	cloned.Lists[0][0] = "changed"
 
 	// Verify original is unchanged
-	if original.ExtraMetadata["nested"].(map[string]any)["k"] != "v" {
+	if mustMap(t, original.ExtraMetadata["nested"])["k"] != "v" {
 		t.Error("Clone leaked: ExtraMetadata mutation affected original")
 	}
-	if original.Preferences[1].(map[string]any)["deep"] != "val" {
+	if mustMap(t, original.Preferences[1])["deep"] != "val" {
 		t.Error("Clone leaked: Preferences mutation affected original")
 	}
 	if original.Configs["cfg"]["inner"] != "orig" {
@@ -229,4 +229,102 @@ func TestUserCloneIndependence(t *testing.T) {
 	if original.Lists[0][0] != "x" {
 		t.Error("Clone leaked: Lists mutation affected original")
 	}
+}
+
+func TestFromProtoReusedReceiverClearsFields(t *testing.T) {
+	// Create an anypb.Any for the Extension field
+	ts := timestamppb.Now()
+	anyVal, err := anypb.New(ts)
+	if err != nil {
+		t.Fatalf("failed to create anypb.Any: %v", err)
+	}
+
+	// Populate a Document with everything
+	doc := &gen.Document{
+		ID: "doc-1",
+		SettingsMap: map[string]*gen.Settings{
+			"main": {Theme: 1, Locale: "en-US"},
+		},
+		Extension:    anyVal,
+		Placeholders: []struct{}{{}, {}},
+		Metadata:     map[string]any{"key": "val"},
+		UpdateMask:   []string{"a", "b"},
+	}
+
+	// FromProto with empty proto — should clear all reference-type fields
+	doc.FromProto(&pb.Document{Id: "doc-2"})
+
+	if doc.SettingsMap != nil {
+		t.Error("SettingsMap not cleared")
+	}
+	if doc.Extension != nil {
+		t.Error("Extension not cleared")
+	}
+	if doc.Placeholders != nil {
+		t.Error("Placeholders not cleared")
+	}
+	if doc.Metadata != nil {
+		t.Error("Metadata not cleared")
+	}
+	if doc.UpdateMask != nil {
+		t.Error("UpdateMask not cleared")
+	}
+	if doc.ID != "doc-2" {
+		t.Errorf("ID not updated: got %q", doc.ID)
+	}
+}
+
+func TestFieldMaskDocument(t *testing.T) {
+	src := &gen.Document{
+		ID:         "src",
+		Metadata:   map[string]any{"k": "v"},
+		UpdateMask: []string{"a", "b"},
+	}
+	dst := &gen.Document{ID: "dst"}
+
+	gen.ApplyFieldMaskDocument(dst, src, []string{"metadata", "update_mask"})
+
+	if dst.ID != "dst" {
+		t.Error("FieldMask modified unmasked field")
+	}
+	if dst.Metadata == nil {
+		t.Fatal("FieldMask didn't copy Metadata")
+	}
+	if dst.UpdateMask == nil {
+		t.Fatal("FieldMask didn't copy UpdateMask")
+	}
+	// Verify deep copy — mutating src should not affect dst
+	src.Metadata["k"] = "changed"
+	if dst.Metadata["k"] != "v" {
+		t.Error("FieldMask shallow-copied Metadata")
+	}
+	src.UpdateMask[0] = "changed"
+	if dst.UpdateMask[0] != "a" {
+		t.Error("FieldMask shallow-copied UpdateMask")
+	}
+}
+
+func TestEqualEdgeCases(t *testing.T) {
+	a := &gen.Document{ID: "1"}
+	b := &gen.Document{ID: "1"}
+	if !a.Equal(b) {
+		t.Error("identical docs not equal")
+	}
+
+	// Empty map vs nil — both semantically empty but structurally different
+	a.Metadata = map[string]any{}
+	b.Metadata = nil
+	// This tests our Equal implementation's handling of nil vs empty map.
+	// reflect.DeepEqual treats nil map and empty map as not equal,
+	// so we verify the behavior is consistent.
+	_ = a.Equal(b) // just ensure it doesn't panic
+}
+
+func mustMap(t *testing.T, v any) map[string]any {
+	t.Helper()
+	m, ok := v.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", v)
+	}
+	return m
 }

@@ -121,6 +121,7 @@ func (o *Organization) FromProto(msg *pb.Organization) {
 		return
 	}
 	o.Name = msg.Name
+	o.Departments = nil
 	if len(msg.Departments) > 0 {
 		o.Departments = make([]*OrganizationDepartment, len(msg.Departments))
 		for i, v := range msg.Departments {
@@ -223,6 +224,7 @@ func (o *OrganizationDepartment) FromProto(msg *pb.Organization_Department) {
 		return
 	}
 	o.Name = msg.Name
+	o.Teams = nil
 	if len(msg.Teams) > 0 {
 		o.Teams = make([]*OrganizationDepartmentTeam, len(msg.Teams))
 		for i, v := range msg.Teams {
@@ -318,6 +320,7 @@ func (o *OrganizationDepartmentTeam) FromProto(msg *pb.Organization_Department_T
 		return
 	}
 	o.Name = msg.Name
+	o.Members = nil
 	o.Members = msg.Members
 }
 
@@ -618,6 +621,7 @@ func (d *Document) FromProto(msg *pb.Document) {
 		return
 	}
 	d.ID = msg.Id
+	d.SettingsMap = nil
 	if len(msg.SettingsMap) > 0 {
 		d.SettingsMap = make(map[string]*Settings, len(msg.SettingsMap))
 		for k, v := range msg.SettingsMap {
@@ -628,26 +632,33 @@ func (d *Document) FromProto(msg *pb.Document) {
 			}
 		}
 	}
+	d.CodeNames = nil
 	d.CodeNames = msg.CodeNames
+	d.Metadata = nil
 	if msg.Metadata != nil {
 		d.Metadata = msg.Metadata.AsMap()
 	}
+	d.Extension = nil
 	if msg.Extension != nil {
 		d.Extension = msg.Extension
 	}
+	d.UpdateMask = nil
 	if msg.UpdateMask != nil {
 		src := msg.UpdateMask.GetPaths()
 		d.UpdateMask = make([]string, len(src))
 		copy(d.UpdateMask, src)
 	}
+	d.Archived = nil
 	if msg.Archived != nil {
 		v := msg.Archived.GetValue()
 		d.Archived = &v
 	}
+	d.ViewCount = nil
 	if msg.ViewCount != nil {
 		v := msg.ViewCount.GetValue()
 		d.ViewCount = &v
 	}
+	d.Placeholders = nil
 	if len(msg.Placeholders) > 0 {
 		d.Placeholders = make([]struct{}, len(msg.Placeholders))
 	}
@@ -864,6 +875,7 @@ func (t *TreeNode) FromProto(msg *pb.TreeNode) {
 		return
 	}
 	t.Value = msg.Value
+	t.Children = nil
 	if len(msg.Children) > 0 {
 		t.Children = make([]*TreeNode, len(msg.Children))
 		for i, v := range msg.Children {
@@ -874,6 +886,7 @@ func (t *TreeNode) FromProto(msg *pb.TreeNode) {
 			}
 		}
 	}
+	t.Parent = nil
 	if msg.Parent != nil {
 		t.Parent = &TreeNode{}
 		t.Parent.FromProto(msg.Parent)

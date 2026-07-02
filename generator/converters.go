@@ -360,7 +360,7 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 				g.P("\t\tfor k, v := range ", recv, ".", domainFieldName, " {")
 				g.P("\t\t\ts, err := ", structNew, "(v)")
 				g.P("\t\t\tif err != nil {")
-				g.P("\t\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%s] to Struct: %v\", \"", structName, "\", k, err)")
+				g.P("\t\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%v] to Struct: %v\", \"", structName, "\", k, err)")
 				g.P("\t\t\t\tcontinue")
 				g.P("\t\t\t}")
 				g.P("\t\t\tout.", protoFieldName, "[k] = s")
@@ -375,7 +375,7 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 				g.P("\t\tfor k, v := range ", recv, ".", domainFieldName, " {")
 				g.P("\t\t\tl, err := ", listNew, "(v)")
 				g.P("\t\t\tif err != nil {")
-				g.P("\t\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%s] to ListValue: %v\", \"", structName, "\", k, err)")
+				g.P("\t\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%v] to ListValue: %v\", \"", structName, "\", k, err)")
 				g.P("\t\t\t\tcontinue")
 				g.P("\t\t\t}")
 				g.P("\t\t\tout.", protoFieldName, "[k] = l")
@@ -648,6 +648,32 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 
 		domainFieldName := f.PascalName
 		protoFieldName := f.ProtoGoName
+
+		// Clear receiver field before guarded conversion to prevent stale data on reused receivers.
+		switch {
+		case f.Repeated:
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.IsMap:
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.Kind == FieldKindMessage:
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.Kind == FieldKindFieldMask:
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.Kind == FieldKindStruct:
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.Kind == FieldKindListValue:
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.Kind == FieldKindAny:
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind:
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.Kind.IsWrapper() || f.Kind == FieldKindWrapperBytes:
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.Kind == FieldKindTimestamp && f.Optional && structSuffix == "":
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.Kind == FieldKindDuration && f.Optional && structSuffix == "":
+			g.P("\t", recv, ".", domainFieldName, " = nil")
+		}
 
 		// Handle repeated WKT types with loop-based conversion.
 		if f.Repeated && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration || f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue || f.Kind == FieldKindEmpty || f.Kind == FieldKindAny || f.Kind.IsWrapper()) {
