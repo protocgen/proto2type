@@ -33,4 +33,11 @@ type Options struct {
 	// BufModule is the Rust module path where buffa-generated proto types live.
 	// Required for backend=buffa (e.g. "crate::proto::candela::harness::v1").
 	BufModule string
+
+	// BufOneofPrefix is an optional module prefix inserted between the buffa module
+	// and the "oneof" submodule in generated Rust code.
+	// When empty (default), oneof paths are: __buffa_mod::oneof::<msg>::<Variant>
+	// When set (e.g. "__buffa"), paths become: __buffa_mod::__buffa::oneof::<msg>::<Variant>
+	// connectrpc-build uses "__buffa" as its prefix.
+	BufOneofPrefix string
 }
