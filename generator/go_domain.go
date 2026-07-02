@@ -110,7 +110,14 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, opts 
 
 	for _, f := range dm.Fields {
 		if f.IsOneof {
-			continue // Go backend doesn't yet emit oneof struct fields.
+			// Emit a comment and flattened variant fields
+			oneof := findOneof(dm, f.OneofTypeName)
+			g.P("\t// oneof: ", oneof.FieldName)
+			for _, v := range oneof.Variants {
+				vType := goOneofVariantType(v)
+				g.P("\t", v.Name, " ", vType, " `json:\"", v.ProtoName, ",omitempty\"`")
+			}
+			continue
 		}
 		fieldName := f.PascalName
 		fieldType := goDomainFieldTypeFromIR(f)
@@ -429,4 +436,81 @@ func shouldOmitempty(field *protogen.Field, opts *Options) bool {
 		return true
 	}
 	return false
+}
+
+// findOneof looks up a DomainOneof by its Name in a message's Oneofs slice.
+func findOneof(dm *DomainMessage, name string) *DomainOneof {
+	for _, o := range dm.Oneofs {
+		if o.Name == name {
+			return o
+		}
+	}
+	return nil
+}
+
+// goOneofVariantType returns the Go type for a oneof variant pointer field in the domain struct.
+func goOneofVariantType(v *OneofVariant) string {
+	switch v.Kind {
+	case FieldKindTimestamp:
+		return "*time.Time"
+	case FieldKindDuration:
+		return "*time.Duration"
+	case FieldKindMessage:
+		return "*" + v.TypeName // already a pointer — nil = not set
+	case FieldKindEnum:
+		if v.EnumAsString {
+			return "*string"
+		}
+		return "*int32"
+	case FieldKindStruct:
+		return "*map[string]any"
+	case FieldKindValue:
+		return "*any"
+	case FieldKindListValue:
+		return "*[]any"
+	case FieldKindFieldMask:
+		return "*[]string"
+	case FieldKindEmpty:
+		return "*struct{}"
+	case FieldKindScalar:
+		return "*" + goType(v.ScalarKind)
+	}
+	if v.Kind.IsWrapper() {
+		return wrapperGoTypeFromIR(v.Kind) // already *T
+	}
+	return "*" + goType(v.ScalarKind)
+}
+
+// goOneofVariantStorageType returns the Go type for a oneof variant pointer field in storage structs.
+// For storage backends, the type is the same as domain but message types get a suffix.
+func goOneofVariantStorageType(v *OneofVariant, suffix string) string {
+	switch v.Kind {
+	case FieldKindTimestamp:
+		return "*time.Time"
+	case FieldKindDuration:
+		return "*time.Duration"
+	case FieldKindMessage:
+		return "*" + v.TypeName + suffix
+	case FieldKindEnum:
+		if v.EnumAsString {
+			return "*string"
+		}
+		return "*int32"
+	case FieldKindStruct:
+		return "*map[string]any"
+	case FieldKindValue:
+		return "*any"
+	case FieldKindListValue:
+		return "*[]any"
+	case FieldKindFieldMask:
+		return "*[]string"
+	case FieldKindEmpty:
+		return "*struct{}"
+	case FieldKindScalar:
+		return "*" + goType(v.ScalarKind)
+	}
+	if v.Kind.IsWrapper() {
+		return wrapperGoTypeFromIR(v.Kind)
+	}
+	return "*" + goType(v.ScalarKind)
 }

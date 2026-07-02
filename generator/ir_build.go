@@ -363,23 +363,28 @@ func buildDomainOneof(msg *protogen.Message, oneof *protogen.Oneof, msgIRName st
 	oneofPascal := toPascalCase(string(oneof.Desc.Name()))
 
 	do := &DomainOneof{
-		Name:      msgIRName + oneofPascal,
-		FieldName: string(oneof.Desc.Name()),
+		Name:        msgIRName + oneofPascal,
+		FieldName:   string(oneof.Desc.Name()),
+		ProtoGoName: oneof.GoName,
 	}
 
 	for _, field := range oneof.Fields {
 		kind, scalarKind := classifyField(field)
 		variant := &OneofVariant{
-			Name:       toPascalCase(string(field.Desc.Name())),
-			ProtoName:  string(field.Desc.Name()),
-			Kind:       kind,
-			ScalarKind: scalarKind,
+			Name:         toPascalCase(string(field.Desc.Name())),
+			ProtoName:    string(field.Desc.Name()),
+			Kind:         kind,
+			ScalarKind:   scalarKind,
+			ProtoGoIdent: field.GoIdent,
+			ProtoGoName:  field.GoName,
 		}
 
 		switch kind {
 		case FieldKindMessage:
 			variant.TypeName = irMessageNameFromDesc(field.Desc.Message())
+			variant.ProtoMessageGoIdent = field.Message.GoIdent
 		case FieldKindEnum:
+			variant.ProtoEnumGoIdent = field.Enum.GoIdent
 			if isEnumAsString(field, opts) {
 				variant.EnumAsString = true
 			} else {

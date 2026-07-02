@@ -61,29 +61,29 @@ func (m *ModelCatalogEntry) ToProto() *pb.ModelCatalogEntry {
 }
 
 // FromProto populates from a protobuf message.
-func (m *ModelCatalogEntry) FromProto(pb *pb.ModelCatalogEntry) {
-	if pb == nil {
+func (m *ModelCatalogEntry) FromProto(msg *pb.ModelCatalogEntry) {
+	if msg == nil {
 		return
 	}
-	m.ModelID = pb.ModelId
-	m.Provider = pb.Provider
-	m.DisplayName = pb.DisplayName
-	m.InputPerMillion = pb.InputPerMillion
-	m.OutputPerMillion = pb.OutputPerMillion
-	m.Enabled = pb.Enabled
-	m.Category = pb.Category
-	m.ContextWindow = pb.ContextWindow
-	m.DiscountPercent = pb.DiscountPercent
-	m.Aliases = pb.Aliases
-	m.ProviderModelID = pb.ProviderModelId
-	if pb.CreatedAt != nil {
-		m.CreatedAt = pb.CreatedAt.AsTime()
+	m.ModelID = msg.ModelId
+	m.Provider = msg.Provider
+	m.DisplayName = msg.DisplayName
+	m.InputPerMillion = msg.InputPerMillion
+	m.OutputPerMillion = msg.OutputPerMillion
+	m.Enabled = msg.Enabled
+	m.Category = msg.Category
+	m.ContextWindow = msg.ContextWindow
+	m.DiscountPercent = msg.DiscountPercent
+	m.Aliases = msg.Aliases
+	m.ProviderModelID = msg.ProviderModelId
+	if msg.CreatedAt != nil {
+		m.CreatedAt = msg.CreatedAt.AsTime()
 	}
-	if pb.UpdatedAt != nil {
-		m.UpdatedAt = pb.UpdatedAt.AsTime()
+	if msg.UpdatedAt != nil {
+		m.UpdatedAt = msg.UpdatedAt.AsTime()
 	}
-	m.Notes = pb.Notes
-	m.Region = pb.Region
+	m.Notes = msg.Notes
+	m.Region = msg.Region
 }
 
 // ApplyFieldMaskModelCatalogEntry copies fields from src to dst based on the given paths.

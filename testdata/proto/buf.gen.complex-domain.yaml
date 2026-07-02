@@ -4,7 +4,14 @@ inputs:
     paths:
       - complex.proto
 plugins:
-  # Rust domain types only (no storage backends)
+  # Go domain types (complex.proto)
+  - local: protoc-gen-proto2type
+    out: ../golden/go/gen
+    opt:
+      - paths=source_relative
+      - go_package=github.com/protocgen/proto2type/testdata/golden/go/gen;gen
+
+  # Rust domain types
   - local: protoc-gen-proto2type
     out: ../golden/rust/gen
     opt:

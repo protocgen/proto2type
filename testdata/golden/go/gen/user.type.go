@@ -20,20 +20,23 @@ import "time"
 //
 // User represents a user account.
 type User struct {
-	ID              string                    `json:"id,omitempty"`
-	Email           string                    `json:"email,omitempty"`
-	DisplayName     string                    `json:"display_name,omitempty"`
-	Active          bool                      `json:"active,omitempty"`
-	Age             int32                     `json:"age,omitempty"`
-	Roles           []string                  `json:"roles,omitempty"`
-	Metadata        map[string]string         `json:"metadata,omitempty"`
-	Address         *Address                  `json:"address,omitempty"`
-	CreatedAt       time.Time                 `json:"created_at,omitempty"`
-	SessionTimeout  time.Duration             `json:"session_timeout,omitempty"`
-	Phone           *string                   `json:"phone,omitempty"`
-	Avatar          []byte                    `json:"avatar,omitempty"`
-	Nickname        *string                   `json:"nickname,omitempty"`
-	Status          int32                     `json:"status,omitempty"`
+	ID             string            `json:"id,omitempty"`
+	Email          string            `json:"email,omitempty"`
+	DisplayName    string            `json:"display_name,omitempty"`
+	Active         bool              `json:"active,omitempty"`
+	Age            int32             `json:"age,omitempty"`
+	Roles          []string          `json:"roles,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	Address        *Address          `json:"address,omitempty"`
+	CreatedAt      time.Time         `json:"created_at,omitempty"`
+	SessionTimeout time.Duration     `json:"session_timeout,omitempty"`
+	Phone          *string           `json:"phone,omitempty"`
+	Avatar         []byte            `json:"avatar,omitempty"`
+	Nickname       *string           `json:"nickname,omitempty"`
+	Status         int32             `json:"status,omitempty"`
+	// oneof: contact_method
+	ContactEmail    *string                   `json:"contact_email,omitempty"`
+	ContactPhone    *string                   `json:"contact_phone,omitempty"`
 	Tags            []*Tag                    `json:"tags,omitempty"`
 	DeletedAt       *time.Time                `json:"deleted_at,omitempty"`
 	PreviousStatus  *int32                    `json:"previous_status,omitempty"`
@@ -47,8 +50,6 @@ type User struct {
 	EventTimes      map[string]time.Time      `json:"event_times,omitempty"`
 	Configs         map[string]map[string]any `json:"configs,omitempty"`
 }
-
-// WARNING: oneof fields in User are not yet supported by proto2type.
 
 // ToProto converts to the protobuf message.
 func (u *User) ToProto() *pb.User {
@@ -79,6 +80,12 @@ func (u *User) ToProto() *pb.User {
 	}
 	if u.Nickname != nil {
 		out.Nickname = wrapperspb.String(*u.Nickname)
+	}
+	if u.ContactEmail != nil {
+		out.ContactMethod = &pb.User_ContactEmail{ContactEmail: *u.ContactEmail}
+	}
+	if u.ContactPhone != nil {
+		out.ContactMethod = &pb.User_ContactPhone{ContactPhone: *u.ContactPhone}
 	}
 	if len(u.Tags) > 0 {
 		out.Tags = make([]*pb.Tag, len(u.Tags))
@@ -171,40 +178,48 @@ func (u *User) ToProto() *pb.User {
 }
 
 // FromProto populates from a protobuf message.
-func (u *User) FromProto(pb *pb.User) {
-	if pb == nil {
+func (u *User) FromProto(msg *pb.User) {
+	if msg == nil {
 		return
 	}
-	u.ID = pb.Id
-	u.Email = pb.Email
-	u.DisplayName = pb.DisplayName
-	u.Active = pb.Active
-	u.Age = pb.Age
-	u.Roles = pb.Roles
-	u.Metadata = pb.Metadata
-	if pb.Address != nil {
+	u.ID = msg.Id
+	u.Email = msg.Email
+	u.DisplayName = msg.DisplayName
+	u.Active = msg.Active
+	u.Age = msg.Age
+	u.Roles = msg.Roles
+	u.Metadata = msg.Metadata
+	if msg.Address != nil {
 		u.Address = &Address{}
-		u.Address.FromProto(pb.Address)
+		u.Address.FromProto(msg.Address)
 	}
-	if pb.CreatedAt != nil {
-		u.CreatedAt = pb.CreatedAt.AsTime()
+	if msg.CreatedAt != nil {
+		u.CreatedAt = msg.CreatedAt.AsTime()
 	}
-	if pb.SessionTimeout != nil {
-		u.SessionTimeout = pb.SessionTimeout.AsDuration()
+	if msg.SessionTimeout != nil {
+		u.SessionTimeout = msg.SessionTimeout.AsDuration()
 	}
-	u.Phone = pb.Phone
-	if pb.Avatar != nil {
-		u.Avatar = make([]byte, len(pb.Avatar))
-		copy(u.Avatar, pb.Avatar)
+	u.Phone = msg.Phone
+	if msg.Avatar != nil {
+		u.Avatar = make([]byte, len(msg.Avatar))
+		copy(u.Avatar, msg.Avatar)
 	}
-	if pb.Nickname != nil {
-		v := pb.Nickname.GetValue()
+	if msg.Nickname != nil {
+		v := msg.Nickname.GetValue()
 		u.Nickname = &v
 	}
-	u.Status = int32(pb.Status)
-	if len(pb.Tags) > 0 {
-		u.Tags = make([]*Tag, len(pb.Tags))
-		for i, v := range pb.Tags {
+	u.Status = int32(msg.Status)
+	u.ContactEmail = nil
+	u.ContactPhone = nil
+	switch v := msg.GetContactMethod().(type) {
+	case *pb.User_ContactEmail:
+		u.ContactEmail = &v.ContactEmail
+	case *pb.User_ContactPhone:
+		u.ContactPhone = &v.ContactPhone
+	}
+	if len(msg.Tags) > 0 {
+		u.Tags = make([]*Tag, len(msg.Tags))
+		for i, v := range msg.Tags {
 			if v != nil {
 				elem := &Tag{}
 				elem.FromProto(v)
@@ -212,33 +227,33 @@ func (u *User) FromProto(pb *pb.User) {
 			}
 		}
 	}
-	if pb.DeletedAt != nil {
-		v := pb.DeletedAt.AsTime()
+	if msg.DeletedAt != nil {
+		v := msg.DeletedAt.AsTime()
 		u.DeletedAt = &v
 	}
-	if pb.PreviousStatus != nil {
-		v := int32(pb.GetPreviousStatus())
+	if msg.PreviousStatus != nil {
+		v := int32(msg.GetPreviousStatus())
 		u.PreviousStatus = &v
 	}
-	if pb.UpdateMask != nil {
-		src := pb.UpdateMask.GetPaths()
+	if msg.UpdateMask != nil {
+		src := msg.UpdateMask.GetPaths()
 		u.UpdateMask = make([]string, len(src))
 		copy(u.UpdateMask, src)
 	}
-	if pb.ExtraMetadata != nil {
-		u.ExtraMetadata = pb.ExtraMetadata.AsMap()
+	if msg.ExtraMetadata != nil {
+		u.ExtraMetadata = msg.ExtraMetadata.AsMap()
 	}
-	if pb.Preferences != nil {
-		u.Preferences = pb.Preferences.AsSlice()
+	if msg.Preferences != nil {
+		u.Preferences = msg.Preferences.AsSlice()
 	}
-	if pb.AvatarThumbnail != nil {
-		b := make([]byte, len(pb.AvatarThumbnail))
-		copy(b, pb.AvatarThumbnail)
+	if msg.AvatarThumbnail != nil {
+		b := make([]byte, len(msg.AvatarThumbnail))
+		copy(b, msg.AvatarThumbnail)
 		u.AvatarThumbnail = &b
 	}
-	if len(pb.FieldMasks) > 0 {
-		u.FieldMasks = make([][]string, len(pb.FieldMasks))
-		for i, v := range pb.FieldMasks {
+	if len(msg.FieldMasks) > 0 {
+		u.FieldMasks = make([][]string, len(msg.FieldMasks))
+		for i, v := range msg.FieldMasks {
 			if v != nil {
 				src := v.GetPaths()
 				u.FieldMasks[i] = make([]string, len(src))
@@ -246,33 +261,33 @@ func (u *User) FromProto(pb *pb.User) {
 			}
 		}
 	}
-	if len(pb.Structs) > 0 {
-		u.Structs = make([]map[string]any, len(pb.Structs))
-		for i, v := range pb.Structs {
+	if len(msg.Structs) > 0 {
+		u.Structs = make([]map[string]any, len(msg.Structs))
+		for i, v := range msg.Structs {
 			if v != nil {
 				u.Structs[i] = v.AsMap()
 			}
 		}
 	}
-	if len(pb.Lists) > 0 {
-		u.Lists = make([][]any, len(pb.Lists))
-		for i, v := range pb.Lists {
+	if len(msg.Lists) > 0 {
+		u.Lists = make([][]any, len(msg.Lists))
+		for i, v := range msg.Lists {
 			if v != nil {
 				u.Lists[i] = v.AsSlice()
 			}
 		}
 	}
-	if len(pb.EventTimes) > 0 {
-		u.EventTimes = make(map[string]time.Time, len(pb.EventTimes))
-		for k, v := range pb.EventTimes {
+	if len(msg.EventTimes) > 0 {
+		u.EventTimes = make(map[string]time.Time, len(msg.EventTimes))
+		for k, v := range msg.EventTimes {
 			if v != nil {
 				u.EventTimes[k] = v.AsTime()
 			}
 		}
 	}
-	if len(pb.Configs) > 0 {
-		u.Configs = make(map[string]map[string]any, len(pb.Configs))
-		for k, v := range pb.Configs {
+	if len(msg.Configs) > 0 {
+		u.Configs = make(map[string]map[string]any, len(msg.Configs))
+		for k, v := range msg.Configs {
 			if v != nil {
 				u.Configs[k] = v.AsMap()
 			}
@@ -320,6 +335,10 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			dst.Nickname = src.Nickname
 		case "status":
 			dst.Status = src.Status
+		case "contact_email":
+			dst.ContactEmail = src.ContactEmail
+		case "contact_phone":
+			dst.ContactPhone = src.ContactPhone
 		case "tags":
 			dst.Tags = src.Tags
 		case "deleted_at":
@@ -494,6 +513,14 @@ func (u *User) Clone() *User {
 	if u.Preferences != nil {
 		c.Preferences = make([]any, len(u.Preferences))
 		copy(c.Preferences, u.Preferences)
+	}
+	if u.ContactEmail != nil {
+		v := *u.ContactEmail
+		c.ContactEmail = &v
+	}
+	if u.ContactPhone != nil {
+		v := *u.ContactPhone
+		c.ContactPhone = &v
 	}
 	return c
 }
@@ -674,6 +701,18 @@ func (u *User) Equal(other *User) bool {
 			return false
 		}
 	}
+	if (u.ContactEmail == nil) != (other.ContactEmail == nil) {
+		return false
+	}
+	if u.ContactEmail != nil && *u.ContactEmail != *other.ContactEmail {
+		return false
+	}
+	if (u.ContactPhone == nil) != (other.ContactPhone == nil) {
+		return false
+	}
+	if u.ContactPhone != nil && *u.ContactPhone != *other.ContactPhone {
+		return false
+	}
 	return true
 }
 
@@ -704,15 +743,15 @@ func (a *Address) ToProto() *pb.Address {
 }
 
 // FromProto populates from a protobuf message.
-func (a *Address) FromProto(pb *pb.Address) {
-	if pb == nil {
+func (a *Address) FromProto(msg *pb.Address) {
+	if msg == nil {
 		return
 	}
-	a.Street = pb.Street
-	a.City = pb.City
-	a.State = pb.State
-	a.Zip = pb.Zip
-	a.Country = pb.Country
+	a.Street = msg.Street
+	a.City = msg.City
+	a.State = msg.State
+	a.Zip = msg.Zip
+	a.Country = msg.Country
 }
 
 // ApplyFieldMaskAddress copies fields from src to dst based on the given paths.
@@ -798,12 +837,12 @@ func (t *Tag) ToProto() *pb.Tag {
 }
 
 // FromProto populates from a protobuf message.
-func (t *Tag) FromProto(pb *pb.Tag) {
-	if pb == nil {
+func (t *Tag) FromProto(msg *pb.Tag) {
+	if msg == nil {
 		return
 	}
-	t.Key = pb.Key
-	t.Value = pb.Value
+	t.Key = msg.Key
+	t.Value = msg.Value
 }
 
 // ApplyFieldMaskTag copies fields from src to dst based on the given paths.

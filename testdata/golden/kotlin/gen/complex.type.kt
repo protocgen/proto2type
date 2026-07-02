@@ -140,3 +140,27 @@ data class AuditLog(
     @SerialName("user_id") val userId: String = ""
 )
 
+/**
+ * Oneof group: payload.
+ * Serialized using kotlinx.serialization polymorphic format (not protobuf JSON).
+ */
+@Serializable
+sealed class EventPayload {
+    @Serializable
+    @SerialName("text_message")
+    data class TextMessage(val value: String) : EventPayload()
+    @Serializable
+    @SerialName("settings_update")
+    data class SettingsUpdate(val value: Settings) : EventPayload()
+    @Serializable
+    @SerialName("priority_change")
+    data class PriorityChange(val value: Priority) : EventPayload()
+}
+
+/** Oneof with mixed variant types (message, enum, scalar). */
+@Serializable
+data class Event(
+    val id: String = "",
+    val payload: EventPayload? = null
+)
+
