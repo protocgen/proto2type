@@ -5,6 +5,7 @@ package gen
 
 import (
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
+	proto "google.golang.org/protobuf/proto"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -667,15 +668,20 @@ func ApplyFieldMaskDocument(dst, src *Document, paths []string) {
 			dst.CodeNames = src.CodeNames
 		case "metadata":
 			if src.Metadata != nil {
-				dst.Metadata = make(map[string]any, len(src.Metadata))
-				for k, v := range src.Metadata {
-					dst.Metadata[k] = v
-				}
+				dst.Metadata = deepCopyValue(src.Metadata).(map[string]any)
 			} else {
 				dst.Metadata = nil
 			}
 		case "extension":
-			dst.Extension = src.Extension
+			if src.Extension != nil {
+				if m, ok := src.Extension.(proto.Message); ok {
+					dst.Extension = proto.Clone(m)
+				} else {
+					dst.Extension = src.Extension
+				}
+			} else {
+				dst.Extension = nil
+			}
 		case "update_mask":
 			if src.UpdateMask != nil {
 				dst.UpdateMask = make([]string, len(src.UpdateMask))
@@ -699,8 +705,7 @@ func (d *Document) Clone() *Document {
 		return nil
 	}
 	c := &Document{
-		ID:        d.ID,
-		Extension: d.Extension,
+		ID: d.ID,
 	}
 	if d.Archived != nil {
 		v := *d.Archived
@@ -731,9 +736,13 @@ func (d *Document) Clone() *Document {
 		}
 	}
 	if d.Metadata != nil {
-		c.Metadata = make(map[string]any, len(d.Metadata))
-		for k, v := range d.Metadata {
-			c.Metadata[k] = v
+		c.Metadata = deepCopyValue(d.Metadata).(map[string]any)
+	}
+	if d.Extension != nil {
+		if m, ok := d.Extension.(proto.Message); ok {
+			c.Extension = proto.Clone(m)
+		} else {
+			c.Extension = d.Extension
 		}
 	}
 	if d.UpdateMask != nil {
@@ -784,7 +793,7 @@ func (d *Document) Equal(other *Document) bool {
 	if !reflect.DeepEqual(d.Metadata, other.Metadata) {
 		return false
 	}
-	if d.Extension != other.Extension {
+	if !reflect.DeepEqual(d.Extension, other.Extension) {
 		return false
 	}
 	if len(d.UpdateMask) != len(other.UpdateMask) {
@@ -1150,4 +1159,25 @@ func (e *Event) Equal(other *Event) bool {
 		return false
 	}
 	return true
+}
+
+// deepCopyValue recursively deep-copies values that originate from structpb
+// (map[string]any, []any, and scalar types like string, float64, bool, nil).
+func deepCopyValue(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		m := make(map[string]any, len(val))
+		for k, v := range val {
+			m[k] = deepCopyValue(v)
+		}
+		return m
+	case []any:
+		s := make([]any, len(val))
+		for i, v := range val {
+			s[i] = deepCopyValue(v)
+		}
+		return s
+	default:
+		return v // scalars (string, float64, bool, nil) are immutable
+	}
 }

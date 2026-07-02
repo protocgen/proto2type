@@ -354,17 +354,13 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			}
 		case "extra_metadata":
 			if src.ExtraMetadata != nil {
-				dst.ExtraMetadata = make(map[string]any, len(src.ExtraMetadata))
-				for k, v := range src.ExtraMetadata {
-					dst.ExtraMetadata[k] = v
-				}
+				dst.ExtraMetadata = deepCopyValue(src.ExtraMetadata).(map[string]any)
 			} else {
 				dst.ExtraMetadata = nil
 			}
 		case "preferences":
 			if src.Preferences != nil {
-				dst.Preferences = make([]any, len(src.Preferences))
-				copy(dst.Preferences, src.Preferences)
+				dst.Preferences = deepCopyValue(src.Preferences).([]any)
 			} else {
 				dst.Preferences = nil
 			}
@@ -451,10 +447,7 @@ func (u *User) Clone() *User {
 		c.Structs = make([]map[string]any, len(u.Structs))
 		for i, v := range u.Structs {
 			if v != nil {
-				c.Structs[i] = make(map[string]any, len(v))
-				for mk, mv := range v {
-					c.Structs[i][mk] = mv
-				}
+				c.Structs[i] = deepCopyValue(v).(map[string]any)
 			}
 		}
 	}
@@ -462,8 +455,7 @@ func (u *User) Clone() *User {
 		c.Lists = make([][]any, len(u.Lists))
 		for i, v := range u.Lists {
 			if v != nil {
-				c.Lists[i] = make([]any, len(v))
-				copy(c.Lists[i], v)
+				c.Lists[i] = deepCopyValue(v).([]any)
 			}
 		}
 	}
@@ -487,11 +479,7 @@ func (u *User) Clone() *User {
 		c.Configs = make(map[string]map[string]any, len(u.Configs))
 		for k, v := range u.Configs {
 			if v != nil {
-				m := make(map[string]any, len(v))
-				for mk, mv := range v {
-					m[mk] = mv
-				}
-				c.Configs[k] = m
+				c.Configs[k] = deepCopyValue(v).(map[string]any)
 			} else {
 				c.Configs[k] = nil
 			}
@@ -505,14 +493,10 @@ func (u *User) Clone() *User {
 		copy(c.UpdateMask, u.UpdateMask)
 	}
 	if u.ExtraMetadata != nil {
-		c.ExtraMetadata = make(map[string]any, len(u.ExtraMetadata))
-		for k, v := range u.ExtraMetadata {
-			c.ExtraMetadata[k] = v
-		}
+		c.ExtraMetadata = deepCopyValue(u.ExtraMetadata).(map[string]any)
 	}
 	if u.Preferences != nil {
-		c.Preferences = make([]any, len(u.Preferences))
-		copy(c.Preferences, u.Preferences)
+		c.Preferences = deepCopyValue(u.Preferences).([]any)
 	}
 	if u.ContactEmail != nil {
 		v := *u.ContactEmail

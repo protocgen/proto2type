@@ -5,6 +5,51 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+// irNeedsDeepCopyHelper returns true if any message has FieldKindStruct, FieldKindListValue,
+// or FieldKindValue fields that need the deepCopyValue helper for correct deep copying.
+func irNeedsDeepCopyHelper(msgs []*DomainMessage) bool {
+	for _, m := range msgs {
+		for _, f := range m.Fields {
+			if f.Kind == FieldKindStruct || f.Kind == FieldKindListValue || f.Kind == FieldKindValue {
+				return true
+			}
+			if f.IsMap && f.MapValue != nil && (f.MapValue.Kind == FieldKindStruct || f.MapValue.Kind == FieldKindListValue || f.MapValue.Kind == FieldKindValue) {
+				return true
+			}
+		}
+		if irNeedsDeepCopyHelper(m.NestedMessages) {
+			return true
+		}
+	}
+	return false
+}
+
+// generateGoDeepCopyHelper emits the deepCopyValue helper function used by Clone
+// to recursively deep-copy map[string]any, []any, and any values from structpb.
+func generateGoDeepCopyHelper(g *protogen.GeneratedFile) {
+	g.P("// deepCopyValue recursively deep-copies values that originate from structpb")
+	g.P("// (map[string]any, []any, and scalar types like string, float64, bool, nil).")
+	g.P("func deepCopyValue(v any) any {")
+	g.P("\tswitch val := v.(type) {")
+	g.P("\tcase map[string]any:")
+	g.P("\t\tm := make(map[string]any, len(val))")
+	g.P("\t\tfor k, v := range val {")
+	g.P("\t\t\tm[k] = deepCopyValue(v)")
+	g.P("\t\t}")
+	g.P("\t\treturn m")
+	g.P("\tcase []any:")
+	g.P("\t\ts := make([]any, len(val))")
+	g.P("\t\tfor i, v := range val {")
+	g.P("\t\t\ts[i] = deepCopyValue(v)")
+	g.P("\t\t}")
+	g.P("\t\treturn s")
+	g.P("\tdefault:")
+	g.P("\t\treturn v // scalars (string, float64, bool, nil) are immutable")
+	g.P("\t}")
+	g.P("}")
+	g.P()
+}
+
 // generateGoClone generates a Clone method that returns a deep copy of the domain struct.
 func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 	name := dm.Name
@@ -25,6 +70,11 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 		// Skip fields that need deep copy — handle below
 		if f.Repeated || f.IsMap || (f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind) || (f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap) {
+			continue
+		}
+
+		// Skip FieldKindAny and FieldKindValue — need deep copy below
+		if f.Kind == FieldKindAny || f.Kind == FieldKindValue {
 			continue
 		}
 
@@ -108,19 +158,31 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			// Repeated Struct ([]map[string]any): deep copy each element
 			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tc.", f.PascalName, "[i] = make(map[string]any, len(v))")
-			g.P("\t\t\t\tfor mk, mv := range v {")
-			g.P("\t\t\t\t\tc.", f.PascalName, "[i][mk] = mv")
-			g.P("\t\t\t\t}")
+			g.P("\t\t\t\tc.", f.PascalName, "[i] = deepCopyValue(v).(map[string]any)")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 		} else if f.Kind == FieldKindListValue {
 			// Repeated ListValue ([][]any): deep copy each element
 			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tc.", f.PascalName, "[i] = make([]any, len(v))")
-			g.P("\t\t\t\tcopy(c.", f.PascalName, "[i], v)")
+			g.P("\t\t\t\tc.", f.PascalName, "[i] = deepCopyValue(v).([]any)")
 			g.P("\t\t\t}")
+			g.P("\t\t}")
+		} else if f.Kind == FieldKindAny {
+			// Repeated Any ([]any): deep copy via proto.Clone for proto.Message values
+			protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+			protoMessage := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Message"})
+			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
+			g.P("\t\t\tif m, ok := v.(", protoMessage, "); ok {")
+			g.P("\t\t\t\tc.", f.PascalName, "[i] = ", protoClone, "(m)")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tc.", f.PascalName, "[i] = v")
+			g.P("\t\t\t}")
+			g.P("\t\t}")
+		} else if f.Kind == FieldKindValue {
+			// Repeated Value ([]any): deep copy each element
+			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
+			g.P("\t\t\tc.", f.PascalName, "[i] = deepCopyValue(v)")
 			g.P("\t\t}")
 		} else if f.Kind.IsWrapper() {
 			// Repeated wrapper (e.g. []*string): deep copy each pointer
@@ -179,24 +241,30 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
 			g.P("\t\t\t}")
 		} else if f.MapValue != nil && f.MapValue.Kind == FieldKindStruct {
-			// map value is map[string]any: shallow copy inner map
+			// map value is map[string]any: deep copy via deepCopyValue
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tm := make(map[string]any, len(v))")
-			g.P("\t\t\t\tfor mk, mv := range v {")
-			g.P("\t\t\t\t\tm[mk] = mv")
-			g.P("\t\t\t\t}")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = m")
+			g.P("\t\t\t\tc.", f.PascalName, "[k] = deepCopyValue(v).(map[string]any)")
 			g.P("\t\t\t} else {")
 			g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
 			g.P("\t\t\t}")
 		} else if f.MapValue != nil && f.MapValue.Kind == FieldKindListValue {
-			// map value is []any: copy the slice
+			// map value is []any: deep copy via deepCopyValue
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\ts := make([]any, len(v))")
-			g.P("\t\t\t\tcopy(s, v)")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = s")
+			g.P("\t\t\t\tc.", f.PascalName, "[k] = deepCopyValue(v).([]any)")
 			g.P("\t\t\t} else {")
 			g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
+			g.P("\t\t\t}")
+		} else if f.MapValue != nil && f.MapValue.Kind == FieldKindValue {
+			// map value is any: deep copy via deepCopyValue
+			g.P("\t\t\tc.", f.PascalName, "[k] = deepCopyValue(v)")
+		} else if f.MapValue != nil && f.MapValue.Kind == FieldKindAny {
+			// map value is any holding proto.Message: deep copy via proto.Clone
+			protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+			protoMessage := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Message"})
+			g.P("\t\t\tif m, ok := v.(", protoMessage, "); ok {")
+			g.P("\t\t\t\tc.", f.PascalName, "[k] = ", protoClone, "(m)")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tc.", f.PascalName, "[k] = v")
 			g.P("\t\t\t}")
 		} else if f.MapValue != nil && f.MapValue.Kind == FieldKindFieldMask {
 			// map value is []string: copy the slice
@@ -246,20 +314,36 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			if f.Repeated || f.IsMap {
 				continue
 			}
-			// []any: make + copy
+			// []any: deep copy via deepCopyValue
 			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-			g.P("\t\tc.", f.PascalName, " = make([]any, len(", recv, ".", f.PascalName, "))")
-			g.P("\t\tcopy(c.", f.PascalName, ", ", recv, ".", f.PascalName, ")")
+			g.P("\t\tc.", f.PascalName, " = deepCopyValue(", recv, ".", f.PascalName, ").([]any)")
 			g.P("\t}")
 		case FieldKindStruct:
 			if f.Repeated || f.IsMap {
 				continue
 			}
-			// map[string]any: iterate and copy
+			// map[string]any: deep copy via deepCopyValue
 			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-			g.P("\t\tc.", f.PascalName, " = make(map[string]any, len(", recv, ".", f.PascalName, "))")
-			g.P("\t\tfor k, v := range ", recv, ".", f.PascalName, " {")
-			g.P("\t\t\tc.", f.PascalName, "[k] = v")
+			g.P("\t\tc.", f.PascalName, " = deepCopyValue(", recv, ".", f.PascalName, ").(map[string]any)")
+			g.P("\t}")
+		case FieldKindValue:
+			if f.Repeated || f.IsMap {
+				continue
+			}
+			// any: deep copy via deepCopyValue
+			g.P("\tc.", f.PascalName, " = deepCopyValue(", recv, ".", f.PascalName, ")")
+		case FieldKindAny:
+			if f.Repeated || f.IsMap {
+				continue
+			}
+			// any holding proto.Message: deep copy via proto.Clone
+			protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+			protoMessage := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Message"})
+			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
+			g.P("\t\tif m, ok := ", recv, ".", f.PascalName, ".(", protoMessage, "); ok {")
+			g.P("\t\t\tc.", f.PascalName, " = ", protoClone, "(m)")
+			g.P("\t\t} else {")
+			g.P("\t\t\tc.", f.PascalName, " = ", recv, ".", f.PascalName)
 			g.P("\t\t}")
 			g.P("\t}")
 		}
@@ -358,7 +442,7 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 				g.P("\t\t\t\treturn false")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
-			} else if f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue {
+			} else if f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue || f.Kind == FieldKindAny || f.Kind == FieldKindValue {
 				// Repeated WKT reference types: use reflect.DeepEqual for non-comparable elements
 				deepEqual := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "reflect", GoName: "DeepEqual"})
 				g.P("\t\tif !", deepEqual, "(", recv, ".", f.PascalName, "[i], other.", f.PascalName, "[i]) {")
@@ -406,7 +490,7 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 				g.P("\t\t\t\treturn false")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
-			} else if f.MapValue != nil && (f.MapValue.Kind == FieldKindStruct || f.MapValue.Kind == FieldKindListValue || f.MapValue.Kind == FieldKindFieldMask) {
+			} else if f.MapValue != nil && (f.MapValue.Kind == FieldKindStruct || f.MapValue.Kind == FieldKindListValue || f.MapValue.Kind == FieldKindFieldMask || f.MapValue.Kind == FieldKindAny || f.MapValue.Kind == FieldKindValue) {
 				// WKT map values with non-comparable types: use reflect.DeepEqual
 				deepEqual := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "reflect", GoName: "DeepEqual"})
 				g.P("\t\tif !", deepEqual, "(v, ov) {")
@@ -463,6 +547,12 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\t}")
 		} else if f.Kind == FieldKindStruct {
 			// map[string]any: use reflect.DeepEqual because any values can be non-comparable
+			deepEqual := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "reflect", GoName: "DeepEqual"})
+			g.P("\tif !", deepEqual, "(", recv, ".", f.PascalName, ", other.", f.PascalName, ") {")
+			g.P("\t\treturn false")
+			g.P("\t}")
+		} else if f.Kind == FieldKindAny || f.Kind == FieldKindValue {
+			// any fields: use reflect.DeepEqual since they may hold non-comparable types
 			deepEqual := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "reflect", GoName: "DeepEqual"})
 			g.P("\tif !", deepEqual, "(", recv, ".", f.PascalName, ", other.", f.PascalName, ") {")
 			g.P("\t\treturn false")
