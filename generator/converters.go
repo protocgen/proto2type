@@ -530,15 +530,15 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 	protoType := g.QualifiedGoIdent(dm.ProtoGoIdent)
 	recv := receiverName(structName)
 	g.P("// FromProto populates from a protobuf message.")
-	g.P("func (", recv, " *", structName, ") FromProto(pb *", protoType, ") {")
-	g.P("\tif pb == nil {")
+	g.P("func (", recv, " *", structName, ") FromProto(msg *", protoType, ") {")
+	g.P("\tif msg == nil {")
 	g.P("\t\treturn")
 	g.P("\t}")
 
 	for _, f := range dm.Fields {
 		if f.IsOneof {
 			oneof := findOneof(dm, f.OneofTypeName)
-			g.P("\tswitch v := pb.Get", oneof.ProtoGoName, "().(type) {")
+			g.P("\tswitch v := msg.Get", oneof.ProtoGoName, "().(type) {")
 			for _, v := range oneof.Variants {
 				wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
 				g.P("\tcase *", wrapperIdent, ":")
@@ -583,27 +583,27 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 		if f.Repeated && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration || f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue || f.Kind.IsWrapper()) {
 			switch f.Kind {
 			case FieldKindTimestamp:
-				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-				g.P("\t\t", recv, ".", domainFieldName, " = make([]time.Time, len(pb.", protoFieldName, "))")
-				g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
+				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+				g.P("\t\t", recv, ".", domainFieldName, " = make([]time.Time, len(msg.", protoFieldName, "))")
+				g.P("\t\tfor i, v := range msg.", protoFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\t", recv, ".", domainFieldName, "[i] = v.AsTime()")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindDuration:
-				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-				g.P("\t\t", recv, ".", domainFieldName, " = make([]time.Duration, len(pb.", protoFieldName, "))")
-				g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
+				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+				g.P("\t\t", recv, ".", domainFieldName, " = make([]time.Duration, len(msg.", protoFieldName, "))")
+				g.P("\t\tfor i, v := range msg.", protoFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\t", recv, ".", domainFieldName, "[i] = v.AsDuration()")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindFieldMask:
-				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-				g.P("\t\t", recv, ".", domainFieldName, " = make([][]string, len(pb.", protoFieldName, "))")
-				g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
+				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+				g.P("\t\t", recv, ".", domainFieldName, " = make([][]string, len(msg.", protoFieldName, "))")
+				g.P("\t\tfor i, v := range msg.", protoFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\tsrc := v.GetPaths()")
 				g.P("\t\t\t\t", recv, ".", domainFieldName, "[i] = make([]string, len(src))")
@@ -612,18 +612,18 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindStruct:
-				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-				g.P("\t\t", recv, ".", domainFieldName, " = make([]map[string]any, len(pb.", protoFieldName, "))")
-				g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
+				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+				g.P("\t\t", recv, ".", domainFieldName, " = make([]map[string]any, len(msg.", protoFieldName, "))")
+				g.P("\t\tfor i, v := range msg.", protoFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\t", recv, ".", domainFieldName, "[i] = v.AsMap()")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindListValue:
-				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-				g.P("\t\t", recv, ".", domainFieldName, " = make([][]any, len(pb.", protoFieldName, "))")
-				g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
+				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+				g.P("\t\t", recv, ".", domainFieldName, " = make([][]any, len(msg.", protoFieldName, "))")
+				g.P("\t\tfor i, v := range msg.", protoFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\t", recv, ".", domainFieldName, "[i] = v.AsSlice()")
 				g.P("\t\t\t}")
@@ -632,9 +632,9 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 			default:
 				if f.Kind == FieldKindWrapperBytes {
 					// Repeated BytesValue wrapper: deep copy to prevent aliasing (SEC-3)
-					g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-					g.P("\t\t", recv, ".", domainFieldName, " = make([]*[]byte, len(pb.", protoFieldName, "))")
-					g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
+					g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+					g.P("\t\t", recv, ".", domainFieldName, " = make([]*[]byte, len(msg.", protoFieldName, "))")
+					g.P("\t\tfor i, v := range msg.", protoFieldName, " {")
 					g.P("\t\t\tif v != nil {")
 					g.P("\t\t\t\tb := make([]byte, len(v.GetValue()))")
 					g.P("\t\t\t\tcopy(b, v.GetValue())")
@@ -644,9 +644,9 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 					g.P("\t}")
 				} else if f.Kind.IsWrapper() {
 					// Repeated wrapper: proto []*wrapperspb.T → domain []*T
-					g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-					g.P("\t\t", recv, ".", domainFieldName, " = make(", irWrapperGoSliceType(f.Kind), ", len(pb.", protoFieldName, "))")
-					g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
+					g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+					g.P("\t\t", recv, ".", domainFieldName, " = make(", irWrapperGoSliceType(f.Kind), ", len(msg.", protoFieldName, "))")
+					g.P("\t\tfor i, v := range msg.", protoFieldName, " {")
 					g.P("\t\t\tif v != nil {")
 					g.P("\t\t\t\tval := v.GetValue()")
 					g.P("\t\t\t\t", recv, ".", domainFieldName, "[i] = &val")
@@ -659,69 +659,69 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 		}
 
 		if f.Kind == FieldKindTimestamp {
-			g.P("\tif pb.", protoFieldName, " != nil {")
+			g.P("\tif msg.", protoFieldName, " != nil {")
 			if f.Optional && structSuffix == "" {
 				// Domain struct: optional timestamp is *time.Time
-				g.P("\t\tv := pb.", protoFieldName, ".AsTime()")
+				g.P("\t\tv := msg.", protoFieldName, ".AsTime()")
 				g.P("\t\t", recv, ".", domainFieldName, " = &v")
 			} else {
-				g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsTime()")
+				g.P("\t\t", recv, ".", domainFieldName, " = msg.", protoFieldName, ".AsTime()")
 			}
 			g.P("\t}")
 		} else if f.Kind == FieldKindDuration {
-			g.P("\tif pb.", protoFieldName, " != nil {")
+			g.P("\tif msg.", protoFieldName, " != nil {")
 			if f.Optional && structSuffix == "" {
 				// Domain struct: optional duration is *time.Duration
-				g.P("\t\tv := pb.", protoFieldName, ".AsDuration()")
+				g.P("\t\tv := msg.", protoFieldName, ".AsDuration()")
 				g.P("\t\t", recv, ".", domainFieldName, " = &v")
 			} else {
-				g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsDuration()")
+				g.P("\t\t", recv, ".", domainFieldName, " = msg.", protoFieldName, ".AsDuration()")
 			}
 			g.P("\t}")
 		} else if f.Kind == FieldKindWrapperBytes {
 			// BytesValue wrapper: deep copy to prevent aliasing (SEC-3)
-			g.P("\tif pb.", protoFieldName, " != nil {")
-			g.P("\t\tsrc := pb.", protoFieldName, ".GetValue()")
+			g.P("\tif msg.", protoFieldName, " != nil {")
+			g.P("\t\tsrc := msg.", protoFieldName, ".GetValue()")
 			g.P("\t\tb := make([]byte, len(src))")
 			g.P("\t\tcopy(b, src)")
 			g.P("\t\t", recv, ".", domainFieldName, " = &b")
 			g.P("\t}")
 		} else if f.Kind.IsWrapper() {
-			// Wrapper type: if pb.Phone != nil { v := pb.Phone.GetValue(); d.Phone = &v }
-			g.P("\tif pb.", protoFieldName, " != nil {")
-			g.P("\t\tv := pb.", protoFieldName, ".GetValue()")
+			// Wrapper type: if msg.Phone != nil { v := msg.Phone.GetValue(); d.Phone = &v }
+			g.P("\tif msg.", protoFieldName, " != nil {")
+			g.P("\t\tv := msg.", protoFieldName, ".GetValue()")
 			g.P("\t\t", recv, ".", domainFieldName, " = &v")
 			g.P("\t}")
 		} else if f.Kind == FieldKindFieldMask {
 			// FieldMask: proto *fieldmaskpb.FieldMask → domain []string (defensive copy per SEC-3)
-			g.P("\tif pb.", protoFieldName, " != nil {")
-			g.P("\t\tsrc := pb.", protoFieldName, ".GetPaths()")
+			g.P("\tif msg.", protoFieldName, " != nil {")
+			g.P("\t\tsrc := msg.", protoFieldName, ".GetPaths()")
 			g.P("\t\t", recv, ".", domainFieldName, " = make([]string, len(src))")
 			g.P("\t\tcopy(", recv, ".", domainFieldName, ", src)")
 			g.P("\t}")
 		} else if f.Kind == FieldKindStruct {
 			// Struct: proto *structpb.Struct → domain map[string]any
-			g.P("\tif pb.", protoFieldName, " != nil {")
-			g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsMap()")
+			g.P("\tif msg.", protoFieldName, " != nil {")
+			g.P("\t\t", recv, ".", domainFieldName, " = msg.", protoFieldName, ".AsMap()")
 			g.P("\t}")
 		} else if f.Kind == FieldKindListValue {
 			// ListValue: proto *structpb.ListValue → domain []any
-			g.P("\tif pb.", protoFieldName, " != nil {")
-			g.P("\t\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".AsSlice()")
+			g.P("\tif msg.", protoFieldName, " != nil {")
+			g.P("\t\t", recv, ".", domainFieldName, " = msg.", protoFieldName, ".AsSlice()")
 			g.P("\t}")
 		} else if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
 			// Singular nested message: recursive conversion via FromProto()
 			nestedType := f.MessageTypeName + structSuffix
-			g.P("\tif pb.", protoFieldName, " != nil {")
+			g.P("\tif msg.", protoFieldName, " != nil {")
 			g.P("\t\t", recv, ".", domainFieldName, " = &", nestedType, "{}")
-			g.P("\t\t", recv, ".", domainFieldName, ".FromProto(pb.", protoFieldName, ")")
+			g.P("\t\t", recv, ".", domainFieldName, ".FromProto(msg.", protoFieldName, ")")
 			g.P("\t}")
 		} else if f.Kind == FieldKindMessage && f.Repeated {
 			// Repeated message: loop-based element-wise conversion
 			nestedType := f.MessageTypeName + structSuffix
-			g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-			g.P("\t\t", recv, ".", domainFieldName, " = make([]*", nestedType, ", len(pb.", protoFieldName, "))")
-			g.P("\t\tfor i, v := range pb.", protoFieldName, " {")
+			g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+			g.P("\t\t", recv, ".", domainFieldName, " = make([]*", nestedType, ", len(msg.", protoFieldName, "))")
+			g.P("\t\tfor i, v := range msg.", protoFieldName, " {")
 			g.P("\t\t\tif v != nil {")
 			g.P("\t\t\t\telem := &", nestedType, "{}")
 			g.P("\t\t\t\telem.FromProto(v)")
@@ -731,91 +731,91 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 			g.P("\t}")
 		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && f.Optional {
 			// Optional bytes: copy into pointer
-			g.P("\tif pb.", protoFieldName, " != nil {")
-			g.P("\t\tb := make([]byte, len(pb.", protoFieldName, "))")
-			g.P("\t\tcopy(b, pb.", protoFieldName, ")")
+			g.P("\tif msg.", protoFieldName, " != nil {")
+			g.P("\t\tb := make([]byte, len(msg.", protoFieldName, "))")
+			g.P("\t\tcopy(b, msg.", protoFieldName, ")")
 			g.P("\t\t", recv, ".", domainFieldName, " = &b")
 			g.P("\t}")
 		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 			// Bytes field: defensive copy (SEC-3)
-			g.P("\tif pb.", protoFieldName, " != nil {")
-			g.P("\t\t", recv, ".", domainFieldName, " = make([]byte, len(pb.", protoFieldName, "))")
-			g.P("\t\tcopy(", recv, ".", domainFieldName, ", pb.", protoFieldName, ")")
+			g.P("\tif msg.", protoFieldName, " != nil {")
+			g.P("\t\t", recv, ".", domainFieldName, " = make([]byte, len(msg.", protoFieldName, "))")
+			g.P("\t\tcopy(", recv, ".", domainFieldName, ", msg.", protoFieldName, ")")
 			g.P("\t}")
 		} else if f.Optional && f.Kind == FieldKindEnum {
 			// Optional enum: proto uses *EnumType, domain uses *string or *int32.
-			g.P("\tif pb.", protoFieldName, " != nil {")
+			g.P("\tif msg.", protoFieldName, " != nil {")
 			if structSuffix == "" {
 				// Domain struct: optional enum is pointer type
 				if f.EnumAsString {
-					g.P("\t\tv := pb.Get", protoFieldName, "().String()")
+					g.P("\t\tv := msg.Get", protoFieldName, "().String()")
 					g.P("\t\t", recv, ".", domainFieldName, " = &v")
 				} else {
-					g.P("\t\tv := int32(pb.Get", protoFieldName, "())")
+					g.P("\t\tv := int32(msg.Get", protoFieldName, "())")
 					g.P("\t\t", recv, ".", domainFieldName, " = &v")
 				}
 			} else {
 				// Storage struct: optional enum is non-pointer
 				if f.EnumAsString {
-					g.P("\t\t", recv, ".", domainFieldName, " = pb.Get", protoFieldName, "().String()")
+					g.P("\t\t", recv, ".", domainFieldName, " = msg.Get", protoFieldName, "().String()")
 				} else {
-					g.P("\t\t", recv, ".", domainFieldName, " = int32(pb.Get", protoFieldName, "())")
+					g.P("\t\t", recv, ".", domainFieldName, " = int32(msg.Get", protoFieldName, "())")
 				}
 			}
 			g.P("\t}")
 		} else if f.Optional {
 			// Optional scalar: both proto and domain use *T, assign directly (PROTO-3)
-			g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName)
+			g.P("\t", recv, ".", domainFieldName, " = msg.", protoFieldName)
 		} else if f.Kind == FieldKindEnum {
 			if f.EnumAsString {
 				// String enum: convert proto enum to its string name
-				g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName, ".String()")
+				g.P("\t", recv, ".", domainFieldName, " = msg.", protoFieldName, ".String()")
 			} else {
 				// Int32 enum: direct cast
-				g.P("\t", recv, ".", domainFieldName, " = int32(pb.", protoFieldName, ")")
+				g.P("\t", recv, ".", domainFieldName, " = int32(msg.", protoFieldName, ")")
 			}
 		} else if f.IsMap && f.MapValue != nil {
 			switch f.MapValue.Kind {
 			case FieldKindTimestamp:
-				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-				g.P("\t\t", recv, ".", domainFieldName, " = make(map[string]time.Time, len(pb.", protoFieldName, "))")
-				g.P("\t\tfor k, v := range pb.", protoFieldName, " {")
+				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+				g.P("\t\t", recv, ".", domainFieldName, " = make(map[string]time.Time, len(msg.", protoFieldName, "))")
+				g.P("\t\tfor k, v := range msg.", protoFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\t", recv, ".", domainFieldName, "[k] = v.AsTime()")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindDuration:
-				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-				g.P("\t\t", recv, ".", domainFieldName, " = make(map[string]time.Duration, len(pb.", protoFieldName, "))")
-				g.P("\t\tfor k, v := range pb.", protoFieldName, " {")
+				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+				g.P("\t\t", recv, ".", domainFieldName, " = make(map[string]time.Duration, len(msg.", protoFieldName, "))")
+				g.P("\t\tfor k, v := range msg.", protoFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\t", recv, ".", domainFieldName, "[k] = v.AsDuration()")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindStruct:
-				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-				g.P("\t\t", recv, ".", domainFieldName, " = make(map[string]map[string]any, len(pb.", protoFieldName, "))")
-				g.P("\t\tfor k, v := range pb.", protoFieldName, " {")
+				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+				g.P("\t\t", recv, ".", domainFieldName, " = make(map[string]map[string]any, len(msg.", protoFieldName, "))")
+				g.P("\t\tfor k, v := range msg.", protoFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\t", recv, ".", domainFieldName, "[k] = v.AsMap()")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindListValue:
-				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-				g.P("\t\t", recv, ".", domainFieldName, " = make(map[string][]any, len(pb.", protoFieldName, "))")
-				g.P("\t\tfor k, v := range pb.", protoFieldName, " {")
+				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+				g.P("\t\t", recv, ".", domainFieldName, " = make(map[string][]any, len(msg.", protoFieldName, "))")
+				g.P("\t\tfor k, v := range msg.", protoFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\t", recv, ".", domainFieldName, "[k] = v.AsSlice()")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindFieldMask:
-				g.P("\tif len(pb.", protoFieldName, ") > 0 {")
-				g.P("\t\t", recv, ".", domainFieldName, " = make(map[string][]string, len(pb.", protoFieldName, "))")
-				g.P("\t\tfor k, v := range pb.", protoFieldName, " {")
+				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
+				g.P("\t\t", recv, ".", domainFieldName, " = make(map[string][]string, len(msg.", protoFieldName, "))")
+				g.P("\t\tfor k, v := range msg.", protoFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\tsrc := v.GetPaths()")
 				g.P("\t\t\t\tdst := make([]string, len(src))")
@@ -826,11 +826,11 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 				g.P("\t}")
 			default:
 				// Non-WKT map values: direct assignment
-				g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName)
+				g.P("\t", recv, ".", domainFieldName, " = msg.", protoFieldName)
 			}
 		} else {
 			// Scalars, repeated, maps: direct assignment
-			g.P("\t", recv, ".", domainFieldName, " = pb.", protoFieldName)
+			g.P("\t", recv, ".", domainFieldName, " = msg.", protoFieldName)
 		}
 	}
 

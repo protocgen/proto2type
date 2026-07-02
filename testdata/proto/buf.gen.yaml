@@ -4,7 +4,6 @@ inputs:
     paths:
       - user.proto
       - catalog.proto
-      - complex.proto
 plugins:
   # Generate proto Go types (same go_package as defined in .proto files)
   - local: protoc-gen-go
