@@ -196,9 +196,11 @@ func (u *User) FromProto(msg *pb.User) {
 		u.Address = &Address{}
 		u.Address.FromProto(msg.Address)
 	}
+	u.CreatedAt = time.Time{}
 	if msg.CreatedAt != nil {
 		u.CreatedAt = msg.CreatedAt.AsTime()
 	}
+	u.SessionTimeout = 0
 	if msg.SessionTimeout != nil {
 		u.SessionTimeout = msg.SessionTimeout.AsDuration()
 	}

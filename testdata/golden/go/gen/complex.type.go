@@ -592,7 +592,7 @@ func (d *Document) ToProto() *pb.Document {
 	}
 	if d.Extension != nil {
 		if v, ok := d.Extension.(*anypb.Any); ok {
-			out.Extension = v
+			out.Extension = proto.Clone(v).(*anypb.Any)
 		}
 	}
 	if len(d.UpdateMask) > 0 {

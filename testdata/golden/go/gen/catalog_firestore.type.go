@@ -73,9 +73,11 @@ func (m *ModelCatalogEntryFirestore) FromProto(msg *pb.ModelCatalogEntry) {
 	m.Aliases = nil
 	m.Aliases = msg.Aliases
 	m.ProviderModelID = msg.ProviderModelId
+	m.CreatedAt = time.Time{}
 	if msg.CreatedAt != nil {
 		m.CreatedAt = msg.CreatedAt.AsTime()
 	}
+	m.UpdatedAt = time.Time{}
 	if msg.UpdatedAt != nil {
 		m.UpdatedAt = msg.UpdatedAt.AsTime()
 	}

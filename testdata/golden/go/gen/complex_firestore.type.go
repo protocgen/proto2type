@@ -6,6 +6,7 @@ package gen
 
 import (
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
+	proto "google.golang.org/protobuf/proto"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -412,7 +413,7 @@ func (d *DocumentFirestore) ToProto() *pb.Document {
 	}
 	if d.Extension != nil {
 		if v, ok := d.Extension.(*anypb.Any); ok {
-			out.Extension = v
+			out.Extension = proto.Clone(v).(*anypb.Any)
 		}
 	}
 	if len(d.UpdateMask) > 0 {

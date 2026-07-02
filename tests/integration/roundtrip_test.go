@@ -314,10 +314,15 @@ func TestEqualEdgeCases(t *testing.T) {
 	// Empty map vs nil — both semantically empty but structurally different
 	a.Metadata = map[string]any{}
 	b.Metadata = nil
-	// This tests our Equal implementation's handling of nil vs empty map.
-	// reflect.DeepEqual treats nil map and empty map as not equal,
-	// so we verify the behavior is consistent.
-	_ = a.Equal(b) // just ensure it doesn't panic
+	// nil Metadata vs empty Metadata
+	// They differ structurally, so Equal should reflect that
+	if a.Equal(b) {
+		t.Log("Equal treats nil and empty map as equal (acceptable)")
+	}
+	// But the inverse should be symmetric
+	if a.Equal(b) != b.Equal(a) {
+		t.Error("Equal is not symmetric for nil vs empty map")
+	}
 }
 
 func mustMap(t *testing.T, v any) map[string]any {

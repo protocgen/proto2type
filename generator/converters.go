@@ -265,11 +265,12 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 			case FieldKindAny:
 				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
 				anyType := g.QualifiedGoIdent(protogen.GoIdent{GoName: "Any", GoImportPath: "google.golang.org/protobuf/types/known/anypb"})
+				protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
 				g.P("\t\tout.", protoFieldName, " = make([]*", anyType, ", len(", recv, ".", domainFieldName, "))")
 				g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\tif a, ok := v.(*", anyType, "); ok {")
-				g.P("\t\t\t\t\tout.", protoFieldName, "[i] = a")
+				g.P("\t\t\t\t\tout.", protoFieldName, "[i] = ", protoClone, "(a).(*", anyType, ")")
 				g.P("\t\t\t\t}")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
@@ -393,14 +394,15 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindAny:
-				// Map with Any values: per-element type assertion
+				// Map with Any values: per-element type assertion (clone to prevent aliasing)
 				anyType := g.QualifiedGoIdent(protogen.GoIdent{GoName: "Any", GoImportPath: "google.golang.org/protobuf/types/known/anypb"})
+				protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
 				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
 				g.P("\t\tout.", protoFieldName, " = make(map[", keyType, "]*", anyType, ", len(", recv, ".", domainFieldName, "))")
 				g.P("\t\tfor k, v := range ", recv, ".", domainFieldName, " {")
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\tif a, ok := v.(*", anyType, "); ok {")
-				g.P("\t\t\t\t\tout.", protoFieldName, "[k] = a")
+				g.P("\t\t\t\t\tout.", protoFieldName, "[k] = ", protoClone, "(a).(*", anyType, ")")
 				g.P("\t\t\t\t}")
 				g.P("\t\t\t}")
 				g.P("\t\t}")
@@ -517,11 +519,12 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 			g.P("\t\t}")
 			g.P("\t}")
 		} else if f.Kind == FieldKindAny && !f.Repeated {
-			// Any: domain any → proto *anypb.Any via type assertion
+			// Any: domain any → proto *anypb.Any via type assertion (clone to prevent aliasing)
 			anypbAny := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/anypb", GoName: "Any"})
+			protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
 			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
 			g.P("\t\tif v, ok := ", recv, ".", domainFieldName, ".(*", anypbAny, "); ok {")
-			g.P("\t\t\tout.", protoFieldName, " = v")
+			g.P("\t\t\tout.", protoFieldName, " = ", protoClone, "(v).(*", anypbAny, ")")
 			g.P("\t\t}")
 			g.P("\t}")
 		} else if f.Kind == FieldKindEmpty && !f.Repeated {
@@ -669,10 +672,18 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 			g.P("\t", recv, ".", domainFieldName, " = nil")
 		case f.Kind.IsWrapper() || f.Kind == FieldKindWrapperBytes:
 			g.P("\t", recv, ".", domainFieldName, " = nil")
-		case f.Kind == FieldKindTimestamp && f.Optional && structSuffix == "":
-			g.P("\t", recv, ".", domainFieldName, " = nil")
-		case f.Kind == FieldKindDuration && f.Optional && structSuffix == "":
-			g.P("\t", recv, ".", domainFieldName, " = nil")
+		case f.Kind == FieldKindTimestamp:
+			if f.Optional && structSuffix == "" {
+				g.P("\t", recv, ".", domainFieldName, " = nil")
+			} else {
+				g.P("\t", recv, ".", domainFieldName, " = time.Time{}")
+			}
+		case f.Kind == FieldKindDuration:
+			if f.Optional && structSuffix == "" {
+				g.P("\t", recv, ".", domainFieldName, " = nil")
+			} else {
+				g.P("\t", recv, ".", domainFieldName, " = 0")
+			}
 		}
 
 		// Handle repeated WKT types with loop-based conversion.
