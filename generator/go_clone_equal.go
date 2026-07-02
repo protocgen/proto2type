@@ -17,6 +17,13 @@ func irNeedsDeepCopyHelper(msgs []*DomainMessage) bool {
 				return true
 			}
 		}
+		for _, o := range m.Oneofs {
+			for _, v := range o.Variants {
+				if v.Kind == FieldKindStruct || v.Kind == FieldKindListValue || v.Kind == FieldKindValue {
+					return true
+				}
+			}
+		}
 		if irNeedsDeepCopyHelper(m.NestedMessages) {
 			return true
 		}
