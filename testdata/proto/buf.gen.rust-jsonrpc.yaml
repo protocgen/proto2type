@@ -1,0 +1,13 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - streaming.proto
+plugins:
+  - local: protoc-gen-proto2type
+    out: ../golden/rust/gen
+    opt:
+      - paths=source_relative
+      - lang=rust
+      - backend=jsonrpc
+      - domain=false
