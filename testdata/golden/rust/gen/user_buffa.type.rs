@@ -65,11 +65,11 @@ impl From<&User> for __buffa_mod::User {
         b.nickname = d.nickname;
         b.status = d.status as i32;
         b.contact_method = d.contact_method.as_ref().map(|v| match v {
-            UserContactMethod::ContactEmail { contact_email } => {
-                __buffa_mod::oneof::user::ContactMethod::ContactEmail(contact_email.clone().into())
+            UserContactMethod::ContactEmail(v) => {
+                __buffa_mod::oneof::user::ContactMethod::ContactEmail(v.clone().into())
             }
-            UserContactMethod::ContactPhone { contact_phone } => {
-                __buffa_mod::oneof::user::ContactMethod::ContactPhone(contact_phone.clone().into())
+            UserContactMethod::ContactPhone(v) => {
+                __buffa_mod::oneof::user::ContactMethod::ContactPhone(v.clone().into())
             }
         });
         b.tags = d.tags.iter().map(Into::into).collect();
@@ -109,10 +109,10 @@ impl TryFrom<&__buffa_mod::User> for User {
             status: UserStatus::from_i32(b.status).ok_or(ConversionError::InvalidEnumValue(b.status))?,
             contact_method: match &b.contact_method {
                 Some(__buffa_mod::oneof::user::ContactMethod::ContactEmail(v)) => {
-                    Some(UserContactMethod::ContactEmail { contact_email: v.to_string() })
+                    Some(UserContactMethod::ContactEmail(v.to_string()))
                 }
                 Some(__buffa_mod::oneof::user::ContactMethod::ContactPhone(v)) => {
-                    Some(UserContactMethod::ContactPhone { contact_phone: v.to_string() })
+                    Some(UserContactMethod::ContactPhone(v.to_string()))
                 }
                 None => None,
             },

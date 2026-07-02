@@ -232,6 +232,8 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 		switch f.Kind {
 		case FieldKindMessage:
 			return fmt.Sprintf("d.%s.iter().map(Into::into).collect()", fieldName)
+		case FieldKindTimestamp:
+			return fmt.Sprintf("d.%s.iter().map(|dt| buffa::MessageField::some(chrono_to_buffa_timestamp(dt))).collect()", fieldName)
 		case FieldKindScalar:
 			if f.ScalarKind == protoreflect.StringKind {
 				return fmt.Sprintf("d.%s.iter().map(|s| s.clone().into()).collect()", fieldName)
@@ -310,6 +312,8 @@ func rustBuffaBufToDomainExpr(f *DomainField, fieldName string) string {
 		switch f.Kind {
 		case FieldKindMessage:
 			return fmt.Sprintf("b.%s.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?", fieldName)
+		case FieldKindTimestamp:
+			return fmt.Sprintf("b.%s.iter().map(|ts| buffa_timestamp_to_chrono(ts)).collect::<Result<Vec<_>, _>>()?", fieldName)
 		case FieldKindScalar:
 			if f.ScalarKind == protoreflect.StringKind {
 				return fmt.Sprintf("b.%s.iter().map(|s| s.to_string()).collect()", fieldName)
@@ -391,7 +395,6 @@ func generateBuffaDomainToBufOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 
 	g.P("        b.", fieldName, " = d.", fieldName, ".as_ref().map(|v| match v {")
 	for _, v := range o.Variants {
-		variantFieldName := escapeRustKeyword(toSnakeCase(v.ProtoName))
 		variantPascal := v.Name
 
 		switch v.Kind {
@@ -405,25 +408,30 @@ func generateBuffaDomainToBufOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 			g.P("                __buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(Box::new(converted))")
 			g.P("            }")
 
+		case FieldKindTimestamp:
+			g.P("            ", o.Name, "::", variantPascal, "(dt) => {")
+			g.P("                __buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(Box::new(chrono_to_buffa_timestamp(dt)))")
+			g.P("            }")
+
 		case FieldKindScalar:
 			if v.ScalarKind == protoreflect.StringKind {
-				g.P("            ", o.Name, "::", variantPascal, " { ", variantFieldName, " } => {")
-				g.P("                __buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(", variantFieldName, ".clone().into())")
+				g.P("            ", o.Name, "::", variantPascal, "(v) => {")
+				g.P("                __buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v.clone().into())")
 				g.P("            }")
 			} else {
-				g.P("            ", o.Name, "::", variantPascal, " { ", variantFieldName, " } => {")
-				g.P("                __buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(*", variantFieldName, ")")
+				g.P("            ", o.Name, "::", variantPascal, "(v) => {")
+				g.P("                __buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(*v)")
 				g.P("            }")
 			}
 
 		case FieldKindEnum:
-			g.P("            ", o.Name, "::", variantPascal, " { ", variantFieldName, " } => {")
-			g.P("                __buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(*", variantFieldName, " as i32)")
+			g.P("            ", o.Name, "::", variantPascal, "(v) => {")
+			g.P("                __buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(*v as i32)")
 			g.P("            }")
 
 		default:
-			g.P("            ", o.Name, "::", variantPascal, " { ", variantFieldName, " } => {")
-			g.P("                __buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(", variantFieldName, ".clone().into())")
+			g.P("            ", o.Name, "::", variantPascal, "(v) => {")
+			g.P("                __buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v.clone().into())")
 			g.P("            }")
 		}
 	}
@@ -436,7 +444,6 @@ func generateBuffaBufToDomainOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 
 	g.P("            ", fieldName, ": match &b.", fieldName, " {")
 	for _, v := range o.Variants {
-		variantFieldName := escapeRustKeyword(toSnakeCase(v.ProtoName))
 		variantPascal := v.Name
 
 		switch v.Kind {
@@ -449,26 +456,32 @@ func generateBuffaBufToDomainOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 			}
 			g.P("                }")
 
+		case FieldKindTimestamp:
+			g.P("                Some(__buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(ts)) => {")
+			g.P("                    Some(", o.Name, "::", variantPascal, "(buffa_timestamp_to_chrono(ts.as_ref())?)")
+			g.P("                })")
+			g.P("                }")
+
 		case FieldKindScalar:
 			if v.ScalarKind == protoreflect.StringKind {
 				g.P("                Some(__buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v)) => {")
-				g.P("                    Some(", o.Name, "::", variantPascal, " { ", variantFieldName, ": v.to_string() })")
+				g.P("                    Some(", o.Name, "::", variantPascal, "(v.to_string()))")
 				g.P("                }")
 			} else {
 				g.P("                Some(__buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v)) => {")
-				g.P("                    Some(", o.Name, "::", variantPascal, " { ", variantFieldName, ": *v })")
+				g.P("                    Some(", o.Name, "::", variantPascal, "(*v))")
 				g.P("                }")
 			}
 
 		case FieldKindEnum:
 			enumType := v.TypeName
 			g.P("                Some(__buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v)) => {")
-			g.P("                    Some(", o.Name, "::", variantPascal, " { ", variantFieldName, ": ", enumType, "::from_i32(*v).ok_or(ConversionError::InvalidEnumValue(*v))? })")
+			g.P("                    Some(", o.Name, "::", variantPascal, "(", enumType, "::from_i32(*v).ok_or(ConversionError::InvalidEnumValue(*v))?))")
 			g.P("                }")
 
 		default:
 			g.P("                Some(__buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v)) => {")
-			g.P("                    Some(", o.Name, "::", variantPascal, " { ", variantFieldName, ": v.clone().into() })")
+			g.P("                    Some(", o.Name, "::", variantPascal, "(v.clone().into()))")
 			g.P("                }")
 		}
 	}
