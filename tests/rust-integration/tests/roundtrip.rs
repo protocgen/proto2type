@@ -387,7 +387,7 @@ fn test_conversion_error_display_timestamp() {
 // ---------------------------------------------------------------------------
 
 const USER_CREATE_TABLE: &str = "CREATE TABLE users (
-    id               TEXT    NOT NULL,
+    id               TEXT    NOT NULL PRIMARY KEY,
     email            TEXT    NOT NULL,
     display_name     TEXT    NOT NULL,
     active           BOOLEAN NOT NULL,

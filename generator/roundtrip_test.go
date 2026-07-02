@@ -20,7 +20,7 @@ func TestGoldenRoundTripConsistency(t *testing.T) {
 		t.Run(f, func(t *testing.T) {
 			content, err := os.ReadFile(f)
 			if err != nil {
-				t.Skipf("golden file not found: %s", f)
+				t.Fatalf("golden file not found: %s", f)
 				return
 			}
 			src := string(content)
@@ -106,7 +106,7 @@ func TestGoldenDomainTypesExist(t *testing.T) {
 		t.Run(f, func(t *testing.T) {
 			content, err := os.ReadFile(f)
 			if err != nil {
-				t.Skipf("golden file not found: %s", f)
+				t.Fatalf("golden file not found: %s", f)
 				return
 			}
 			src := string(content)
