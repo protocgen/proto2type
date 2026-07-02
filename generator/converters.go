@@ -61,12 +61,6 @@ func irWrapperGoSliceType(kind FieldKind) string {
 // generateConverters generates ToProto() and FromProto() methods for a message struct.
 // structSuffix is "" for domain, "Firestore" for Firestore, "Mongo" for Mongo, etc.
 func generateConverters(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix string, opts *Options) {
-	// Oneof warning (PROTO-4): check for non-synthetic oneofs and emit a warning comment.
-	if dm.HasNonSyntheticOneof {
-		g.P("// WARNING: oneof fields in ", dm.Name, " are not yet supported by proto2type.")
-		g.P()
-	}
-
 	generateToProto(g, dm, structSuffix, opts)
 	generateFromProto(g, dm, structSuffix, opts)
 }
@@ -148,6 +142,47 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 	// Handle well-known types and special fields outside the struct literal.
 	for _, f := range dm.Fields {
 		if f.IsOneof {
+			oneof := findOneof(dm, f.OneofTypeName)
+			for _, v := range oneof.Variants {
+				g.P("\tif ", recv, ".", v.Name, " != nil {")
+				switch v.Kind {
+				case FieldKindScalar:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": *", recv, ".", v.Name, "}")
+				case FieldKindMessage:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": ", recv, ".", v.Name, ".ToProto()}")
+				case FieldKindEnum:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					enumIdent := g.QualifiedGoIdent(v.ProtoEnumGoIdent)
+					if v.EnumAsString {
+						g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+							"{", v.ProtoGoName, ": ", enumIdent, "(", enumIdent, "_value[*", recv, ".", v.Name, "])}")
+					} else {
+						g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+							"{", v.ProtoGoName, ": ", enumIdent, "(*", recv, ".", v.Name, ")}")
+					}
+				case FieldKindTimestamp:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					tsNew := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/timestamppb",
+						GoName:       "New",
+					})
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": ", tsNew, "(*", recv, ".", v.Name, ")}")
+				case FieldKindDuration:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					durNew := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/durationpb",
+						GoName:       "New",
+					})
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": ", durNew, "(*", recv, ".", v.Name, ")}")
+				}
+				g.P("\t}")
+			}
 			continue
 		}
 		// Skip document_id fields for Firestore (not in the struct)
@@ -502,9 +537,41 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 
 	for _, f := range dm.Fields {
 		if f.IsOneof {
+			oneof := findOneof(dm, f.OneofTypeName)
+			g.P("\tswitch v := pb.Get", oneof.ProtoGoName, "().(type) {")
+			for _, v := range oneof.Variants {
+				wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+				g.P("\tcase *", wrapperIdent, ":")
+				switch v.Kind {
+				case FieldKindScalar:
+					g.P("\t\t", recv, ".", v.Name, " = &v.", v.ProtoGoName)
+				case FieldKindMessage:
+					nestedType := v.TypeName + structSuffix
+					g.P("\t\t", recv, ".", v.Name, " = &", nestedType, "{}")
+					g.P("\t\t", recv, ".", v.Name, ".FromProto(v.", v.ProtoGoName, ")")
+				case FieldKindEnum:
+					if v.EnumAsString {
+						g.P("\t\tenumVal := v.", v.ProtoGoName, ".String()")
+						g.P("\t\t", recv, ".", v.Name, " = &enumVal")
+					} else {
+						g.P("\t\tenumVal := int32(v.", v.ProtoGoName, ")")
+						g.P("\t\t", recv, ".", v.Name, " = &enumVal")
+					}
+				case FieldKindTimestamp:
+					g.P("\t\tif v.", v.ProtoGoName, " != nil {")
+					g.P("\t\t\tt := v.", v.ProtoGoName, ".AsTime()")
+					g.P("\t\t\t", recv, ".", v.Name, " = &t")
+					g.P("\t\t}")
+				case FieldKindDuration:
+					g.P("\t\tif v.", v.ProtoGoName, " != nil {")
+					g.P("\t\t\tdur := v.", v.ProtoGoName, ".AsDuration()")
+					g.P("\t\t\t", recv, ".", v.Name, " = &dur")
+					g.P("\t\t}")
+				}
+			}
+			g.P("\t}")
 			continue
 		}
-		// Skip document_id fields for Firestore (not in the struct)
 		if f.DocID && structSuffix == "Firestore" {
 			continue
 		}
@@ -776,6 +843,10 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 	storageType := dm.Name + storageSuffix
 	domainType := dm.Name
 	recv := receiverName(storageType)
+	// Avoid shadowing the domain variable "d" used in ToDomain/FromDomain.
+	if recv == "d" {
+		recv = "s"
+	}
 
 	// Determine if this is a Firestore type and find the document_id field.
 	isFirestore := storageSuffix == "Firestore"
@@ -803,6 +874,11 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 	g.P("\td := &", domainType, "{")
 	for _, f := range dm.Fields {
 		if f.IsOneof {
+			// Oneof variants: copy pointer fields directly (domain and storage have same layout)
+			oneof := findOneof(dm, f.OneofTypeName)
+			for _, v := range oneof.Variants {
+				g.P("\t\t", v.Name, ": ", recv, ".", v.Name, ",")
+			}
 			continue
 		}
 		// For Firestore: document_id fields are not in the storage struct
@@ -928,6 +1004,11 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 	g.P("\t}")
 	for _, f := range dm.Fields {
 		if f.IsOneof {
+			// Oneof variants: copy pointer fields directly
+			oneof := findOneof(dm, f.OneofTypeName)
+			for _, v := range oneof.Variants {
+				g.P("\t", recv, ".", v.Name, " = d.", v.Name)
+			}
 			continue
 		}
 		if f.DocID && isFirestore {

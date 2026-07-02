@@ -265,6 +265,33 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 		}
 	}
 
+	// Deep copy oneof variant pointer fields
+	for _, f := range dm.Fields {
+		if !f.IsOneof {
+			continue
+		}
+		oneof := findOneof(dm, f.OneofTypeName)
+		for _, v := range oneof.Variants {
+			switch v.Kind {
+			case FieldKindMessage:
+				g.P("\tif ", recv, ".", v.Name, " != nil {")
+				g.P("\t\tc.", v.Name, " = ", recv, ".", v.Name, ".Clone()")
+				g.P("\t}")
+			case FieldKindScalar:
+				g.P("\tif ", recv, ".", v.Name, " != nil {")
+				g.P("\t\tv := *", recv, ".", v.Name)
+				g.P("\t\tc.", v.Name, " = &v")
+				g.P("\t}")
+			default:
+				// Enum, Timestamp, Duration, etc. — all pointer types, copy value
+				g.P("\tif ", recv, ".", v.Name, " != nil {")
+				g.P("\t\tv := *", recv, ".", v.Name)
+				g.P("\t\tc.", v.Name, " = &v")
+				g.P("\t}")
+			}
+		}
+	}
+
 	g.P("\treturn c")
 	g.P("}")
 	g.P()
@@ -445,6 +472,29 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\tif ", recv, ".", f.PascalName, " != other.", f.PascalName, " {")
 			g.P("\t\treturn false")
 			g.P("\t}")
+		}
+	}
+
+	// Compare oneof variant pointer fields
+	for _, f := range dm.Fields {
+		if !f.IsOneof {
+			continue
+		}
+		oneof := findOneof(dm, f.OneofTypeName)
+		for _, v := range oneof.Variants {
+			g.P("\tif (", recv, ".", v.Name, " == nil) != (other.", v.Name, " == nil) {")
+			g.P("\t\treturn false")
+			g.P("\t}")
+			switch v.Kind {
+			case FieldKindMessage:
+				g.P("\tif ", recv, ".", v.Name, " != nil && !", recv, ".", v.Name, ".Equal(other.", v.Name, ") {")
+				g.P("\t\treturn false")
+				g.P("\t}")
+			default:
+				g.P("\tif ", recv, ".", v.Name, " != nil && *", recv, ".", v.Name, " != *other.", v.Name, " {")
+				g.P("\t\treturn false")
+				g.P("\t}")
+			}
 		}
 	}
 

@@ -56,6 +56,14 @@ func generateGoMongoMessage(gen *protogen.Plugin, g *protogen.GeneratedFile, dm 
 
 	for _, f := range dm.Fields {
 		if f.IsOneof {
+			// Emit flattened variant fields with bson tags
+			oneof := findOneof(dm, f.OneofTypeName)
+			g.P("\t// oneof: ", oneof.FieldName)
+			for _, v := range oneof.Variants {
+				vType := goOneofVariantStorageType(v, "Mongo")
+				bsonTag := v.ProtoName + ",omitempty"
+				g.P("\t", v.Name, " ", vType, " `bson:\"", bsonTag, "\"`")
+			}
 			continue
 		}
 

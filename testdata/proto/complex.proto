@@ -91,3 +91,13 @@ message AuditLog {
   string internal_notes = 3 [(proto2type.field).skip = true];
   string user_id = 4 [(proto2type.field).name = "actor"];
 }
+
+// Oneof with mixed variant types (message, enum, scalar).
+message Event {
+  string id = 1;
+  oneof payload {
+    string text_message = 2;
+    Settings settings_update = 3;
+    Priority priority_change = 4;
+  }
+}

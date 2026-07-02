@@ -19,6 +19,21 @@ func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	for _, f := range dm.Fields {
 		if f.IsOneof {
+			// Emit a case for each oneof variant
+			oneof := findOneof(dm, f.OneofTypeName)
+			for _, v := range oneof.Variants {
+				g.P("\t\tcase \"", v.ProtoName, "\":")
+				switch v.Kind {
+				case FieldKindMessage:
+					g.P("\t\t\tif src.", v.Name, " != nil {")
+					g.P("\t\t\t\tdst.", v.Name, " = src.", v.Name, ".Clone()")
+					g.P("\t\t\t} else {")
+					g.P("\t\t\t\tdst.", v.Name, " = nil")
+					g.P("\t\t\t}")
+				default:
+					g.P("\t\t\tdst.", v.Name, " = src.", v.Name)
+				}
+			}
 			continue
 		}
 		g.P("\t\tcase \"", f.Name, "\":")

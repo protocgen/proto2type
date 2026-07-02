@@ -194,3 +194,25 @@ pub struct AuditLog {
     pub user_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum EventPayload {
+    #[serde(rename = "text_message")]
+    TextMessage(String),
+    #[serde(rename = "settings_update")]
+    SettingsUpdate(Settings),
+    #[serde(rename = "priority_change")]
+    PriorityChange(Priority),
+}
+
+/// Domain representation of test.v1.Event.
+///
+/// Oneof with mixed variant types (message, enum, scalar).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct Event {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<EventPayload>,
+}
+

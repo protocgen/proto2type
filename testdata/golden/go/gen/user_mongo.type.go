@@ -18,20 +18,23 @@ import "time"
 
 // UserMongo is the MongoDB storage representation of test.v1.User.
 type UserMongo struct {
-	ID              string                    `bson:"id,omitempty"`
-	Email           string                    `bson:"email,omitempty"`
-	DisplayName     string                    `bson:"display_name,omitempty"`
-	Active          bool                      `bson:"active,omitempty"`
-	Age             int32                     `bson:"age,omitempty"`
-	Roles           []string                  `bson:"roles,omitempty"`
-	Metadata        map[string]string         `bson:"metadata,omitempty"`
-	Address         *AddressMongo             `bson:"address,omitempty"`
-	CreatedAt       time.Time                 `bson:"created_at,omitempty"`
-	SessionTimeout  time.Duration             `bson:"session_timeout,omitempty"`
-	Phone           *string                   `bson:"phone,omitempty"`
-	Avatar          []byte                    `bson:"avatar,omitempty"`
-	Nickname        *string                   `bson:"nickname,omitempty"`
-	Status          int32                     `bson:"status,omitempty"`
+	ID             string            `bson:"id,omitempty"`
+	Email          string            `bson:"email,omitempty"`
+	DisplayName    string            `bson:"display_name,omitempty"`
+	Active         bool              `bson:"active,omitempty"`
+	Age            int32             `bson:"age,omitempty"`
+	Roles          []string          `bson:"roles,omitempty"`
+	Metadata       map[string]string `bson:"metadata,omitempty"`
+	Address        *AddressMongo     `bson:"address,omitempty"`
+	CreatedAt      time.Time         `bson:"created_at,omitempty"`
+	SessionTimeout time.Duration     `bson:"session_timeout,omitempty"`
+	Phone          *string           `bson:"phone,omitempty"`
+	Avatar         []byte            `bson:"avatar,omitempty"`
+	Nickname       *string           `bson:"nickname,omitempty"`
+	Status         int32             `bson:"status,omitempty"`
+	// oneof: contact_method
+	ContactEmail    *string                   `bson:"contact_email,omitempty"`
+	ContactPhone    *string                   `bson:"contact_phone,omitempty"`
 	Tags            []*TagMongo               `bson:"tags,omitempty"`
 	DeletedAt       time.Time                 `bson:"deleted_at,omitempty"`
 	PreviousStatus  int32                     `bson:"previous_status,omitempty"`
@@ -45,8 +48,6 @@ type UserMongo struct {
 	EventTimes      map[string]time.Time      `bson:"event_times,omitempty"`
 	Configs         map[string]map[string]any `bson:"configs,omitempty"`
 }
-
-// WARNING: oneof fields in User are not yet supported by proto2type.
 
 // ToProto converts to the protobuf message.
 func (u *UserMongo) ToProto() *pb.User {
@@ -77,6 +78,12 @@ func (u *UserMongo) ToProto() *pb.User {
 	}
 	if u.Nickname != nil {
 		out.Nickname = wrapperspb.String(*u.Nickname)
+	}
+	if u.ContactEmail != nil {
+		out.ContactMethod = &pb.User_ContactEmail{ContactEmail: *u.ContactEmail}
+	}
+	if u.ContactPhone != nil {
+		out.ContactMethod = &pb.User_ContactPhone{ContactPhone: *u.ContactPhone}
 	}
 	if len(u.Tags) > 0 {
 		out.Tags = make([]*pb.Tag, len(u.Tags))
@@ -200,6 +207,12 @@ func (u *UserMongo) FromProto(pb *pb.User) {
 		u.Nickname = &v
 	}
 	u.Status = int32(pb.Status)
+	switch v := pb.GetContactMethod().(type) {
+	case *pb.User_ContactEmail:
+		u.ContactEmail = &v.ContactEmail
+	case *pb.User_ContactPhone:
+		u.ContactPhone = &v.ContactPhone
+	}
 	if len(pb.Tags) > 0 {
 		u.Tags = make([]*TagMongo, len(pb.Tags))
 		for i, v := range pb.Tags {
@@ -294,6 +307,8 @@ func (u *UserMongo) ToDomain() *User {
 		Phone:          u.Phone,
 		Nickname:       u.Nickname,
 		Status:         u.Status,
+		ContactEmail:   u.ContactEmail,
+		ContactPhone:   u.ContactPhone,
 		UpdateMask:     u.UpdateMask,
 		ExtraMetadata:  u.ExtraMetadata,
 		Preferences:    u.Preferences,
@@ -355,6 +370,8 @@ func (u *UserMongo) FromDomain(d *User) {
 	}
 	u.Nickname = d.Nickname
 	u.Status = d.Status
+	u.ContactEmail = d.ContactEmail
+	u.ContactPhone = d.ContactPhone
 	if len(d.Tags) > 0 {
 		u.Tags = make([]*TagMongo, len(d.Tags))
 		for i, v := range d.Tags {

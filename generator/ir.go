@@ -282,6 +282,9 @@ type DomainOneof struct {
 	FieldName string
 	// Variants in declaration order.
 	Variants []*OneofVariant
+	// ProtoGoName is the Go field name for this oneof in the generated proto struct.
+	// e.g. "ContactMethod" — used in ToProto as out.ContactMethod = ...
+	ProtoGoName string
 }
 
 // OneofVariant is a single variant inside a oneof group.
@@ -301,4 +304,16 @@ type OneofVariant struct {
 	// NeedsBox is true when a message-typed variant requires heap allocation
 	// because the type is part of a recursive cycle.
 	NeedsBox bool
+	// ProtoGoIdent is the protogen.GoIdent for the oneof wrapper struct.
+	// e.g. GoIdent for User_ContactEmail — used in ToProto/FromProto.
+	ProtoGoIdent protogen.GoIdent
+	// ProtoGoName is the Go field name in the proto wrapper struct.
+	// e.g. "ContactEmail" — used to access the value inside the wrapper.
+	ProtoGoName string
+	// ProtoEnumGoIdent is the protogen.GoIdent for enum types.
+	// Used for QualifiedGoIdent to resolve e.g. pb.Priority.
+	ProtoEnumGoIdent protogen.GoIdent
+	// ProtoMessageGoIdent is the protogen.GoIdent for message types.
+	// Used for QualifiedGoIdent to resolve e.g. pb.Settings.
+	ProtoMessageGoIdent protogen.GoIdent
 }

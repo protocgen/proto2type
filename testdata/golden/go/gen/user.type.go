@@ -20,20 +20,23 @@ import "time"
 //
 // User represents a user account.
 type User struct {
-	ID              string                    `json:"id,omitempty"`
-	Email           string                    `json:"email,omitempty"`
-	DisplayName     string                    `json:"display_name,omitempty"`
-	Active          bool                      `json:"active,omitempty"`
-	Age             int32                     `json:"age,omitempty"`
-	Roles           []string                  `json:"roles,omitempty"`
-	Metadata        map[string]string         `json:"metadata,omitempty"`
-	Address         *Address                  `json:"address,omitempty"`
-	CreatedAt       time.Time                 `json:"created_at,omitempty"`
-	SessionTimeout  time.Duration             `json:"session_timeout,omitempty"`
-	Phone           *string                   `json:"phone,omitempty"`
-	Avatar          []byte                    `json:"avatar,omitempty"`
-	Nickname        *string                   `json:"nickname,omitempty"`
-	Status          int32                     `json:"status,omitempty"`
+	ID             string            `json:"id,omitempty"`
+	Email          string            `json:"email,omitempty"`
+	DisplayName    string            `json:"display_name,omitempty"`
+	Active         bool              `json:"active,omitempty"`
+	Age            int32             `json:"age,omitempty"`
+	Roles          []string          `json:"roles,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	Address        *Address          `json:"address,omitempty"`
+	CreatedAt      time.Time         `json:"created_at,omitempty"`
+	SessionTimeout time.Duration     `json:"session_timeout,omitempty"`
+	Phone          *string           `json:"phone,omitempty"`
+	Avatar         []byte            `json:"avatar,omitempty"`
+	Nickname       *string           `json:"nickname,omitempty"`
+	Status         int32             `json:"status,omitempty"`
+	// oneof: contact_method
+	ContactEmail    *string                   `json:"contact_email,omitempty"`
+	ContactPhone    *string                   `json:"contact_phone,omitempty"`
 	Tags            []*Tag                    `json:"tags,omitempty"`
 	DeletedAt       *time.Time                `json:"deleted_at,omitempty"`
 	PreviousStatus  *int32                    `json:"previous_status,omitempty"`
@@ -47,8 +50,6 @@ type User struct {
 	EventTimes      map[string]time.Time      `json:"event_times,omitempty"`
 	Configs         map[string]map[string]any `json:"configs,omitempty"`
 }
-
-// WARNING: oneof fields in User are not yet supported by proto2type.
 
 // ToProto converts to the protobuf message.
 func (u *User) ToProto() *pb.User {
@@ -79,6 +80,12 @@ func (u *User) ToProto() *pb.User {
 	}
 	if u.Nickname != nil {
 		out.Nickname = wrapperspb.String(*u.Nickname)
+	}
+	if u.ContactEmail != nil {
+		out.ContactMethod = &pb.User_ContactEmail{ContactEmail: *u.ContactEmail}
+	}
+	if u.ContactPhone != nil {
+		out.ContactMethod = &pb.User_ContactPhone{ContactPhone: *u.ContactPhone}
 	}
 	if len(u.Tags) > 0 {
 		out.Tags = make([]*pb.Tag, len(u.Tags))
@@ -202,6 +209,12 @@ func (u *User) FromProto(pb *pb.User) {
 		u.Nickname = &v
 	}
 	u.Status = int32(pb.Status)
+	switch v := pb.GetContactMethod().(type) {
+	case *pb.User_ContactEmail:
+		u.ContactEmail = &v.ContactEmail
+	case *pb.User_ContactPhone:
+		u.ContactPhone = &v.ContactPhone
+	}
 	if len(pb.Tags) > 0 {
 		u.Tags = make([]*Tag, len(pb.Tags))
 		for i, v := range pb.Tags {
@@ -320,6 +333,10 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			dst.Nickname = src.Nickname
 		case "status":
 			dst.Status = src.Status
+		case "contact_email":
+			dst.ContactEmail = src.ContactEmail
+		case "contact_phone":
+			dst.ContactPhone = src.ContactPhone
 		case "tags":
 			dst.Tags = src.Tags
 		case "deleted_at":
@@ -494,6 +511,14 @@ func (u *User) Clone() *User {
 	if u.Preferences != nil {
 		c.Preferences = make([]any, len(u.Preferences))
 		copy(c.Preferences, u.Preferences)
+	}
+	if u.ContactEmail != nil {
+		v := *u.ContactEmail
+		c.ContactEmail = &v
+	}
+	if u.ContactPhone != nil {
+		v := *u.ContactPhone
+		c.ContactPhone = &v
 	}
 	return c
 }
@@ -673,6 +698,18 @@ func (u *User) Equal(other *User) bool {
 		if !reflect.DeepEqual(v, ov) {
 			return false
 		}
+	}
+	if (u.ContactEmail == nil) != (other.ContactEmail == nil) {
+		return false
+	}
+	if u.ContactEmail != nil && *u.ContactEmail != *other.ContactEmail {
+		return false
+	}
+	if (u.ContactPhone == nil) != (other.ContactPhone == nil) {
+		return false
+	}
+	if u.ContactPhone != nil && *u.ContactPhone != *other.ContactPhone {
+		return false
 	}
 	return true
 }

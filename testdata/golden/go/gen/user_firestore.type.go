@@ -18,20 +18,23 @@ import "time"
 
 // UserFirestore is the Firestore storage representation of test.v1.User.
 type UserFirestore struct {
-	ID              string                    `firestore:"id,omitempty"`
-	Email           string                    `firestore:"email,omitempty"`
-	DisplayName     string                    `firestore:"display_name,omitempty"`
-	Active          bool                      `firestore:"active,omitempty"`
-	Age             int32                     `firestore:"age,omitempty"`
-	Roles           []string                  `firestore:"roles,omitempty"`
-	Metadata        map[string]string         `firestore:"metadata,omitempty"`
-	Address         *AddressFirestore         `firestore:"address,omitempty"`
-	CreatedAt       time.Time                 `firestore:"created_at,omitempty"`
-	SessionTimeout  time.Duration             `firestore:"session_timeout,omitempty"`
-	Phone           *string                   `firestore:"phone,omitempty"`
-	Avatar          []byte                    `firestore:"avatar,omitempty"`
-	Nickname        *string                   `firestore:"nickname,omitempty"`
-	Status          int32                     `firestore:"status,omitempty"`
+	ID             string            `firestore:"id,omitempty"`
+	Email          string            `firestore:"email,omitempty"`
+	DisplayName    string            `firestore:"display_name,omitempty"`
+	Active         bool              `firestore:"active,omitempty"`
+	Age            int32             `firestore:"age,omitempty"`
+	Roles          []string          `firestore:"roles,omitempty"`
+	Metadata       map[string]string `firestore:"metadata,omitempty"`
+	Address        *AddressFirestore `firestore:"address,omitempty"`
+	CreatedAt      time.Time         `firestore:"created_at,omitempty"`
+	SessionTimeout time.Duration     `firestore:"session_timeout,omitempty"`
+	Phone          *string           `firestore:"phone,omitempty"`
+	Avatar         []byte            `firestore:"avatar,omitempty"`
+	Nickname       *string           `firestore:"nickname,omitempty"`
+	Status         int32             `firestore:"status,omitempty"`
+	// oneof: contact_method
+	ContactEmail    *string                   `firestore:"contact_email,omitempty"`
+	ContactPhone    *string                   `firestore:"contact_phone,omitempty"`
 	Tags            []*TagFirestore           `firestore:"tags,omitempty"`
 	DeletedAt       time.Time                 `firestore:"deleted_at,omitempty"`
 	PreviousStatus  int32                     `firestore:"previous_status,omitempty"`
@@ -45,8 +48,6 @@ type UserFirestore struct {
 	EventTimes      map[string]time.Time      `firestore:"event_times,omitempty"`
 	Configs         map[string]map[string]any `firestore:"configs,omitempty"`
 }
-
-// WARNING: oneof fields in User are not yet supported by proto2type.
 
 // ToProto converts to the protobuf message.
 func (u *UserFirestore) ToProto() *pb.User {
@@ -77,6 +78,12 @@ func (u *UserFirestore) ToProto() *pb.User {
 	}
 	if u.Nickname != nil {
 		out.Nickname = wrapperspb.String(*u.Nickname)
+	}
+	if u.ContactEmail != nil {
+		out.ContactMethod = &pb.User_ContactEmail{ContactEmail: *u.ContactEmail}
+	}
+	if u.ContactPhone != nil {
+		out.ContactMethod = &pb.User_ContactPhone{ContactPhone: *u.ContactPhone}
 	}
 	if len(u.Tags) > 0 {
 		out.Tags = make([]*pb.Tag, len(u.Tags))
@@ -200,6 +207,12 @@ func (u *UserFirestore) FromProto(pb *pb.User) {
 		u.Nickname = &v
 	}
 	u.Status = int32(pb.Status)
+	switch v := pb.GetContactMethod().(type) {
+	case *pb.User_ContactEmail:
+		u.ContactEmail = &v.ContactEmail
+	case *pb.User_ContactPhone:
+		u.ContactPhone = &v.ContactPhone
+	}
 	if len(pb.Tags) > 0 {
 		u.Tags = make([]*TagFirestore, len(pb.Tags))
 		for i, v := range pb.Tags {
@@ -294,6 +307,8 @@ func (u *UserFirestore) ToDomain() *User {
 		Phone:          u.Phone,
 		Nickname:       u.Nickname,
 		Status:         u.Status,
+		ContactEmail:   u.ContactEmail,
+		ContactPhone:   u.ContactPhone,
 		UpdateMask:     u.UpdateMask,
 		ExtraMetadata:  u.ExtraMetadata,
 		Preferences:    u.Preferences,
@@ -355,6 +370,8 @@ func (u *UserFirestore) FromDomain(d *User) {
 	}
 	u.Nickname = d.Nickname
 	u.Status = d.Status
+	u.ContactEmail = d.ContactEmail
+	u.ContactPhone = d.ContactPhone
 	if len(d.Tags) > 0 {
 		u.Tags = make([]*TagFirestore, len(d.Tags))
 		for i, v := range d.Tags {

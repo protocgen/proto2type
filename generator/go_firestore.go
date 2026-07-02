@@ -56,6 +56,14 @@ func generateGoFirestoreMessage(gen *protogen.Plugin, g *protogen.GeneratedFile,
 
 	for _, f := range dm.Fields {
 		if f.IsOneof {
+			// Emit flattened variant fields with firestore tags
+			oneof := findOneof(dm, f.OneofTypeName)
+			g.P("\t// oneof: ", oneof.FieldName)
+			for _, v := range oneof.Variants {
+				vType := goOneofVariantStorageType(v, "Firestore")
+				fsTag := v.ProtoName + ",omitempty"
+				g.P("\t", v.Name, " ", vType, " `firestore:\"", fsTag, "\"`")
+			}
 			continue
 		}
 		// Firestore uses the document path as ID — skip document_id fields from struct
