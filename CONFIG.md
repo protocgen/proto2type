@@ -12,9 +12,9 @@ Target language for code generation.
 
 | Default | `go` |
 |---|---|
-| Values | `go`, `rust`, `kotlin` (supported); `python`, `typescript` (planned) |
+| Values | `go`, `rust`, `python`, `kotlin`, `typescript` |
 
-> **Note:** `go`, `rust`, and `kotlin` are currently supported. Other languages are on the [roadmap](README.md#roadmap).
+> **Note:** `go` and `rust` are currently supported. Other languages are on the [roadmap](README.md#roadmap).
 
 #### Rust-specific behaviour
 
@@ -27,25 +27,6 @@ When `lang=rust`:
 - `repeated` / `map` → `Vec<T>` / `HashMap<K, V>` with `#[serde(default)]`
 - Optional fields → `Option<T>` with `#[serde(skip_serializing_if = "Option::is_none")]`
 - File suffix: `{proto_name}.type.rs` (domain), `{proto_name}_{backend}.type.rs` (storage)
-
-#### Kotlin-specific behaviour
-
-When `lang=kotlin`:
-
-- **Domain types** are `@Serializable data class` with `kotlinx.serialization`
-- `google.protobuf.Timestamp` → `kotlinx.datetime.Instant`
-- `google.protobuf.Duration` → `kotlin.time.Duration`
-- Nested messages → `MessageType?` (nullable)
-- `repeated` / `map` → `List<T>` / `Map<K, V>` with defaults `emptyList()` / `emptyMap()`
-- Optional fields → `T?` (nullable) with default `null`
-- Enums → `@Serializable enum class` with `@SerialName` for proto names
-- Oneofs → `@Serializable sealed class` with `@SerialName` discriminators
-- Field naming → camelCase with `@SerialName("snake_case")` when names differ
-- File suffix: `{proto_name}.type.kt`
-
-> **Minimum Kotlin version:** 1.9+ (generated code uses the `entries` enum property).
->
-> **Note:** No storage backends are available for Kotlin yet. Only domain type generation is supported.
 
 ### `backend`
 

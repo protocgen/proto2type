@@ -8,7 +8,7 @@
 //  - Empty/default values
 //  - SQLite persistence via rusqlite (in-memory)
 //  - ConversionError Display
-//  - Nested message Option<Box<T>> round-trip
+//  - Nested message Option<T> round-trip
 //  - Catalog doc-id pattern (model_id excluded from Row)
 
 use chrono::{TimeZone, Utc};
@@ -74,6 +74,38 @@ fn sample_user() -> User {
         "alice-alt@example.com".into(),
     ));
     u.tags = vec![make_tag("dept", "eng"), make_tag("level", "senior")];
+    u.deleted_at = Some(Utc.with_ymd_and_hms(2024, 6, 1, 0, 0, 0).unwrap());
+    u.previous_status = Some(UserStatus::Suspended);
+    u.update_mask = vec!["email".into(), "display_name".into()];
+    u.extra_metadata = {
+        let mut m = serde_json::Map::new();
+        m.insert("source".into(), serde_json::Value::String("import".into()));
+        m
+    };
+    u.preferences = vec![serde_json::Value::String("dark_mode".into())];
+    u.avatar_thumbnail = Some(vec![0xCA, 0xFE]);
+    u.field_masks = vec![vec!["user".into(), "email".into()]];
+    u.structs = vec![{
+        let mut m = serde_json::Map::new();
+        m.insert("key".into(), serde_json::Value::String("val".into()));
+        m
+    }];
+    u.lists = vec![vec![serde_json::Value::Number(1.into())]];
+    u.event_times = {
+        let mut m = HashMap::new();
+        m.insert(
+            "login".into(),
+            Utc.with_ymd_and_hms(2024, 3, 1, 8, 0, 0).unwrap(),
+        );
+        m
+    };
+    u.configs = {
+        let mut m = HashMap::new();
+        let mut inner = serde_json::Map::new();
+        inner.insert("enabled".into(), serde_json::Value::Bool(true));
+        m.insert("notifications".into(), inner);
+        m
+    };
     u
 }
 
@@ -95,71 +127,6 @@ fn sample_catalog_entry() -> ModelCatalogEntry {
     e.notes = "Latest multimodal model".into();
     e.region = "us-east-1".into();
     e
-}
-
-/// Shared DDL: single source of truth for the users table schema.
-fn create_users_table(conn: &Connection) {
-    conn.execute_batch(
-        "CREATE TABLE users (
-            id            TEXT    NOT NULL,
-            email         TEXT    NOT NULL,
-            display_name  TEXT    NOT NULL,
-            active        BOOLEAN NOT NULL,
-            age           INTEGER NOT NULL,
-            roles         TEXT    NOT NULL,
-            metadata      TEXT    NOT NULL,
-            address       TEXT,
-            created_at    INTEGER NOT NULL,
-            session_timeout INTEGER NOT NULL,
-            phone         TEXT,
-            avatar        BLOB    NOT NULL,
-            nickname      TEXT,
-            status        INTEGER NOT NULL,
-            contact_method TEXT,
-            tags          TEXT    NOT NULL,
-            deleted_at    INTEGER,
-            previous_status INTEGER,
-            update_mask   TEXT    NOT NULL,
-            extra_metadata TEXT   NOT NULL,
-            preferences   TEXT    NOT NULL,
-            avatar_thumbnail BLOB,
-            field_masks   TEXT    NOT NULL,
-            structs       TEXT    NOT NULL,
-            lists         TEXT    NOT NULL,
-            event_times   TEXT    NOT NULL,
-            configs       TEXT    NOT NULL
-        );",
-    )
-    .expect("create users table");
-}
-
-/// Shared INSERT with explicit column names — immune to column reordering.
-fn insert_user_row(conn: &Connection, row: &UserRow) {
-    conn.execute(
-        "INSERT INTO users (
-            id, email, display_name, active, age, roles, metadata,
-            address, created_at, session_timeout, phone, avatar,
-            nickname, status, contact_method, tags, deleted_at, previous_status,
-            update_mask, extra_metadata, preferences, avatar_thumbnail,
-            field_masks, structs, lists, event_times, configs
-        ) VALUES (
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7,
-            ?8, ?9, ?10, ?11, ?12,
-            ?13, ?14, ?15, ?16, ?17, ?18,
-            ?19, ?20, ?21, ?22,
-            ?23, ?24, ?25, ?26, ?27
-        )",
-        rusqlite::params![
-            row.id, row.email, row.display_name, row.active, row.age,
-            row.roles, row.metadata, row.address, row.created_at,
-            row.session_timeout, row.phone, row.avatar, row.nickname,
-            row.status, row.contact_method, row.tags, row.deleted_at,
-            row.previous_status, row.update_mask, row.extra_metadata,
-            row.preferences, row.avatar_thumbnail, row.field_masks,
-            row.structs, row.lists, row.event_times, row.configs,
-        ],
-    )
-    .expect("insert user row");
 }
 
 // ---------------------------------------------------------------------------
@@ -323,10 +290,21 @@ fn test_empty_defaults() {
     assert_eq!(back.status, UserStatus::Unspecified);
     assert!(back.contact_method.is_none());
     assert!(back.tags.is_empty());
+    assert!(back.deleted_at.is_none());
+    assert!(back.previous_status.is_none());
+    assert!(back.update_mask.is_empty());
+    assert!(back.extra_metadata.is_empty());
+    assert!(back.preferences.is_empty());
+    assert!(back.avatar_thumbnail.is_none());
+    assert!(back.field_masks.is_empty());
+    assert!(back.structs.is_empty());
+    assert!(back.lists.is_empty());
+    assert!(back.event_times.is_empty());
+    assert!(back.configs.is_empty());
 }
 
 // ---------------------------------------------------------------------------
-// Nested message Option<Box<T>> round-trip
+// Nested message Option<T> round-trip
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -405,17 +383,103 @@ fn test_conversion_error_display_timestamp() {
 }
 
 // ---------------------------------------------------------------------------
+// SQL column list constant (shared across SQLite tests)
+// ---------------------------------------------------------------------------
+
+const USER_CREATE_TABLE: &str = "CREATE TABLE users (
+    id               TEXT    NOT NULL,
+    email            TEXT    NOT NULL,
+    display_name     TEXT    NOT NULL,
+    active           BOOLEAN NOT NULL,
+    age              INTEGER NOT NULL,
+    roles            TEXT    NOT NULL,
+    metadata         TEXT    NOT NULL,
+    address          TEXT,
+    created_at       INTEGER NOT NULL,
+    session_timeout  INTEGER NOT NULL,
+    phone            TEXT,
+    avatar           BLOB    NOT NULL,
+    nickname         TEXT,
+    status           INTEGER NOT NULL,
+    contact_method   TEXT,
+    tags             TEXT    NOT NULL,
+    deleted_at       INTEGER,
+    previous_status  INTEGER,
+    update_mask      TEXT    NOT NULL,
+    extra_metadata   TEXT    NOT NULL,
+    preferences      TEXT    NOT NULL,
+    avatar_thumbnail BLOB,
+    field_masks      TEXT    NOT NULL,
+    structs          TEXT    NOT NULL,
+    lists            TEXT    NOT NULL,
+    event_times      TEXT    NOT NULL,
+    configs          TEXT    NOT NULL
+);";
+
+const USER_INSERT: &str = "INSERT INTO users (
+    id, email, display_name, active, age, roles, metadata,
+    address, created_at, session_timeout, phone, avatar,
+    nickname, status, contact_method, tags,
+    deleted_at, previous_status, update_mask, extra_metadata,
+    preferences, avatar_thumbnail, field_masks, structs,
+    lists, event_times, configs
+) VALUES (
+    ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+    ?8, ?9, ?10, ?11, ?12,
+    ?13, ?14, ?15, ?16,
+    ?17, ?18, ?19, ?20,
+    ?21, ?22, ?23, ?24,
+    ?25, ?26, ?27
+)";
+
+macro_rules! user_row_params {
+    ($row:expr) => {
+        rusqlite::params![
+            $row.id,
+            $row.email,
+            $row.display_name,
+            $row.active,
+            $row.age,
+            $row.roles,
+            $row.metadata,
+            $row.address,
+            $row.created_at,
+            $row.session_timeout,
+            $row.phone,
+            $row.avatar,
+            $row.nickname,
+            $row.status,
+            $row.contact_method,
+            $row.tags,
+            $row.deleted_at,
+            $row.previous_status,
+            $row.update_mask,
+            $row.extra_metadata,
+            $row.preferences,
+            $row.avatar_thumbnail,
+            $row.field_masks,
+            $row.structs,
+            $row.lists,
+            $row.event_times,
+            $row.configs,
+        ]
+    };
+}
+
+// ---------------------------------------------------------------------------
 // SQLite persistence (in-memory): User
 // ---------------------------------------------------------------------------
 
 #[test]
 fn test_sqlite_user_roundtrip() {
     let conn = Connection::open_in_memory().expect("open in-memory");
-    create_users_table(&conn);
+    conn.execute_batch(USER_CREATE_TABLE).expect("create table");
 
     let user = sample_user();
     let row = UserRow::from_domain(&user).expect("from_domain");
-    insert_user_row(&conn, &row);
+
+    conn.execute(USER_INSERT, user_row_params!(row))
+        .expect("insert");
 
     let queried = conn
         .query_row("SELECT * FROM users WHERE id = ?1", [&user.id], |row| {
@@ -512,7 +576,7 @@ fn test_sqlite_catalog_roundtrip() {
 #[test]
 fn test_sqlite_multiple_users() {
     let conn = Connection::open_in_memory().expect("open in-memory");
-    create_users_table(&conn);
+    conn.execute_batch(USER_CREATE_TABLE).expect("create table");
 
     let mut users = Vec::new();
     for i in 0..5 {
@@ -526,7 +590,8 @@ fn test_sqlite_multiple_users() {
 
     for user in &users {
         let row = UserRow::from_domain(user).expect("from_domain");
-        insert_user_row(&conn, &row);
+        conn.execute(USER_INSERT, user_row_params!(row))
+            .expect("insert");
     }
 
     let mut stmt = conn.prepare("SELECT * FROM users ORDER BY id").expect("prepare");
@@ -588,7 +653,7 @@ fn test_unicode_roundtrip() {
 #[test]
 fn test_binary_blob_sqlite() {
     let conn = Connection::open_in_memory().expect("open in-memory");
-    create_users_table(&conn);
+    conn.execute_batch(USER_CREATE_TABLE).expect("create");
 
     let mut user = User::default();
     // All 256 byte values
@@ -596,7 +661,8 @@ fn test_binary_blob_sqlite() {
     user.id = "blob-test".into();
 
     let row = UserRow::from_domain(&user).expect("from_domain");
-    insert_user_row(&conn, &row);
+    conn.execute(USER_INSERT, user_row_params!(row))
+        .expect("insert");
 
     let queried = conn
         .query_row("SELECT * FROM users WHERE id = ?1", ["blob-test"], |r| {
