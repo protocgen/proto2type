@@ -233,7 +233,7 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 		case FieldKindMessage:
 			return fmt.Sprintf("d.%s.iter().map(Into::into).collect()", fieldName)
 		case FieldKindTimestamp:
-			return fmt.Sprintf("d.%s.iter().map(|dt| buffa::MessageField::some(chrono_to_buffa_timestamp(dt))).collect()", fieldName)
+			return fmt.Sprintf("d.%s.iter().map(|dt| chrono_to_buffa_timestamp(dt)).collect()", fieldName)
 		case FieldKindScalar:
 			if f.ScalarKind == protoreflect.StringKind {
 				return fmt.Sprintf("d.%s.iter().map(|s| s.clone().into()).collect()", fieldName)
@@ -458,8 +458,7 @@ func generateBuffaBufToDomainOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 
 		case FieldKindTimestamp:
 			g.P("                Some(__buffa_mod::oneof::", toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(ts)) => {")
-			g.P("                    Some(", o.Name, "::", variantPascal, "(buffa_timestamp_to_chrono(ts.as_ref())?)")
-			g.P("                })")
+			g.P("                    Some(", o.Name, "::", variantPascal, "(buffa_timestamp_to_chrono(ts.as_ref())?))")
 			g.P("                }")
 
 		case FieldKindScalar:

@@ -30,7 +30,7 @@ func main() {
 	opts := &generator.Options{}
 
 	flags.StringVar(&opts.Lang, "lang", "go", "target language: go, python, kotlin, typescript")
-	flags.StringVar(&opts.Backend, "backend", "", "storage backend: firestore, mongo, dynamodb, datastore, spanner")
+	flags.StringVar(&opts.Backend, "backend", "", "storage backend: firestore, mongo, dynamodb, datastore, spanner, sqlite, buffa")
 	flags.BoolVar(&opts.Domain, "domain", true, "generate domain types + proto converters")
 	flags.StringVar(&opts.OutputFile, "output_file", "", "override output filename")
 	flags.BoolVar(&opts.EnumAsString, "enum_as_string", false, "store enums as string names")
