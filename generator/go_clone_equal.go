@@ -374,29 +374,51 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 				g.P("\t\tc.", v.Name, " = &v")
 				g.P("\t}")
 			case FieldKindStruct:
-				// *map[string]any: deep copy via deepCopyValue
+				// *map[string]any: preserve nil inner map vs deep copy populated map.
+				// Without the nil check, deepCopyValue(nil).(map[string]any) would
+				// produce an empty map, breaking Clone().Equal(original).
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
-				g.P("\t\tval := deepCopyValue(*", recv, ".", v.Name, ").(map[string]any)")
-				g.P("\t\tc.", v.Name, " = &val")
+				g.P("\t\tif *", recv, ".", v.Name, " == nil {")
+				g.P("\t\t\tc.", v.Name, " = new(map[string]any)")
+				g.P("\t\t} else {")
+				g.P("\t\t\tval := deepCopyValue(*", recv, ".", v.Name, ").(map[string]any)")
+				g.P("\t\t\tc.", v.Name, " = &val")
+				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindValue:
-				// *any: deep copy via deepCopyValue
+				// *any: preserve nil inner value vs deep copy.
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
-				g.P("\t\tval := deepCopyValue(*", recv, ".", v.Name, ")")
-				g.P("\t\tc.", v.Name, " = &val")
+				g.P("\t\tif *", recv, ".", v.Name, " == nil {")
+				g.P("\t\t\tc.", v.Name, " = new(any)")
+				g.P("\t\t} else {")
+				g.P("\t\t\tval := deepCopyValue(*", recv, ".", v.Name, ")")
+				g.P("\t\t\tc.", v.Name, " = &val")
+				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindListValue:
-				// *[]any: deep copy via deepCopyValue
+				// *[]any: preserve nil inner slice vs deep copy.
+				// Without the nil check, deepCopyValue(nil).([]any) would
+				// produce an empty slice, breaking Clone().Equal(original).
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
-				g.P("\t\tval := deepCopyValue(*", recv, ".", v.Name, ").([]any)")
-				g.P("\t\tc.", v.Name, " = &val")
+				g.P("\t\tif *", recv, ".", v.Name, " == nil {")
+				g.P("\t\t\tc.", v.Name, " = new([]any)")
+				g.P("\t\t} else {")
+				g.P("\t\t\tval := deepCopyValue(*", recv, ".", v.Name, ").([]any)")
+				g.P("\t\t\tc.", v.Name, " = &val")
+				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindFieldMask:
-				// *[]string: make + copy the slice
+				// *[]string: preserve nil inner slice vs make+copy.
+				// Without the nil check, make([]string, 0) produces []string{}
+				// (non-nil empty slice), breaking Clone().Equal(original).
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
-				g.P("\t\ts := make([]string, len(*", recv, ".", v.Name, "))")
-				g.P("\t\tcopy(s, *", recv, ".", v.Name, ")")
-				g.P("\t\tc.", v.Name, " = &s")
+				g.P("\t\tif *", recv, ".", v.Name, " == nil {")
+				g.P("\t\t\tc.", v.Name, " = new([]string)")
+				g.P("\t\t} else {")
+				g.P("\t\t\ts := make([]string, len(*", recv, ".", v.Name, "))")
+				g.P("\t\t\tcopy(s, *", recv, ".", v.Name, ")")
+				g.P("\t\t\tc.", v.Name, " = &s")
+				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindAny:
 				// *any: if proto.Message, proto.Clone; else deepCopyValue

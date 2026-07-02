@@ -1174,6 +1174,258 @@ func (e *Event) Equal(other *Event) bool {
 	return true
 }
 
+// WktPayload is the domain representation of test.v1.WktPayload.
+//
+// Oneof with bare WKT variants — tests nil vs empty Clone semantics (#73).
+// Each variant is a WKT type that maps to a pointer-to-nil-able Go type:
+//
+//	Struct    → *map[string]any
+//	Value     → *any
+//	ListValue → *[]any
+//	FieldMask → *[]string
+type WktPayload struct {
+	ID string `json:"id,omitempty"`
+	// oneof: content
+	StructData *map[string]any `json:"struct_data,omitempty"`
+	AnyValue   *any            `json:"any_value,omitempty"`
+	ListData   *[]any          `json:"list_data,omitempty"`
+	Mask       *[]string       `json:"mask,omitempty"`
+	Raw        *string         `json:"raw,omitempty"`
+}
+
+// ToProto converts to the protobuf message.
+func (w *WktPayload) ToProto() *pb.WktPayload {
+	if w == nil {
+		return nil
+	}
+	out := &pb.WktPayload{
+		Id: w.ID,
+	}
+	if w.StructData != nil {
+		s, err := structpb.NewStruct(*w.StructData)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.StructData to Struct: %v", "WktPayload", err)
+		} else {
+			out.Content = &pb.WktPayload_StructData{StructData: s}
+		}
+	}
+	if w.AnyValue != nil {
+		v, err := structpb.NewValue(*w.AnyValue)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.AnyValue to Value: %v", "WktPayload", err)
+		} else {
+			out.Content = &pb.WktPayload_AnyValue{AnyValue: v}
+		}
+	}
+	if w.ListData != nil {
+		l, err := structpb.NewList(*w.ListData)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.ListData to ListValue: %v", "WktPayload", err)
+		} else {
+			out.Content = &pb.WktPayload_ListData{ListData: l}
+		}
+	}
+	if w.Mask != nil {
+		paths := make([]string, len(*w.Mask))
+		copy(paths, *w.Mask)
+		out.Content = &pb.WktPayload_Mask{Mask: &fieldmaskpb.FieldMask{Paths: paths}}
+	}
+	if w.Raw != nil {
+		out.Content = &pb.WktPayload_Raw{Raw: *w.Raw}
+	}
+	return out
+}
+
+// FromProto populates from a protobuf message.
+func (w *WktPayload) FromProto(msg *pb.WktPayload) {
+	if msg == nil {
+		return
+	}
+	w.ID = msg.Id
+	w.StructData = nil
+	w.AnyValue = nil
+	w.ListData = nil
+	w.Mask = nil
+	w.Raw = nil
+	switch v := msg.GetContent().(type) {
+	case *pb.WktPayload_StructData:
+		if v.StructData != nil {
+			m := v.StructData.AsMap()
+			w.StructData = &m
+		}
+	case *pb.WktPayload_AnyValue:
+		if v.AnyValue != nil {
+			a := v.AnyValue.AsInterface()
+			w.AnyValue = &a
+		}
+	case *pb.WktPayload_ListData:
+		if v.ListData != nil {
+			l := v.ListData.AsSlice()
+			w.ListData = &l
+		}
+	case *pb.WktPayload_Mask:
+		if v.Mask != nil {
+			paths := make([]string, len(v.Mask.GetPaths()))
+			copy(paths, v.Mask.GetPaths())
+			w.Mask = &paths
+		}
+	case *pb.WktPayload_Raw:
+		w.Raw = &v.Raw
+	}
+}
+
+// ApplyFieldMaskWktPayload copies fields from src to dst based on the given paths.
+func ApplyFieldMaskWktPayload(dst, src *WktPayload, paths []string) {
+	if dst == nil || src == nil {
+		return
+	}
+	for _, path := range paths {
+		switch path {
+		case "id":
+			dst.ID = src.ID
+		case "struct_data":
+			if src.StructData != nil {
+				if *src.StructData == nil {
+					dst.StructData = new(map[string]any)
+				} else {
+					copied := deepCopyValue(*src.StructData).(map[string]any)
+					dst.StructData = &copied
+				}
+			} else {
+				dst.StructData = nil
+			}
+		case "any_value":
+			if src.AnyValue != nil {
+				if *src.AnyValue == nil {
+					dst.AnyValue = new(any)
+				} else {
+					copied := deepCopyValue(*src.AnyValue)
+					dst.AnyValue = &copied
+				}
+			} else {
+				dst.AnyValue = nil
+			}
+		case "list_data":
+			if src.ListData != nil {
+				if *src.ListData == nil {
+					dst.ListData = new([]any)
+				} else {
+					copied := deepCopyValue(*src.ListData).([]any)
+					dst.ListData = &copied
+				}
+			} else {
+				dst.ListData = nil
+			}
+		case "mask":
+			if src.Mask != nil {
+				if *src.Mask == nil {
+					dst.Mask = new([]string)
+				} else {
+					s := make([]string, len(*src.Mask))
+					copy(s, *src.Mask)
+					dst.Mask = &s
+				}
+			} else {
+				dst.Mask = nil
+			}
+		case "raw":
+			dst.Raw = src.Raw
+		}
+	}
+}
+
+// Clone returns a deep copy of WktPayload.
+func (w *WktPayload) Clone() *WktPayload {
+	if w == nil {
+		return nil
+	}
+	c := &WktPayload{
+		ID: w.ID,
+	}
+	if w.StructData != nil {
+		if *w.StructData == nil {
+			c.StructData = new(map[string]any)
+		} else {
+			val := deepCopyValue(*w.StructData).(map[string]any)
+			c.StructData = &val
+		}
+	}
+	if w.AnyValue != nil {
+		if *w.AnyValue == nil {
+			c.AnyValue = new(any)
+		} else {
+			val := deepCopyValue(*w.AnyValue)
+			c.AnyValue = &val
+		}
+	}
+	if w.ListData != nil {
+		if *w.ListData == nil {
+			c.ListData = new([]any)
+		} else {
+			val := deepCopyValue(*w.ListData).([]any)
+			c.ListData = &val
+		}
+	}
+	if w.Mask != nil {
+		if *w.Mask == nil {
+			c.Mask = new([]string)
+		} else {
+			s := make([]string, len(*w.Mask))
+			copy(s, *w.Mask)
+			c.Mask = &s
+		}
+	}
+	if w.Raw != nil {
+		v := *w.Raw
+		c.Raw = &v
+	}
+	return c
+}
+
+// Equal reports whether w and other are equal.
+func (w *WktPayload) Equal(other *WktPayload) bool {
+	if w == other {
+		return true
+	}
+	if w == nil || other == nil {
+		return false
+	}
+	if w.ID != other.ID {
+		return false
+	}
+	if (w.StructData == nil) != (other.StructData == nil) {
+		return false
+	}
+	if w.StructData != nil && !reflect.DeepEqual(w.StructData, other.StructData) {
+		return false
+	}
+	if (w.AnyValue == nil) != (other.AnyValue == nil) {
+		return false
+	}
+	if w.AnyValue != nil && !reflect.DeepEqual(w.AnyValue, other.AnyValue) {
+		return false
+	}
+	if (w.ListData == nil) != (other.ListData == nil) {
+		return false
+	}
+	if w.ListData != nil && !reflect.DeepEqual(w.ListData, other.ListData) {
+		return false
+	}
+	if (w.Mask == nil) != (other.Mask == nil) {
+		return false
+	}
+	if w.Mask != nil && !reflect.DeepEqual(w.Mask, other.Mask) {
+		return false
+	}
+	if (w.Raw == nil) != (other.Raw == nil) {
+		return false
+	}
+	if w.Raw != nil && *w.Raw != *other.Raw {
+		return false
+	}
+	return true
+}
+
 // deepCopyValue recursively deep-copies values that originate from structpb
 // (map[string]any, []any, and scalar types like string, float64, bool, nil).
 func deepCopyValue(v any) any {

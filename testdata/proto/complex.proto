@@ -101,3 +101,20 @@ message Event {
     Priority priority_change = 4;
   }
 }
+
+// Oneof with bare WKT variants — tests nil vs empty Clone semantics (#73).
+// Each variant is a WKT type that maps to a pointer-to-nil-able Go type:
+//   Struct    → *map[string]any
+//   Value     → *any
+//   ListValue → *[]any
+//   FieldMask → *[]string
+message WktPayload {
+  string id = 1;
+  oneof content {
+    google.protobuf.Struct struct_data = 2;
+    google.protobuf.Value any_value = 3;
+    google.protobuf.ListValue list_data = 4;
+    google.protobuf.FieldMask mask = 5;
+    string raw = 6;
+  }
+}

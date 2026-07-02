@@ -768,3 +768,124 @@ func (e *EventMongo) FromDomain(d *Event) {
 	}
 	e.PriorityChange = d.PriorityChange
 }
+
+// WktPayloadMongo is the MongoDB storage representation of test.v1.WktPayload.
+type WktPayloadMongo struct {
+	ID string `bson:"id,omitempty"`
+	// oneof: content
+	StructData *map[string]any `bson:"struct_data,omitempty"`
+	AnyValue   *any            `bson:"any_value,omitempty"`
+	ListData   *[]any          `bson:"list_data,omitempty"`
+	Mask       *[]string       `bson:"mask,omitempty"`
+	Raw        *string         `bson:"raw,omitempty"`
+}
+
+// ToProto converts to the protobuf message.
+func (w *WktPayloadMongo) ToProto() *pb.WktPayload {
+	if w == nil {
+		return nil
+	}
+	out := &pb.WktPayload{
+		Id: w.ID,
+	}
+	if w.StructData != nil {
+		s, err := structpb.NewStruct(*w.StructData)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.StructData to Struct: %v", "WktPayloadMongo", err)
+		} else {
+			out.Content = &pb.WktPayload_StructData{StructData: s}
+		}
+	}
+	if w.AnyValue != nil {
+		v, err := structpb.NewValue(*w.AnyValue)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.AnyValue to Value: %v", "WktPayloadMongo", err)
+		} else {
+			out.Content = &pb.WktPayload_AnyValue{AnyValue: v}
+		}
+	}
+	if w.ListData != nil {
+		l, err := structpb.NewList(*w.ListData)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.ListData to ListValue: %v", "WktPayloadMongo", err)
+		} else {
+			out.Content = &pb.WktPayload_ListData{ListData: l}
+		}
+	}
+	if w.Mask != nil {
+		paths := make([]string, len(*w.Mask))
+		copy(paths, *w.Mask)
+		out.Content = &pb.WktPayload_Mask{Mask: &fieldmaskpb.FieldMask{Paths: paths}}
+	}
+	if w.Raw != nil {
+		out.Content = &pb.WktPayload_Raw{Raw: *w.Raw}
+	}
+	return out
+}
+
+// FromProto populates from a protobuf message.
+func (w *WktPayloadMongo) FromProto(msg *pb.WktPayload) {
+	if msg == nil {
+		return
+	}
+	w.ID = msg.Id
+	w.StructData = nil
+	w.AnyValue = nil
+	w.ListData = nil
+	w.Mask = nil
+	w.Raw = nil
+	switch v := msg.GetContent().(type) {
+	case *pb.WktPayload_StructData:
+		if v.StructData != nil {
+			m := v.StructData.AsMap()
+			w.StructData = &m
+		}
+	case *pb.WktPayload_AnyValue:
+		if v.AnyValue != nil {
+			a := v.AnyValue.AsInterface()
+			w.AnyValue = &a
+		}
+	case *pb.WktPayload_ListData:
+		if v.ListData != nil {
+			l := v.ListData.AsSlice()
+			w.ListData = &l
+		}
+	case *pb.WktPayload_Mask:
+		if v.Mask != nil {
+			paths := make([]string, len(v.Mask.GetPaths()))
+			copy(paths, v.Mask.GetPaths())
+			w.Mask = &paths
+		}
+	case *pb.WktPayload_Raw:
+		w.Raw = &v.Raw
+	}
+}
+
+// ToDomain converts to the domain type.
+func (w *WktPayloadMongo) ToDomain() *WktPayload {
+	if w == nil {
+		return nil
+	}
+	d := &WktPayload{
+		ID:         w.ID,
+		StructData: w.StructData,
+		AnyValue:   w.AnyValue,
+		ListData:   w.ListData,
+		Mask:       w.Mask,
+		Raw:        w.Raw,
+	}
+	return d
+}
+
+// FromDomain populates from the domain type.
+func (w *WktPayloadMongo) FromDomain(d *WktPayload) {
+	if d == nil {
+		return
+	}
+	w.ID = d.ID
+	w.StructData = d.StructData
+	w.AnyValue = d.AnyValue
+	w.ListData = d.ListData
+	w.Mask = d.Mask
+	w.Raw = d.Raw
+}
