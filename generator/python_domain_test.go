@@ -133,7 +133,7 @@ func TestPythonOneofUnionType(t *testing.T) {
 	opts := &Options{Lang: "python"}
 
 	tests := []struct {
-		name string
+		name  string
 		oneof DomainOneof
 		want  string
 	}{
