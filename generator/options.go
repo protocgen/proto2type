@@ -70,6 +70,6 @@ type Options struct {
 	// PythonDescription overrides module-level docstring.
 	PythonDescription string
 
-	// StripProtoSuffix uses base.py instead of base_pb2_pydantic.py (Python only).
-	StripProtoSuffix bool
+	// PythonStripProtoSuffix uses base.py instead of base_pb2_pydantic.py (Python only).
+	PythonStripProtoSuffix bool
 }

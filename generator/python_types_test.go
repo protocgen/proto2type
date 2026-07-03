@@ -232,13 +232,13 @@ func TestPythonDefaultValue(t *testing.T) {
 			name: "repeated",
 			f:    DomainField{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind, Repeated: true},
 			opts: opts,
-			want: "None",
+			want: "",
 		},
 		{
 			name: "map",
 			f:    DomainField{IsMap: true},
 			opts: opts,
-			want: "None",
+			want: "",
 		},
 		{
 			name: "message",
@@ -368,12 +368,12 @@ func TestPythonTypeNeedsOptional(t *testing.T) {
 		{
 			name: "repeated",
 			f:    DomainField{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind, Repeated: true},
-			want: true,
+			want: false,
 		},
 		{
 			name: "map",
 			f:    DomainField{IsMap: true},
-			want: true,
+			want: false,
 		},
 		{
 			name: "message",
@@ -470,7 +470,7 @@ func TestPythonOutputFilename(t *testing.T) {
 		{
 			name:  "strip proto suffix",
 			proto: "user.proto",
-			opts:  Options{StripProtoSuffix: true},
+			opts:  Options{PythonStripProtoSuffix: true},
 			want:  "user.py",
 		},
 		{
@@ -488,7 +488,7 @@ func TestPythonOutputFilename(t *testing.T) {
 		{
 			name:  "strip proto suffix with path",
 			proto: "some/nested/service.proto",
-			opts:  Options{StripProtoSuffix: true},
+			opts:  Options{PythonStripProtoSuffix: true},
 			want:  "service.py",
 		},
 	}

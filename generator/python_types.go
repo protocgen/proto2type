@@ -158,11 +158,13 @@ func pythonDefaultValue(f *DomainField, opts *Options) string {
 		return ""
 	}
 
+	// Repeated/map fields use Field(default_factory=list/dict), no simple default.
+	if f.Repeated || f.IsMap {
+		return ""
+	}
+
 	// Optional (proto3 keyword), message, list, map fields default to None.
 	if f.Optional {
-		return "None"
-	}
-	if f.Repeated || f.IsMap {
 		return "None"
 	}
 	if f.Kind == FieldKindMessage || f.Kind.IsWrapper() {
@@ -203,8 +205,9 @@ func pythonTypeNeedsOptional(f *DomainField) bool {
 	if f.Optional {
 		return true
 	}
+	// Repeated/map fields use default_factory, not None.
 	if f.Repeated || f.IsMap {
-		return true
+		return false
 	}
 	if f.Kind == FieldKindMessage || f.Kind.IsWrapper() {
 		return true
@@ -263,7 +266,7 @@ func pythonOutputFilename(protoPath string, opts *Options) string {
 	if idx := strings.LastIndex(base, "/"); idx >= 0 {
 		base = base[idx+1:]
 	}
-	if opts.StripProtoSuffix {
+	if opts.PythonStripProtoSuffix {
 		return base + ".py"
 	}
 	return base + "_pb2_pydantic.py"

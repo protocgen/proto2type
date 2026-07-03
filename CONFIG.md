@@ -36,7 +36,7 @@ When `lang=python`:
 - `google.protobuf.Timestamp` → `datetime.datetime`
 - `google.protobuf.Duration` → `datetime.timedelta`
 - `google.protobuf.Struct` → `dict[str, Any]`
-- Nested messages → nested model class
+- Nested messages → top-level module class
 - `repeated` / `map` → `list[T]` / `dict[K, V]`
 - `optional` → `T | None` with `Field(default=None)`
 - Enums → `str` (Literal) or `IntEnum` (configurable via `enum_style`)

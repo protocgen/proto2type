@@ -33,11 +33,11 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 	// String rules.
 	if sr := rules.GetString(); sr != nil {
 		if sr.MinLen != nil {
-			v := *sr.MinLen
+			v := sr.GetMinLen()
 			vc.MinLength = &v
 		}
 		if sr.MaxLen != nil {
-			v := *sr.MaxLen
+			v := sr.GetMaxLen()
 			vc.MaxLength = &v
 		}
 		vc.Pattern = sr.GetPattern()
@@ -56,11 +56,11 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 	// Bytes rules.
 	if br := rules.GetBytes(); br != nil {
 		if br.MinLen != nil {
-			v := *br.MinLen
+			v := br.GetMinLen()
 			vc.MinLength = &v
 		}
 		if br.MaxLen != nil {
-			v := *br.MaxLen
+			v := br.GetMaxLen()
 			vc.MaxLength = &v
 		}
 	}
@@ -93,11 +93,11 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 	// Repeated rules.
 	if rr := rules.GetRepeated(); rr != nil {
 		if rr.MinItems != nil {
-			v := *rr.MinItems
+			v := rr.GetMinItems()
 			vc.MinItems = &v
 		}
 		if rr.MaxItems != nil {
-			v := *rr.MaxItems
+			v := rr.GetMaxItems()
 			vc.MaxItems = &v
 		}
 	}

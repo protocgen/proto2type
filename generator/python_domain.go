@@ -15,6 +15,10 @@ func generatePython(gen *protogen.Plugin, file *protogen.File, opts *Options) er
 
 	ir := BuildDomainFile(file, opts)
 
+	// Flatten nested messages into the top-level list so the topological
+	// sort sees every type and emits definitions in dependency order.
+	ir.Messages = flattenMessages(ir.Messages)
+
 	// Topologically sort messages so dependencies come first.
 	ir.Messages = topologicalSortMessages(ir.Messages)
 
@@ -143,9 +147,6 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 
 	// typing imports.
 	var typingImports []string
-	if imps.needsDatetime || imps.needsTimedelta {
-		typingImports = append(typingImports, "TYPE_CHECKING")
-	}
 	if imps.needsAny {
 		typingImports = append(typingImports, "Any")
 	}
@@ -153,11 +154,9 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 		sort.Strings(typingImports)
 		g.P("from typing import ", strings.Join(typingImports, ", "))
 	}
-	g.P()
 
-	// TYPE_CHECKING block for datetime/timedelta.
+	// datetime/timedelta imports (real imports, not TYPE_CHECKING).
 	if imps.needsDatetime || imps.needsTimedelta {
-		g.P("if TYPE_CHECKING:")
 		var dtImports []string
 		if imps.needsDatetime {
 			dtImports = append(dtImports, "datetime")
@@ -165,9 +164,9 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 		if imps.needsTimedelta {
 			dtImports = append(dtImports, "timedelta")
 		}
-		g.P("    from datetime import ", strings.Join(dtImports, ", "))
-		g.P()
+		g.P("from datetime import ", strings.Join(dtImports, ", "))
 	}
+	g.P()
 
 	// Pydantic imports.
 	hasCustomBase := opts.PythonBaseClass != "BaseModel" && opts.PythonBaseClass != ""
@@ -214,19 +213,20 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 		writePythonEnum(g, e, opts)
 	}
 
-	// Messages (including nested enums and nested messages as top-level classes).
+	// Messages (flattened and topologically sorted; nested enums emitted inline).
 	for _, m := range ir.Messages {
 		if m.Skip {
 			continue
 		}
-		writePythonMessageRecursive(g, m, opts)
+		// Write nested enums before the message itself.
+		for _, ne := range m.NestedEnums {
+			writePythonEnum(g, ne, opts)
+		}
+		writePythonModel(g, m, opts)
 	}
 
 	// __all__ exports.
 	writePythonAllExports(g, ir)
-
-	// model_rebuild() for TYPE_CHECKING forward refs.
-	writePythonModelRebuilds(g, imps)
 }
 
 func writePythonEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
@@ -260,23 +260,29 @@ func writePythonEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
 	g.P()
 }
 
-// writePythonMessageRecursive writes nested enums and nested messages (as top-level
-// Python classes) before the parent message. Python has no nested data class concept
-// like Kotlin, so everything is emitted at module level.
-func writePythonMessageRecursive(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) {
-	// Write nested enums before the message.
-	for _, ne := range m.NestedEnums {
-		writePythonEnum(g, ne, opts)
-	}
-	// Write nested messages before the parent (depth-first).
-	for _, nested := range m.NestedMessages {
-		if nested.Skip {
-			continue
+// flattenMessages recursively collects all nested messages into a single flat
+// slice. After flattening, NestedMessages is cleared on each parent so we
+// don't double-emit.
+func flattenMessages(msgs []*DomainMessage) []*DomainMessage {
+	var flat []*DomainMessage
+	var collect func(m *DomainMessage)
+	collect = func(m *DomainMessage) {
+		// Depth-first: process children before parent so the topo sort
+		// preserves the correct definition order.
+		for _, nested := range m.NestedMessages {
+			if !nested.Skip {
+				collect(nested)
+			}
 		}
-		writePythonMessageRecursive(g, nested, opts)
+		m.NestedMessages = nil
+		flat = append(flat, m)
 	}
-	// Write the message itself.
-	writePythonModel(g, m, opts)
+	for _, m := range msgs {
+		if !m.Skip {
+			collect(m)
+		}
+	}
+	return flat
 }
 
 func writePythonModel(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) {
@@ -364,6 +370,9 @@ func writePythonModel(g *protogen.GeneratedFile, m *DomainMessage, opts *Options
 		g.P("    def _serialize_datetime(self, v: datetime, _info: object) -> str | None:")
 		g.P("        if v is None:")
 		g.P("            return None")
+		g.P("        if v.tzinfo is not None:")
+		g.P("            from datetime import timezone")
+		g.P("            v = v.astimezone(timezone.utc)")
 		g.P("        return v.strftime('%Y-%m-%dT%H:%M:%S.') + f'{v.microsecond // 1000:03d}' + 'Z'")
 		hasContent = true
 	}
@@ -418,9 +427,11 @@ func writePythonField(g *protogen.GeneratedFile, f *DomainField, opts *Options) 
 	isOutputOnly := f.IsOutputOnly()
 	hasConstraints := f.ValidateConstraints != nil && f.ValidateConstraints.HasConstraints()
 	hasDescription := f.Comment != ""
+	isRepeated := f.Repeated
+	isMap := f.IsMap
 
 	// Build Field() args.
-	needsField := isRequired || isOutputOnly || hasConstraints || hasDescription || alias != ""
+	needsField := isRequired || isOutputOnly || hasConstraints || hasDescription || alias != "" || isRepeated || isMap
 
 	if !needsField && defaultValue != "" {
 		// Simple form: field_name: type = default
@@ -432,6 +443,10 @@ func writePythonField(g *protogen.GeneratedFile, f *DomainField, opts *Options) 
 	var args []string
 	if isRequired {
 		args = append(args, "...")
+	} else if isRepeated {
+		args = append(args, "default_factory=list")
+	} else if isMap {
+		args = append(args, "default_factory=dict")
 	} else if defaultValue != "" {
 		args = append(args, "default="+defaultValue)
 	} else {
@@ -475,7 +490,11 @@ func writePythonAllExports(g *protogen.GeneratedFile, ir *DomainFile) {
 		if m.Skip {
 			continue
 		}
-		collectPythonExportNames(m, &names)
+		// Nested enums (messages are already flattened).
+		for _, ne := range m.NestedEnums {
+			names = append(names, ne.Name)
+		}
+		names = append(names, m.Name)
 	}
 	sort.Strings(names)
 
@@ -487,42 +506,12 @@ func writePythonAllExports(g *protogen.GeneratedFile, ir *DomainFile) {
 	g.P()
 }
 
-// collectPythonExportNames recursively collects export names from a message
-// and its nested enums and nested messages.
-func collectPythonExportNames(m *DomainMessage, names *[]string) {
-	// Nested enums.
-	for _, ne := range m.NestedEnums {
-		*names = append(*names, ne.Name)
-	}
-	// Nested messages (recursive).
-	for _, nested := range m.NestedMessages {
-		if nested.Skip {
-			continue
-		}
-		collectPythonExportNames(nested, names)
-	}
-	// The message itself.
-	*names = append(*names, m.Name)
-}
-
-func writePythonModelRebuilds(g *protogen.GeneratedFile, imps *pythonImports) {
-	if !imps.hasTimestampFields && !imps.hasBytesFields {
-		return
-	}
-	// Collect unique model names.
-	seen := make(map[string]bool)
-	var models []string
-	for _, name := range imps.timestampModels {
-		if !seen[name] {
-			seen[name] = true
-			models = append(models, name)
-		}
-	}
-	g.P()
-	for _, name := range models {
-		g.P(name, ".model_rebuild()")
-	}
-}
+// writePythonModelRebuilds is no longer needed since datetime/timedelta are
+// now real imports (not behind TYPE_CHECKING). Kept as a no-op stub for
+// readability of the call chain.
+//
+//nolint:unused
+func writePythonModelRebuilds(_ *protogen.GeneratedFile, _ *pythonImports) {}
 
 // ensurePythonTrailingPeriod adds a trailing period for PEP 257 docstrings.
 func ensurePythonTrailingPeriod(s string) string {

@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strings"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/compiler/protogen"
@@ -376,7 +377,8 @@ func (c *ValidateConstraints) ToPydanticArgs() []string {
 		args = append(args, fmt.Sprintf("max_length=%d", *c.MaxLength))
 	}
 	if c.Pattern != "" {
-		args = append(args, fmt.Sprintf("pattern='%s'", c.Pattern))
+		escaped := strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(c.Pattern)
+		args = append(args, fmt.Sprintf("pattern='%s'", escaped))
 	}
 	if c.Gt != nil {
 		args = append(args, fmt.Sprintf("gt=%s", *c.Gt))

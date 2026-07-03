@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from datetime import datetime
+from datetime import datetime
 
 from pydantic import BaseModel, Field, field_serializer
 
@@ -22,7 +19,7 @@ class ModelCatalogEntry(BaseModel):
     category: str = ''
     context_window: int = 0
     discount_percent: float = 0.0
-    aliases: list[str] | None = None
+    aliases: list[str] = Field(default_factory=list)
     provider_model_id: str = ''
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -33,6 +30,9 @@ class ModelCatalogEntry(BaseModel):
     def _serialize_datetime(self, v: datetime, _info: object) -> str | None:
         if v is None:
             return None
+        if v.tzinfo is not None:
+            from datetime import timezone
+            v = v.astimezone(timezone.utc)
         return v.strftime('%Y-%m-%dT%H:%M:%S.') + f'{v.microsecond // 1000:03d}' + 'Z'
 
 
@@ -40,5 +40,3 @@ __all__ = [
     'ModelCatalogEntry',
 ]
 
-
-ModelCatalogEntry.model_rebuild()

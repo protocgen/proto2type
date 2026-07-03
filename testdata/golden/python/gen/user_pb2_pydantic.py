@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import base64
 from enum import Enum
-from typing import Any, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from datetime import datetime, timedelta
+from typing import Any
+from datetime import datetime, timedelta
 
 from pydantic import BaseModel, Field, field_serializer
 
@@ -42,8 +40,8 @@ class User(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=255)
     active: bool = False
     age: int = Field(default=0, ge=0, le=150)
-    roles: list[str] | None = None
-    metadata: dict[str, str] | None = None
+    roles: list[str] = Field(default_factory=list)
+    metadata: dict[str, str] = Field(default_factory=dict)
     address: Address | None = None
     created_at: datetime | None = Field(default=None, exclude=True)
     session_timeout: timedelta | None = None
@@ -51,24 +49,27 @@ class User(BaseModel):
     avatar: bytes = b''
     nickname: str | None = None
     status: UserStatus | None = None
-    tags: list[Tag] | None = None
+    tags: list[Tag] = Field(default_factory=list)
     deleted_at: datetime | None = Field(default=None, exclude=True)
     previous_status: UserStatus | None = None
     update_mask: list[str] | None = Field(default=None, description='WKT reference types')
     extra_metadata: dict[str, Any] | None = None
     preferences: list[Any] | None = None
     avatar_thumbnail: bytes | None = Field(default=None, description='Optional bytes')
-    field_masks: list[list[str]] | None = Field(default=None, description='Repeated WKT reference types (Issue #52)')
-    structs: list[dict[str, Any]] | None = None
-    lists: list[list[Any]] | None = None
-    event_times: dict[str, Any] | None = Field(default=None, description='WKT map values (Issue #53)')
-    configs: dict[str, dict[str, Any]] | None = None
+    field_masks: list[list[str]] = Field(default_factory=list, description='Repeated WKT reference types (Issue #52)')
+    structs: list[dict[str, Any]] = Field(default_factory=list)
+    lists: list[list[Any]] = Field(default_factory=list)
+    event_times: dict[str, Any] = Field(default_factory=dict, description='WKT map values (Issue #53)')
+    configs: dict[str, dict[str, Any]] = Field(default_factory=dict)
     contact_method: str | None = None
 
     @field_serializer('created_at', 'deleted_at')
     def _serialize_datetime(self, v: datetime, _info: object) -> str | None:
         if v is None:
             return None
+        if v.tzinfo is not None:
+            from datetime import timezone
+            v = v.astimezone(timezone.utc)
         return v.strftime('%Y-%m-%dT%H:%M:%S.') + f'{v.microsecond // 1000:03d}' + 'Z'
 
     @field_serializer('avatar', 'avatar_thumbnail')
@@ -85,5 +86,3 @@ __all__ = [
     'UserStatus',
 ]
 
-
-User.model_rebuild()

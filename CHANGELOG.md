@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - **Python/Pydantic backend** (`lang=python`): Generate Pydantic BaseModel classes from proto definitions. Absorbs all functionality from the standalone `proto2pydantic` tool.
 - **IR: `field_behavior` support**: `google.api.field_behavior` annotations are now extracted to the shared IR. Python backend uses them for `REQUIRED` and `OUTPUT_ONLY` semantics.
 - **IR: `buf/validate` constraints**: `buf/validate` field rules are now extracted to the shared IR. Python backend maps them to Pydantic `Field()` kwargs.
@@ -15,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A2A preset (`preset=a2a`): Configures camelCase aliases and raw enum names for A2A/ProtoJSON compatibility.
 
 ### Fixed
+
 - `buf/validate` constraint `gte: 0` no longer silently dropped (uses pointer semantics instead of `!= 0` check).
 - Default enum style no longer references `_UNSPECIFIED` values that were skipped from the enum class.
 

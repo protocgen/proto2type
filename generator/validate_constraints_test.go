@@ -67,6 +67,16 @@ func TestValidateConstraints_ToPydanticArgs(t *testing.T) {
 			want: []string{"pattern='^[a-z]+$'"},
 		},
 		{
+			name: "pattern_with_quotes",
+			vc:   &ValidateConstraints{Pattern: `^[a-z']+$`},
+			want: []string{`pattern='^[a-z\']+$'`},
+		},
+		{
+			name: "pattern_with_backslash",
+			vc:   &ValidateConstraints{Pattern: `^\d+$`},
+			want: []string{`pattern='^\\d+$'`},
+		},
+		{
 			name: "gt",
 			vc:   &ValidateConstraints{Gt: &gt},
 			want: []string{"gt=0"},

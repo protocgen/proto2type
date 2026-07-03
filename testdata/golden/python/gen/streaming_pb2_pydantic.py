@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from datetime import datetime
+from typing import Any
+from datetime import datetime
 
 from pydantic import BaseModel, Field, field_serializer
 
@@ -69,5 +67,3 @@ __all__ = [
     'WktEvent',
 ]
 
-
-WktEvent.model_rebuild()

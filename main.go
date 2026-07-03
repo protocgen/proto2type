@@ -41,12 +41,12 @@ func main() {
 	flags.BoolVar(&opts.Validate, "validate", false, "generate Validate() method using protovalidate")
 	flags.StringVar(&opts.BufOneofPrefix, "buffa_oneof_prefix", "", "module prefix before oneof submodule (e.g. __buffa for connectrpc-build)")
 	flags.StringVar(&opts.DomainModule, "domain_module", "", "Rust module path for domain type imports in buffa output (default: use super::*)")
-	flags.StringVar(&opts.PythonBaseClass, "base_class", "BaseModel", "Python: custom Pydantic base class")
-	flags.StringVar(&opts.PythonAliasGenerator, "alias_generator", "", "Python: alias generator (camel)")
-	flags.StringVar(&opts.PythonEnumStyle, "enum_style", "", "Python: enum style (raw)")
-	flags.StringVar(&opts.PythonPreset, "preset", "", "Python: preset (a2a)")
-	flags.StringVar(&opts.PythonDescription, "description", "", "Python: module-level docstring")
-	flags.BoolVar(&opts.StripProtoSuffix, "strip_proto_suffix", false, "Python: use base.py instead of base_pb2_pydantic.py")
+	flags.StringVar(&opts.PythonBaseClass, "python_base_class", "BaseModel", "Python: custom Pydantic base class")
+	flags.StringVar(&opts.PythonAliasGenerator, "python_alias_generator", "", "Python: alias generator (camel)")
+	flags.StringVar(&opts.PythonEnumStyle, "python_enum_style", "", "Python: enum style (raw)")
+	flags.StringVar(&opts.PythonPreset, "python_preset", "", "Python: preset (a2a)")
+	flags.StringVar(&opts.PythonDescription, "python_description", "", "Python: module-level docstring")
+	flags.BoolVar(&opts.PythonStripProtoSuffix, "python_strip_proto_suffix", false, "Python: use base.py instead of base_pb2_pydantic.py")
 
 	protogen.Options{
 		ParamFunc: flags.Set,

@@ -31,18 +31,18 @@ class Settings(BaseModel):
 
 class OrganizationDepartmentTeam(BaseModel):
     name: str = ''
-    members: list[str] | None = None
+    members: list[str] = Field(default_factory=list)
 
 
 class OrganizationDepartment(BaseModel):
     name: str = ''
-    teams: list[OrganizationDepartmentTeam] | None = None
+    teams: list[OrganizationDepartmentTeam] = Field(default_factory=list)
 
 
 class Organization(BaseModel):
     """Deeply nested messages (3 levels)."""
     name: str = ''
-    departments: list[OrganizationDepartment] | None = None
+    departments: list[OrganizationDepartment] = Field(default_factory=list)
 
 
 class Notification(BaseModel):
@@ -56,20 +56,20 @@ class Notification(BaseModel):
 class Document(BaseModel):
     """Map with message values and various WKTs."""
     id: str = ''
-    settings_map: dict[str, Settings] | None = None
-    code_names: dict[int, str] | None = None
+    settings_map: dict[str, Settings] = Field(default_factory=dict)
+    code_names: dict[int, str] = Field(default_factory=dict)
     metadata: dict[str, Any] | None = None
     extension: Any | None = None
     update_mask: list[str] | None = None
     archived: bool | None = None
     view_count: int | None = None
-    placeholders: list[None] | None = None
+    placeholders: list[None] = Field(default_factory=list)
 
 
 class TreeNode(BaseModel):
     """Recursive/self-referencing message."""
     value: str = ''
-    children: list[TreeNode] | None = None
+    children: list[TreeNode] = Field(default_factory=list)
     parent: TreeNode | None = None
 
 
