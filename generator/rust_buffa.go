@@ -253,7 +253,7 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 			}
 			return fmt.Sprintf("d.%s.clone()", fieldName)
 		case FieldKindEnum:
-			return fmt.Sprintf("d.%s.iter().map(|v| *v as i32).collect()", fieldName)
+			return fmt.Sprintf("d.%s.iter().map(|v| buffa::EnumValue::from(*v as i32)).collect()", fieldName)
 		default:
 			return fmt.Sprintf("d.%s.clone()", fieldName)
 		}
@@ -283,9 +283,9 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindEnum:
 		if f.Optional {
-			return fmt.Sprintf("d.%s.map(|v| v as i32)", fieldName)
+			return fmt.Sprintf("d.%s.map(|v| buffa::EnumValue::from(v as i32))", fieldName)
 		}
-		return fmt.Sprintf("d.%s as i32", fieldName)
+		return fmt.Sprintf("buffa::EnumValue::from(d.%s as i32)", fieldName)
 
 	case FieldKindScalar:
 		return rustBuffaDomainToBufScalar(f, fieldName)
@@ -334,7 +334,7 @@ func rustBuffaBufToDomainExpr(f *DomainField, fieldName string) string {
 			return fmt.Sprintf("b.%s.clone()", fieldName)
 		case FieldKindEnum:
 			enumType := f.EnumTypeName
-			return fmt.Sprintf("b.%s.iter().map(|v| %s::from_i32(*v).ok_or(ConversionError::InvalidEnumValue(*v))).collect::<Result<Vec<_>, _>>()?", fieldName, enumType)
+			return fmt.Sprintf("b.%s.iter().map(|v| %s::from_i32(v.to_i32()).ok_or(ConversionError::InvalidEnumValue(v.to_i32()))).collect::<Result<Vec<_>, _>>()?", fieldName, enumType)
 		default:
 			return fmt.Sprintf("b.%s.clone()", fieldName)
 		}
@@ -348,25 +348,25 @@ func rustBuffaBufToDomainExpr(f *DomainField, fieldName string) string {
 	switch f.Kind {
 	case FieldKindTimestamp:
 		if f.Optional {
-			return fmt.Sprintf("match b.%s.as_ref() { Some(ts) => Some(buffa_timestamp_to_chrono(ts)?), None => None }", fieldName)
+			return fmt.Sprintf("match b.%s.as_option() { Some(ts) => Some(buffa_timestamp_to_chrono(ts)?), None => None }", fieldName)
 		}
-		return fmt.Sprintf("buffa_timestamp_to_chrono(b.%s.as_ref().unwrap_or(&Default::default()))?", fieldName)
+		return fmt.Sprintf("buffa_timestamp_to_chrono(b.%s.as_option().unwrap_or(&Default::default()))?", fieldName)
 
 	case FieldKindMessage:
 		if f.Optional || !f.Repeated {
 			if f.NeedsBox {
-				return fmt.Sprintf("match b.%s.as_ref() { Some(v) => Some(Box::new(v.try_into()?)), None => None }", fieldName)
+				return fmt.Sprintf("match b.%s.as_option() { Some(v) => Some(Box::new(v.try_into()?)), None => None }", fieldName)
 			}
-			return fmt.Sprintf("match b.%s.as_ref() { Some(v) => Some(v.try_into()?), None => None }", fieldName)
+			return fmt.Sprintf("match b.%s.as_option() { Some(v) => Some(v.try_into()?), None => None }", fieldName)
 		}
 		return fmt.Sprintf("b.%s.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?", fieldName)
 
 	case FieldKindEnum:
 		enumType := f.EnumTypeName
 		if f.Optional {
-			return fmt.Sprintf("b.%s.map(|v| %s::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?", fieldName, enumType)
+			return fmt.Sprintf("b.%s.map(|v| %s::from_i32(v.to_i32()).ok_or(ConversionError::InvalidEnumValue(v.to_i32()))).transpose()?", fieldName, enumType)
 		}
-		return fmt.Sprintf("%s::from_i32(b.%s).ok_or(ConversionError::InvalidEnumValue(b.%s))?", enumType, fieldName, fieldName)
+		return fmt.Sprintf("%s::from_i32(b.%s.to_i32()).ok_or(ConversionError::InvalidEnumValue(b.%s.to_i32()))?", enumType, fieldName, fieldName)
 
 	case FieldKindScalar:
 		return rustBuffaBufToDomainScalar(f, fieldName)
@@ -439,7 +439,7 @@ func generateBuffaDomainToBufOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 
 		case FieldKindEnum:
 			g.P("            ", o.Name, "::", variantPascal, "(v) => {")
-			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(*v as i32)")
+			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(buffa::EnumValue::from(*v as i32))")
 			g.P("            }")
 
 		default:
@@ -488,7 +488,7 @@ func generateBuffaBufToDomainOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 		case FieldKindEnum:
 			enumType := v.TypeName
 			g.P("                Some(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v)) => {")
-			g.P("                    Some(", o.Name, "::", variantPascal, "(", enumType, "::from_i32(*v).ok_or(ConversionError::InvalidEnumValue(*v))?))")
+			g.P("                    Some(", o.Name, "::", variantPascal, "(", enumType, "::from_i32(v.to_i32()).ok_or(ConversionError::InvalidEnumValue(v.to_i32()))?))")
 			g.P("                }")
 
 		default:

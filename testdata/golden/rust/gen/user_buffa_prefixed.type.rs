@@ -63,7 +63,7 @@ impl From<&User> for __buffa_mod::User {
         b.phone = d.phone.as_deref().map(Into::into);
         b.avatar = d.avatar.clone();
         b.nickname = d.nickname;
-        b.status = d.status as i32;
+        b.status = buffa::EnumValue::from(d.status as i32);
         b.contact_method = d.contact_method.as_ref().map(|v| match v {
             UserContactMethod::ContactEmail(v) => {
                 __buffa_mod::__buffa::oneof::user::ContactMethod::ContactEmail(v.clone().into())
@@ -74,7 +74,7 @@ impl From<&User> for __buffa_mod::User {
         });
         b.tags = d.tags.iter().map(Into::into).collect();
         b.deleted_at = match &d.deleted_at { Some(dt) => buffa::MessageField::some(chrono_to_buffa_timestamp(dt)), None => buffa::MessageField::none() };
-        b.previous_status = d.previous_status.map(|v| v as i32);
+        b.previous_status = d.previous_status.map(|v| buffa::EnumValue::from(v as i32));
         b.update_mask = d.update_mask.clone().into();
         b.extra_metadata = d.extra_metadata.clone().into();
         b.preferences = d.preferences.clone().into();
@@ -100,13 +100,13 @@ impl TryFrom<&__buffa_mod::User> for User {
             age: b.age,
             roles: b.roles.iter().map(|s| s.to_string()).collect(),
             metadata: b.metadata.clone(),
-            address: match b.address.as_ref() { Some(v) => Some(v.try_into()?), None => None },
-            created_at: buffa_timestamp_to_chrono(b.created_at.as_ref().unwrap_or(&Default::default()))?,
+            address: match b.address.as_option() { Some(v) => Some(v.try_into()?), None => None },
+            created_at: buffa_timestamp_to_chrono(b.created_at.as_option().unwrap_or(&Default::default()))?,
             session_timeout: b.session_timeout,
             phone: b.phone.as_ref().map(|s| s.to_string()),
             avatar: b.avatar.to_vec(),
             nickname: b.nickname,
-            status: UserStatus::from_i32(b.status).ok_or(ConversionError::InvalidEnumValue(b.status))?,
+            status: UserStatus::from_i32(b.status.to_i32()).ok_or(ConversionError::InvalidEnumValue(b.status.to_i32()))?,
             contact_method: match &b.contact_method {
                 Some(__buffa_mod::__buffa::oneof::user::ContactMethod::ContactEmail(v)) => {
                     Some(UserContactMethod::ContactEmail(v.to_string()))
@@ -117,8 +117,8 @@ impl TryFrom<&__buffa_mod::User> for User {
                 None => None,
             },
             tags: b.tags.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?,
-            deleted_at: match b.deleted_at.as_ref() { Some(ts) => Some(buffa_timestamp_to_chrono(ts)?), None => None },
-            previous_status: b.previous_status.map(|v| UserStatus::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?,
+            deleted_at: match b.deleted_at.as_option() { Some(ts) => Some(buffa_timestamp_to_chrono(ts)?), None => None },
+            previous_status: b.previous_status.map(|v| UserStatus::from_i32(v.to_i32()).ok_or(ConversionError::InvalidEnumValue(v.to_i32()))).transpose()?,
             update_mask: b.update_mask.clone().into(),
             extra_metadata: b.extra_metadata.clone().into(),
             preferences: b.preferences.clone().into(),
