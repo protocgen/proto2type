@@ -74,9 +74,6 @@ func irNeedsChronoBuffa(msgs []*DomainMessage) bool {
 			continue
 		}
 		for _, f := range m.Fields {
-			if f.DocID {
-				continue
-			}
 			if f.Kind == FieldKindTimestamp {
 				return true
 			}
@@ -171,9 +168,6 @@ func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg 
 	g.P("        let mut b = Self::default();")
 
 	for _, f := range dm.Fields {
-		if f.DocID {
-			continue
-		}
 		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
 
 		if f.IsOneof {
@@ -204,9 +198,6 @@ func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg 
 	g.P("        Ok(Self {")
 
 	for _, f := range dm.Fields {
-		if f.DocID {
-			continue
-		}
 		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
 
 		if f.IsOneof {
@@ -273,8 +264,8 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindMessage:
 		if f.Optional || !f.Repeated {
-			// Singular message fields are always Option<T> or Option<Box<T>> in domain
 			if f.NeedsBox {
+				// Option<Box<T>> in domain — unwrap Box with .as_ref().
 				return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.as_ref().into()), None => buffa::MessageField::none() }", fieldName)
 			}
 			return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.into()), None => buffa::MessageField::none() }", fieldName)
@@ -289,6 +280,12 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindScalar:
 		return rustBuffaDomainToBufScalar(f, fieldName)
+
+	case FieldKindStruct:
+		if f.Optional {
+			return fmt.Sprintf("match &d.%s { Some(m) => buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(m.clone())).unwrap_or_default()), None => buffa::MessageField::none() }", fieldName)
+		}
+		return fmt.Sprintf("buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(d.%s.clone())).unwrap_or_default())", fieldName)
 
 	case FieldKindDuration:
 		return fmt.Sprintf("d.%s", fieldName)
@@ -370,6 +367,12 @@ func rustBuffaBufToDomainExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindScalar:
 		return rustBuffaBufToDomainScalar(f, fieldName)
+
+	case FieldKindStruct:
+		if f.Optional {
+			return fmt.Sprintf("match b.%s.as_option() { Some(s) => Some(serde_json::to_value(s).ok().and_then(|v| match v { serde_json::Value::Object(m) => Some(m), _ => None }).unwrap_or_default()), None => None }", fieldName)
+		}
+		return fmt.Sprintf("serde_json::to_value(&*b.%s).ok().and_then(|v| match v { serde_json::Value::Object(m) => Some(m), _ => None }).unwrap_or_default()", fieldName)
 
 	case FieldKindDuration:
 		return fmt.Sprintf("b.%s", fieldName)
