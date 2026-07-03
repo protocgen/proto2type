@@ -164,3 +164,38 @@ data class Event(
     val payload: EventPayload? = null
 )
 
+/**
+ * Oneof group: content.
+ * Serialized using kotlinx.serialization polymorphic format (not protobuf JSON).
+ */
+@Serializable
+sealed class WktPayloadContent {
+    @Serializable
+    @SerialName("struct_data")
+    data class StructData(val value: Map<String, Any?>) : WktPayloadContent()
+    @Serializable
+    @SerialName("any_value")
+    data class AnyValue(val value: Any?) : WktPayloadContent()
+    @Serializable
+    @SerialName("list_data")
+    data class ListData(val value: List<Any?>) : WktPayloadContent()
+    @Serializable
+    @SerialName("mask")
+    data class Mask(val value: List<String>) : WktPayloadContent()
+    @Serializable
+    @SerialName("raw")
+    data class Raw(val value: String) : WktPayloadContent()
+}
+
+/** Oneof with bare WKT variants — tests nil vs empty Clone semantics (#73).
+ Each variant is a WKT type that maps to a pointer-to-nil-able Go type:
+   Struct    → *map[string]any
+   Value     → *any
+   ListValue → *[]any
+   FieldMask → *[]string */
+@Serializable
+data class WktPayload(
+    val id: String = "",
+    val content: WktPayloadContent? = null
+)
+

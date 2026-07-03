@@ -180,6 +180,68 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 					})
 					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
 						"{", v.ProtoGoName, ": ", durNew, "(*", recv, ".", v.Name, ")}")
+				case FieldKindStruct:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					structNew := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/structpb",
+						GoName:       "NewStruct",
+					})
+					logPrintf := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "log",
+						GoName:       "Printf",
+					})
+					g.P("\t\ts, err := ", structNew, "(*", recv, ".", v.Name, ")")
+					g.P("\t\tif err != nil {")
+					g.P("\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", v.Name, " to Struct: %v\", \"", structName, "\", err)")
+					g.P("\t\t} else {")
+					g.P("\t\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": s}")
+					g.P("\t\t}")
+				case FieldKindValue:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					valNew := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/structpb",
+						GoName:       "NewValue",
+					})
+					logPrintf := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "log",
+						GoName:       "Printf",
+					})
+					g.P("\t\tv, err := ", valNew, "(*", recv, ".", v.Name, ")")
+					g.P("\t\tif err != nil {")
+					g.P("\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", v.Name, " to Value: %v\", \"", structName, "\", err)")
+					g.P("\t\t} else {")
+					g.P("\t\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": v}")
+					g.P("\t\t}")
+				case FieldKindListValue:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					listNew := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/structpb",
+						GoName:       "NewList",
+					})
+					logPrintf := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "log",
+						GoName:       "Printf",
+					})
+					g.P("\t\tl, err := ", listNew, "(*", recv, ".", v.Name, ")")
+					g.P("\t\tif err != nil {")
+					g.P("\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", v.Name, " to ListValue: %v\", \"", structName, "\", err)")
+					g.P("\t\t} else {")
+					g.P("\t\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": l}")
+					g.P("\t\t}")
+				case FieldKindFieldMask:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					fmIdent := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/fieldmaskpb",
+						GoName:       "FieldMask",
+					})
+					// Defensive copy of paths slice
+					g.P("\t\tpaths := make([]string, len(*", recv, ".", v.Name, "))")
+					g.P("\t\tcopy(paths, *", recv, ".", v.Name, ")")
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": &", fmIdent, "{Paths: paths}}")
 				}
 				g.P("\t}")
 			}
@@ -639,6 +701,28 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 					g.P("\t\tif v.", v.ProtoGoName, " != nil {")
 					g.P("\t\t\tdur := v.", v.ProtoGoName, ".AsDuration()")
 					g.P("\t\t\t", recv, ".", v.Name, " = &dur")
+					g.P("\t\t}")
+				case FieldKindStruct:
+					g.P("\t\tif v.", v.ProtoGoName, " != nil {")
+					g.P("\t\t\tm := v.", v.ProtoGoName, ".AsMap()")
+					g.P("\t\t\t", recv, ".", v.Name, " = &m")
+					g.P("\t\t}")
+				case FieldKindValue:
+					g.P("\t\tif v.", v.ProtoGoName, " != nil {")
+					g.P("\t\t\ta := v.", v.ProtoGoName, ".AsInterface()")
+					g.P("\t\t\t", recv, ".", v.Name, " = &a")
+					g.P("\t\t}")
+				case FieldKindListValue:
+					g.P("\t\tif v.", v.ProtoGoName, " != nil {")
+					g.P("\t\t\tl := v.", v.ProtoGoName, ".AsSlice()")
+					g.P("\t\t\t", recv, ".", v.Name, " = &l")
+					g.P("\t\t}")
+				case FieldKindFieldMask:
+					g.P("\t\tif v.", v.ProtoGoName, " != nil {")
+					// Defensive copy of paths
+					g.P("\t\t\tpaths := make([]string, len(v.", v.ProtoGoName, ".GetPaths()))")
+					g.P("\t\t\tcopy(paths, v.", v.ProtoGoName, ".GetPaths())")
+					g.P("\t\t\t", recv, ".", v.Name, " = &paths")
 					g.P("\t\t}")
 				}
 			}

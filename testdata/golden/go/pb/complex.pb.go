@@ -745,6 +745,151 @@ func (*Event_SettingsUpdate) isEvent_Payload() {}
 
 func (*Event_PriorityChange) isEvent_Payload() {}
 
+// Oneof with bare WKT variants — tests nil vs empty Clone semantics (#73).
+// Each variant is a WKT type that maps to a pointer-to-nil-able Go type:
+//
+//	Struct    → *map[string]any
+//	Value     → *any
+//	ListValue → *[]any
+//	FieldMask → *[]string
+type WktPayload struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Types that are valid to be assigned to Content:
+	//
+	//	*WktPayload_StructData
+	//	*WktPayload_AnyValue
+	//	*WktPayload_ListData
+	//	*WktPayload_Mask
+	//	*WktPayload_Raw
+	Content       isWktPayload_Content `protobuf_oneof:"content"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WktPayload) Reset() {
+	*x = WktPayload{}
+	mi := &file_complex_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WktPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WktPayload) ProtoMessage() {}
+
+func (x *WktPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_complex_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WktPayload.ProtoReflect.Descriptor instead.
+func (*WktPayload) Descriptor() ([]byte, []int) {
+	return file_complex_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WktPayload) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *WktPayload) GetContent() isWktPayload_Content {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *WktPayload) GetStructData() *structpb.Struct {
+	if x != nil {
+		if x, ok := x.Content.(*WktPayload_StructData); ok {
+			return x.StructData
+		}
+	}
+	return nil
+}
+
+func (x *WktPayload) GetAnyValue() *structpb.Value {
+	if x != nil {
+		if x, ok := x.Content.(*WktPayload_AnyValue); ok {
+			return x.AnyValue
+		}
+	}
+	return nil
+}
+
+func (x *WktPayload) GetListData() *structpb.ListValue {
+	if x != nil {
+		if x, ok := x.Content.(*WktPayload_ListData); ok {
+			return x.ListData
+		}
+	}
+	return nil
+}
+
+func (x *WktPayload) GetMask() *fieldmaskpb.FieldMask {
+	if x != nil {
+		if x, ok := x.Content.(*WktPayload_Mask); ok {
+			return x.Mask
+		}
+	}
+	return nil
+}
+
+func (x *WktPayload) GetRaw() string {
+	if x != nil {
+		if x, ok := x.Content.(*WktPayload_Raw); ok {
+			return x.Raw
+		}
+	}
+	return ""
+}
+
+type isWktPayload_Content interface {
+	isWktPayload_Content()
+}
+
+type WktPayload_StructData struct {
+	StructData *structpb.Struct `protobuf:"bytes,2,opt,name=struct_data,json=structData,proto3,oneof"`
+}
+
+type WktPayload_AnyValue struct {
+	AnyValue *structpb.Value `protobuf:"bytes,3,opt,name=any_value,json=anyValue,proto3,oneof"`
+}
+
+type WktPayload_ListData struct {
+	ListData *structpb.ListValue `protobuf:"bytes,4,opt,name=list_data,json=listData,proto3,oneof"`
+}
+
+type WktPayload_Mask struct {
+	Mask *fieldmaskpb.FieldMask `protobuf:"bytes,5,opt,name=mask,proto3,oneof"`
+}
+
+type WktPayload_Raw struct {
+	Raw string `protobuf:"bytes,6,opt,name=raw,proto3,oneof"`
+}
+
+func (*WktPayload_StructData) isWktPayload_Content() {}
+
+func (*WktPayload_AnyValue) isWktPayload_Content() {}
+
+func (*WktPayload_ListData) isWktPayload_Content() {}
+
+func (*WktPayload_Mask) isWktPayload_Content() {}
+
+func (*WktPayload_Raw) isWktPayload_Content() {}
+
 type Organization_Department struct {
 	state         protoimpl.MessageState          `protogen:"open.v1"`
 	Name          string                          `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -755,7 +900,7 @@ type Organization_Department struct {
 
 func (x *Organization_Department) Reset() {
 	*x = Organization_Department{}
-	mi := &file_complex_proto_msgTypes[7]
+	mi := &file_complex_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -767,7 +912,7 @@ func (x *Organization_Department) String() string {
 func (*Organization_Department) ProtoMessage() {}
 
 func (x *Organization_Department) ProtoReflect() protoreflect.Message {
-	mi := &file_complex_proto_msgTypes[7]
+	mi := &file_complex_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -807,7 +952,7 @@ type Organization_Department_Team struct {
 
 func (x *Organization_Department_Team) Reset() {
 	*x = Organization_Department_Team{}
-	mi := &file_complex_proto_msgTypes[8]
+	mi := &file_complex_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -819,7 +964,7 @@ func (x *Organization_Department_Team) String() string {
 func (*Organization_Department_Team) ProtoMessage() {}
 
 func (x *Organization_Department_Team) ProtoReflect() protoreflect.Message {
-	mi := &file_complex_proto_msgTypes[8]
+	mi := &file_complex_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -918,7 +1063,17 @@ const file_complex_proto_rawDesc = "" +
 	"\ftext_message\x18\x02 \x01(\tH\x00R\vtextMessage\x12<\n" +
 	"\x0fsettings_update\x18\x03 \x01(\v2\x11.test.v1.SettingsH\x00R\x0esettingsUpdate\x12<\n" +
 	"\x0fpriority_change\x18\x04 \x01(\x0e2\x11.test.v1.PriorityH\x00R\x0epriorityChangeB\t\n" +
-	"\apayload*u\n" +
+	"\apayload\"\x9b\x02\n" +
+	"\n" +
+	"WktPayload\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
+	"\vstruct_data\x18\x02 \x01(\v2\x17.google.protobuf.StructH\x00R\n" +
+	"structData\x125\n" +
+	"\tany_value\x18\x03 \x01(\v2\x16.google.protobuf.ValueH\x00R\banyValue\x129\n" +
+	"\tlist_data\x18\x04 \x01(\v2\x1a.google.protobuf.ListValueH\x00R\blistData\x120\n" +
+	"\x04mask\x18\x05 \x01(\v2\x1a.google.protobuf.FieldMaskH\x00R\x04mask\x12\x12\n" +
+	"\x03raw\x18\x06 \x01(\tH\x00R\x03rawB\t\n" +
+	"\acontent*u\n" +
 	"\bPriority\x12\x18\n" +
 	"\x14PRIORITY_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fPRIORITY_LOW\x10\n" +
@@ -940,7 +1095,7 @@ func file_complex_proto_rawDescGZIP() []byte {
 }
 
 var file_complex_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_complex_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_complex_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_complex_proto_goTypes = []any{
 	(Priority)(0),                        // 0: test.v1.Priority
 	(Settings_Theme)(0),                  // 1: test.v1.Settings.Theme
@@ -951,40 +1106,47 @@ var file_complex_proto_goTypes = []any{
 	(*TreeNode)(nil),                     // 6: test.v1.TreeNode
 	(*AuditLog)(nil),                     // 7: test.v1.AuditLog
 	(*Event)(nil),                        // 8: test.v1.Event
-	(*Organization_Department)(nil),      // 9: test.v1.Organization.Department
-	(*Organization_Department_Team)(nil), // 10: test.v1.Organization.Department.Team
-	nil,                                  // 11: test.v1.Document.SettingsMapEntry
-	nil,                                  // 12: test.v1.Document.CodeNamesEntry
-	(*structpb.Struct)(nil),              // 13: google.protobuf.Struct
-	(*anypb.Any)(nil),                    // 14: google.protobuf.Any
-	(*fieldmaskpb.FieldMask)(nil),        // 15: google.protobuf.FieldMask
-	(*wrapperspb.BoolValue)(nil),         // 16: google.protobuf.BoolValue
-	(*wrapperspb.Int64Value)(nil),        // 17: google.protobuf.Int64Value
-	(*emptypb.Empty)(nil),                // 18: google.protobuf.Empty
+	(*WktPayload)(nil),                   // 9: test.v1.WktPayload
+	(*Organization_Department)(nil),      // 10: test.v1.Organization.Department
+	(*Organization_Department_Team)(nil), // 11: test.v1.Organization.Department.Team
+	nil,                                  // 12: test.v1.Document.SettingsMapEntry
+	nil,                                  // 13: test.v1.Document.CodeNamesEntry
+	(*structpb.Struct)(nil),              // 14: google.protobuf.Struct
+	(*anypb.Any)(nil),                    // 15: google.protobuf.Any
+	(*fieldmaskpb.FieldMask)(nil),        // 16: google.protobuf.FieldMask
+	(*wrapperspb.BoolValue)(nil),         // 17: google.protobuf.BoolValue
+	(*wrapperspb.Int64Value)(nil),        // 18: google.protobuf.Int64Value
+	(*emptypb.Empty)(nil),                // 19: google.protobuf.Empty
+	(*structpb.Value)(nil),               // 20: google.protobuf.Value
+	(*structpb.ListValue)(nil),           // 21: google.protobuf.ListValue
 }
 var file_complex_proto_depIdxs = []int32{
 	1,  // 0: test.v1.Settings.theme:type_name -> test.v1.Settings.Theme
-	9,  // 1: test.v1.Organization.departments:type_name -> test.v1.Organization.Department
+	10, // 1: test.v1.Organization.departments:type_name -> test.v1.Organization.Department
 	0,  // 2: test.v1.Notification.priority:type_name -> test.v1.Priority
-	11, // 3: test.v1.Document.settings_map:type_name -> test.v1.Document.SettingsMapEntry
-	12, // 4: test.v1.Document.code_names:type_name -> test.v1.Document.CodeNamesEntry
-	13, // 5: test.v1.Document.metadata:type_name -> google.protobuf.Struct
-	14, // 6: test.v1.Document.extension:type_name -> google.protobuf.Any
-	15, // 7: test.v1.Document.update_mask:type_name -> google.protobuf.FieldMask
-	16, // 8: test.v1.Document.archived:type_name -> google.protobuf.BoolValue
-	17, // 9: test.v1.Document.view_count:type_name -> google.protobuf.Int64Value
-	18, // 10: test.v1.Document.placeholders:type_name -> google.protobuf.Empty
+	12, // 3: test.v1.Document.settings_map:type_name -> test.v1.Document.SettingsMapEntry
+	13, // 4: test.v1.Document.code_names:type_name -> test.v1.Document.CodeNamesEntry
+	14, // 5: test.v1.Document.metadata:type_name -> google.protobuf.Struct
+	15, // 6: test.v1.Document.extension:type_name -> google.protobuf.Any
+	16, // 7: test.v1.Document.update_mask:type_name -> google.protobuf.FieldMask
+	17, // 8: test.v1.Document.archived:type_name -> google.protobuf.BoolValue
+	18, // 9: test.v1.Document.view_count:type_name -> google.protobuf.Int64Value
+	19, // 10: test.v1.Document.placeholders:type_name -> google.protobuf.Empty
 	6,  // 11: test.v1.TreeNode.children:type_name -> test.v1.TreeNode
 	6,  // 12: test.v1.TreeNode.parent:type_name -> test.v1.TreeNode
 	2,  // 13: test.v1.Event.settings_update:type_name -> test.v1.Settings
 	0,  // 14: test.v1.Event.priority_change:type_name -> test.v1.Priority
-	10, // 15: test.v1.Organization.Department.teams:type_name -> test.v1.Organization.Department.Team
-	2,  // 16: test.v1.Document.SettingsMapEntry.value:type_name -> test.v1.Settings
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	14, // 15: test.v1.WktPayload.struct_data:type_name -> google.protobuf.Struct
+	20, // 16: test.v1.WktPayload.any_value:type_name -> google.protobuf.Value
+	21, // 17: test.v1.WktPayload.list_data:type_name -> google.protobuf.ListValue
+	16, // 18: test.v1.WktPayload.mask:type_name -> google.protobuf.FieldMask
+	11, // 19: test.v1.Organization.Department.teams:type_name -> test.v1.Organization.Department.Team
+	2,  // 20: test.v1.Document.SettingsMapEntry.value:type_name -> test.v1.Settings
+	21, // [21:21] is the sub-list for method output_type
+	21, // [21:21] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_complex_proto_init() }
@@ -1004,13 +1166,20 @@ func file_complex_proto_init() {
 		(*Event_SettingsUpdate)(nil),
 		(*Event_PriorityChange)(nil),
 	}
+	file_complex_proto_msgTypes[7].OneofWrappers = []any{
+		(*WktPayload_StructData)(nil),
+		(*WktPayload_AnyValue)(nil),
+		(*WktPayload_ListData)(nil),
+		(*WktPayload_Mask)(nil),
+		(*WktPayload_Raw)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_complex_proto_rawDesc), len(file_complex_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   11,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
