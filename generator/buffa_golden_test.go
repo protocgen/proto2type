@@ -33,20 +33,10 @@ func TestGenerateBuffaPrefixedGolden(t *testing.T) {
 		}
 	}
 
-	// Extract the generated content.
-	var content []byte
-	for _, gf := range gen.Response().File {
-		if gf.GetName() != "" && strings.HasSuffix(gf.GetName(), "_buffa.type.rs") {
-			content = []byte(gf.GetContent())
-			break
-		}
-	}
-	if len(content) == 0 {
-		t.Fatal("no buffa output generated")
-	}
+	content := extractBuffaOutput(t, gen)
 
 	goldenPath := "../testdata/golden/rust/gen/user_buffa_prefixed.type.rs"
-	if err := os.WriteFile(goldenPath, content, 0644); err != nil {
+	if err := os.WriteFile(goldenPath, []byte(content), 0644); err != nil {
 		t.Fatalf("writing golden file: %v", err)
 	}
 	t.Logf("wrote golden file: %s (%d bytes)", goldenPath, len(content))
