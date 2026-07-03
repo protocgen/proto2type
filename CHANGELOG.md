@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-02
+
+### Fixed
+- **Buffa enum fields**: Generated converters now use `buffa::EnumValue::from()` and `.to_i32()` instead of bare `i32` casts, matching buffa's actual `EnumValue<E>` wrapper type.
+- **Buffa message fields**: Generated converters now use `.as_option()` instead of `.as_ref()` for reading `MessageField<T>` values.
+
 ## [0.4.1] - 2026-07-02
 
 ### Added

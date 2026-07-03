@@ -74,9 +74,6 @@ func irNeedsChronoBuffa(msgs []*DomainMessage) bool {
 			continue
 		}
 		for _, f := range m.Fields {
-			if f.DocID {
-				continue
-			}
 			if f.Kind == FieldKindTimestamp {
 				return true
 			}
@@ -171,9 +168,6 @@ func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg 
 	g.P("        let mut b = Self::default();")
 
 	for _, f := range dm.Fields {
-		if f.DocID {
-			continue
-		}
 		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
 
 		if f.IsOneof {
@@ -204,9 +198,6 @@ func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg 
 	g.P("        Ok(Self {")
 
 	for _, f := range dm.Fields {
-		if f.DocID {
-			continue
-		}
 		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
 
 		if f.IsOneof {
@@ -273,11 +264,9 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindMessage:
 		if f.Optional || !f.Repeated {
-			// Singular message fields are always Option<T> or Option<Box<T>> in domain
-			if f.NeedsBox {
-				return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.as_ref().into()), None => buffa::MessageField::none() }", fieldName)
-			}
-			return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.into()), None => buffa::MessageField::none() }", fieldName)
+			// Singular message fields may be Option<T> or Option<Box<T>> in domain.
+			// Always use .as_ref() which handles both (Box auto-derefs).
+			return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.as_ref().into()), None => buffa::MessageField::none() }", fieldName)
 		}
 		return fmt.Sprintf("d.%s.iter().map(Into::into).collect()", fieldName)
 
@@ -289,6 +278,12 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindScalar:
 		return rustBuffaDomainToBufScalar(f, fieldName)
+
+	case FieldKindStruct:
+		if f.Optional {
+			return fmt.Sprintf("match &d.%s { Some(m) => buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(m.clone())).unwrap_or_default()), None => buffa::MessageField::none() }", fieldName)
+		}
+		return fmt.Sprintf("buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(d.%s.clone())).unwrap_or_default())", fieldName)
 
 	case FieldKindDuration:
 		return fmt.Sprintf("d.%s", fieldName)
@@ -354,10 +349,8 @@ func rustBuffaBufToDomainExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindMessage:
 		if f.Optional || !f.Repeated {
-			if f.NeedsBox {
-				return fmt.Sprintf("match b.%s.as_option() { Some(v) => Some(Box::new(v.try_into()?)), None => None }", fieldName)
-			}
-			return fmt.Sprintf("match b.%s.as_option() { Some(v) => Some(v.try_into()?), None => None }", fieldName)
+			// Always Box-wrap: domain types use Option<Box<T>> for message fields.
+			return fmt.Sprintf("match b.%s.as_option() { Some(v) => Some(Box::new(v.try_into()?)), None => None }", fieldName)
 		}
 		return fmt.Sprintf("b.%s.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?", fieldName)
 
@@ -370,6 +363,12 @@ func rustBuffaBufToDomainExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindScalar:
 		return rustBuffaBufToDomainScalar(f, fieldName)
+
+	case FieldKindStruct:
+		if f.Optional {
+			return fmt.Sprintf("match b.%s.as_option() { Some(s) => Some(serde_json::to_value(s).ok().and_then(|v| match v { serde_json::Value::Object(m) => Some(m), _ => None }).unwrap_or_default()), None => None }", fieldName)
+		}
+		return fmt.Sprintf("serde_json::to_value(&*b.%s).ok().and_then(|v| match v { serde_json::Value::Object(m) => Some(m), _ => None }).unwrap_or_default()", fieldName)
 
 	case FieldKindDuration:
 		return fmt.Sprintf("b.%s", fieldName)
@@ -413,11 +412,8 @@ func generateBuffaDomainToBufOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 		switch v.Kind {
 		case FieldKindMessage:
 			g.P("            ", o.Name, "::", variantPascal, "(inner) => {")
-			if v.NeedsBox {
-				g.P("                let converted: __buffa_mod::", v.TypeName, " = inner.as_ref().into();")
-			} else {
-				g.P("                let converted: __buffa_mod::", v.TypeName, " = inner.into();")
-			}
+			// Domain oneof message variants are always Box-wrapped.
+			g.P("                let converted: __buffa_mod::", v.TypeName, " = inner.as_ref().into();")
 			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(Box::new(converted))")
 			g.P("            }")
 
@@ -462,11 +458,8 @@ func generateBuffaBufToDomainOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 		switch v.Kind {
 		case FieldKindMessage:
 			g.P("                Some(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(inner)) => {")
-			if v.NeedsBox {
-				g.P("                    Some(", o.Name, "::", variantPascal, "(Box::new(inner.as_ref().try_into()?)))")
-			} else {
-				g.P("                    Some(", o.Name, "::", variantPascal, "(inner.as_ref().try_into()?))")
-			}
+			// Domain oneof message variants are always Box-wrapped.
+			g.P("                    Some(", o.Name, "::", variantPascal, "(Box::new(inner.as_ref().try_into()?)))")
 			g.P("                }")
 
 		case FieldKindTimestamp:
