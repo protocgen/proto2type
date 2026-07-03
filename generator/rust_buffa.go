@@ -49,15 +49,6 @@ func generateRustBuffa(gen *protogen.Plugin, file *protogen.File, opts *Options)
 		generateBuffaTimestampHelpers(g)
 	}
 
-	// Compute the oneof module base path.
-	// Default: "__buffa_mod::oneof::"
-	// With prefix "__buffa": "__buffa_mod::__buffa::oneof::"
-	oneofBase := "__buffa_mod::"
-	if opts.BufOneofPrefix != "" {
-		oneofBase += opts.BufOneofPrefix + "::"
-	}
-	oneofBase += "oneof::"
-
 	// Build proto message lookup
 	protoMsgMap := buildProtoMessageMap(file.Messages)
 
@@ -66,7 +57,7 @@ func generateRustBuffa(gen *protogen.Plugin, file *protogen.File, opts *Options)
 		if msg == nil {
 			return fmt.Errorf("proto2type: no protogen.Message found for IR message %q", dm.FullName)
 		}
-		generateRustBuffaMessage(g, dm, msg, protoMsgMap, opts, oneofBase)
+		generateRustBuffaMessage(g, dm, msg, protoMsgMap, opts)
 	}
 
 	return nil
@@ -152,10 +143,19 @@ func generateBuffaTimestampHelpers(g *protogen.GeneratedFile) {
 }
 
 // generateRustBuffaMessage generates From and TryFrom impls for a single message.
-func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg *protogen.Message, protoMsgMap map[string]*protogen.Message, opts *Options, oneofBase string) {
+func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg *protogen.Message, protoMsgMap map[string]*protogen.Message, opts *Options) {
 	if dm.Skip {
 		return
 	}
+
+	// Compute the oneof module base path locally.
+	// Default: "__buffa_mod::oneof::"
+	// With prefix "__buffa": "__buffa_mod::__buffa::oneof::"
+	oneofBase := "__buffa_mod::"
+	if opts.BufOneofPrefix != "" {
+		oneofBase += opts.BufOneofPrefix + "::"
+	}
+	oneofBase += "oneof::"
 
 	domainName := dm.Name
 	bufName := "__buffa_mod::" + domainName
@@ -230,7 +230,7 @@ func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg 
 		if nestedMsg == nil {
 			continue
 		}
-		generateRustBuffaMessage(g, nested, nestedMsg, protoMsgMap, opts, oneofBase)
+		generateRustBuffaMessage(g, nested, nestedMsg, protoMsgMap, opts)
 	}
 }
 
