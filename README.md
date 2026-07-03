@@ -123,6 +123,46 @@ plugins:
       - domain=false
 ```
 
+### Python
+
+**Pydantic models** (absorbs [proto2pydantic](https://github.com/protocgen/proto2pydantic)):
+
+```yaml
+# buf.gen.yaml
+version: v2
+plugins:
+  - local: protoc-gen-proto2type
+    out: gen/python
+    opt:
+      - lang=python
+```
+
+**A2A preset** (camelCase aliases + raw enum names for A2A/ProtoJSON compatibility):
+
+```yaml
+# buf.gen.yaml
+version: v2
+plugins:
+  - local: protoc-gen-proto2type
+    out: gen/python
+    opt:
+      - lang=python
+      - preset=a2a
+```
+
+> **Note:** The standalone `proto2pydantic` tool has been absorbed into `proto2type`. Use `lang=python` going forward.
+
+#### Field Behavior & Validation
+
+`proto2type` reads `google.api.field_behavior` annotations and `buf/validate` constraints from your protos and maps them to Pydantic `Field()` kwargs:
+
+| Proto Annotation | Pydantic Effect |
+|---|---|
+| `REQUIRED` (`google.api.field_behavior`) | `Field(...)` — no default, field is mandatory |
+| `OUTPUT_ONLY` (`google.api.field_behavior`) | `Field(exclude=True)` — excluded from serialization |
+| `buf/validate` string rules | `Field(min_length=..., max_length=..., pattern=...)` |
+| `buf/validate` numeric rules | `Field(ge=..., le=..., gt=..., lt=...)` |
+
 ### With protoc
 
 ```bash
