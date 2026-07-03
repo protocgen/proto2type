@@ -29,6 +29,7 @@ func generateRustBuffa(gen *protogen.Plugin, file *protogen.File, opts *Options)
 
 	// Scan IR for needed imports.
 	needsChrono := irNeedsChronoBuffa(df.Messages)
+	needsStruct := irNeedsStructBuffa(df.Messages)
 
 	// Emit domain type imports
 	if opts.DomainModule != "" {
@@ -46,7 +47,7 @@ func generateRustBuffa(gen *protogen.Plugin, file *protogen.File, opts *Options)
 	g.P()
 
 	// Emit ConversionError type
-	generateBuffaConversionError(g, needsChrono)
+	generateBuffaConversionError(g, needsChrono, needsStruct)
 
 	// Generate timestamp helpers if needed
 	if needsChrono {
@@ -93,14 +94,42 @@ func irNeedsChronoBuffa(msgs []*DomainMessage) bool {
 	return false
 }
 
+// irNeedsStructBuffa returns true if any non-skipped field is a Struct.
+func irNeedsStructBuffa(msgs []*DomainMessage) bool {
+	for _, m := range msgs {
+		if m.Skip {
+			continue
+		}
+		for _, f := range m.Fields {
+			if f.Kind == FieldKindStruct {
+				return true
+			}
+		}
+		for _, o := range m.Oneofs {
+			for _, v := range o.Variants {
+				if v.Kind == FieldKindStruct {
+					return true
+				}
+			}
+		}
+		if irNeedsStructBuffa(m.NestedMessages) {
+			return true
+		}
+	}
+	return false
+}
+
 // generateBuffaConversionError emits the ConversionError enum for buffa conversions.
-func generateBuffaConversionError(g *protogen.GeneratedFile, needsChrono bool) {
+func generateBuffaConversionError(g *protogen.GeneratedFile, needsChrono bool, needsStruct bool) {
 	g.P("#[derive(Debug)]")
 	g.P("pub enum ConversionError {")
 	if needsChrono {
 		g.P("    InvalidTimestamp { seconds: i64, nanos: i32 },")
 	}
 	g.P("    InvalidEnumValue(i32),")
+	if needsStruct {
+		g.P("    InvalidStructValue,")
+	}
 	g.P("}")
 	g.P()
 	g.P("impl std::fmt::Display for ConversionError {")
@@ -110,6 +139,9 @@ func generateBuffaConversionError(g *protogen.GeneratedFile, needsChrono bool) {
 		g.P(`            Self::InvalidTimestamp { seconds, nanos } => write!(f, "invalid timestamp: {seconds}s {nanos}ns"),`)
 	}
 	g.P(`            Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),`)
+	if needsStruct {
+		g.P(`            Self::InvalidStructValue => write!(f, "invalid struct value"),`)
+	}
 	g.P("        }")
 	g.P("    }")
 	g.P("}")
@@ -246,6 +278,8 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 			return fmt.Sprintf("d.%s.clone()", fieldName)
 		case FieldKindEnum:
 			return fmt.Sprintf("d.%s.iter().map(|v| buffa::EnumValue::from(*v as i32)).collect()", fieldName)
+		case FieldKindStruct:
+			return fmt.Sprintf("d.%s.iter().map(|m| serde_json::from_value(serde_json::Value::Object(m.clone())).expect(\"failed to convert serde_json::Map to protobuf Struct\")).collect()", fieldName)
 		default:
 			return fmt.Sprintf("d.%s.clone()", fieldName)
 		}
@@ -282,9 +316,9 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindStruct:
 		if f.Optional {
-			return fmt.Sprintf("match &d.%s { Some(m) => buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(m.clone())).unwrap_or_default()), None => buffa::MessageField::none() }", fieldName)
+			return fmt.Sprintf("match &d.%s { Some(m) => buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(m.clone())).expect(\"failed to convert serde_json::Map to protobuf Struct\")), None => buffa::MessageField::none() }", fieldName)
 		}
-		return fmt.Sprintf("buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(d.%s.clone())).unwrap_or_default())", fieldName)
+		return fmt.Sprintf("buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(d.%s.clone())).expect(\"failed to convert serde_json::Map to protobuf Struct\"))", fieldName)
 
 	case FieldKindDuration:
 		return fmt.Sprintf("d.%s", fieldName)
@@ -331,6 +365,8 @@ func rustBuffaBufToDomainExpr(f *DomainField, fieldName string) string {
 		case FieldKindEnum:
 			enumType := f.EnumTypeName
 			return fmt.Sprintf("b.%s.iter().map(|v| %s::from_i32(v.to_i32()).ok_or(ConversionError::InvalidEnumValue(v.to_i32()))).collect::<Result<Vec<_>, _>>()?", fieldName, enumType)
+		case FieldKindStruct:
+			return fmt.Sprintf("b.%s.iter().map(|s| match serde_json::to_value(s).map_err(|_| ConversionError::InvalidStructValue)? { serde_json::Value::Object(m) => Ok(m), _ => Err(ConversionError::InvalidStructValue) }).collect::<Result<Vec<_>, _>>()?", fieldName)
 		default:
 			return fmt.Sprintf("b.%s.clone()", fieldName)
 		}
@@ -367,9 +403,9 @@ func rustBuffaBufToDomainExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindStruct:
 		if f.Optional {
-			return fmt.Sprintf("match b.%s.as_option() { Some(s) => Some(serde_json::to_value(s).ok().and_then(|v| match v { serde_json::Value::Object(m) => Some(m), _ => None }).unwrap_or_default()), None => None }", fieldName)
+			return fmt.Sprintf("match b.%s.as_option() { Some(s) => Some(match serde_json::to_value(s).map_err(|_| ConversionError::InvalidStructValue)? { serde_json::Value::Object(m) => m, _ => return Err(ConversionError::InvalidStructValue) }), None => None }", fieldName)
 		}
-		return fmt.Sprintf("serde_json::to_value(&*b.%s).ok().and_then(|v| match v { serde_json::Value::Object(m) => Some(m), _ => None }).unwrap_or_default()", fieldName)
+		return fmt.Sprintf("match serde_json::to_value(&*b.%s).map_err(|_| ConversionError::InvalidStructValue)? { serde_json::Value::Object(m) => m, _ => return Err(ConversionError::InvalidStructValue) }", fieldName)
 
 	case FieldKindDuration:
 		return fmt.Sprintf("b.%s", fieldName)
@@ -442,6 +478,12 @@ func generateBuffaDomainToBufOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(buffa::EnumValue::from(*v as i32))")
 			g.P("            }")
 
+		case FieldKindStruct:
+			g.P("            ", o.Name, "::", variantPascal, "(m) => {")
+			g.P("                let converted = serde_json::from_value(serde_json::Value::Object(m.clone())).expect(\"failed to convert serde_json::Map to protobuf Struct\");")
+			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(Box::new(converted))")
+			g.P("            }")
+
 		default:
 			g.P("            ", o.Name, "::", variantPascal, "(v) => {")
 			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v.clone().into())")
@@ -489,6 +531,11 @@ func generateBuffaBufToDomainOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 			enumType := v.TypeName
 			g.P("            Some(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v)) => {")
 			g.P("                Some(", o.Name, "::", variantPascal, "(", enumType, "::from_i32(v.to_i32()).ok_or(ConversionError::InvalidEnumValue(v.to_i32()))?))")
+			g.P("            }")
+
+		case FieldKindStruct:
+			g.P("            Some(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(s)) => {")
+			g.P("                Some(", o.Name, "::", variantPascal, "(match serde_json::to_value(s.as_ref()).map_err(|_| ConversionError::InvalidStructValue)? { serde_json::Value::Object(m) => m, _ => return Err(ConversionError::InvalidStructValue) }))")
 			g.P("            }")
 
 		default:
