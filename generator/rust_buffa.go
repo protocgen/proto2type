@@ -301,14 +301,16 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindMessage:
 		if f.Optional {
-			// Optional singular message fields: Option<Box<T>> in domain.
-			return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.as_ref().into()), None => buffa::MessageField::none() }", fieldName)
+			if f.NeedsBox {
+				return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.as_ref().into()), None => buffa::MessageField::none() }", fieldName)
+			}
+			return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.into()), None => buffa::MessageField::none() }", fieldName)
 		}
-		if !f.Repeated {
-			// Required singular message field: directly convert.
+		// Required singular message field: directly convert.
+		if f.NeedsBox {
 			return fmt.Sprintf("buffa::MessageField::some((&*d.%s).into())", fieldName)
 		}
-		return fmt.Sprintf("d.%s.iter().map(Into::into).collect()", fieldName)
+		return fmt.Sprintf("buffa::MessageField::some((&d.%s).into())", fieldName)
 
 	case FieldKindEnum:
 		if f.Optional {
@@ -391,14 +393,16 @@ func rustBuffaBufToDomainExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindMessage:
 		if f.Optional {
-			// Optional: domain types use Option<Box<T>> for message fields.
-			return fmt.Sprintf("match b.%s.as_option() { Some(v) => Some(Box::new(v.try_into()?)), None => None }", fieldName)
+			if f.NeedsBox {
+				return fmt.Sprintf("match b.%s.as_option() { Some(v) => Some(Box::new(v.try_into()?)), None => None }", fieldName)
+			}
+			return fmt.Sprintf("match b.%s.as_option() { Some(v) => Some(v.try_into()?), None => None }", fieldName)
 		}
-		if !f.Repeated {
-			// Required singular message field: must be present.
+		// Required singular message field: must be present.
+		if f.NeedsBox {
 			return fmt.Sprintf("Box::new(b.%s.as_option().ok_or(ConversionError::MissingRequiredField(\"%s\"))?.try_into()?)", fieldName, fieldName)
 		}
-		return fmt.Sprintf("b.%s.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?", fieldName)
+		return fmt.Sprintf("b.%s.as_option().ok_or(ConversionError::MissingRequiredField(\"%s\"))?.try_into()?", fieldName, fieldName)
 
 	case FieldKindEnum:
 		enumType := f.EnumTypeName
