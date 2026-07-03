@@ -14,7 +14,7 @@ Target language for code generation.
 |---|---|
 | Values | `go`, `rust`, `python`, `kotlin`, `typescript` |
 
-> **Note:** `go` and `rust` are currently supported. Other languages are on the [roadmap](README.md#roadmap).
+> **Note:** `go`, `rust`, and `python` are currently supported. Other languages are on the [roadmap](README.md#roadmap).
 
 #### Rust-specific behaviour
 
@@ -27,6 +27,33 @@ When `lang=rust`:
 - `repeated` / `map` → `Vec<T>` / `HashMap<K, V>` with `#[serde(default)]`
 - Optional fields → `Option<T>` with `#[serde(skip_serializing_if = "Option::is_none")]`
 - File suffix: `{proto_name}.type.rs` (domain), `{proto_name}_{backend}.type.rs` (storage)
+
+#### Python-specific behaviour
+
+When `lang=python`:
+
+- **Models** extend `pydantic.BaseModel` (configurable via `base_class`)
+- `google.protobuf.Timestamp` → `datetime.datetime`
+- `google.protobuf.Duration` → `datetime.timedelta`
+- `google.protobuf.Struct` → `dict[str, Any]`
+- Nested messages → top-level module class
+- `repeated` / `map` → `list[T]` / `dict[K, V]`
+- `optional` → `T | None` with `Field(default=None)`
+- Enums → `str` (Literal) or `IntEnum` (configurable via `enum_style`)
+- `google.api.field_behavior` annotations → `Field(...)` (REQUIRED) / `Field(exclude=True)` (OUTPUT_ONLY)
+- `buf/validate` constraints → `Field()` kwargs (`min_length`, `max_length`, `ge`, `le`, `gt`, `lt`, `pattern`)
+- File suffix: `{proto_name}_pb2.py`
+
+##### Python Plugin Options
+
+| Option | Default | Description |
+|---|---|---|
+| `base_class` | `pydantic.BaseModel` | Base class for generated models |
+| `alias_generator` | _(none)_ | Alias generator function (e.g. `to_camel` for camelCase JSON keys) |
+| `enum_style` | `literal` | Enum representation: `literal` (string Literal) or `int` (IntEnum) |
+| `preset` | _(none)_ | Preset configuration: `a2a` (sets camelCase aliases + raw enum names) |
+| `description` | _(none)_ | Model-level description for generated classes |
+| `strip_proto_suffix` | `false` | Strip common proto suffixes (e.g. `Request`, `Response`) from class names |
 
 ### `backend`
 

@@ -160,6 +160,10 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 		Inline:          isInline(field),
 		EnumAsString:    isEnumAsString(field, opts),
 		Omitempty:       shouldOmitempty(field, opts),
+
+		FieldBehaviors:      getFieldBehaviors(field),
+		ValidateConstraints: extractValidateConstraints(field),
+		Comment:             cleanFieldComment(field),
 	}
 
 	df.ProtoGoName = field.GoName
@@ -435,6 +439,11 @@ func cleanComment(s string) string {
 	// a generated block comment (SEC-1).
 	s = strings.ReplaceAll(s, "*/", "* /")
 	return s
+}
+
+// cleanFieldComment extracts and cleans the leading comment from a proto field.
+func cleanFieldComment(field *protogen.Field) string {
+	return cleanComment(string(field.Comments.Leading))
 }
 
 // irEnumNameFromDesc builds the IR name from an EnumDescriptor,

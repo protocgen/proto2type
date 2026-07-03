@@ -28,7 +28,8 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 - 📋 **Custom proto options** — `document_id`, `server_timestamp`, `skip`, `omitempty`, `inline`, `name`
 - 🗄️ **SQLite backend (Rust)** — `Row` structs with `to_domain()` / `from_domain()`, JSON-serialised nested fields
 - 🔌 **Works without a database** — generate domain types only, no backend required
-- 🌐 **Multi-language** — Go and Rust supported, Python / Kotlin / TypeScript planned
+- 🐍 **Python/Pydantic backend** — Pydantic `BaseModel` classes with `Field()` validation, `google.api.field_behavior` and `buf/validate` support
+- 🌐 **Multi-language** — Go, Rust, and Python supported; Kotlin / TypeScript planned
 
 ## Install
 
@@ -121,6 +122,46 @@ plugins:
       - backend=sqlite
       - domain=false
 ```
+
+### Python
+
+**Pydantic models** (absorbs [proto2pydantic](https://github.com/protocgen/proto2pydantic)):
+
+```yaml
+# buf.gen.yaml
+version: v2
+plugins:
+  - local: protoc-gen-proto2type
+    out: gen/python
+    opt:
+      - lang=python
+```
+
+**A2A preset** (camelCase aliases + raw enum names for A2A/ProtoJSON compatibility):
+
+```yaml
+# buf.gen.yaml
+version: v2
+plugins:
+  - local: protoc-gen-proto2type
+    out: gen/python
+    opt:
+      - lang=python
+      - preset=a2a
+```
+
+> **Note:** The standalone `proto2pydantic` tool has been absorbed into `proto2type`. Use `lang=python` going forward.
+
+#### Field Behavior & Validation
+
+`proto2type` reads `google.api.field_behavior` annotations and `buf/validate` constraints from your protos and maps them to Pydantic `Field()` kwargs:
+
+| Proto Annotation | Pydantic Effect |
+|---|---|
+| `REQUIRED` (`google.api.field_behavior`) | `Field(...)` — no default, field is mandatory |
+| `OUTPUT_ONLY` (`google.api.field_behavior`) | `Field(exclude=True)` — excluded from serialization |
+| `buf/validate` string rules | `Field(min_length=..., max_length=..., pattern=...)` |
+| `buf/validate` numeric rules | `Field(ge=..., le=..., gt=..., lt=...)` |
 
 ### With protoc
 
@@ -310,8 +351,8 @@ message User {
 | Phase | Scope | Status |
 |---|---|---|
 | **1** | Go + Firestore + MongoDB | ✅ Done |
-| **1.5** | Rust + SQLite | 🚧 Current |
-| **2** | Python (absorbs [proto2pydantic](https://github.com/protocgen/proto2pydantic)) | Planned |
+| **1.5** | Rust + SQLite | ✅ Done |
+| **2** | Python (absorbs [proto2pydantic](https://github.com/protocgen/proto2pydantic)) | ✅ Done |
 | **3** | DynamoDB + Datastore + Kotlin | Planned |
 | **4** | Spanner + TypeScript + SQL ORMs | Planned |
 

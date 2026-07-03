@@ -1,6 +1,10 @@
 package generator
 
 import (
+	"fmt"
+	"strings"
+
+	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -214,6 +218,17 @@ type DomainField struct {
 	// Omitempty is the resolved omitempty flag for this field.
 	Omitempty bool
 
+	// FieldBehaviors from google.api.field_behavior annotations.
+	// nil means no annotation present.
+	FieldBehaviors []annotations.FieldBehavior
+
+	// ValidateConstraints from buf/validate field annotations.
+	// nil means no constraints annotated.
+	ValidateConstraints *ValidateConstraints
+
+	// Comment is the leading proto comment for this field, cleaned.
+	Comment string
+
 	// OneofName is the oneof group name when this field is a oneof variant.
 	// Empty for non-oneof fields. (In the main Fields slice, oneof members
 	// are NOT present; they appear only in DomainOneof.Variants.)
@@ -320,4 +335,104 @@ type OneofVariant struct {
 	// ProtoMessageGoIdent is the protogen.GoIdent for message types.
 	// Used for QualifiedGoIdent to resolve e.g. pb.Settings.
 	ProtoMessageGoIdent protogen.GoIdent
+}
+
+// ValidateConstraints holds buf/validate rules extracted from proto field options.
+type ValidateConstraints struct {
+	Required  bool
+	MinLength *uint64
+	MaxLength *uint64
+	Pattern   string
+	Email     bool
+	UUID      bool
+	URI       bool
+	Gt        *string
+	Gte       *string
+	Lt        *string
+	Lte       *string
+	MinItems  *uint64
+	MaxItems  *uint64
+}
+
+func (c *ValidateConstraints) HasConstraints() bool {
+	if c == nil {
+		return false
+	}
+	return c.Required ||
+		c.MinLength != nil || c.MaxLength != nil ||
+		c.Pattern != "" || c.Email || c.UUID || c.URI ||
+		c.Gt != nil || c.Gte != nil || c.Lt != nil || c.Lte != nil ||
+		c.MinItems != nil || c.MaxItems != nil
+}
+
+func (c *ValidateConstraints) ToPydanticArgs() []string {
+	if c == nil {
+		return nil
+	}
+	var args []string
+	if c.MinLength != nil {
+		args = append(args, fmt.Sprintf("min_length=%d", *c.MinLength))
+	}
+	if c.MaxLength != nil {
+		args = append(args, fmt.Sprintf("max_length=%d", *c.MaxLength))
+	}
+	if c.Pattern != "" {
+		escaped := strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(c.Pattern)
+		args = append(args, fmt.Sprintf("pattern='%s'", escaped))
+	}
+	if c.Gt != nil {
+		args = append(args, fmt.Sprintf("gt=%s", *c.Gt))
+	}
+	if c.Gte != nil {
+		args = append(args, fmt.Sprintf("ge=%s", *c.Gte))
+	}
+	if c.Lt != nil {
+		args = append(args, fmt.Sprintf("lt=%s", *c.Lt))
+	}
+	if c.Lte != nil {
+		args = append(args, fmt.Sprintf("le=%s", *c.Lte))
+	}
+	if c.MinItems != nil {
+		args = append(args, fmt.Sprintf("min_length=%d", *c.MinItems))
+	}
+	if c.MaxItems != nil {
+		args = append(args, fmt.Sprintf("max_length=%d", *c.MaxItems))
+	}
+	return args
+}
+
+func (f *DomainField) IsRequired() bool {
+	for _, b := range f.FieldBehaviors {
+		if b == annotations.FieldBehavior_REQUIRED {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *DomainField) IsOutputOnly() bool {
+	for _, b := range f.FieldBehaviors {
+		if b == annotations.FieldBehavior_OUTPUT_ONLY {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *DomainField) IsInputOnly() bool {
+	for _, b := range f.FieldBehaviors {
+		if b == annotations.FieldBehavior_INPUT_ONLY {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *DomainField) IsImmutable() bool {
+	for _, b := range f.FieldBehaviors {
+		if b == annotations.FieldBehavior_IMMUTABLE {
+			return true
+		}
+	}
+	return false
 }

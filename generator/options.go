@@ -53,4 +53,23 @@ type Options struct {
 	// This allows generated buffa converters to be placed in any module, not just
 	// as a sibling of the domain type definitions.
 	DomainModule string
+
+	// PythonBaseClass overrides the Pydantic base class (default: "BaseModel").
+	PythonBaseClass string
+
+	// PythonAliasGenerator adds model_config with alias generation ("camel" for to_camel).
+	PythonAliasGenerator string
+
+	// PythonEnumStyle controls enum generation: "" (default, prefix-stripped lowercase)
+	// or "raw" (original proto names with UNSPECIFIED).
+	PythonEnumStyle string
+
+	// PythonPreset applies preset configurations ("a2a" sets alias_generator=camel + enum_style=raw).
+	PythonPreset string
+
+	// PythonDescription overrides module-level docstring.
+	PythonDescription string
+
+	// PythonStripProtoSuffix uses base.py instead of base_pb2_pydantic.py (Python only).
+	PythonStripProtoSuffix bool
 }

@@ -3,12 +3,30 @@ package generator
 import (
 	"fmt"
 
+	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
 	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
 
 	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
 )
+
+// getFieldBehaviors extracts google.api.field_behavior annotations from a field.
+// Returns nil if no annotation is present.
+func getFieldBehaviors(field *protogen.Field) []annotations.FieldBehavior {
+	opts, ok := field.Desc.Options().(*descriptorpb.FieldOptions)
+	if !ok || opts == nil {
+		return nil
+	}
+	if !proto.HasExtension(opts, annotations.E_FieldBehavior) {
+		return nil
+	}
+	behaviors, ok := proto.GetExtension(opts, annotations.E_FieldBehavior).([]annotations.FieldBehavior)
+	if !ok || len(behaviors) == 0 {
+		return nil
+	}
+	return behaviors
+}
 
 // getFieldOptions returns the proto2type field options for a field, or nil if none are set.
 func getFieldOptions(field *protogen.Field) *proto2typepb.FieldOptions {
