@@ -229,3 +229,90 @@ func escapeKotlinKeyword(name string) string {
 	}
 	return name
 }
+
+// pythonKeywords is the set of Python reserved words and commonly-shadowed builtins.
+var pythonKeywords = map[string]bool{
+	"False": true, "None": true, "True": true, "and": true, "as": true,
+	"assert": true, "async": true, "await": true, "break": true, "class": true,
+	"continue": true, "def": true, "del": true, "elif": true, "else": true,
+	"except": true, "finally": true, "for": true, "from": true, "global": true,
+	"if": true, "import": true, "in": true, "is": true, "lambda": true,
+	"nonlocal": true, "not": true, "or": true, "pass": true, "raise": true,
+	"return": true, "try": true, "while": true, "with": true, "yield": true,
+	// builtins commonly shadowed
+	"list": true, "dict": true, "set": true, "type": true,
+	"input": true, "print": true, "format": true, "map": true, "filter": true,
+	"hash": true, "len": true, "range": true, "str": true, "int": true,
+	"float": true, "bool": true, "bytes": true, "object": true, "property": true,
+}
+
+// escapePythonKeyword appends _ to Python keywords/builtins.
+// Returns (escaped_name, original_alias). If no escaping needed, alias is empty.
+func escapePythonKeyword(name string) (string, string) {
+	if pythonKeywords[name] {
+		return name + "_", name
+	}
+	return name, ""
+}
+
+// topologicalSortMessages orders messages so that referenced types are defined
+// before the messages that reference them. This is needed for Python and TypeScript
+// where class definitions must precede usage.
+func topologicalSortMessages(msgs []*DomainMessage) []*DomainMessage {
+	if len(msgs) <= 1 {
+		return msgs
+	}
+
+	// Build name → index map.
+	idx := make(map[string]int, len(msgs))
+	for i, m := range msgs {
+		idx[m.Name] = i
+	}
+
+	// Build dependency graph: msg depends on types it references.
+	deps := make(map[int][]int, len(msgs))
+	for i, m := range msgs {
+		for _, f := range m.Fields {
+			if f.MessageTypeName != "" && f.MessageTypeName != m.Name {
+				if j, ok := idx[f.MessageTypeName]; ok {
+					deps[i] = append(deps[i], j)
+				}
+			}
+		}
+		// Also check oneof variants.
+		for _, o := range m.Oneofs {
+			for _, v := range o.Variants {
+				if v.TypeName != "" && v.TypeName != m.Name {
+					if j, ok := idx[v.TypeName]; ok {
+						deps[i] = append(deps[i], j)
+					}
+				}
+			}
+		}
+		// Check nested messages.
+		for _, nested := range m.NestedMessages {
+			if j, ok := idx[nested.Name]; ok {
+				deps[i] = append(deps[i], j)
+			}
+		}
+	}
+
+	// DFS topological sort.
+	visited := make(map[int]bool, len(msgs))
+	var order []*DomainMessage
+	var visit func(i int)
+	visit = func(i int) {
+		if visited[i] {
+			return
+		}
+		visited[i] = true
+		for _, j := range deps[i] {
+			visit(j)
+		}
+		order = append(order, msgs[i])
+	}
+	for i := range msgs {
+		visit(i)
+	}
+	return order
+}

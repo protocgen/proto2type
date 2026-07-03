@@ -1,0 +1,6 @@
+version: v2
+plugins:
+  - local: protoc-gen-proto2type
+    out: ../golden/python/gen
+    opt:
+      - lang=python

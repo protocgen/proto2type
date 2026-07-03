@@ -53,7 +53,9 @@ func GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) (ret
 		return generateRust(gen, file, opts)
 	case "kotlin":
 		return generateKotlin(gen, file, opts)
+	case "python":
+		return generatePython(gen, file, opts)
 	default:
-		return fmt.Errorf("proto2type: unsupported language %q (supported: go, rust, kotlin)", opts.Lang)
+		return fmt.Errorf("proto2type: unsupported language %q (supported: go, rust, kotlin, python)", opts.Lang)
 	}
 }

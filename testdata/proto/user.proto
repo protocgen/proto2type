@@ -7,6 +7,7 @@ import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
 import "buf/validate/validate.proto";
+import "google/api/field_behavior.proto";
 
 option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
 
@@ -20,15 +21,21 @@ enum UserStatus {
 
 // User represents a user account.
 message User {
-  string id = 1;
-  string email = 2 [(buf.validate.field).string.email = true];
-  string display_name = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  string email = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string.email = true
+  ];
+  string display_name = 3 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string = {min_len: 1, max_len: 255}
+  ];
   bool active = 4;
   int32 age = 5 [(buf.validate.field).int32 = {gte: 0, lte: 150}];
   repeated string roles = 6;
   map<string, string> metadata = 7;
   Address address = 8;
-  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp created_at = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
   google.protobuf.Duration session_timeout = 10;
   optional string phone = 11;
   bytes avatar = 12;
@@ -40,7 +47,7 @@ message User {
     string contact_phone = 16;
   }
   repeated Tag tags = 17;
-  optional google.protobuf.Timestamp deleted_at = 18;
+  optional google.protobuf.Timestamp deleted_at = 18 [(google.api.field_behavior) = OUTPUT_ONLY];
   optional UserStatus previous_status = 19;
 
   // WKT reference types
