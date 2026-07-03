@@ -34,6 +34,12 @@ type Options struct {
 	// Required for backend=buffa (e.g. "crate::proto::candela::harness::v1").
 	BufModule string
 
+	// Validate enables Validate() method generation using protovalidate.
+	// When true, the generated Validate() delegates to protovalidate.Validate(d.ToProto())
+	// for buf.validate constraint checking. Oneof mutual-exclusion checks are always
+	// generated regardless of this flag.
+	Validate bool
+
 	// BufOneofPrefix is an optional module prefix inserted between the buffa module
 	// and the "oneof" submodule in generated Rust code.
 	// When empty (default), oneof paths are: __buffa_mod::oneof::<msg>::<Variant>

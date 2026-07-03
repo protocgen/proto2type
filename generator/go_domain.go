@@ -158,6 +158,12 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, opts 
 	// Generate Equal method (field-by-field comparison)
 	generateGoEqual(g, dm)
 
+	// Generate per-oneof Active<Name>() methods
+	generateGoActiveField(g, dm)
+
+	// Generate Validate() method (oneof mutual exclusion + optional protovalidate)
+	generateGoValidate(g, dm, opts)
+
 	// Generate nested messages
 	for _, nestedDM := range dm.NestedMessages {
 		if err := generateGoDomainMessage(g, nestedDM, opts); err != nil {
