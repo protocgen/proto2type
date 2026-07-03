@@ -61,7 +61,7 @@ impl From<&User> for __buffa_mod::User {
         b.age = d.age;
         b.roles = d.roles.iter().map(|s| s.clone().into()).collect();
         b.metadata = d.metadata.clone();
-        b.address = buffa::MessageField::some((&*d.address).into());
+        b.address = buffa::MessageField::some((&d.address).into());
         b.created_at = buffa::MessageField::some(chrono_to_buffa_timestamp(&d.created_at));
         b.session_timeout = d.session_timeout;
         b.phone = d.phone.as_deref().map(Into::into);
@@ -105,7 +105,7 @@ impl TryFrom<&__buffa_mod::User> for User {
         d.age = b.age;
         d.roles = b.roles.iter().map(|s| s.to_string()).collect();
         d.metadata = b.metadata.clone();
-        d.address = Box::new(b.address.as_option().ok_or(ConversionError::MissingRequiredField("address"))?.try_into()?);
+        d.address = b.address.as_option().ok_or(ConversionError::MissingRequiredField("address"))?.try_into()?;
         d.created_at = buffa_timestamp_to_chrono(b.created_at.as_option().ok_or(ConversionError::MissingRequiredField("created_at"))?)?;
         d.session_timeout = b.session_timeout;
         d.phone = b.phone.as_ref().map(|s| s.to_string());
