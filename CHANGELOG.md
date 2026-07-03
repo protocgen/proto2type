@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-02
+
 ### Added
 - **Kotlin backend** (`lang=kotlin`): Generates `@Serializable` data classes using `kotlinx.serialization` and `kotlinx.datetime`. Includes sealed class oneofs, enum classes with `@SerialName`, and full WKT support.
 - **Intermediate Representation (IR)**: Shared type-walking layer used by Go, Rust, and Kotlin backends. Eliminates duplicated proto-walking logic.
 - **Optional WKT support**: `optional google.protobuf.Timestamp` now generates `*time.Time` (Go), `Option<DateTime<Utc>>` (Rust), `Instant?` (Kotlin). Same for Duration and Enum.
 - **complex.proto test suite**: Comprehensive test proto covering nested types, recursive messages, maps, WKTs, enums, and all edge cases.
+- **Buffa `buffa_oneof_prefix` option**: Configurable module prefix for oneof submodules (`buffa_oneof_prefix=__buffa`) to match `connectrpc-build`'s `__buffa::oneof::` layout.
+- **JSON-RPC flat-enum backend** (`backend=jsonrpc`): Generates flat Rust enums for proto oneofs, suitable for JSON-RPC wire format.
 
 ### Fixed
 - SQLite `u64` overflow: Replaced `as i64`/`as u64` casts with `TryFrom` + `ConversionError::Overflow`
