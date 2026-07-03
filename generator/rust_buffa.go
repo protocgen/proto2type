@@ -30,8 +30,12 @@ func generateRustBuffa(gen *protogen.Plugin, file *protogen.File, opts *Options)
 	// Scan IR for needed imports.
 	needsChrono := irNeedsChronoBuffa(df.Messages)
 
-	// Emit use statements
-	g.P("use super::*;")
+	// Emit domain type imports
+	if opts.DomainModule != "" {
+		g.P("use ", opts.DomainModule, "::*;")
+	} else {
+		g.P("use super::*;")
+	}
 	if needsChrono {
 		g.P("use chrono::{DateTime, Utc};")
 	}

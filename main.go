@@ -40,6 +40,7 @@ func main() {
 	flags.StringVar(&opts.BufModule, "buffa_module", "", "Rust module path for buffa proto types (required for backend=buffa)")
 	flags.BoolVar(&opts.Validate, "validate", false, "generate Validate() method using protovalidate")
 	flags.StringVar(&opts.BufOneofPrefix, "buffa_oneof_prefix", "", "module prefix before oneof submodule (e.g. __buffa for connectrpc-build)")
+	flags.StringVar(&opts.DomainModule, "domain_module", "", "Rust module path for domain type imports in buffa output (default: use super::*)")
 
 	protogen.Options{
 		ParamFunc: flags.Set,
