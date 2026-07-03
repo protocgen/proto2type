@@ -13,6 +13,7 @@ pub enum ConversionError {
     InvalidTimestamp { seconds: i64, nanos: i32 },
     InvalidEnumValue(i32),
     InvalidStructValue,
+    MissingRequiredField(&'static str),
 }
 
 impl std::fmt::Display for ConversionError {
@@ -21,6 +22,7 @@ impl std::fmt::Display for ConversionError {
             Self::InvalidTimestamp { seconds, nanos } => write!(f, "invalid timestamp: {seconds}s {nanos}ns"),
             Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),
             Self::InvalidStructValue => write!(f, "invalid struct value"),
+            Self::MissingRequiredField(field) => write!(f, "missing required field: {field}"),
         }
     }
 }
@@ -59,7 +61,7 @@ impl From<&User> for __buffa_mod::User {
         b.age = d.age;
         b.roles = d.roles.iter().map(|s| s.clone().into()).collect();
         b.metadata = d.metadata.clone();
-        b.address = match &d.address { Some(v) => buffa::MessageField::some(v.as_ref().into()), None => buffa::MessageField::none() };
+        b.address = buffa::MessageField::some((&*d.address).into());
         b.created_at = buffa::MessageField::some(chrono_to_buffa_timestamp(&d.created_at));
         b.session_timeout = d.session_timeout;
         b.phone = d.phone.as_deref().map(Into::into);
@@ -103,8 +105,8 @@ impl TryFrom<&__buffa_mod::User> for User {
         d.age = b.age;
         d.roles = b.roles.iter().map(|s| s.to_string()).collect();
         d.metadata = b.metadata.clone();
-        d.address = match b.address.as_option() { Some(v) => Some(Box::new(v.try_into()?)), None => None };
-        d.created_at = buffa_timestamp_to_chrono(b.created_at.as_option().unwrap_or(&Default::default()))?;
+        d.address = Box::new(b.address.as_option().ok_or(ConversionError::MissingRequiredField("address"))?.try_into()?);
+        d.created_at = buffa_timestamp_to_chrono(b.created_at.as_option().ok_or(ConversionError::MissingRequiredField("created_at"))?)?;
         d.session_timeout = b.session_timeout;
         d.phone = b.phone.as_ref().map(|s| s.to_string());
         d.avatar = b.avatar.to_vec();

@@ -130,6 +130,7 @@ func generateBuffaConversionError(g *protogen.GeneratedFile, needsChrono bool, n
 	if needsStruct {
 		g.P("    InvalidStructValue,")
 	}
+	g.P("    MissingRequiredField(&'static str),")
 	g.P("}")
 	g.P()
 	g.P("impl std::fmt::Display for ConversionError {")
@@ -142,6 +143,7 @@ func generateBuffaConversionError(g *protogen.GeneratedFile, needsChrono bool, n
 	if needsStruct {
 		g.P(`            Self::InvalidStructValue => write!(f, "invalid struct value"),`)
 	}
+	g.P(`            Self::MissingRequiredField(field) => write!(f, "missing required field: {field}"),`)
 	g.P("        }")
 	g.P("    }")
 	g.P("}")
@@ -298,10 +300,13 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 		return fmt.Sprintf("buffa::MessageField::some(chrono_to_buffa_timestamp(&d.%s))", fieldName)
 
 	case FieldKindMessage:
-		if f.Optional || !f.Repeated {
-			// Singular message fields may be Option<T> or Option<Box<T>> in domain.
-			// Always use .as_ref() which handles both (Box auto-derefs).
+		if f.Optional {
+			// Optional singular message fields: Option<Box<T>> in domain.
 			return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.as_ref().into()), None => buffa::MessageField::none() }", fieldName)
+		}
+		if !f.Repeated {
+			// Required singular message field: directly convert.
+			return fmt.Sprintf("buffa::MessageField::some((&*d.%s).into())", fieldName)
 		}
 		return fmt.Sprintf("d.%s.iter().map(Into::into).collect()", fieldName)
 
@@ -382,12 +387,16 @@ func rustBuffaBufToDomainExpr(f *DomainField, fieldName string) string {
 		if f.Optional {
 			return fmt.Sprintf("match b.%s.as_option() { Some(ts) => Some(buffa_timestamp_to_chrono(ts)?), None => None }", fieldName)
 		}
-		return fmt.Sprintf("buffa_timestamp_to_chrono(b.%s.as_option().unwrap_or(&Default::default()))?", fieldName)
+		return fmt.Sprintf("buffa_timestamp_to_chrono(b.%s.as_option().ok_or(ConversionError::MissingRequiredField(\"%s\"))?)?", fieldName, fieldName)
 
 	case FieldKindMessage:
-		if f.Optional || !f.Repeated {
-			// Always Box-wrap: domain types use Option<Box<T>> for message fields.
+		if f.Optional {
+			// Optional: domain types use Option<Box<T>> for message fields.
 			return fmt.Sprintf("match b.%s.as_option() { Some(v) => Some(Box::new(v.try_into()?)), None => None }", fieldName)
+		}
+		if !f.Repeated {
+			// Required singular message field: must be present.
+			return fmt.Sprintf("Box::new(b.%s.as_option().ok_or(ConversionError::MissingRequiredField(\"%s\"))?.try_into()?)", fieldName, fieldName)
 		}
 		return fmt.Sprintf("b.%s.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?", fieldName)
 

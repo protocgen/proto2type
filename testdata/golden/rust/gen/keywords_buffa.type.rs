@@ -10,12 +10,14 @@ use crate::proto as __buffa_mod;
 #[derive(Debug)]
 pub enum ConversionError {
     InvalidEnumValue(i32),
+    MissingRequiredField(&'static str),
 }
 
 impl std::fmt::Display for ConversionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),
+            Self::MissingRequiredField(field) => write!(f, "missing required field: {field}"),
         }
     }
 }

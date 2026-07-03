@@ -12,6 +12,7 @@ use crate::proto as __buffa_mod;
 pub enum ConversionError {
     InvalidTimestamp { seconds: i64, nanos: i32 },
     InvalidEnumValue(i32),
+    MissingRequiredField(&'static str),
 }
 
 impl std::fmt::Display for ConversionError {
@@ -19,6 +20,7 @@ impl std::fmt::Display for ConversionError {
         match self {
             Self::InvalidTimestamp { seconds, nanos } => write!(f, "invalid timestamp: {seconds}s {nanos}ns"),
             Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),
+            Self::MissingRequiredField(field) => write!(f, "missing required field: {field}"),
         }
     }
 }
@@ -86,8 +88,8 @@ impl TryFrom<&__buffa_mod::ModelCatalogEntry> for ModelCatalogEntry {
         d.discount_percent = b.discount_percent;
         d.aliases = b.aliases.iter().map(|s| s.to_string()).collect();
         d.provider_model_id = b.provider_model_id.to_string();
-        d.created_at = buffa_timestamp_to_chrono(b.created_at.as_option().unwrap_or(&Default::default()))?;
-        d.updated_at = buffa_timestamp_to_chrono(b.updated_at.as_option().unwrap_or(&Default::default()))?;
+        d.created_at = buffa_timestamp_to_chrono(b.created_at.as_option().ok_or(ConversionError::MissingRequiredField("created_at"))?)?;
+        d.updated_at = buffa_timestamp_to_chrono(b.updated_at.as_option().ok_or(ConversionError::MissingRequiredField("updated_at"))?)?;
         d.notes = b.notes.to_string();
         d.region = b.region.to_string();
         Ok(d)
