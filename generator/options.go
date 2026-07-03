@@ -46,4 +46,11 @@ type Options struct {
 	// When set (e.g. "__buffa"), paths become: __buffa_mod::__buffa::oneof::<msg>::<Variant>
 	// connectrpc-build uses "__buffa" as its prefix.
 	BufOneofPrefix string
+
+	// DomainModule is an optional Rust module path for domain type imports in buffa output.
+	// When empty (default), generates: use super::*;
+	// When set (e.g. "candela_core::harness"), generates: use candela_core::harness::*;
+	// This allows generated buffa converters to be placed in any module, not just
+	// as a sibling of the domain type definitions.
+	DomainModule string
 }

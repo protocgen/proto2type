@@ -170,6 +170,64 @@ func TestBuffaOneofPrefix_Integration(t *testing.T) {
 	})
 }
 
+// TestBuffaDomainModule_Integration verifies that DomainModule controls the
+// domain type import path in generated buffa output.
+func TestBuffaDomainModule_Integration(t *testing.T) {
+	fds := buildFileDescriptorSet(t)
+
+	t.Run("with_domain_module", func(t *testing.T) {
+		gen := newPlugin(t, fds, []string{"user.proto"})
+		opts := &Options{
+			Lang:         "rust",
+			Backend:      "buffa",
+			BufModule:    "crate::proto",
+			DomainModule: "my_crate::domain",
+		}
+
+		for _, f := range gen.Files {
+			if !f.Generate {
+				continue
+			}
+			if err := generateRustBuffa(gen, f, opts); err != nil {
+				t.Fatalf("generateRustBuffa: %v", err)
+			}
+		}
+
+		src := extractBuffaOutput(t, gen)
+
+		if !strings.Contains(src, "use my_crate::domain::*;") {
+			t.Error("expected 'use my_crate::domain::*;' in output")
+		}
+		if strings.Contains(src, "use super::*;") {
+			t.Error("should NOT contain 'use super::*;' when domain_module is set")
+		}
+	})
+
+	t.Run("without_domain_module", func(t *testing.T) {
+		gen := newPlugin(t, fds, []string{"user.proto"})
+		opts := &Options{
+			Lang:      "rust",
+			Backend:   "buffa",
+			BufModule: "crate::proto",
+		}
+
+		for _, f := range gen.Files {
+			if !f.Generate {
+				continue
+			}
+			if err := generateRustBuffa(gen, f, opts); err != nil {
+				t.Fatalf("generateRustBuffa: %v", err)
+			}
+		}
+
+		src := extractBuffaOutput(t, gen)
+
+		if !strings.Contains(src, "use super::*;") {
+			t.Error("expected 'use super::*;' in output (default)")
+		}
+	})
+}
+
 // extractBuffaOutput finds the buffa .type.rs file in the plugin response.
 func extractBuffaOutput(t *testing.T, gen *protogen.Plugin) string {
 	t.Helper()
