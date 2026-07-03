@@ -21,11 +21,6 @@ func generateGoValidate(g *protogen.GeneratedFile, dm *DomainMessage, opts *Opti
 		return
 	}
 
-	fmtErrorf := g.QualifiedGoIdent(protogen.GoIdent{
-		GoImportPath: "fmt",
-		GoName:       "Errorf",
-	})
-
 	g.P("// Validate checks domain invariants on ", dm.Name, ".")
 	if hasOneofs {
 		g.P("// It ensures at most one variant is set per oneof group.")
@@ -40,6 +35,11 @@ func generateGoValidate(g *protogen.GeneratedFile, dm *DomainMessage, opts *Opti
 
 	// Part 1: Oneof mutual exclusion.
 	if hasOneofs {
+		fmtErrorf := g.QualifiedGoIdent(protogen.GoIdent{
+			GoImportPath: "fmt",
+			GoName:       "Errorf",
+		})
+
 		for _, oneof := range dm.Oneofs {
 			g.P("\t{")
 			g.P("\t\t_oneofCount := 0")
@@ -56,7 +56,7 @@ func generateGoValidate(g *protogen.GeneratedFile, dm *DomainMessage, opts *Opti
 	// Part 2: protovalidate delegation.
 	if useProtovalidate {
 		protovalidateValidate := g.QualifiedGoIdent(protogen.GoIdent{
-			GoImportPath: "github.com/bufbuild/protovalidate-go",
+			GoImportPath: "buf.build/go/protovalidate",
 			GoName:       "Validate",
 		})
 		g.P("\tif err := ", protovalidateValidate, "(", recv, ".ToProto()); err != nil {")

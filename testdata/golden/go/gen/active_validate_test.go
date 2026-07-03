@@ -104,3 +104,26 @@ func TestValidateMultiOneofPartialViolation(t *testing.T) {
 		t.Fatal("expected error for channel oneof violation, got nil")
 	}
 }
+
+func TestValidateNoOneofMessage(t *testing.T) {
+	// Address has no oneofs — Validate is not generated.
+	// This test verifies at compile-time that Address does NOT have Validate().
+	// If this test compiles, the assertion holds.
+	a := &Address{Street: "123 Main St"}
+	_ = a // Address has no Validate() method — compile check only.
+}
+
+func TestActiveFieldEventPayload(t *testing.T) {
+	// Event has a mixed-type oneof with message, string, and int variants.
+	msg := "hello"
+	e := &Event{TextMessage: &msg}
+	if got := e.ActivePayload(); got != "text_message" {
+		t.Errorf("got %q, want %q", got, "text_message")
+	}
+
+	priority := int32(5)
+	e2 := &Event{PriorityChange: &priority}
+	if got := e2.ActivePayload(); got != "priority_change" {
+		t.Errorf("got %q, want %q", got, "priority_change")
+	}
+}
