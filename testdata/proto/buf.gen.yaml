@@ -18,6 +18,7 @@ plugins:
     opt:
       - paths=source_relative
       - go_package=github.com/protocgen/proto2type/testdata/golden/go/gen;gen
+      - validate=true
 
   # Firestore storage types
   - local: protoc-gen-proto2type

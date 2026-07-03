@@ -4,6 +4,7 @@
 package gen
 
 import (
+	protovalidate "buf.build/go/protovalidate"
 	fmt "fmt"
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	proto "google.golang.org/protobuf/proto"
@@ -87,6 +88,18 @@ func (s *Settings) Equal(other *Settings) bool {
 		return false
 	}
 	return true
+}
+
+// Validate checks domain invariants on Settings.
+// It also runs buf.validate constraints via protovalidate.
+func (s *Settings) Validate() error {
+	if s == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(s.ToProto()); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Organization is the domain representation of test.v1.Organization.
@@ -194,6 +207,18 @@ func (o *Organization) Equal(other *Organization) bool {
 	return true
 }
 
+// Validate checks domain invariants on Organization.
+// It also runs buf.validate constraints via protovalidate.
+func (o *Organization) Validate() error {
+	if o == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(o.ToProto()); err != nil {
+		return err
+	}
+	return nil
+}
+
 // OrganizationDepartment is the domain representation of test.v1.Organization.Department.
 type OrganizationDepartment struct {
 	Name  string                        `json:"name,omitempty"`
@@ -297,6 +322,18 @@ func (o *OrganizationDepartment) Equal(other *OrganizationDepartment) bool {
 	return true
 }
 
+// Validate checks domain invariants on OrganizationDepartment.
+// It also runs buf.validate constraints via protovalidate.
+func (o *OrganizationDepartment) Validate() error {
+	if o == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(o.ToProto()); err != nil {
+		return err
+	}
+	return nil
+}
+
 // OrganizationDepartmentTeam is the domain representation of test.v1.Organization.Department.Team.
 type OrganizationDepartmentTeam struct {
 	Name    string   `json:"name,omitempty"`
@@ -375,6 +412,18 @@ func (o *OrganizationDepartmentTeam) Equal(other *OrganizationDepartmentTeam) bo
 		}
 	}
 	return true
+}
+
+// Validate checks domain invariants on OrganizationDepartmentTeam.
+// It also runs buf.validate constraints via protovalidate.
+func (o *OrganizationDepartmentTeam) Validate() error {
+	if o == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(o.ToProto()); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Notification is the domain representation of test.v1.Notification.
@@ -586,6 +635,7 @@ func (n *Notification) ActiveContent() string {
 
 // Validate checks domain invariants on Notification.
 // It ensures at most one variant is set per oneof group.
+// It also runs buf.validate constraints via protovalidate.
 func (n *Notification) Validate() error {
 	if n == nil {
 		return nil
@@ -616,6 +666,9 @@ func (n *Notification) Validate() error {
 		if _oneofCount > 1 {
 			return fmt.Errorf("oneof content: %d variants set, expected at most 1", _oneofCount)
 		}
+	}
+	if err := protovalidate.Validate(n.ToProto()); err != nil {
+		return err
 	}
 	return nil
 }
@@ -908,6 +961,18 @@ func (d *Document) Equal(other *Document) bool {
 	return true
 }
 
+// Validate checks domain invariants on Document.
+// It also runs buf.validate constraints via protovalidate.
+func (d *Document) Validate() error {
+	if d == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(d.ToProto()); err != nil {
+		return err
+	}
+	return nil
+}
+
 // TreeNode is the domain representation of test.v1.TreeNode.
 //
 // Recursive/self-referencing message.
@@ -1033,6 +1098,18 @@ func (t *TreeNode) Equal(other *TreeNode) bool {
 	return true
 }
 
+// Validate checks domain invariants on TreeNode.
+// It also runs buf.validate constraints via protovalidate.
+func (t *TreeNode) Validate() error {
+	if t == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(t.ToProto()); err != nil {
+		return err
+	}
+	return nil
+}
+
 // AuditLog is the domain representation of test.v1.AuditLog.
 //
 // Message with skipped field and name override.
@@ -1113,6 +1190,18 @@ func (a *AuditLog) Equal(other *AuditLog) bool {
 		return false
 	}
 	return true
+}
+
+// Validate checks domain invariants on AuditLog.
+// It also runs buf.validate constraints via protovalidate.
+func (a *AuditLog) Validate() error {
+	if a == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(a.ToProto()); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Event is the domain representation of test.v1.Event.
@@ -1264,6 +1353,7 @@ func (e *Event) ActivePayload() string {
 
 // Validate checks domain invariants on Event.
 // It ensures at most one variant is set per oneof group.
+// It also runs buf.validate constraints via protovalidate.
 func (e *Event) Validate() error {
 	if e == nil {
 		return nil
@@ -1282,6 +1372,9 @@ func (e *Event) Validate() error {
 		if _oneofCount > 1 {
 			return fmt.Errorf("oneof payload: %d variants set, expected at most 1", _oneofCount)
 		}
+	}
+	if err := protovalidate.Validate(e.ToProto()); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1564,6 +1657,7 @@ func (w *WktPayload) ActiveContent() string {
 
 // Validate checks domain invariants on WktPayload.
 // It ensures at most one variant is set per oneof group.
+// It also runs buf.validate constraints via protovalidate.
 func (w *WktPayload) Validate() error {
 	if w == nil {
 		return nil
@@ -1588,6 +1682,9 @@ func (w *WktPayload) Validate() error {
 		if _oneofCount > 1 {
 			return fmt.Errorf("oneof content: %d variants set, expected at most 1", _oneofCount)
 		}
+	}
+	if err := protovalidate.Validate(w.ToProto()); err != nil {
+		return err
 	}
 	return nil
 }

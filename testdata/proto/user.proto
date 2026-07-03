@@ -6,6 +6,7 @@ import "google/protobuf/field_mask.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
 
@@ -20,10 +21,10 @@ enum UserStatus {
 // User represents a user account.
 message User {
   string id = 1;
-  string email = 2;
-  string display_name = 3;
+  string email = 2 [(buf.validate.field).string.email = true];
+  string display_name = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
   bool active = 4;
-  int32 age = 5;
+  int32 age = 5 [(buf.validate.field).int32 = {gte: 0, lte: 150}];
   repeated string roles = 6;
   map<string, string> metadata = 7;
   Address address = 8;

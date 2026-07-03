@@ -4,6 +4,7 @@
 package gen
 
 import (
+	protovalidate "buf.build/go/protovalidate"
 	fmt "fmt"
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
@@ -776,6 +777,7 @@ func (u *User) ActiveContactMethod() string {
 
 // Validate checks domain invariants on User.
 // It ensures at most one variant is set per oneof group.
+// It also runs buf.validate constraints via protovalidate.
 func (u *User) Validate() error {
 	if u == nil {
 		return nil
@@ -791,6 +793,9 @@ func (u *User) Validate() error {
 		if _oneofCount > 1 {
 			return fmt.Errorf("oneof contact_method: %d variants set, expected at most 1", _oneofCount)
 		}
+	}
+	if err := protovalidate.Validate(u.ToProto()); err != nil {
+		return err
 	}
 	return nil
 }
@@ -895,6 +900,18 @@ func (a *Address) Equal(other *Address) bool {
 	return true
 }
 
+// Validate checks domain invariants on Address.
+// It also runs buf.validate constraints via protovalidate.
+func (a *Address) Validate() error {
+	if a == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(a.ToProto()); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Tag is the domain representation of test.v1.Tag.
 //
 // Tag is a label with a key-value pair.
@@ -966,4 +983,16 @@ func (t *Tag) Equal(other *Tag) bool {
 		return false
 	}
 	return true
+}
+
+// Validate checks domain invariants on Tag.
+// It also runs buf.validate constraints via protovalidate.
+func (t *Tag) Validate() error {
+	if t == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(t.ToProto()); err != nil {
+		return err
+	}
+	return nil
 }

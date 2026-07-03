@@ -7,6 +7,7 @@
 package pb
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
@@ -509,13 +510,15 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\"\xc4\f\n" +
+	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\"\xe5\f\n" +
 	"\x04User\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
-	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x16\n" +
-	"\x06active\x18\x04 \x01(\bR\x06active\x12\x10\n" +
-	"\x03age\x18\x05 \x01(\x05R\x03age\x12\x14\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\x05email\x18\x02 \x01(\tB\a\xbaH\x04r\x02`\x01R\x05email\x12-\n" +
+	"\fdisplay_name\x18\x03 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\xff\x01R\vdisplayName\x12\x16\n" +
+	"\x06active\x18\x04 \x01(\bR\x06active\x12\x1c\n" +
+	"\x03age\x18\x05 \x01(\x05B\n" +
+	"\xbaH\a\x1a\x05\x18\x96\x01(\x00R\x03age\x12\x14\n" +
 	"\x05roles\x18\x06 \x03(\tR\x05roles\x127\n" +
 	"\bmetadata\x18\a \x03(\v2\x1b.test.v1.User.MetadataEntryR\bmetadata\x12*\n" +
 	"\aaddress\x18\b \x01(\v2\x10.test.v1.AddressR\aaddress\x129\n" +

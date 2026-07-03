@@ -4,6 +4,7 @@
 package gen
 
 import (
+	protovalidate "buf.build/go/protovalidate"
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -217,4 +218,16 @@ func (m *ModelCatalogEntry) Equal(other *ModelCatalogEntry) bool {
 		return false
 	}
 	return true
+}
+
+// Validate checks domain invariants on ModelCatalogEntry.
+// It also runs buf.validate constraints via protovalidate.
+func (m *ModelCatalogEntry) Validate() error {
+	if m == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(m.ToProto()); err != nil {
+		return err
+	}
+	return nil
 }

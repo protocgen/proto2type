@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-02
+
+### Added
+- **Buffa `domain_module` option**: Configurable Rust module path for domain type imports. When set, generates `use <domain_module>::*;` instead of `use super::*;`, allowing generated buffa converters to be placed in any module without manual import patching.
+
 ## [0.4.0] - 2026-07-02
 
 ### Added
