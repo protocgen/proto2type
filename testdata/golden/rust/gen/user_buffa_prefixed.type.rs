@@ -88,47 +88,48 @@ impl From<&User> for __buffa_mod::User {
     }
 }
 
+#[allow(clippy::field_reassign_with_default)]
 impl TryFrom<&__buffa_mod::User> for User {
     type Error = ConversionError;
 
     fn try_from(b: &__buffa_mod::User) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: b.id.to_string(),
-            email: b.email.to_string(),
-            display_name: b.display_name.to_string(),
-            active: b.active,
-            age: b.age,
-            roles: b.roles.iter().map(|s| s.to_string()).collect(),
-            metadata: b.metadata.clone(),
-            address: match b.address.as_option() { Some(v) => Some(Box::new(v.try_into()?)), None => None },
-            created_at: buffa_timestamp_to_chrono(b.created_at.as_option().unwrap_or(&Default::default()))?,
-            session_timeout: b.session_timeout,
-            phone: b.phone.as_ref().map(|s| s.to_string()),
-            avatar: b.avatar.to_vec(),
-            nickname: b.nickname,
-            status: UserStatus::from_i32(b.status.to_i32()).ok_or(ConversionError::InvalidEnumValue(b.status.to_i32()))?,
-            contact_method: match &b.contact_method {
-                Some(__buffa_mod::__buffa::oneof::user::ContactMethod::ContactEmail(v)) => {
-                    Some(UserContactMethod::ContactEmail(v.to_string()))
-                }
-                Some(__buffa_mod::__buffa::oneof::user::ContactMethod::ContactPhone(v)) => {
-                    Some(UserContactMethod::ContactPhone(v.to_string()))
-                }
-                None => None,
-            },
-            tags: b.tags.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?,
-            deleted_at: match b.deleted_at.as_option() { Some(ts) => Some(buffa_timestamp_to_chrono(ts)?), None => None },
-            previous_status: b.previous_status.map(|v| UserStatus::from_i32(v.to_i32()).ok_or(ConversionError::InvalidEnumValue(v.to_i32()))).transpose()?,
-            update_mask: b.update_mask.clone().into(),
-            extra_metadata: serde_json::to_value(&*b.extra_metadata).ok().and_then(|v| match v { serde_json::Value::Object(m) => Some(m), _ => None }).unwrap_or_default(),
-            preferences: b.preferences.clone().into(),
-            avatar_thumbnail: b.avatar_thumbnail.clone(),
-            field_masks: b.field_masks.clone(),
-            structs: b.structs.clone(),
-            lists: b.lists.clone(),
-            event_times: b.event_times.clone(),
-            configs: b.configs.clone(),
-        })
+        let mut d = Self::default();
+        d.id = b.id.to_string();
+        d.email = b.email.to_string();
+        d.display_name = b.display_name.to_string();
+        d.active = b.active;
+        d.age = b.age;
+        d.roles = b.roles.iter().map(|s| s.to_string()).collect();
+        d.metadata = b.metadata.clone();
+        d.address = match b.address.as_option() { Some(v) => Some(Box::new(v.try_into()?)), None => None };
+        d.created_at = buffa_timestamp_to_chrono(b.created_at.as_option().unwrap_or(&Default::default()))?;
+        d.session_timeout = b.session_timeout;
+        d.phone = b.phone.as_ref().map(|s| s.to_string());
+        d.avatar = b.avatar.to_vec();
+        d.nickname = b.nickname;
+        d.status = UserStatus::from_i32(b.status.to_i32()).ok_or(ConversionError::InvalidEnumValue(b.status.to_i32()))?;
+        d.contact_method = match &b.contact_method {
+            Some(__buffa_mod::__buffa::oneof::user::ContactMethod::ContactEmail(v)) => {
+                Some(UserContactMethod::ContactEmail(v.to_string()))
+            }
+            Some(__buffa_mod::__buffa::oneof::user::ContactMethod::ContactPhone(v)) => {
+                Some(UserContactMethod::ContactPhone(v.to_string()))
+            }
+            None => None,
+        };
+        d.tags = b.tags.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?;
+        d.deleted_at = match b.deleted_at.as_option() { Some(ts) => Some(buffa_timestamp_to_chrono(ts)?), None => None };
+        d.previous_status = b.previous_status.map(|v| UserStatus::from_i32(v.to_i32()).ok_or(ConversionError::InvalidEnumValue(v.to_i32()))).transpose()?;
+        d.update_mask = b.update_mask.clone().into();
+        d.extra_metadata = serde_json::to_value(&*b.extra_metadata).ok().and_then(|v| match v { serde_json::Value::Object(m) => Some(m), _ => None }).unwrap_or_default();
+        d.preferences = b.preferences.clone().into();
+        d.avatar_thumbnail = b.avatar_thumbnail.clone();
+        d.field_masks = b.field_masks.clone();
+        d.structs = b.structs.clone();
+        d.lists = b.lists.clone();
+        d.event_times = b.event_times.clone();
+        d.configs = b.configs.clone();
+        Ok(d)
     }
 }
 
@@ -145,17 +146,18 @@ impl From<&Address> for __buffa_mod::Address {
     }
 }
 
+#[allow(clippy::field_reassign_with_default)]
 impl TryFrom<&__buffa_mod::Address> for Address {
     type Error = ConversionError;
 
     fn try_from(b: &__buffa_mod::Address) -> Result<Self, Self::Error> {
-        Ok(Self {
-            street: b.street.to_string(),
-            city: b.city.to_string(),
-            state: b.state.to_string(),
-            zip: b.zip.to_string(),
-            country: b.country.to_string(),
-        })
+        let mut d = Self::default();
+        d.street = b.street.to_string();
+        d.city = b.city.to_string();
+        d.state = b.state.to_string();
+        d.zip = b.zip.to_string();
+        d.country = b.country.to_string();
+        Ok(d)
     }
 }
 
@@ -169,14 +171,15 @@ impl From<&Tag> for __buffa_mod::Tag {
     }
 }
 
+#[allow(clippy::field_reassign_with_default)]
 impl TryFrom<&__buffa_mod::Tag> for Tag {
     type Error = ConversionError;
 
     fn try_from(b: &__buffa_mod::Tag) -> Result<Self, Self::Error> {
-        Ok(Self {
-            key: b.key.to_string(),
-            value: b.value.to_string(),
-        })
+        let mut d = Self::default();
+        d.key = b.key.to_string();
+        d.value = b.value.to_string();
+        Ok(d)
     }
 }
 
