@@ -28,7 +28,8 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 - 📋 **Custom proto options** — `document_id`, `server_timestamp`, `skip`, `omitempty`, `inline`, `name`
 - 🗄️ **SQLite backend (Rust)** — `Row` structs with `to_domain()` / `from_domain()`, JSON-serialised nested fields
 - 🔌 **Works without a database** — generate domain types only, no backend required
-- 🌐 **Multi-language** — Go and Rust supported, Python / Kotlin / TypeScript planned
+- 🐍 **Python/Pydantic backend** — Pydantic `BaseModel` classes with `Field()` validation, `google.api.field_behavior` and `buf/validate` support
+- 🌐 **Multi-language** — Go, Rust, and Python supported; Kotlin / TypeScript planned
 
 ## Install
 
@@ -310,8 +311,8 @@ message User {
 | Phase | Scope | Status |
 |---|---|---|
 | **1** | Go + Firestore + MongoDB | ✅ Done |
-| **1.5** | Rust + SQLite | 🚧 Current |
-| **2** | Python (absorbs [proto2pydantic](https://github.com/protocgen/proto2pydantic)) | Planned |
+| **1.5** | Rust + SQLite | ✅ Done |
+| **2** | Python (absorbs [proto2pydantic](https://github.com/protocgen/proto2pydantic)) | ✅ Done |
 | **3** | DynamoDB + Datastore + Kotlin | Planned |
 | **4** | Spanner + TypeScript + SQL ORMs | Planned |
 
