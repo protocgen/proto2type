@@ -4,6 +4,7 @@
 package gen
 
 import (
+	fmt "fmt"
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -756,6 +757,42 @@ func (u *User) Equal(other *User) bool {
 		return false
 	}
 	return true
+}
+
+// ActiveContactMethod returns the proto field name of the set contact_method
+// variant, or "" if none is set.
+func (u *User) ActiveContactMethod() string {
+	if u == nil {
+		return ""
+	}
+	if u.ContactEmail != nil {
+		return "contact_email"
+	}
+	if u.ContactPhone != nil {
+		return "contact_phone"
+	}
+	return ""
+}
+
+// Validate checks domain invariants on User.
+// It ensures at most one variant is set per oneof group.
+func (u *User) Validate() error {
+	if u == nil {
+		return nil
+	}
+	{
+		_oneofCount := 0
+		if u.ContactEmail != nil {
+			_oneofCount++
+		}
+		if u.ContactPhone != nil {
+			_oneofCount++
+		}
+		if _oneofCount > 1 {
+			return fmt.Errorf("oneof contact_method: %d variants set, expected at most 1", _oneofCount)
+		}
+	}
+	return nil
 }
 
 // Address is the domain representation of test.v1.Address.

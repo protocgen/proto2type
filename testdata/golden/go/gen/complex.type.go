@@ -4,6 +4,7 @@
 package gen
 
 import (
+	fmt "fmt"
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	proto "google.golang.org/protobuf/proto"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -548,6 +549,75 @@ func (n *Notification) Equal(other *Notification) bool {
 		return false
 	}
 	return true
+}
+
+// ActiveChannel returns the proto field name of the set channel
+// variant, or "" if none is set.
+func (n *Notification) ActiveChannel() string {
+	if n == nil {
+		return ""
+	}
+	if n.Email != nil {
+		return "email"
+	}
+	if n.Sms != nil {
+		return "sms"
+	}
+	if n.PushToken != nil {
+		return "push_token"
+	}
+	return ""
+}
+
+// ActiveContent returns the proto field name of the set content
+// variant, or "" if none is set.
+func (n *Notification) ActiveContent() string {
+	if n == nil {
+		return ""
+	}
+	if n.PlainText != nil {
+		return "plain_text"
+	}
+	if n.Html != nil {
+		return "html"
+	}
+	return ""
+}
+
+// Validate checks domain invariants on Notification.
+// It ensures at most one variant is set per oneof group.
+func (n *Notification) Validate() error {
+	if n == nil {
+		return nil
+	}
+	{
+		_oneofCount := 0
+		if n.Email != nil {
+			_oneofCount++
+		}
+		if n.Sms != nil {
+			_oneofCount++
+		}
+		if n.PushToken != nil {
+			_oneofCount++
+		}
+		if _oneofCount > 1 {
+			return fmt.Errorf("oneof channel: %d variants set, expected at most 1", _oneofCount)
+		}
+	}
+	{
+		_oneofCount := 0
+		if n.PlainText != nil {
+			_oneofCount++
+		}
+		if n.Html != nil {
+			_oneofCount++
+		}
+		if _oneofCount > 1 {
+			return fmt.Errorf("oneof content: %d variants set, expected at most 1", _oneofCount)
+		}
+	}
+	return nil
 }
 
 // Document is the domain representation of test.v1.Document.
@@ -1174,6 +1244,48 @@ func (e *Event) Equal(other *Event) bool {
 	return true
 }
 
+// ActivePayload returns the proto field name of the set payload
+// variant, or "" if none is set.
+func (e *Event) ActivePayload() string {
+	if e == nil {
+		return ""
+	}
+	if e.TextMessage != nil {
+		return "text_message"
+	}
+	if e.SettingsUpdate != nil {
+		return "settings_update"
+	}
+	if e.PriorityChange != nil {
+		return "priority_change"
+	}
+	return ""
+}
+
+// Validate checks domain invariants on Event.
+// It ensures at most one variant is set per oneof group.
+func (e *Event) Validate() error {
+	if e == nil {
+		return nil
+	}
+	{
+		_oneofCount := 0
+		if e.TextMessage != nil {
+			_oneofCount++
+		}
+		if e.SettingsUpdate != nil {
+			_oneofCount++
+		}
+		if e.PriorityChange != nil {
+			_oneofCount++
+		}
+		if _oneofCount > 1 {
+			return fmt.Errorf("oneof payload: %d variants set, expected at most 1", _oneofCount)
+		}
+	}
+	return nil
+}
+
 // WktPayload is the domain representation of test.v1.WktPayload.
 //
 // Oneof with bare WKT variants — tests nil vs empty Clone semantics (#73).
@@ -1424,6 +1536,60 @@ func (w *WktPayload) Equal(other *WktPayload) bool {
 		return false
 	}
 	return true
+}
+
+// ActiveContent returns the proto field name of the set content
+// variant, or "" if none is set.
+func (w *WktPayload) ActiveContent() string {
+	if w == nil {
+		return ""
+	}
+	if w.StructData != nil {
+		return "struct_data"
+	}
+	if w.AnyValue != nil {
+		return "any_value"
+	}
+	if w.ListData != nil {
+		return "list_data"
+	}
+	if w.Mask != nil {
+		return "mask"
+	}
+	if w.Raw != nil {
+		return "raw"
+	}
+	return ""
+}
+
+// Validate checks domain invariants on WktPayload.
+// It ensures at most one variant is set per oneof group.
+func (w *WktPayload) Validate() error {
+	if w == nil {
+		return nil
+	}
+	{
+		_oneofCount := 0
+		if w.StructData != nil {
+			_oneofCount++
+		}
+		if w.AnyValue != nil {
+			_oneofCount++
+		}
+		if w.ListData != nil {
+			_oneofCount++
+		}
+		if w.Mask != nil {
+			_oneofCount++
+		}
+		if w.Raw != nil {
+			_oneofCount++
+		}
+		if _oneofCount > 1 {
+			return fmt.Errorf("oneof content: %d variants set, expected at most 1", _oneofCount)
+		}
+	}
+	return nil
 }
 
 // deepCopyValue recursively deep-copies values that originate from structpb
