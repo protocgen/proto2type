@@ -8,10 +8,12 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 )
 
-// TestGenerateBuffaPrefixedGolden generates the golden file for user.proto with
-// buffa_oneof_prefix=__buffa. Run with -run TestGenerateBuffaPrefixedGolden to
-// regenerate the golden file.
+// TestGenerateBuffaPrefixedGolden regenerates the golden file for user.proto with
+// buffa_oneof_prefix=__buffa. Skipped by default; set UPDATE_GOLDEN=1 to run.
 func TestGenerateBuffaPrefixedGolden(t *testing.T) {
+	if os.Getenv("UPDATE_GOLDEN") == "" {
+		t.Skip("set UPDATE_GOLDEN=1 to regenerate golden files")
+	}
 	fds := buildFileDescriptorSet(t)
 	gen := newPlugin(t, fds, []string{"user.proto"})
 
@@ -150,8 +152,8 @@ func TestBuffaOneofPrefix_Integration(t *testing.T) {
 	t.Run("without_prefix", func(t *testing.T) {
 		gen := newPlugin(t, fds, []string{"user.proto"})
 		opts := &Options{
-			Lang:    "rust",
-			Backend: "buffa",
+			Lang:      "rust",
+			Backend:   "buffa",
 			BufModule: "crate::proto",
 		}
 

@@ -172,7 +172,7 @@ jobs:
             base=$(basename "$domain_file" .type.rs)
             # Skip sqlite files (handled as submodules) and buffa files (skipped entirely;
             # they depend on crate::proto which isn't available in this scaffold)
-            if echo "$base" | grep -qE '_sqlite$|_buffa$'; then
+            if echo "$base" | grep -qE '_sqlite$|_buffa'; then
               continue
             fi
             # Create module directory
