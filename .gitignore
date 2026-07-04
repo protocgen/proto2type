@@ -11,3 +11,4 @@ protoc-gen-proto2type
 
 # Test output
 testdata/output/
+__pycache__/
