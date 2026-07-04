@@ -12,6 +12,8 @@ use crate::proto as __buffa_mod;
 pub enum ConversionError {
     InvalidTimestamp { seconds: i64, nanos: i32 },
     InvalidEnumValue(i32),
+    InvalidStructValue,
+    MissingRequiredField(&'static str),
 }
 
 impl std::fmt::Display for ConversionError {
@@ -19,6 +21,8 @@ impl std::fmt::Display for ConversionError {
         match self {
             Self::InvalidTimestamp { seconds, nanos } => write!(f, "invalid timestamp: {seconds}s {nanos}ns"),
             Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),
+            Self::InvalidStructValue => write!(f, "invalid struct value"),
+            Self::MissingRequiredField(field) => write!(f, "missing required field: {field}"),
         }
     }
 }
@@ -47,8 +51,10 @@ fn buffa_timestamp_to_chrono(
 }
 
 #[allow(clippy::field_reassign_with_default)]
-impl From<&User> for __buffa_mod::User {
-    fn from(d: &User) -> Self {
+impl TryFrom<&User> for __buffa_mod::User {
+    type Error = ConversionError;
+
+    fn try_from(d: &User) -> Result<Self, Self::Error> {
         let mut b = Self::default();
         b.id = d.id.clone().into();
         b.email = d.email.clone().into();
@@ -57,7 +63,7 @@ impl From<&User> for __buffa_mod::User {
         b.age = d.age;
         b.roles = d.roles.iter().map(|s| s.clone().into()).collect();
         b.metadata = d.metadata.clone();
-        b.address = match &d.address { Some(v) => buffa::MessageField::some(v.as_ref().into()), None => buffa::MessageField::none() };
+        b.address = buffa::MessageField::some((&d.address).try_into()?);
         b.created_at = buffa::MessageField::some(chrono_to_buffa_timestamp(&d.created_at));
         b.session_timeout = d.session_timeout;
         b.phone = d.phone.as_deref().map(Into::into);
@@ -66,25 +72,25 @@ impl From<&User> for __buffa_mod::User {
         b.status = buffa::EnumValue::from(d.status as i32);
         b.contact_method = d.contact_method.as_ref().map(|v| match v {
             UserContactMethod::ContactEmail(v) => {
-                __buffa_mod::__buffa::oneof::user::ContactMethod::ContactEmail(v.clone().into())
+                Ok(__buffa_mod::__buffa::oneof::user::ContactMethod::ContactEmail(v.clone().into()))
             }
             UserContactMethod::ContactPhone(v) => {
-                __buffa_mod::__buffa::oneof::user::ContactMethod::ContactPhone(v.clone().into())
+                Ok(__buffa_mod::__buffa::oneof::user::ContactMethod::ContactPhone(v.clone().into()))
             }
-        });
-        b.tags = d.tags.iter().map(Into::into).collect();
+        }).transpose()?;
+        b.tags = d.tags.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?;
         b.deleted_at = match &d.deleted_at { Some(dt) => buffa::MessageField::some(chrono_to_buffa_timestamp(dt)), None => buffa::MessageField::none() };
         b.previous_status = d.previous_status.map(|v| buffa::EnumValue::from(v as i32));
         b.update_mask = d.update_mask.clone().into();
-        b.extra_metadata = buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(d.extra_metadata.clone())).unwrap_or_default());
+        b.extra_metadata = buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(d.extra_metadata.clone())).map_err(|_| ConversionError::InvalidStructValue)?);
         b.preferences = d.preferences.clone().into();
         b.avatar_thumbnail = d.avatar_thumbnail.clone();
         b.field_masks = d.field_masks.clone();
-        b.structs = d.structs.clone();
+        b.structs = d.structs.iter().map(|m| serde_json::from_value(serde_json::Value::Object(m.clone())).map_err(|_| ConversionError::InvalidStructValue)).collect::<Result<Vec<_>, _>>()?;
         b.lists = d.lists.clone();
         b.event_times = d.event_times.clone();
         b.configs = d.configs.clone();
-        b
+        Ok(b)
     }
 }
 
@@ -101,8 +107,8 @@ impl TryFrom<&__buffa_mod::User> for User {
         d.age = b.age;
         d.roles = b.roles.iter().map(|s| s.to_string()).collect();
         d.metadata = b.metadata.clone();
-        d.address = match b.address.as_option() { Some(v) => Some(Box::new(v.try_into()?)), None => None };
-        d.created_at = buffa_timestamp_to_chrono(b.created_at.as_option().unwrap_or(&Default::default()))?;
+        d.address = b.address.as_option().ok_or(ConversionError::MissingRequiredField("address"))?.try_into()?;
+        d.created_at = buffa_timestamp_to_chrono(b.created_at.as_option().ok_or(ConversionError::MissingRequiredField("created_at"))?)?;
         d.session_timeout = b.session_timeout;
         d.phone = b.phone.as_ref().map(|s| s.to_string());
         d.avatar = b.avatar.to_vec();
@@ -121,11 +127,11 @@ impl TryFrom<&__buffa_mod::User> for User {
         d.deleted_at = match b.deleted_at.as_option() { Some(ts) => Some(buffa_timestamp_to_chrono(ts)?), None => None };
         d.previous_status = b.previous_status.map(|v| UserStatus::from_i32(v.to_i32()).ok_or(ConversionError::InvalidEnumValue(v.to_i32()))).transpose()?;
         d.update_mask = b.update_mask.clone().into();
-        d.extra_metadata = serde_json::to_value(&*b.extra_metadata).ok().and_then(|v| match v { serde_json::Value::Object(m) => Some(m), _ => None }).unwrap_or_default();
+        d.extra_metadata = match serde_json::to_value(&*b.extra_metadata).map_err(|_| ConversionError::InvalidStructValue)? { serde_json::Value::Object(m) => m, _ => return Err(ConversionError::InvalidStructValue) };
         d.preferences = b.preferences.clone().into();
         d.avatar_thumbnail = b.avatar_thumbnail.clone();
         d.field_masks = b.field_masks.clone();
-        d.structs = b.structs.clone();
+        d.structs = b.structs.iter().map(|s| match serde_json::to_value(s).map_err(|_| ConversionError::InvalidStructValue)? { serde_json::Value::Object(m) => Ok(m), _ => Err(ConversionError::InvalidStructValue) }).collect::<Result<Vec<_>, _>>()?;
         d.lists = b.lists.clone();
         d.event_times = b.event_times.clone();
         d.configs = b.configs.clone();
@@ -134,15 +140,17 @@ impl TryFrom<&__buffa_mod::User> for User {
 }
 
 #[allow(clippy::field_reassign_with_default)]
-impl From<&Address> for __buffa_mod::Address {
-    fn from(d: &Address) -> Self {
+impl TryFrom<&Address> for __buffa_mod::Address {
+    type Error = ConversionError;
+
+    fn try_from(d: &Address) -> Result<Self, Self::Error> {
         let mut b = Self::default();
         b.street = d.street.clone().into();
         b.city = d.city.clone().into();
         b.state = d.state.clone().into();
         b.zip = d.zip.clone().into();
         b.country = d.country.clone().into();
-        b
+        Ok(b)
     }
 }
 
@@ -162,12 +170,14 @@ impl TryFrom<&__buffa_mod::Address> for Address {
 }
 
 #[allow(clippy::field_reassign_with_default)]
-impl From<&Tag> for __buffa_mod::Tag {
-    fn from(d: &Tag) -> Self {
+impl TryFrom<&Tag> for __buffa_mod::Tag {
+    type Error = ConversionError;
+
+    fn try_from(d: &Tag) -> Result<Self, Self::Error> {
         let mut b = Self::default();
         b.key = d.key.clone().into();
         b.value = d.value.clone().into();
-        b
+        Ok(b)
     }
 }
 

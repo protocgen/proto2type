@@ -25,8 +25,10 @@ impl std::fmt::Display for ConversionError {
 impl std::error::Error for ConversionError {}
 
 #[allow(clippy::field_reassign_with_default)]
-impl From<&KeywordFields> for __buffa_mod::KeywordFields {
-    fn from(d: &KeywordFields) -> Self {
+impl TryFrom<&KeywordFields> for __buffa_mod::KeywordFields {
+    type Error = ConversionError;
+
+    fn try_from(d: &KeywordFields) -> Result<Self, Self::Error> {
         let mut b = Self::default();
         b.r#type = d.r#type.clone().into();
         b.self_ = d.self_;
@@ -35,7 +37,7 @@ impl From<&KeywordFields> for __buffa_mod::KeywordFields {
         b.r#ref = d.r#ref;
         b.super_ = d.super_.clone().into();
         b.cls = d.cls;
-        b
+        Ok(b)
     }
 }
 

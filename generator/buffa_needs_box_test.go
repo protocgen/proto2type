@@ -31,12 +31,12 @@ func TestBuffaNeedsBox_Integration(t *testing.T) {
 
 		src := extractBuffaOutput(t, gen)
 
-		// Domain → Buffa: should use (&d.address).into(), NOT (&*d.address).into()
-		if !strings.Contains(src, `(&d.address).into()`) {
-			t.Error("expected non-boxed d→b conversion: (&d.address).into()")
+		// Domain → Buffa: should use (&d.address).try_into()?, NOT (&*d.address).try_into()?
+		if !strings.Contains(src, `(&d.address).try_into()?`) {
+			t.Error("expected non-boxed d→b conversion: (&d.address).try_into()?")
 		}
-		if strings.Contains(src, `(&*d.address).into()`) {
-			t.Error("should NOT contain boxed d→b conversion: (&*d.address).into()")
+		if strings.Contains(src, `(&*d.address).try_into()?`) {
+			t.Error("should NOT contain boxed d→b conversion: (&*d.address).try_into()?")
 		}
 
 		// Buffa → Domain: should NOT use Box::new() for address
@@ -72,35 +72,35 @@ func TestBuffaNeedsBox_ExprFunctions(t *testing.T) {
 			if strings.Contains(expr, "&*d.") {
 				t.Errorf("required non-boxed should NOT deref Box: got %q", expr)
 			}
-			if !strings.Contains(expr, "(&d.payload).into()") {
-				t.Errorf("expected (&d.payload).into(), got %q", expr)
+			if !strings.Contains(expr, "(&d.payload).try_into()?") {
+				t.Errorf("expected (&d.payload).try_into()?, got %q", expr)
 			}
 		})
 
 		t.Run("required_boxed", func(t *testing.T) {
 			f := makeField(false, true)
 			expr := rustBuffaDomainToBufExpr(f, "payload")
-			if !strings.Contains(expr, "(&*d.payload).into()") {
-				t.Errorf("expected (&*d.payload).into() for boxed required, got %q", expr)
+			if !strings.Contains(expr, "(&*d.payload).try_into()?") {
+				t.Errorf("expected (&*d.payload).try_into()? for boxed required, got %q", expr)
 			}
 		})
 
 		t.Run("optional_not_boxed", func(t *testing.T) {
 			f := makeField(true, false)
 			expr := rustBuffaDomainToBufExpr(f, "payload")
-			if strings.Contains(expr, "as_ref().into()") {
+			if strings.Contains(expr, "as_ref().try_into()?") {
 				t.Errorf("optional non-boxed should NOT use as_ref(): got %q", expr)
 			}
-			if !strings.Contains(expr, "v.into()") {
-				t.Errorf("expected v.into() for non-boxed optional, got %q", expr)
+			if !strings.Contains(expr, "v.try_into()?") {
+				t.Errorf("expected v.try_into()? for non-boxed optional, got %q", expr)
 			}
 		})
 
 		t.Run("optional_boxed", func(t *testing.T) {
 			f := makeField(true, true)
 			expr := rustBuffaDomainToBufExpr(f, "payload")
-			if !strings.Contains(expr, "v.as_ref().into()") {
-				t.Errorf("expected v.as_ref().into() for boxed optional, got %q", expr)
+			if !strings.Contains(expr, "v.as_ref().try_into()?") {
+				t.Errorf("expected v.as_ref().try_into()? for boxed optional, got %q", expr)
 			}
 		})
 	})
