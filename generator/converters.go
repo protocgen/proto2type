@@ -74,7 +74,7 @@ type toProtoMode int
 
 const (
 	toProtoInfallible toProtoMode = iota // ToProto — log errors
-	toProtoFallible                       // TryToProto — return errors
+	toProtoFallible                      // TryToProto — return errors
 )
 
 // generateToProto generates the ToProto method.
