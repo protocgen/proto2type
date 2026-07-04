@@ -117,7 +117,7 @@ data class Document(
     val id: String = "",
     @SerialName("settings_map") val settingsMap: Map<String, Settings?> = emptyMap(),
     @SerialName("code_names") val codeNames: Map<Int, String> = emptyMap(),
-    val metadata: Map<String, JsonElement> = JsonObject(emptyMap()),
+    val metadata: Map<String, JsonElement> = emptyMap(),
     val extension: JsonElement = JsonNull,
     @SerialName("update_mask") val updateMask: List<String> = emptyList(),
     val archived: Boolean? = null,

@@ -66,7 +66,7 @@ data class User(
     @SerialName("deleted_at") val deletedAt: Instant? = null,
     @SerialName("previous_status") val previousStatus: UserStatus? = null,
     @SerialName("update_mask") val updateMask: List<String> = emptyList(),
-    @SerialName("extra_metadata") val extraMetadata: Map<String, JsonElement> = JsonObject(emptyMap()),
+    @SerialName("extra_metadata") val extraMetadata: Map<String, JsonElement> = emptyMap(),
     val preferences: JsonArray = JsonArray(emptyList()),
     /** Note: [ByteArray] fields use referential equality in data classes. Use contentEquals() for byte comparison. */
     @SerialName("avatar_thumbnail") val avatarThumbnail: ByteArray? = null,

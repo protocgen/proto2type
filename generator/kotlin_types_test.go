@@ -210,6 +210,25 @@ func TestKotlinFieldType(t *testing.T) {
 			},
 			want: "Map<String, String>",
 		},
+		{
+			name: "empty",
+			f:    DomainField{Kind: FieldKindEmpty},
+			want: "JsonObject",
+		},
+		{
+			name: "map string->any",
+			f: DomainField{
+				IsMap: true,
+				MapKey: &MapTypeInfo{
+					Kind:       FieldKindScalar,
+					ScalarKind: protoreflect.StringKind,
+				},
+				MapValue: &MapTypeInfo{
+					Kind: FieldKindAny,
+				},
+			},
+			want: "Map<String, JsonElement>",
+		},
 	}
 
 	for _, tt := range tests {
@@ -322,6 +341,21 @@ func TestKotlinDefaultValue(t *testing.T) {
 			name: "bytes",
 			f:    DomainField{Kind: FieldKindScalar, ScalarKind: protoreflect.BytesKind},
 			want: "byteArrayOf()",
+		},
+		{
+			name: "struct default",
+			f:    DomainField{Kind: FieldKindStruct},
+			want: "emptyMap()",
+		},
+		{
+			name: "value default",
+			f:    DomainField{Kind: FieldKindValue},
+			want: "JsonNull",
+		},
+		{
+			name: "empty default",
+			f:    DomainField{Kind: FieldKindEmpty},
+			want: "JsonObject(emptyMap())",
 		},
 	}
 

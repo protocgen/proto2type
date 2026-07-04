@@ -477,6 +477,9 @@ func TestKotlinDurationImportDecision(t *testing.T) {
 	if !needsSerialName {
 		t.Error("needsSerialName = false, want true (User has fields needing @SerialName)")
 	}
+	if !needsJsonTypes {
+		t.Error("needsJsonTypes = false, want true (User has Struct field)")
+	}
 
 	// Verify catalog doesn't need Duration.
 	gen2 := newPlugin(t, fds, []string{"catalog.proto"})
@@ -500,6 +503,9 @@ func TestKotlinDurationImportDecision(t *testing.T) {
 		}
 		if !catInstant {
 			t.Error("catalog needsInstant = false, want true")
+		}
+		if catJsonTypes {
+			t.Error("catalog needsJsonTypes = true, want false")
 		}
 	}
 }

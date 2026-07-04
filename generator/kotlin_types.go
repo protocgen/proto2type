@@ -52,10 +52,36 @@ func kotlinScalarDefault(kind protoreflect.Kind) string {
 	}
 }
 
+// kotlinJSONKindType returns the Kotlin type for a JSON/WKT field kind.
+// Returns (type, true) for JSON kinds, ("", false) for non-JSON kinds.
+// This is the single source of truth for Struct/Value/ListValue/Empty/Any/FieldMask
+// type mapping, preventing drift across the four call sites.
+func kotlinJSONKindType(kind FieldKind) (string, bool) {
+	switch kind {
+	case FieldKindStruct:
+		return "Map<String, JsonElement>", true
+	case FieldKindValue:
+		return "JsonElement", true
+	case FieldKindListValue:
+		return "JsonArray", true
+	case FieldKindFieldMask:
+		return "List<String>", true
+	case FieldKindEmpty:
+		return "JsonObject", true
+	case FieldKindAny:
+		return "JsonElement", true
+	default:
+		return "", false
+	}
+}
+
 // kotlinMapTypeInfoType returns the Kotlin type for a MapTypeInfo.
 func kotlinMapTypeInfoType(m *MapTypeInfo) string {
 	if m == nil {
 		return "Any?"
+	}
+	if t, ok := kotlinJSONKindType(m.Kind); ok {
+		return t
 	}
 	switch m.Kind {
 	case FieldKindScalar:
@@ -68,37 +94,11 @@ func kotlinMapTypeInfoType(m *MapTypeInfo) string {
 		return "Instant"
 	case FieldKindDuration:
 		return "Duration"
-	case FieldKindStruct:
-		return "Map<String, JsonElement>"
-	case FieldKindValue:
-		return "JsonElement"
-	case FieldKindListValue:
-		return "JsonArray"
-	case FieldKindFieldMask:
-		return "List<String>"
-	case FieldKindEmpty:
-		return "JsonObject"
-	case FieldKindWrapperBool:
-		return "Boolean?"
-	case FieldKindWrapperInt32:
-		return "Int?"
-	case FieldKindWrapperInt64:
-		return "Long?"
-	case FieldKindWrapperUInt32:
-		return "Int?"
-	case FieldKindWrapperUInt64:
-		return "Long?"
-	case FieldKindWrapperFloat:
-		return "Float?"
-	case FieldKindWrapperDouble:
-		return "Double?"
-	case FieldKindWrapperString:
-		return "String?"
-	case FieldKindWrapperBytes:
-		return "ByteArray?"
-	default:
-		return "Any?"
 	}
+	if m.Kind.IsWrapper() {
+		return kotlinWrapperType(m.Kind)
+	}
+	return "Any?"
 }
 
 // kotlinFieldType returns the Kotlin type string for a DomainField.
@@ -121,6 +121,9 @@ func kotlinFieldType(f DomainField) string {
 // kotlinElementType returns the Kotlin element type for a repeated field.
 // Unlike kotlinSingularType, messages are NOT nullable inside lists.
 func kotlinElementType(f DomainField) string {
+	if t, ok := kotlinJSONKindType(f.Kind); ok {
+		return t
+	}
 	switch f.Kind {
 	case FieldKindTimestamp:
 		return "Instant"
@@ -133,18 +136,6 @@ func kotlinElementType(f DomainField) string {
 			return "String"
 		}
 		return f.EnumTypeName
-	case FieldKindStruct:
-		return "Map<String, JsonElement>"
-	case FieldKindValue:
-		return "JsonElement"
-	case FieldKindListValue:
-		return "JsonArray"
-	case FieldKindFieldMask:
-		return "List<String>"
-	case FieldKindEmpty:
-		return "JsonObject"
-	case FieldKindAny:
-		return "JsonElement"
 	}
 	if f.Kind.IsWrapper() {
 		return kotlinWrapperType(f.Kind)
@@ -154,6 +145,9 @@ func kotlinElementType(f DomainField) string {
 
 // kotlinSingularType returns the Kotlin type for a non-repeated, non-map field.
 func kotlinSingularType(f DomainField) string {
+	if t, ok := kotlinJSONKindType(f.Kind); ok {
+		return t
+	}
 	switch f.Kind {
 	case FieldKindTimestamp:
 		if f.Optional {
@@ -178,18 +172,6 @@ func kotlinSingularType(f DomainField) string {
 			return f.EnumTypeName + "?"
 		}
 		return f.EnumTypeName
-	case FieldKindStruct:
-		return "Map<String, JsonElement>"
-	case FieldKindValue:
-		return "JsonElement"
-	case FieldKindListValue:
-		return "JsonArray"
-	case FieldKindFieldMask:
-		return "List<String>"
-	case FieldKindEmpty:
-		return "JsonObject"
-	case FieldKindAny:
-		return "JsonElement"
 	}
 	if f.Kind.IsWrapper() {
 		return kotlinWrapperType(f.Kind)
@@ -231,6 +213,9 @@ func kotlinWrapperType(kind FieldKind) string {
 
 // kotlinOneofVariantType returns the Kotlin type for a oneof variant.
 func kotlinOneofVariantType(v *OneofVariant) string {
+	if t, ok := kotlinJSONKindType(v.Kind); ok {
+		return t
+	}
 	switch v.Kind {
 	case FieldKindTimestamp:
 		return "Instant"
@@ -245,18 +230,6 @@ func kotlinOneofVariantType(v *OneofVariant) string {
 		return v.TypeName
 	case FieldKindScalar:
 		return kotlinScalarType(v.ScalarKind)
-	case FieldKindStruct:
-		return "Map<String, JsonElement>"
-	case FieldKindValue:
-		return "JsonElement"
-	case FieldKindListValue:
-		return "JsonArray"
-	case FieldKindFieldMask:
-		return "List<String>"
-	case FieldKindEmpty:
-		return "JsonObject"
-	case FieldKindAny:
-		return "JsonElement"
 	}
 	if v.Kind.IsWrapper() {
 		return kotlinWrapperType(v.Kind)
@@ -301,7 +274,7 @@ func kotlinDefaultValue(f DomainField) string {
 		}
 		return f.EnumTypeName + ".entries.first()"
 	case FieldKindStruct:
-		return "JsonObject(emptyMap())"
+		return "emptyMap()"
 	case FieldKindValue, FieldKindAny:
 		return "JsonNull"
 	case FieldKindListValue:
