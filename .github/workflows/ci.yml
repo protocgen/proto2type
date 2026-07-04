@@ -200,7 +200,7 @@ jobs:
           java-version: '21'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@ac638b010cf58a27ee6c972e49dba63e1dab6b87 # v4.4.1
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Compile Kotlin golden files
         run: cd tests/kotlin && gradle compileKotlin --no-daemon -q
