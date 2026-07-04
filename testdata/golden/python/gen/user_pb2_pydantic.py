@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any
 from datetime import datetime, timedelta
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class UserStatus(str, Enum):
@@ -20,6 +20,8 @@ class UserStatus(str, Enum):
 
 class Address(BaseModel):
     """Address is a nested message."""
+    model_config = ConfigDict(populate_by_name=True)
+
     street: str = ''
     city: str = ''
     state: str = ''
@@ -29,12 +31,16 @@ class Address(BaseModel):
 
 class Tag(BaseModel):
     """Tag is a label with a key-value pair."""
+    model_config = ConfigDict(populate_by_name=True)
+
     key: str = ''
     value: str = ''
 
 
 class User(BaseModel):
     """User represents a user account."""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str = Field(default='', exclude=True)
     email: str = Field(...)
     display_name: str = Field(..., min_length=1, max_length=255)

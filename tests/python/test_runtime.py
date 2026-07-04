@@ -292,12 +292,27 @@ test("Bytes base64 serialization", test_bytes_serialization)
 def test_keyword_escaping():
     from keywords_pb2_pydantic import KeywordFields
     # 'type' is a Python keyword, escaped to 'type_' with alias='type'.
-    # Pydantic uses the alias for population by default.
+    # Via alias (always works):
     k = KeywordFields(type="test_type")
     assert k.type_ == "test_type", f"Expected 'test_type', got {k.type_!r}"
 
 
-test("Python keyword escaping", test_keyword_escaping)
+test("Python keyword escaping (alias)", test_keyword_escaping)
+
+
+# ---------------------------------------------------------------------------
+# Test: populate_by_name — field name also works
+# ---------------------------------------------------------------------------
+def test_populate_by_name():
+    from keywords_pb2_pydantic import KeywordFields
+    # populate_by_name=True means we can use the field name too.
+    k = KeywordFields(type_="by_field_name")
+    assert k.type_ == "by_field_name", f"Expected 'by_field_name', got {k.type_!r}"
+    # Verify model_config is set correctly.
+    assert KeywordFields.model_config.get("populate_by_name") is True
+
+
+test("populate_by_name allows field name", test_populate_by_name)
 
 
 # ---------------------------------------------------------------------------

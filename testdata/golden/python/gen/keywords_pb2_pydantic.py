@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class KeywordFields(BaseModel):
     """Test message with proto fields named after Rust keywords.
  These are valid proto field names but require r# escaping in Rust."""
+    model_config = ConfigDict(populate_by_name=True)
+
     type_: str = Field(default='', alias='type')
     self: int = 0
     match: bool = False

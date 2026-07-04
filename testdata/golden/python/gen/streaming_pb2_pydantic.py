@@ -6,14 +6,18 @@ from enum import Enum
 from typing import Any
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class TextChunk(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     delta: str = ''
 
 
 class ToolInvocation(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     call_id: str = ''
     tool_name: str = ''
     args: dict[str, Any] | None = None
@@ -21,11 +25,15 @@ class ToolInvocation(BaseModel):
 
 
 class StreamDone(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     total_tokens: int = 0
     cost_usd: float = 0.0
 
 
 class StreamError(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     message: str = ''
     code: str | None = None
 
@@ -33,18 +41,24 @@ class StreamError(BaseModel):
 class StreamEvent(BaseModel):
     """StreamEvent is the canonical jsonrpc test case:
  1 scalar field + 1 oneof with message variants."""
+    model_config = ConfigDict(populate_by_name=True)
+
     stream_id: str = ''
     payload: TextChunk | ToolInvocation | StreamDone | StreamError | None = None
 
 
 class NonEligible(BaseModel):
     """NonEligible has no oneof — should be skipped by jsonrpc backend."""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str = ''
     name: str = ''
 
 
 class MultiOneof(BaseModel):
     """MultiOneof has 2 oneofs — should be skipped."""
+    model_config = ConfigDict(populate_by_name=True)
+
     a: str | None = None
     b: str | None = None
 
@@ -52,6 +66,8 @@ class MultiOneof(BaseModel):
 class WktEvent(BaseModel):
     """WktEvent has bare WKT-typed oneof variants (not wrapped in messages).
  Tests that the jsonrpc backend correctly emits value fields for these."""
+    model_config = ConfigDict(populate_by_name=True)
+
     event_id: str = ''
     payload: datetime | dict[str, Any] | str | None = None
 
