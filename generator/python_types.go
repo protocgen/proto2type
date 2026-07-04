@@ -71,6 +71,9 @@ func pythonFieldType(f *DomainField, opts *Options) string {
 // Returns (type, true) if the kind is a WKT/wrapper, ("", false) otherwise.
 // This is the single source of truth for WKT→Python type mapping, used by both
 // pythonSingularType and pythonMapValueType.
+//
+// SYNC: when adding a new FieldKind here, also update applyWKTImportFlags in
+// python_domain.go if the new type requires a Python import (datetime, Any, etc).
 func wktPythonType(kind FieldKind) (string, bool) {
 	switch kind {
 	case FieldKindTimestamp:
