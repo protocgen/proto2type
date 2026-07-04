@@ -117,23 +117,22 @@ func scanPythonImportsMessage(m *DomainMessage, imps *pythonImports, opts *Optio
 }
 
 func scanPythonImportsField(f *DomainField, imps *pythonImports) {
-	switch f.Kind {
+	applyWKTImportFlags(f.Kind, imps)
+	if f.IsMap && f.MapValue != nil {
+		applyWKTImportFlags(f.MapValue.Kind, imps)
+	}
+}
+
+// applyWKTImportFlags sets import flags based on a field kind. Used for both
+// top-level fields and map value types to keep the logic in one place.
+func applyWKTImportFlags(kind FieldKind, imps *pythonImports) {
+	switch kind {
 	case FieldKindTimestamp:
 		imps.needsDatetime = true
 	case FieldKindDuration:
 		imps.needsTimedelta = true
 	case FieldKindStruct, FieldKindValue, FieldKindAny, FieldKindListValue:
 		imps.needsAny = true
-	}
-	if f.IsMap && f.MapValue != nil {
-		switch f.MapValue.Kind {
-		case FieldKindStruct, FieldKindValue, FieldKindAny, FieldKindListValue:
-			imps.needsAny = true
-		case FieldKindTimestamp:
-			imps.needsDatetime = true
-		case FieldKindDuration:
-			imps.needsTimedelta = true
-		}
 	}
 }
 

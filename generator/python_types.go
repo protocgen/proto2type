@@ -67,25 +67,41 @@ func pythonFieldType(f *DomainField, opts *Options) string {
 	return baseType
 }
 
+// wktPythonType returns the Python type for a well-known type or wrapper kind.
+// Returns (type, true) if the kind is a WKT/wrapper, ("", false) otherwise.
+// This is the single source of truth for WKT→Python type mapping, used by both
+// pythonSingularType and pythonMapValueType.
+func wktPythonType(kind FieldKind) (string, bool) {
+	switch kind {
+	case FieldKindTimestamp:
+		return "datetime", true
+	case FieldKindDuration:
+		return "timedelta", true
+	case FieldKindStruct:
+		return "dict[str, Any]", true
+	case FieldKindValue, FieldKindAny:
+		return "Any", true
+	case FieldKindListValue:
+		return "list[Any]", true
+	case FieldKindEmpty:
+		return "None", true
+	case FieldKindFieldMask:
+		return "list[str]", true
+	default:
+		if kind.IsWrapper() {
+			return pythonWrapperType(kind), true
+		}
+		return "", false
+	}
+}
+
 // pythonSingularType returns the Python type for a non-repeated, non-map field.
 func pythonSingularType(f *DomainField, opts *Options) string {
+	// WKT and wrapper types.
+	if t, ok := wktPythonType(f.Kind); ok {
+		return t
+	}
 	switch f.Kind {
-	case FieldKindTimestamp:
-		return "datetime"
-	case FieldKindDuration:
-		return "timedelta"
-	case FieldKindStruct:
-		return "dict[str, Any]"
-	case FieldKindValue:
-		return "Any"
-	case FieldKindListValue:
-		return "list[Any]"
-	case FieldKindEmpty:
-		return "None"
-	case FieldKindFieldMask:
-		return "list[str]"
-	case FieldKindAny:
-		return "Any"
 	case FieldKindMessage:
 		return f.MessageTypeName
 	case FieldKindEnum:
@@ -93,12 +109,6 @@ func pythonSingularType(f *DomainField, opts *Options) string {
 	case FieldKindScalar:
 		return pythonScalarType(f.ScalarKind)
 	}
-
-	// Wrapper types.
-	if f.Kind.IsWrapper() {
-		return pythonWrapperType(f.Kind)
-	}
-
 	return "Any"
 }
 
@@ -130,38 +140,22 @@ func pythonMapKeyType(info *MapTypeInfo) string {
 }
 
 // pythonMapValueType returns the Python type for a map value.
-// TODO: extract shared WKT-to-Python type mapper
 func pythonMapValueType(info *MapTypeInfo, opts *Options) string {
 	if info == nil {
 		return "Any"
 	}
+	// WKT and wrapper types.
+	if t, ok := wktPythonType(info.Kind); ok {
+		return t
+	}
 	switch info.Kind {
-	case FieldKindTimestamp:
-		return "datetime"
-	case FieldKindDuration:
-		return "timedelta"
-	case FieldKindListValue:
-		return "list[Any]"
-	case FieldKindFieldMask:
-		return "list[str]"
-	case FieldKindEmpty:
-		return "None"
-	case FieldKindAny:
-		return "Any"
 	case FieldKindMessage:
 		return info.MessageTypeName
 	case FieldKindEnum:
 		return info.EnumTypeName
-	case FieldKindStruct:
-		return "dict[str, Any]"
-	case FieldKindValue:
-		return "Any"
 	case FieldKindScalar:
 		return pythonScalarType(info.ScalarKind)
 	default:
-		if info.Kind.IsWrapper() {
-			return pythonWrapperType(info.Kind)
-		}
 		return "Any"
 	}
 }
