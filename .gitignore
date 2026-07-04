@@ -12,3 +12,7 @@ protoc-gen-proto2type
 # Test output
 testdata/output/
 __pycache__/
+
+# Gradle (Kotlin golden file CI)
+tests/kotlin/build/
+tests/kotlin/.gradle/
