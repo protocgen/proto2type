@@ -135,6 +135,18 @@ func pythonMapValueType(info *MapTypeInfo, opts *Options) string {
 		return "Any"
 	}
 	switch info.Kind {
+	case FieldKindTimestamp:
+		return "datetime"
+	case FieldKindDuration:
+		return "timedelta"
+	case FieldKindListValue:
+		return "list[Any]"
+	case FieldKindFieldMask:
+		return "list[str]"
+	case FieldKindEmpty:
+		return "None"
+	case FieldKindAny:
+		return "Any"
 	case FieldKindMessage:
 		return info.MessageTypeName
 	case FieldKindEnum:
@@ -146,6 +158,9 @@ func pythonMapValueType(info *MapTypeInfo, opts *Options) string {
 	case FieldKindScalar:
 		return pythonScalarType(info.ScalarKind)
 	default:
+		if info.Kind.IsWrapper() {
+			return pythonWrapperType(info.Kind)
+		}
 		return "Any"
 	}
 }

@@ -166,6 +166,105 @@ func TestPythonFieldType(t *testing.T) {
 			},
 			want: "dict[int, Settings]",
 		},
+		{
+			name: "map string->timestamp",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindTimestamp},
+			},
+			want: "dict[str, datetime]",
+		},
+		{
+			name: "map string->duration",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindDuration},
+			},
+			want: "dict[str, timedelta]",
+		},
+		{
+			name: "map string->list_value",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindListValue},
+			},
+			want: "dict[str, list[Any]]",
+		},
+		{
+			name: "map string->field_mask",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindFieldMask},
+			},
+			want: "dict[str, list[str]]",
+		},
+		{
+			name: "map string->empty",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindEmpty},
+			},
+			want: "dict[str, None]",
+		},
+		{
+			name: "map string->any",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindAny},
+			},
+			want: "dict[str, Any]",
+		},
+		{
+			name: "map string->wrapper_bool",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindWrapperBool},
+			},
+			want: "dict[str, bool | None]",
+		},
+		{
+			name: "map string->wrapper_string",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindWrapperString},
+			},
+			want: "dict[str, str | None]",
+		},
+		{
+			name: "map string->wrapper_int32",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindWrapperInt32},
+			},
+			want: "dict[str, int | None]",
+		},
+		{
+			name: "map string->wrapper_float",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindWrapperFloat},
+			},
+			want: "dict[str, float | None]",
+		},
+		{
+			name: "map string->wrapper_bytes",
+			f: DomainField{
+				IsMap:    true,
+				MapKey:   &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind},
+				MapValue: &MapTypeInfo{Kind: FieldKindWrapperBytes},
+			},
+			want: "dict[str, bytes | None]",
+		},
 	}
 
 	for _, tt := range tests {
