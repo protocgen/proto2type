@@ -3,12 +3,13 @@
 // source: keywords.proto
 
 use serde::{Deserialize, Serialize};
+use validator::Validate;
 
 /// Domain representation of proto2type.test.keywords.KeywordFields.
 ///
 /// Test message with proto fields named after Rust keywords.
 /// These are valid proto field names but require r# escaping in Rust.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
 #[non_exhaustive]
 pub struct KeywordFields {
     #[serde(rename = "type")]

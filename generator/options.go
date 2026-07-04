@@ -34,10 +34,16 @@ type Options struct {
 	// Required for backend=buffa (e.g. "crate::proto::candela::harness::v1").
 	BufModule string
 
-	// Validate enables Validate() method generation using protovalidate.
-	// When true, the generated Validate() delegates to protovalidate.Validate(d.ToProto())
-	// for buf.validate constraint checking. Oneof mutual-exclusion checks are always
-	// generated regardless of this flag.
+	// Validate enables validation code generation from buf.validate constraints.
+	//
+	// Go: generates Validate() method that delegates to protovalidate.Validate(d.ToProto()).
+	// Oneof mutual-exclusion checks are always generated regardless of this flag.
+	//
+	// Rust: adds #[derive(Validate)] and #[validate(...)] attributes from the
+	// validator crate. Users call .validate() -> Result<(), ValidationErrors>.
+	// NOTE: length validation counts characters (Unicode scalar values), not bytes.
+	// This differs from proto's min_len/max_len which count bytes, but matches
+	// user expectations and is consistent with Python/Pydantic.
 	Validate bool
 
 	// BufOneofPrefix is an optional module prefix inserted between the buffa module

@@ -3,6 +3,7 @@
 // source: user.proto
 
 use serde::{Deserialize, Serialize};
+use validator::Validate;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
@@ -52,19 +53,23 @@ pub enum UserContactMethod {
 /// Domain representation of test.v1.User.
 ///
 /// User represents a user account.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
 #[non_exhaustive]
 pub struct User {
     pub id: String,
+    #[validate(email)]
     pub email: String,
+    #[validate(length(min = 1, max = 255))]
     pub display_name: String,
     pub active: bool,
+    #[validate(range(min = 0, max = 150))]
     pub age: i32,
     #[serde(default)]
     pub roles: Vec<String>,
     #[serde(default)]
     pub metadata: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
     pub address: Option<Address>,
     pub created_at: DateTime<Utc>,
     /// Duration in milliseconds
@@ -78,6 +83,7 @@ pub struct User {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contact_method: Option<UserContactMethod>,
     #[serde(default)]
+    #[validate(nested)]
     pub tags: Vec<Tag>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deleted_at: Option<DateTime<Utc>>,
@@ -116,7 +122,7 @@ pub struct User {
 /// Domain representation of test.v1.Address.
 ///
 /// Address is a nested message.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
 #[non_exhaustive]
 pub struct Address {
     pub street: String,
@@ -129,7 +135,7 @@ pub struct Address {
 /// Domain representation of test.v1.Tag.
 ///
 /// Tag is a label with a key-value pair.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
 #[non_exhaustive]
 pub struct Tag {
     pub key: String,

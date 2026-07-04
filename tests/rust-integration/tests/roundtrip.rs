@@ -15,6 +15,7 @@ use chrono::{TimeZone, Utc};
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use validator::Validate;
 
 // Re-export generated crate
 use proto2type_rust_integration::catalog::sqlite::ModelCatalogEntryRow;
@@ -702,4 +703,92 @@ fn test_binary_blob_sqlite() {
     let back = queried.to_domain().expect("to_domain");
     assert_eq!(user.avatar, back.avatar);
     assert_eq!(user.avatar.len(), 256);
+}
+
+// ---------------------------------------------------------------------------
+// Validation tests (validator crate integration)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_valid_user_passes_validation() {
+    let user = sample_user();
+    assert!(user.validate().is_ok(), "sample_user should pass validation");
+}
+
+#[test]
+fn test_invalid_email_fails_validation() {
+    let mut user = User::default();
+    user.email = "not-an-email".into();
+    user.display_name = "Test".into();
+    user.age = 25;
+    let result = user.validate();
+    assert!(result.is_err(), "invalid email should fail validation");
+    let errors = result.unwrap_err();
+    assert!(
+        errors.field_errors().contains_key("email"),
+        "error should be on email field"
+    );
+}
+
+#[test]
+fn test_display_name_too_long_fails_validation() {
+    let mut user = User::default();
+    user.email = "test@example.com".into();
+    user.display_name = "x".repeat(256);
+    user.age = 25;
+    let result = user.validate();
+    assert!(result.is_err(), "display_name > 255 should fail validation");
+    let errors = result.unwrap_err();
+    assert!(
+        errors.field_errors().contains_key("display_name"),
+        "error should be on display_name field"
+    );
+}
+
+#[test]
+fn test_age_out_of_range_fails_validation() {
+    let mut user = User::default();
+    user.email = "test@example.com".into();
+    user.display_name = "Test".into();
+    user.age = 200;
+    let result = user.validate();
+    assert!(result.is_err(), "age > 150 should fail validation");
+    let errors = result.unwrap_err();
+    assert!(
+        errors.field_errors().contains_key("age"),
+        "error should be on age field"
+    );
+}
+
+#[test]
+fn test_negative_age_fails_validation() {
+    let mut user = User::default();
+    user.email = "test@example.com".into();
+    user.display_name = "Test".into();
+    user.age = -1;
+    let result = user.validate();
+    assert!(result.is_err(), "age < 0 should fail validation");
+}
+
+#[test]
+fn test_empty_display_name_fails_validation() {
+    let mut user = User::default();
+    user.email = "test@example.com".into();
+    user.display_name = "".into();
+    user.age = 25;
+    let result = user.validate();
+    assert!(result.is_err(), "empty display_name should fail validation");
+}
+
+#[test]
+fn test_boundary_values_pass_validation() {
+    let mut user = User::default();
+    user.email = "a@b.c".into();
+    user.display_name = "x".into(); // min = 1
+    user.age = 0; // min = 0
+    assert!(user.validate().is_ok(), "min boundary values should pass");
+
+    user.display_name = "x".repeat(255); // max = 255
+    user.age = 150; // max = 150
+    assert!(user.validate().is_ok(), "max boundary values should pass");
 }
