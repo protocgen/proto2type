@@ -457,7 +457,7 @@ func rustBuffaBufToDomainScalar(f *DomainField, fieldName string) string {
 func generateBuffaDomainToBufOneof(g *protogen.GeneratedFile, o *DomainOneof, fieldName, parentMsg, oneofBase string) {
 	oneofPascal := toPascalCase(o.FieldName)
 
-	g.P("        b.", fieldName, " = d.", fieldName, ".as_ref().map(|v| match v {")
+	g.P("        b.", fieldName, " = d.", fieldName, ".as_ref().map(|v| -> Result<_, ConversionError> { match v {")
 	for _, v := range o.Variants {
 		variantPascal := v.Name
 
@@ -505,7 +505,7 @@ func generateBuffaDomainToBufOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 			g.P("            }")
 		}
 	}
-	g.P("        }).transpose()?;")
+	g.P("        } }).transpose()?;")
 }
 
 // generateBuffaBufToDomainOneof generates the buffa→domain oneof conversion.

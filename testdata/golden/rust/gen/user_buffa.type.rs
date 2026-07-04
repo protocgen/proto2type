@@ -70,14 +70,14 @@ impl TryFrom<&User> for __buffa_mod::User {
         b.avatar = d.avatar.clone();
         b.nickname = d.nickname;
         b.status = buffa::EnumValue::from(d.status as i32);
-        b.contact_method = d.contact_method.as_ref().map(|v| match v {
+        b.contact_method = d.contact_method.as_ref().map(|v| -> Result<_, ConversionError> { match v {
             UserContactMethod::ContactEmail(v) => {
                 Ok(__buffa_mod::oneof::user::ContactMethod::ContactEmail(v.clone().into()))
             }
             UserContactMethod::ContactPhone(v) => {
                 Ok(__buffa_mod::oneof::user::ContactMethod::ContactPhone(v.clone().into()))
             }
-        }).transpose()?;
+        } }).transpose()?;
         b.tags = d.tags.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?;
         b.deleted_at = match &d.deleted_at { Some(dt) => buffa::MessageField::some(chrono_to_buffa_timestamp(dt)), None => buffa::MessageField::none() };
         b.previous_status = d.previous_status.map(|v| buffa::EnumValue::from(v as i32));
