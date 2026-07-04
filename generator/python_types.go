@@ -66,6 +66,7 @@ func pythonFieldType(f *DomainField, opts *Options) string {
 
 	return baseType
 }
+
 // wktImport identifies which Python import a WKT kind requires.
 type wktImport int
 
@@ -86,14 +87,14 @@ type wktPythonEntry struct {
 // Both wktPythonType (type resolution) and wktNeedsImport (import scanning)
 // read from this table. When adding a new WKT kind, add it here once.
 var wktPythonTable = map[FieldKind]wktPythonEntry{
-	FieldKindTimestamp: {"datetime", wktImportDatetime},
-	FieldKindDuration:  {"timedelta", wktImportTimedelta},
-	FieldKindStruct:    {"dict[str, Any]", wktImportAny},
-	FieldKindValue:     {"Any", wktImportAny},
-	FieldKindAny:       {"Any", wktImportAny},
-	FieldKindListValue: {"list[Any]", wktImportAny},
-	FieldKindEmpty:     {"None", wktImportNone},
-	FieldKindFieldMask: {"list[str]", wktImportNone},
+	FieldKindTimestamp: {Type: "datetime", Import: wktImportDatetime},
+	FieldKindDuration:  {Type: "timedelta", Import: wktImportTimedelta},
+	FieldKindStruct:    {Type: "dict[str, Any]", Import: wktImportAny},
+	FieldKindValue:     {Type: "Any", Import: wktImportAny},
+	FieldKindAny:       {Type: "Any", Import: wktImportAny},
+	FieldKindListValue: {Type: "list[Any]", Import: wktImportAny},
+	FieldKindEmpty:     {Type: "None", Import: wktImportNone},
+	FieldKindFieldMask: {Type: "list[str]", Import: wktImportNone},
 }
 
 // wktPythonType returns the Python type for a well-known type or wrapper kind.
