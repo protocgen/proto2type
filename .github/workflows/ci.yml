@@ -143,6 +143,7 @@ jobs:
           serde_json = "1"
           chrono = { version = "0.4.20", features = ["serde"] }
           rusqlite = { version = "0.35", features = ["bundled"] }
+          validator = { version = "0.20", features = ["derive"] }
           EOF
           sed -i 's/^          //' /tmp/rust-compile-check/Cargo.toml
 
