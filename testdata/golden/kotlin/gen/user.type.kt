@@ -82,6 +82,25 @@ data class User(
     val scores: Map<String, Long?> = emptyMap()
 )
 
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun User.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    if (email.isNotEmpty() && !email.matches(Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"))) errors.add("email must be a valid email")
+    if (displayName.length < 1) errors.add("display_name must be at least 1 characters")
+    if (displayName.length > 255) errors.add("display_name must be at most 255 characters")
+    if (age < 0) errors.add("age must be >= 0")
+    if (age > 150) errors.add("age must be <= 150")
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun User.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("User: validation failed: " + errors.joinToString("; "))
+    }
+}
+
 /** Address is a nested message. */
 @Serializable
 data class Address(

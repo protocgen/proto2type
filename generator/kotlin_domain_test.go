@@ -531,8 +531,25 @@ func TestKotlinGoldenFiles(t *testing.T) {
 				"import kotlinx.datetime.Instant",
 				"import kotlin.time.Duration",
 				"package test.v1",
+				// Validation: generated extension functions
+				"fun User.validate(): List<String>",
+				"fun User.validateOrThrow()",
+				// Validation: email check
+				`email.matches(Regex(`,
+				`errors.add("email must be a valid email")`,
+				// Validation: display_name length
+				"displayName.length < 1",
+				"displayName.length > 255",
+				// Validation: age range
+				"age < 0",
+				"age > 150",
 			},
-			nil,
+			[]string{
+				// No validate on Address (no constraints)
+				"fun Address.validate()",
+				// No validate on Tag (no constraints)
+				"fun Tag.validate()",
+			},
 		},
 		{
 			"../testdata/golden/kotlin/gen/catalog.type.kt",
@@ -544,6 +561,8 @@ func TestKotlinGoldenFiles(t *testing.T) {
 			},
 			[]string{
 				"import kotlin.time.Duration",
+				// No validation on catalog (no constraints)
+				"fun ModelCatalogEntry.validate()",
 			},
 		},
 		{
@@ -553,7 +572,10 @@ func TestKotlinGoldenFiles(t *testing.T) {
 				"data class KeywordFields(",
 				"`super`",
 			},
-			nil,
+			[]string{
+				// No validation on keywords (no constraints)
+				"fun KeywordFields.validate()",
+			},
 		},
 	}
 
