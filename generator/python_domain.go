@@ -51,7 +51,8 @@ type pythonImports struct {
 	needsTimedelta     bool
 	needsAny           bool
 	needsBase64        bool
-	hasTimestampFields bool // models with datetime fields need model_rebuild()
+	needsEnum          bool     // true when the file has enum definitions
+	hasTimestampFields bool     // models with datetime fields need model_rebuild()
 	hasBytesFields     bool
 	timestampModels    []string // model names that have timestamp fields
 	bytesModels        []string // model names that have bytes fields
@@ -59,6 +60,9 @@ type pythonImports struct {
 
 func scanPythonImports(ir *DomainFile, opts *Options) *pythonImports {
 	imps := &pythonImports{}
+	if len(ir.Enums) > 0 {
+		imps.needsEnum = true
+	}
 	for _, m := range ir.Messages {
 		if m.Skip {
 			continue
@@ -143,7 +147,9 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 	if imps.needsBase64 {
 		g.P("import base64")
 	}
-	g.P("from enum import Enum")
+	if imps.needsEnum {
+		g.P("from enum import Enum")
+	}
 
 	// typing imports.
 	var typingImports []string
