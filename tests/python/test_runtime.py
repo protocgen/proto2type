@@ -367,6 +367,20 @@ test("'self' keyword field escaping", test_self_keyword_field)
 
 
 # ---------------------------------------------------------------------------
+# Test: 'cls', 'match', 'super' keyword field escaping
+# ---------------------------------------------------------------------------
+def test_other_keyword_fields():
+    from keywords_pb2_pydantic import KeywordFields
+    k = KeywordFields(cls=True, match=True, super="s")
+    assert k.cls_ is True, f"Expected True via alias, got {k.cls_!r}"
+    assert k.match_ is True, f"Expected True via alias, got {k.match_!r}"
+    assert k.super_ == "s", f"Expected 's' via alias, got {k.super_!r}"
+
+
+test("cls/match/super keyword field escaping", test_other_keyword_fields)
+
+
+# ---------------------------------------------------------------------------
 # Test: Email constraint pattern rejects invalid emails
 # ---------------------------------------------------------------------------
 def test_email_constraint_pattern():
