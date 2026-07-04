@@ -51,8 +51,8 @@ type pythonImports struct {
 	needsTimedelta     bool
 	needsAny           bool
 	needsBase64        bool
-	needsEnum          bool     // true when the file has enum definitions
-	hasTimestampFields bool     // models with datetime fields need model_rebuild()
+	needsEnum          bool // true when the file has enum definitions
+	hasTimestampFields bool // models with datetime fields need model_rebuild()
 	hasBytesFields     bool
 	timestampModels    []string // model names that have timestamp fields
 	bytesModels        []string // model names that have bytes fields
@@ -73,6 +73,9 @@ func scanPythonImports(ir *DomainFile, opts *Options) *pythonImports {
 }
 
 func scanPythonImportsMessage(m *DomainMessage, imps *pythonImports, opts *Options) {
+	if len(m.NestedEnums) > 0 {
+		imps.needsEnum = true
+	}
 	var hasTS, hasBytes bool
 	for _, f := range m.Fields {
 		scanPythonImportsField(f, imps)
@@ -123,8 +126,13 @@ func scanPythonImportsField(f *DomainField, imps *pythonImports) {
 		imps.needsAny = true
 	}
 	if f.IsMap && f.MapValue != nil {
-		if f.MapValue.Kind == FieldKindStruct || f.MapValue.Kind == FieldKindValue {
+		switch f.MapValue.Kind {
+		case FieldKindStruct, FieldKindValue, FieldKindAny, FieldKindListValue:
 			imps.needsAny = true
+		case FieldKindTimestamp:
+			imps.needsDatetime = true
+		case FieldKindDuration:
+			imps.needsTimedelta = true
 		}
 	}
 }

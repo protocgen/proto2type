@@ -130,6 +130,7 @@ func pythonMapKeyType(info *MapTypeInfo) string {
 }
 
 // pythonMapValueType returns the Python type for a map value.
+// TODO: extract shared WKT-to-Python type mapper
 func pythonMapValueType(info *MapTypeInfo, opts *Options) string {
 	if info == nil {
 		return "Any"
