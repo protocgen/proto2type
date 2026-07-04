@@ -5,20 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-07-03
 
 ### Added
 
 - **Python/Pydantic backend** (`lang=python`): Generate Pydantic BaseModel classes from proto definitions. Absorbs all functionality from the standalone `proto2pydantic` tool.
 - **IR: `field_behavior` support**: `google.api.field_behavior` annotations are now extracted to the shared IR. Python backend uses them for `REQUIRED` and `OUTPUT_ONLY` semantics.
 - **IR: `buf/validate` constraints**: `buf/validate` field rules are now extracted to the shared IR. Python backend maps them to Pydantic `Field()` kwargs.
+- **Complete `buf/validate` rule coverage**: Added extraction for `uint64`, `sint32`, `sint64`, `fixed32`, `fixed64`, `sfixed32`, `sfixed64` bounds and `map` `min_pairs`/`max_pairs`.
 - Python options: `base_class`, `alias_generator`, `enum_style`, `preset`, `description`, `strip_proto_suffix`.
 - A2A preset (`preset=a2a`): Configures camelCase aliases and raw enum names for A2A/ProtoJSON compatibility.
+- **Python runtime integration tests**: 17 tests validating generated Pydantic models at runtime via `uv run` — imports, serialization, constraints, enums, oneofs, datetime, bytes, keyword escaping.
 
 ### Fixed
 
 - `buf/validate` constraint `gte: 0` no longer silently dropped (uses pointer semantics instead of `!= 0` check).
 - Default enum style no longer references `_UNSPECIFIED` values that were skipped from the enum class.
+- **`model_config` always emits `populate_by_name=True`**: Keyword-escaped fields (e.g. `type_` with `alias='type'`) can now be set by both field name and alias.
+- **`ConfigDict` import conditional on usage**: Only imported when `model_config` is emitted (skipped for custom base classes).
+- **Alias function helper extracted**: Deduplicates alias resolution between import and `model_config` emission, preventing drift.
 
 ## [0.4.2] - 2026-07-02
 
