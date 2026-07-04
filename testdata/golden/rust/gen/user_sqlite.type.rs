@@ -76,6 +76,11 @@ pub struct UserRow {
     pub lists: String,
     pub event_times: String,
     pub configs: String,
+    pub single_value: String,
+    pub values: String,
+    pub value_map: String,
+    pub labels: String,
+    pub scores: String,
 }
 
 impl UserRow {
@@ -109,6 +114,11 @@ impl UserRow {
             lists: row.get("lists")?,
             event_times: row.get("event_times")?,
             configs: row.get("configs")?,
+            single_value: row.get("single_value")?,
+            values: row.get("values")?,
+            value_map: row.get("value_map")?,
+            labels: row.get("labels")?,
+            scores: row.get("scores")?,
         })
     }
 
@@ -142,6 +152,11 @@ impl UserRow {
             lists: serde_json::from_str(&self.lists)?,
             event_times: serde_json::from_str(&self.event_times)?,
             configs: serde_json::from_str(&self.configs)?,
+            single_value: serde_json::from_str(&self.single_value)?,
+            values: serde_json::from_str(&self.values)?,
+            value_map: serde_json::from_str(&self.value_map)?,
+            labels: serde_json::from_str(&self.labels)?,
+            scores: serde_json::from_str(&self.scores)?,
         })
     }
 
@@ -175,6 +190,11 @@ impl UserRow {
             lists: serde_json::from_str(&self.lists)?,
             event_times: serde_json::from_str(&self.event_times)?,
             configs: serde_json::from_str(&self.configs)?,
+            single_value: serde_json::from_str(&self.single_value)?,
+            values: serde_json::from_str(&self.values)?,
+            value_map: serde_json::from_str(&self.value_map)?,
+            labels: serde_json::from_str(&self.labels)?,
+            scores: serde_json::from_str(&self.scores)?,
         })
     }
 
@@ -208,6 +228,11 @@ impl UserRow {
             lists: serde_json::to_string(&d.lists)?,
             event_times: serde_json::to_string(&d.event_times)?,
             configs: serde_json::to_string(&d.configs)?,
+            single_value: serde_json::to_string(&d.single_value)?,
+            values: serde_json::to_string(&d.values)?,
+            value_map: serde_json::to_string(&d.value_map)?,
+            labels: serde_json::to_string(&d.labels)?,
+            scores: serde_json::to_string(&d.scores)?,
         })
     }
 }

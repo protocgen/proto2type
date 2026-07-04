@@ -101,6 +101,16 @@ pub struct User {
     pub event_times: HashMap<String, DateTime<Utc>>,
     #[serde(default)]
     pub configs: HashMap<String, serde_json::Map<String, serde_json::Value>>,
+    #[serde(default)]
+    pub single_value: serde_json::Value,
+    #[serde(default)]
+    pub values: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub value_map: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub labels: HashMap<String, Option<String>>,
+    #[serde(default)]
+    pub scores: HashMap<String, Option<i64>>,
 }
 
 /// Domain representation of test.v1.Address.

@@ -51,6 +51,11 @@ type User struct {
 	Lists           [][]any                   `json:"lists,omitempty"`
 	EventTimes      map[string]time.Time      `json:"event_times,omitempty"`
 	Configs         map[string]map[string]any `json:"configs,omitempty"`
+	SingleValue     any                       `json:"single_value,omitempty"`
+	Values          []any                     `json:"values,omitempty"`
+	ValueMap        map[string]any            `json:"value_map,omitempty"`
+	Labels          map[string]*string        `json:"labels,omitempty"`
+	Scores          map[string]*int64         `json:"scores,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
@@ -179,6 +184,52 @@ func (u *User) ToProto() *pb.User {
 			out.Configs[k] = s
 		}
 	}
+	if u.SingleValue != nil {
+		var err error
+		out.SingleValue, err = structpb.NewValue(u.SingleValue)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.SingleValue to Value: %v", "User", err)
+			out.SingleValue = nil
+		}
+	}
+	if len(u.Values) > 0 {
+		out.Values = make([]*structpb.Value, len(u.Values))
+		for i, v := range u.Values {
+			s, err := structpb.NewValue(v)
+			if err != nil {
+				log.Printf("proto2type: failed to convert %s.Values[%d] to Value: %v", "User", i, err)
+				continue
+			}
+			out.Values[i] = s
+		}
+	}
+	if len(u.ValueMap) > 0 {
+		out.ValueMap = make(map[string]*structpb.Value, len(u.ValueMap))
+		for k, v := range u.ValueMap {
+			s, err := structpb.NewValue(v)
+			if err != nil {
+				log.Printf("proto2type: failed to convert %s.ValueMap[%v] to Value: %v", "User", k, err)
+				continue
+			}
+			out.ValueMap[k] = s
+		}
+	}
+	if len(u.Labels) > 0 {
+		out.Labels = make(map[string]*wrapperspb.StringValue, len(u.Labels))
+		for k, v := range u.Labels {
+			if v != nil {
+				out.Labels[k] = wrapperspb.String(*v)
+			}
+		}
+	}
+	if len(u.Scores) > 0 {
+		out.Scores = make(map[string]*wrapperspb.Int64Value, len(u.Scores))
+		for k, v := range u.Scores {
+			if v != nil {
+				out.Scores[k] = wrapperspb.Int64(*v)
+			}
+		}
+	}
 	return out
 }
 
@@ -303,6 +354,49 @@ func (u *User) TryToProto() (*pb.User, error) {
 				return nil, fmt.Errorf("proto2type: failed to convert %s.Configs[%v] to Struct: %w", "User", k, err)
 			}
 			out.Configs[k] = s
+		}
+	}
+	if u.SingleValue != nil {
+		var err error
+		out.SingleValue, err = structpb.NewValue(u.SingleValue)
+		if err != nil {
+			return nil, fmt.Errorf("proto2type: failed to convert %s.SingleValue to Value: %w", "User", err)
+		}
+	}
+	if len(u.Values) > 0 {
+		out.Values = make([]*structpb.Value, len(u.Values))
+		for i, v := range u.Values {
+			s, err := structpb.NewValue(v)
+			if err != nil {
+				return nil, fmt.Errorf("proto2type: failed to convert %s.Values[%d] to Value: %w", "User", i, err)
+			}
+			out.Values[i] = s
+		}
+	}
+	if len(u.ValueMap) > 0 {
+		out.ValueMap = make(map[string]*structpb.Value, len(u.ValueMap))
+		for k, v := range u.ValueMap {
+			s, err := structpb.NewValue(v)
+			if err != nil {
+				return nil, fmt.Errorf("proto2type: failed to convert %s.ValueMap[%v] to Value: %w", "User", k, err)
+			}
+			out.ValueMap[k] = s
+		}
+	}
+	if len(u.Labels) > 0 {
+		out.Labels = make(map[string]*wrapperspb.StringValue, len(u.Labels))
+		for k, v := range u.Labels {
+			if v != nil {
+				out.Labels[k] = wrapperspb.String(*v)
+			}
+		}
+	}
+	if len(u.Scores) > 0 {
+		out.Scores = make(map[string]*wrapperspb.Int64Value, len(u.Scores))
+		for k, v := range u.Scores {
+			if v != nil {
+				out.Scores[k] = wrapperspb.Int64(*v)
+			}
 		}
 	}
 	return out, nil
@@ -449,6 +543,48 @@ func (u *User) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.SingleValue = nil
+	if msg.SingleValue != nil {
+		u.SingleValue = msg.SingleValue.AsInterface()
+	}
+	u.Values = nil
+	if len(msg.Values) > 0 {
+		u.Values = make([]any, len(msg.Values))
+		for i, v := range msg.Values {
+			if v != nil {
+				u.Values[i] = v.AsInterface()
+			}
+		}
+	}
+	u.ValueMap = nil
+	if len(msg.ValueMap) > 0 {
+		u.ValueMap = make(map[string]any, len(msg.ValueMap))
+		for k, v := range msg.ValueMap {
+			if v != nil {
+				u.ValueMap[k] = v.AsInterface()
+			}
+		}
+	}
+	u.Labels = nil
+	if len(msg.Labels) > 0 {
+		u.Labels = make(map[string]*string, len(msg.Labels))
+		for k, v := range msg.Labels {
+			if v != nil {
+				val := v.GetValue()
+				u.Labels[k] = &val
+			}
+		}
+	}
+	u.Scores = nil
+	if len(msg.Scores) > 0 {
+		u.Scores = make(map[string]*int64, len(msg.Scores))
+		for k, v := range msg.Scores {
+			if v != nil {
+				val := v.GetValue()
+				u.Scores[k] = &val
+			}
+		}
+	}
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
@@ -578,6 +714,30 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			} else {
 				dst.Configs = nil
 			}
+		case "single_value":
+			dst.SingleValue = deepCopyValue(src.SingleValue)
+		case "values":
+			if src.Values != nil {
+				dst.Values = make([]any, len(src.Values))
+				for i, v := range src.Values {
+					dst.Values[i] = deepCopyValue(v)
+				}
+			} else {
+				dst.Values = nil
+			}
+		case "value_map":
+			if src.ValueMap != nil {
+				dst.ValueMap = make(map[string]any, len(src.ValueMap))
+				for k, v := range src.ValueMap {
+					dst.ValueMap[k] = deepCopyValue(v)
+				}
+			} else {
+				dst.ValueMap = nil
+			}
+		case "labels":
+			dst.Labels = src.Labels
+		case "scores":
+			dst.Scores = src.Scores
 		}
 	}
 }
@@ -655,6 +815,12 @@ func (u *User) Clone() *User {
 			}
 		}
 	}
+	if u.Values != nil {
+		c.Values = make([]any, len(u.Values))
+		for i, v := range u.Values {
+			c.Values[i] = deepCopyValue(v)
+		}
+	}
 	if u.Avatar != nil {
 		c.Avatar = make([]byte, len(u.Avatar))
 		copy(c.Avatar, u.Avatar)
@@ -681,6 +847,34 @@ func (u *User) Clone() *User {
 			}
 		}
 	}
+	if u.ValueMap != nil {
+		c.ValueMap = make(map[string]any, len(u.ValueMap))
+		for k, v := range u.ValueMap {
+			c.ValueMap[k] = deepCopyValue(v)
+		}
+	}
+	if u.Labels != nil {
+		c.Labels = make(map[string]*string, len(u.Labels))
+		for k, v := range u.Labels {
+			if v != nil {
+				cpy := *v
+				c.Labels[k] = &cpy
+			} else {
+				c.Labels[k] = nil
+			}
+		}
+	}
+	if u.Scores != nil {
+		c.Scores = make(map[string]*int64, len(u.Scores))
+		for k, v := range u.Scores {
+			if v != nil {
+				cpy := *v
+				c.Scores[k] = &cpy
+			} else {
+				c.Scores[k] = nil
+			}
+		}
+	}
 	if u.Address != nil {
 		c.Address = u.Address.Clone()
 	}
@@ -694,6 +888,7 @@ func (u *User) Clone() *User {
 	if u.Preferences != nil {
 		c.Preferences = deepCopyValue(u.Preferences).([]any)
 	}
+	c.SingleValue = deepCopyValue(u.SingleValue)
 	if u.ContactEmail != nil {
 		v := *u.ContactEmail
 		c.ContactEmail = &v
@@ -878,6 +1073,59 @@ func (u *User) Equal(other *User) bool {
 			return false
 		}
 		if !reflect.DeepEqual(v, ov) {
+			return false
+		}
+	}
+	if !reflect.DeepEqual(u.SingleValue, other.SingleValue) {
+		return false
+	}
+	if len(u.Values) != len(other.Values) {
+		return false
+	}
+	for i := range u.Values {
+		if !reflect.DeepEqual(u.Values[i], other.Values[i]) {
+			return false
+		}
+	}
+	if len(u.ValueMap) != len(other.ValueMap) {
+		return false
+	}
+	for k, v := range u.ValueMap {
+		ov, ok := other.ValueMap[k]
+		if !ok {
+			return false
+		}
+		if !reflect.DeepEqual(v, ov) {
+			return false
+		}
+	}
+	if len(u.Labels) != len(other.Labels) {
+		return false
+	}
+	for k, v := range u.Labels {
+		ov, ok := other.Labels[k]
+		if !ok {
+			return false
+		}
+		if (v == nil) != (ov == nil) {
+			return false
+		}
+		if v != nil && *v != *ov {
+			return false
+		}
+	}
+	if len(u.Scores) != len(other.Scores) {
+		return false
+	}
+	for k, v := range u.Scores {
+		ov, ok := other.Scores[k]
+		if !ok {
+			return false
+		}
+		if (v == nil) != (ov == nil) {
+			return false
+		}
+		if v != nil && *v != *ov {
 			return false
 		}
 	}

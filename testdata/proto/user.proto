@@ -66,6 +66,15 @@ message User {
   // WKT map values (Issue #53)
   map<string, google.protobuf.Timestamp> event_times = 27;
   map<string, google.protobuf.Struct> configs = 28;
+
+  // Value type coverage (Issue #116)
+  google.protobuf.Value single_value = 29;
+  repeated google.protobuf.Value values = 30;
+  map<string, google.protobuf.Value> value_map = 31;
+
+  // Wrapper map values (Issue #116)
+  map<string, google.protobuf.StringValue> labels = 32;
+  map<string, google.protobuf.Int64Value> scores = 33;
 }
 
 // Address is a nested message.

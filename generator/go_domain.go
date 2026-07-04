@@ -65,13 +65,17 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 	// proto types because both define structs with the same name (e.g.,
 	// ModelCatalogEntry). This would cause a compile error.
 	if goImportPath == file.GoImportPath {
+		example := "YourMessageType"
+		if len(file.Messages) > 0 {
+			example = file.Messages[0].GoIdent.GoName
+		}
 		return fmt.Errorf(
 			"proto2type: generated domain types would collide with proto types in package %s\n"+
 				"Both define types with the same names (e.g., %s).\n"+
 				"Set the go_package option to a different import path, for example:\n"+
 				"  opt: go_package=%s/domain;domain",
 			string(file.GoImportPath),
-			file.Messages[0].GoIdent.GoName,
+			example,
 			string(file.GoImportPath),
 		)
 	}
@@ -464,13 +468,14 @@ func shouldOmitempty(field *protogen.Field, opts *Options) bool {
 }
 
 // findOneof looks up a DomainOneof by its Name in a message's Oneofs slice.
+// Panics if not found — this indicates an IR builder bug.
 func findOneof(dm *DomainMessage, name string) *DomainOneof {
 	for _, o := range dm.Oneofs {
 		if o.Name == name {
 			return o
 		}
 	}
-	return nil
+	panic(fmt.Sprintf("proto2type: BUG: oneof %q not found in message %q", name, dm.Name))
 }
 
 // goOneofVariantType returns the Go type for a oneof variant pointer field in the domain struct.

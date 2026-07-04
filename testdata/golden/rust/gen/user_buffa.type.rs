@@ -90,6 +90,11 @@ impl TryFrom<&User> for __buffa_mod::User {
         b.lists = d.lists.clone();
         b.event_times = d.event_times.clone();
         b.configs = d.configs.clone();
+        b.single_value = d.single_value.clone().into();
+        b.values = d.values.clone();
+        b.value_map = d.value_map.clone();
+        b.labels = d.labels.clone();
+        b.scores = d.scores.clone();
         Ok(b)
     }
 }
@@ -135,6 +140,11 @@ impl TryFrom<&__buffa_mod::User> for User {
         d.lists = b.lists.clone();
         d.event_times = b.event_times.clone();
         d.configs = b.configs.clone();
+        d.single_value = b.single_value.clone().into();
+        d.values = b.values.clone();
+        d.value_map = b.value_map.clone();
+        d.labels = b.labels.clone();
+        d.scores = b.scores.clone();
         Ok(d)
     }
 }

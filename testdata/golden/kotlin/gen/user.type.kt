@@ -74,7 +74,12 @@ data class User(
     val structs: List<Map<String, JsonElement>> = emptyList(),
     val lists: List<JsonArray> = emptyList(),
     @SerialName("event_times") val eventTimes: Map<String, Instant> = emptyMap(),
-    val configs: Map<String, Map<String, JsonElement>> = emptyMap()
+    val configs: Map<String, Map<String, JsonElement>> = emptyMap(),
+    @SerialName("single_value") val singleValue: JsonElement = JsonNull,
+    val values: List<JsonElement> = emptyList(),
+    @SerialName("value_map") val valueMap: Map<String, JsonElement> = emptyMap(),
+    val labels: Map<String, String?> = emptyMap(),
+    val scores: Map<String, Long?> = emptyMap()
 )
 
 /** Address is a nested message. */

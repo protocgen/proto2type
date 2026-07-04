@@ -68,6 +68,11 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 		"lists":            FieldKindListValue, // repeated WKT reference
 		"event_times":      FieldKindMessage,   // map fields outer Kind=Message
 		"configs":          FieldKindMessage,   // map fields outer Kind=Message
+		"single_value":     FieldKindValue,     // singular Value (Issue #116)
+		"values":           FieldKindValue,     // repeated Value (Issue #116)
+		"value_map":        FieldKindMessage,   // map fields outer Kind=Message
+		"labels":           FieldKindMessage,   // map fields outer Kind=Message (wrapper map values)
+		"scores":           FieldKindMessage,   // map fields outer Kind=Message (wrapper map values)
 	}
 
 	for _, f := range user.Fields {

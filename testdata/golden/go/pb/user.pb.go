@@ -117,8 +117,15 @@ type User struct {
 	Structs    []*structpb.Struct       `protobuf:"bytes,25,rep,name=structs,proto3" json:"structs,omitempty"`
 	Lists      []*structpb.ListValue    `protobuf:"bytes,26,rep,name=lists,proto3" json:"lists,omitempty"`
 	// WKT map values (Issue #53)
-	EventTimes    map[string]*timestamppb.Timestamp `protobuf:"bytes,27,rep,name=event_times,json=eventTimes,proto3" json:"event_times,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Configs       map[string]*structpb.Struct       `protobuf:"bytes,28,rep,name=configs,proto3" json:"configs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	EventTimes map[string]*timestamppb.Timestamp `protobuf:"bytes,27,rep,name=event_times,json=eventTimes,proto3" json:"event_times,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Configs    map[string]*structpb.Struct       `protobuf:"bytes,28,rep,name=configs,proto3" json:"configs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Value type coverage (Issue #116)
+	SingleValue *structpb.Value            `protobuf:"bytes,29,opt,name=single_value,json=singleValue,proto3" json:"single_value,omitempty"`
+	Values      []*structpb.Value          `protobuf:"bytes,30,rep,name=values,proto3" json:"values,omitempty"`
+	ValueMap    map[string]*structpb.Value `protobuf:"bytes,31,rep,name=value_map,json=valueMap,proto3" json:"value_map,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Wrapper map values (Issue #116)
+	Labels        map[string]*wrapperspb.StringValue `protobuf:"bytes,32,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Scores        map[string]*wrapperspb.Int64Value  `protobuf:"bytes,33,rep,name=scores,proto3" json:"scores,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -360,6 +367,41 @@ func (x *User) GetConfigs() map[string]*structpb.Struct {
 	return nil
 }
 
+func (x *User) GetSingleValue() *structpb.Value {
+	if x != nil {
+		return x.SingleValue
+	}
+	return nil
+}
+
+func (x *User) GetValues() []*structpb.Value {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
+func (x *User) GetValueMap() map[string]*structpb.Value {
+	if x != nil {
+		return x.ValueMap
+	}
+	return nil
+}
+
+func (x *User) GetLabels() map[string]*wrapperspb.StringValue {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *User) GetScores() map[string]*wrapperspb.Int64Value {
+	if x != nil {
+		return x.Scores
+	}
+	return nil
+}
+
 type isUser_ContactMethod interface {
 	isUser_ContactMethod()
 }
@@ -511,7 +553,7 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\xfa\f\n" +
+	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\x8b\x11\n" +
 	"\x04User\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x03R\x02id\x12 \n" +
 	"\x05email\x18\x02 \x01(\tB\n" +
@@ -548,7 +590,12 @@ const file_user_proto_rawDesc = "" +
 	"\x05lists\x18\x1a \x03(\v2\x1a.google.protobuf.ListValueR\x05lists\x12>\n" +
 	"\vevent_times\x18\x1b \x03(\v2\x1d.test.v1.User.EventTimesEntryR\n" +
 	"eventTimes\x124\n" +
-	"\aconfigs\x18\x1c \x03(\v2\x1a.test.v1.User.ConfigsEntryR\aconfigs\x1a;\n" +
+	"\aconfigs\x18\x1c \x03(\v2\x1a.test.v1.User.ConfigsEntryR\aconfigs\x129\n" +
+	"\fsingle_value\x18\x1d \x01(\v2\x16.google.protobuf.ValueR\vsingleValue\x12.\n" +
+	"\x06values\x18\x1e \x03(\v2\x16.google.protobuf.ValueR\x06values\x128\n" +
+	"\tvalue_map\x18\x1f \x03(\v2\x1b.test.v1.User.ValueMapEntryR\bvalueMap\x121\n" +
+	"\x06labels\x18  \x03(\v2\x19.test.v1.User.LabelsEntryR\x06labels\x121\n" +
+	"\x06scores\x18! \x03(\v2\x19.test.v1.User.ScoresEntryR\x06scores\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aY\n" +
@@ -557,7 +604,16 @@ const file_user_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05value:\x028\x01\x1aS\n" +
 	"\fConfigsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
-	"\x05value\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x05value:\x028\x01B\x10\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x05value:\x028\x01\x1aS\n" +
+	"\rValueMapEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
+	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value:\x028\x01\x1aW\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x122\n" +
+	"\x05value\x18\x02 \x01(\v2\x1c.google.protobuf.StringValueR\x05value:\x028\x01\x1aV\n" +
+	"\vScoresEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x121\n" +
+	"\x05value\x18\x02 \x01(\v2\x1b.google.protobuf.Int64ValueR\x05value:\x028\x01B\x10\n" +
 	"\x0econtact_methodB\b\n" +
 	"\x06_phoneB\r\n" +
 	"\v_deleted_atB\x12\n" +
@@ -592,7 +648,7 @@ func file_user_proto_rawDescGZIP() []byte {
 }
 
 var file_user_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_user_proto_goTypes = []any{
 	(UserStatus)(0),                // 0: test.v1.UserStatus
 	(*User)(nil),                   // 1: test.v1.User
@@ -601,38 +657,51 @@ var file_user_proto_goTypes = []any{
 	nil,                            // 4: test.v1.User.MetadataEntry
 	nil,                            // 5: test.v1.User.EventTimesEntry
 	nil,                            // 6: test.v1.User.ConfigsEntry
-	(*timestamppb.Timestamp)(nil),  // 7: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),    // 8: google.protobuf.Duration
-	(*wrapperspb.StringValue)(nil), // 9: google.protobuf.StringValue
-	(*fieldmaskpb.FieldMask)(nil),  // 10: google.protobuf.FieldMask
-	(*structpb.Struct)(nil),        // 11: google.protobuf.Struct
-	(*structpb.ListValue)(nil),     // 12: google.protobuf.ListValue
+	nil,                            // 7: test.v1.User.ValueMapEntry
+	nil,                            // 8: test.v1.User.LabelsEntry
+	nil,                            // 9: test.v1.User.ScoresEntry
+	(*timestamppb.Timestamp)(nil),  // 10: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),    // 11: google.protobuf.Duration
+	(*wrapperspb.StringValue)(nil), // 12: google.protobuf.StringValue
+	(*fieldmaskpb.FieldMask)(nil),  // 13: google.protobuf.FieldMask
+	(*structpb.Struct)(nil),        // 14: google.protobuf.Struct
+	(*structpb.ListValue)(nil),     // 15: google.protobuf.ListValue
+	(*structpb.Value)(nil),         // 16: google.protobuf.Value
+	(*wrapperspb.Int64Value)(nil),  // 17: google.protobuf.Int64Value
 }
 var file_user_proto_depIdxs = []int32{
 	4,  // 0: test.v1.User.metadata:type_name -> test.v1.User.MetadataEntry
 	2,  // 1: test.v1.User.address:type_name -> test.v1.Address
-	7,  // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	8,  // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
-	9,  // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
+	10, // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	11, // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
+	12, // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
 	0,  // 5: test.v1.User.status:type_name -> test.v1.UserStatus
 	3,  // 6: test.v1.User.tags:type_name -> test.v1.Tag
-	7,  // 7: test.v1.User.deleted_at:type_name -> google.protobuf.Timestamp
+	10, // 7: test.v1.User.deleted_at:type_name -> google.protobuf.Timestamp
 	0,  // 8: test.v1.User.previous_status:type_name -> test.v1.UserStatus
-	10, // 9: test.v1.User.update_mask:type_name -> google.protobuf.FieldMask
-	11, // 10: test.v1.User.extra_metadata:type_name -> google.protobuf.Struct
-	12, // 11: test.v1.User.preferences:type_name -> google.protobuf.ListValue
-	10, // 12: test.v1.User.field_masks:type_name -> google.protobuf.FieldMask
-	11, // 13: test.v1.User.structs:type_name -> google.protobuf.Struct
-	12, // 14: test.v1.User.lists:type_name -> google.protobuf.ListValue
+	13, // 9: test.v1.User.update_mask:type_name -> google.protobuf.FieldMask
+	14, // 10: test.v1.User.extra_metadata:type_name -> google.protobuf.Struct
+	15, // 11: test.v1.User.preferences:type_name -> google.protobuf.ListValue
+	13, // 12: test.v1.User.field_masks:type_name -> google.protobuf.FieldMask
+	14, // 13: test.v1.User.structs:type_name -> google.protobuf.Struct
+	15, // 14: test.v1.User.lists:type_name -> google.protobuf.ListValue
 	5,  // 15: test.v1.User.event_times:type_name -> test.v1.User.EventTimesEntry
 	6,  // 16: test.v1.User.configs:type_name -> test.v1.User.ConfigsEntry
-	7,  // 17: test.v1.User.EventTimesEntry.value:type_name -> google.protobuf.Timestamp
-	11, // 18: test.v1.User.ConfigsEntry.value:type_name -> google.protobuf.Struct
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	16, // 17: test.v1.User.single_value:type_name -> google.protobuf.Value
+	16, // 18: test.v1.User.values:type_name -> google.protobuf.Value
+	7,  // 19: test.v1.User.value_map:type_name -> test.v1.User.ValueMapEntry
+	8,  // 20: test.v1.User.labels:type_name -> test.v1.User.LabelsEntry
+	9,  // 21: test.v1.User.scores:type_name -> test.v1.User.ScoresEntry
+	10, // 22: test.v1.User.EventTimesEntry.value:type_name -> google.protobuf.Timestamp
+	14, // 23: test.v1.User.ConfigsEntry.value:type_name -> google.protobuf.Struct
+	16, // 24: test.v1.User.ValueMapEntry.value:type_name -> google.protobuf.Value
+	12, // 25: test.v1.User.LabelsEntry.value:type_name -> google.protobuf.StringValue
+	17, // 26: test.v1.User.ScoresEntry.value:type_name -> google.protobuf.Int64Value
+	27, // [27:27] is the sub-list for method output_type
+	27, // [27:27] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_user_proto_init() }
@@ -650,7 +719,7 @@ func file_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_proto_rawDesc), len(file_user_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

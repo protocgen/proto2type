@@ -67,6 +67,11 @@ class User(BaseModel):
     lists: list[list[Any]] = Field(default_factory=list)
     event_times: dict[str, datetime] = Field(default_factory=dict, description='WKT map values (Issue #53)')
     configs: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    single_value: Any | None = Field(default=None, description='Value type coverage (Issue #116)')
+    values: list[Any] = Field(default_factory=list)
+    value_map: dict[str, Any] = Field(default_factory=dict)
+    labels: dict[str, str | None] = Field(default_factory=dict, description='Wrapper map values (Issue #116)')
+    scores: dict[str, int | None] = Field(default_factory=dict)
     contact_method: str | None = None
 
     @field_serializer('created_at', 'deleted_at')
