@@ -432,7 +432,7 @@ const USER_CREATE_TABLE: &str = "CREATE TABLE users (
     event_times      TEXT    NOT NULL,
     configs          TEXT    NOT NULL,
     single_value     TEXT    NOT NULL,
-    values           TEXT    NOT NULL,
+    "values"           TEXT    NOT NULL,
     value_map        TEXT    NOT NULL,
     labels           TEXT    NOT NULL,
     scores           TEXT    NOT NULL
@@ -444,7 +444,7 @@ const USER_INSERT: &str = "INSERT INTO users (
     nickname, status, contact_method, tags,
     deleted_at, previous_status, update_mask, extra_metadata,
     preferences, avatar_thumbnail, field_masks, structs,
-    lists, event_times, configs, single_value, values,
+    lists, event_times, configs, single_value, "values",
     value_map, labels, scores
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6, ?7,

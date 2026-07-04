@@ -856,13 +856,23 @@ func (u *User) Clone() *User {
 	if u.Labels != nil {
 		c.Labels = make(map[string]*string, len(u.Labels))
 		for k, v := range u.Labels {
-			c.Labels[k] = v
+			if v != nil {
+				cpy := *v
+				c.Labels[k] = &cpy
+			} else {
+				c.Labels[k] = nil
+			}
 		}
 	}
 	if u.Scores != nil {
 		c.Scores = make(map[string]*int64, len(u.Scores))
 		for k, v := range u.Scores {
-			c.Scores[k] = v
+			if v != nil {
+				cpy := *v
+				c.Scores[k] = &cpy
+			} else {
+				c.Scores[k] = nil
+			}
 		}
 	}
 	if u.Address != nil {
@@ -1097,7 +1107,10 @@ func (u *User) Equal(other *User) bool {
 		if !ok {
 			return false
 		}
-		if v != ov {
+		if (v == nil) != (ov == nil) {
+			return false
+		}
+		if v != nil && *v != *ov {
 			return false
 		}
 	}
@@ -1109,7 +1122,10 @@ func (u *User) Equal(other *User) bool {
 		if !ok {
 			return false
 		}
-		if v != ov {
+		if (v == nil) != (ov == nil) {
+			return false
+		}
+		if v != nil && *v != *ov {
 			return false
 		}
 	}

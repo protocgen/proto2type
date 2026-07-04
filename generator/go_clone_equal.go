@@ -282,6 +282,24 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\t\t\t} else {")
 			g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
 			g.P("\t\t\t}")
+		} else if f.MapValue != nil && f.MapValue.Kind.IsWrapper() {
+			// map value is a wrapper pointer (e.g. *string, *int64): deep copy by dereference
+			if f.MapValue.Kind == FieldKindWrapperBytes {
+				g.P("\t\t\tif v != nil {")
+				g.P("\t\t\t\tbuf := make([]byte, len(*v))")
+				g.P("\t\t\t\tcopy(buf, *v)")
+				g.P("\t\t\t\tc.", f.PascalName, "[k] = &buf")
+				g.P("\t\t\t} else {")
+				g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
+				g.P("\t\t\t}")
+			} else {
+				g.P("\t\t\tif v != nil {")
+				g.P("\t\t\t\tcpy := *v")
+				g.P("\t\t\t\tc.", f.PascalName, "[k] = &cpy")
+				g.P("\t\t\t} else {")
+				g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
+				g.P("\t\t\t}")
+			}
 		} else {
 			g.P("\t\t\tc.", f.PascalName, "[k] = v")
 		}
@@ -563,6 +581,24 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 				g.P("\t\tif !", deepEqual, "(v, ov) {")
 				g.P("\t\t\treturn false")
 				g.P("\t\t}")
+			} else if f.MapValue != nil && f.MapValue.Kind.IsWrapper() {
+				// Wrapper pointer map values: compare by dereferencing pointers
+				if f.MapValue.Kind == FieldKindWrapperBytes {
+					g.P("\t\tif (v == nil) != (ov == nil) {")
+					g.P("\t\t\treturn false")
+					g.P("\t\t}")
+					deepEqual := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "reflect", GoName: "DeepEqual"})
+					g.P("\t\tif v != nil && !", deepEqual, "(*v, *ov) {")
+					g.P("\t\t\treturn false")
+					g.P("\t\t}")
+				} else {
+					g.P("\t\tif (v == nil) != (ov == nil) {")
+					g.P("\t\t\treturn false")
+					g.P("\t\t}")
+					g.P("\t\tif v != nil && *v != *ov {")
+					g.P("\t\t\treturn false")
+					g.P("\t\t}")
+				}
 			} else {
 				g.P("\t\tif v != ov {")
 				g.P("\t\t\treturn false")
