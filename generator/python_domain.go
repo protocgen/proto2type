@@ -173,25 +173,19 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 	var pydanticParts []string
 	if !hasCustomBase {
 		pydanticParts = append(pydanticParts, "BaseModel")
+		pydanticParts = append(pydanticParts, "ConfigDict")
 	}
 	pydanticParts = append(pydanticParts, "Field")
 	if imps.hasTimestampFields || imps.hasBytesFields {
 		pydanticParts = append(pydanticParts, "field_serializer")
 	}
-	if opts.PythonAliasGenerator != "" && !hasCustomBase {
-		pydanticParts = append(pydanticParts, "ConfigDict")
-	}
 	sort.Strings(pydanticParts)
 	g.P("from pydantic import ", strings.Join(pydanticParts, ", "))
 
 	// Alias generator import.
-	if opts.PythonAliasGenerator == "camel" && !hasCustomBase {
-		g.P("from pydantic.alias_generators import to_camel")
-	} else if opts.PythonAliasGenerator != "" && opts.PythonAliasGenerator != "camel" && !hasCustomBase {
-		// Custom dotted path: "module.func" -> from module import func
-		if idx := strings.LastIndex(opts.PythonAliasGenerator, "."); idx > 0 {
-			modPath := opts.PythonAliasGenerator[:idx]
-			funcName := opts.PythonAliasGenerator[idx+1:]
+	if opts.PythonAliasGenerator != "" && !hasCustomBase {
+		funcName, modPath := pythonAliasFuncName(opts.PythonAliasGenerator)
+		if modPath != "" {
 			g.P("from ", modPath, " import ", funcName)
 		}
 	}
@@ -305,20 +299,24 @@ func writePythonModel(g *protogen.GeneratedFile, m *DomainMessage, opts *Options
 
 	hasContent := false
 
-	// model_config for alias generation.
-	if opts.PythonAliasGenerator != "" && !hasCustomBase {
-		aliasFunc := "to_camel"
-		if opts.PythonAliasGenerator != "camel" {
-			if idx := strings.LastIndex(opts.PythonAliasGenerator, "."); idx > 0 {
-				aliasFunc = opts.PythonAliasGenerator[idx+1:]
-			} else {
-				aliasFunc = opts.PythonAliasGenerator
-			}
+	// model_config — always emit populate_by_name=True so keyword-escaped
+	// fields (e.g. type_ with alias='type') can be set by field name.
+	if !hasCustomBase {
+		var configParts []string
+		configParts = append(configParts, "populate_by_name=True")
+		if opts.PythonAliasGenerator != "" {
+			funcName, _ := pythonAliasFuncName(opts.PythonAliasGenerator)
+			configParts = append(configParts, "alias_generator="+funcName)
 		}
-		g.P("    model_config = ConfigDict(")
-		g.P("        populate_by_name=True,")
-		g.P("        alias_generator=", aliasFunc, ",")
-		g.P("    )")
+		if len(configParts) == 1 {
+			g.P("    model_config = ConfigDict(", configParts[0], ")")
+		} else {
+			g.P("    model_config = ConfigDict(")
+			for _, part := range configParts {
+				g.P("        ", part, ",")
+			}
+			g.P("    )")
+		}
 		g.P()
 		hasContent = true
 	}
@@ -533,4 +531,17 @@ func escapePythonString(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", "")
 	return s
+}
+
+// pythonAliasFuncName resolves the alias generator option into the Python
+// function name and its import module path. Returns (funcName, modPath).
+// modPath is empty for plain names that don't need an import.
+func pythonAliasFuncName(aliasGen string) (funcName, modPath string) {
+	if aliasGen == "camel" {
+		return "to_camel", "pydantic.alias_generators"
+	}
+	if idx := strings.LastIndex(aliasGen, "."); idx > 0 {
+		return aliasGen[idx+1:], aliasGen[:idx]
+	}
+	return aliasGen, ""
 }

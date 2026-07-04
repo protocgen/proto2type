@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Priority(str, Enum):
@@ -25,28 +25,38 @@ class SettingsTheme(str, Enum):
 
 class Settings(BaseModel):
     """Message with a nested enum."""
+    model_config = ConfigDict(populate_by_name=True)
+
     theme: SettingsTheme | None = None
     locale: str = ''
 
 
 class OrganizationDepartmentTeam(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str = ''
     members: list[str] = Field(default_factory=list)
 
 
 class OrganizationDepartment(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str = ''
     teams: list[OrganizationDepartmentTeam] = Field(default_factory=list)
 
 
 class Organization(BaseModel):
     """Deeply nested messages (3 levels)."""
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str = ''
     departments: list[OrganizationDepartment] = Field(default_factory=list)
 
 
 class Notification(BaseModel):
     """Multiple oneofs."""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str = ''
     priority: Priority | None = None
     channel: str | None = None
@@ -55,6 +65,8 @@ class Notification(BaseModel):
 
 class Document(BaseModel):
     """Map with message values and various WKTs."""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str = ''
     settings_map: dict[str, Settings] = Field(default_factory=dict)
     code_names: dict[int, str] = Field(default_factory=dict)
@@ -68,6 +80,8 @@ class Document(BaseModel):
 
 class TreeNode(BaseModel):
     """Recursive/self-referencing message."""
+    model_config = ConfigDict(populate_by_name=True)
+
     value: str = ''
     children: list[TreeNode] = Field(default_factory=list)
     parent: TreeNode | None = None
@@ -75,6 +89,8 @@ class TreeNode(BaseModel):
 
 class AuditLog(BaseModel):
     """Message with skipped field and name override."""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str = ''
     action: str = ''
     user_id: str = ''
@@ -82,6 +98,8 @@ class AuditLog(BaseModel):
 
 class Event(BaseModel):
     """Oneof with mixed variant types (message, enum, scalar)."""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str = ''
     payload: str | Settings | Priority | None = None
 
@@ -93,6 +111,8 @@ class WktPayload(BaseModel):
    Value     → *any
    ListValue → *[]any
    FieldMask → *[]string."""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str = ''
     content: dict[str, Any] | Any | str | None = None
 

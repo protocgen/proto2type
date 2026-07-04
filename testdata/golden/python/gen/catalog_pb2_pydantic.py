@@ -5,11 +5,13 @@ from __future__ import annotations
 from enum import Enum
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class ModelCatalogEntry(BaseModel):
     """ModelCatalogEntry represents a model in the catalog."""
+    model_config = ConfigDict(populate_by_name=True)
+
     model_id: str = ''
     provider: str = ''
     display_name: str = ''

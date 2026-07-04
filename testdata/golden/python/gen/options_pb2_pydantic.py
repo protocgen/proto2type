@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OptionalBool(str, Enum):
@@ -14,10 +14,14 @@ class OptionalBool(str, Enum):
 
 
 class MessageOptions(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     skip: bool = Field(default=False, description='Skip generating types for this message.')
 
 
 class FieldOptions(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     document_id: bool = Field(default=False, description='Mark as document ID field.  Firestore: excluded from struct (ID is doc path).  Mongo: tagged bson:\"_id\".')
     server_timestamp: bool = Field(default=False, description='Server-managed timestamp (Firestore serverTimestamp).')
     name: str = Field(default='', description='Override the storage field name.')
