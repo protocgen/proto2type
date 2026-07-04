@@ -52,6 +52,8 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 	needsChrono := false
 	needsHashMap := false
 	needsSerde := false
+	needsValidator := false
+	needsLazyStatic := false
 
 	for _, dm := range df.Messages {
 		if dm.Skip {
@@ -59,6 +61,10 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 		}
 		needsSerde = true
 		irScanRustImports(dm, &needsChrono, &needsHashMap)
+		if opts.Validate {
+			needsValidator = true
+			irScanRustValidation(dm, &needsLazyStatic)
+		}
 	}
 
 	// Check if file has enums (need serde for enums too)
@@ -79,6 +85,13 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 	// Emit use statements
 	if needsSerde {
 		g.P("use serde::{Deserialize, Serialize};")
+	}
+	if needsValidator {
+		g.P("use validator::Validate;")
+	}
+	if needsLazyStatic {
+		g.P("use lazy_static::lazy_static;")
+		g.P("use regex::Regex;")
 	}
 	if needsChrono {
 		g.P("use chrono::{DateTime, Utc};")
@@ -117,6 +130,25 @@ func irScanRustImports(dm *DomainMessage, needsChrono, needsHashMap *bool) {
 	}
 	for _, nested := range dm.NestedMessages {
 		irScanRustImports(nested, needsChrono, needsHashMap)
+	}
+}
+
+// irScanRustValidation scans a DomainMessage for fields that need regex (lazy_static).
+// The validator import itself is unconditionally needed when validate=true.
+func irScanRustValidation(dm *DomainMessage, needsLazyStatic *bool) {
+	if dm.Skip {
+		return
+	}
+	for _, f := range dm.Fields {
+		if f.ValidateConstraints != nil {
+			// Pattern, UUID require regex + lazy_static
+			if f.ValidateConstraints.Pattern != "" || f.ValidateConstraints.UUID {
+				*needsLazyStatic = true
+			}
+		}
+	}
+	for _, nested := range dm.NestedMessages {
+		irScanRustValidation(nested, needsLazyStatic)
 	}
 }
 
@@ -274,7 +306,11 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 	}
 
 	// Derive attributes
-	g.P("#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]")
+	if opts.Validate {
+		g.P("#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]")
+	} else {
+		g.P("#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]")
+	}
 	if !opts.RustExhaustive {
 		g.P("#[non_exhaustive]")
 	}
@@ -321,6 +357,13 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 			g.P("    #[serde(", strings.Join(attrs, ", "), ")]")
 		}
 
+		// Validator attributes from IR constraints
+		if opts.Validate {
+			if vattrs := rustValidateAttrs(f); len(vattrs) > 0 {
+				g.P("    #[validate(", strings.Join(vattrs, ", "), ")]")
+			}
+		}
+
 		// Duration doc comment
 		if f.Kind == FieldKindDuration {
 			g.P("    /// Duration in milliseconds")
@@ -331,6 +374,11 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 
 	g.P("}")
 	g.P()
+
+	// Emit lazy_static regex constants for pattern/UUID validators
+	if opts.Validate {
+		rustEmitRegexConstants(g, dm)
+	}
 
 	// Generate nested messages
 	for _, nested := range dm.NestedMessages {

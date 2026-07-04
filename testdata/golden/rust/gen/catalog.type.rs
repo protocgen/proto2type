@@ -3,12 +3,13 @@
 // source: catalog.proto
 
 use serde::{Deserialize, Serialize};
+use validator::Validate;
 use chrono::{DateTime, Utc};
 
 /// Domain representation of test.v1.ModelCatalogEntry.
 ///
 /// ModelCatalogEntry represents a model in the catalog.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
 #[non_exhaustive]
 pub struct ModelCatalogEntry {
     pub model_id: String,

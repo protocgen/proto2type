@@ -12,6 +12,7 @@ plugins:
     opt:
       - paths=source_relative
       - lang=rust
+      - validate=true
 
   # Rust SQLite storage types
   - local: protoc-gen-proto2type
