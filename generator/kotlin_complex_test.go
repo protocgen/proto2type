@@ -126,12 +126,12 @@ func TestKotlin_WKTFieldTypes(t *testing.T) {
 		field string
 		want  string
 	}{
-		{"metadata", "Map<String, Any?>"},
-		{"extension", "Any?"},
+		{"metadata", "Map<String, JsonElement>"},
+		{"extension", "JsonElement"},
 		{"update_mask", "List<String>"},
 		{"archived", "Boolean?"},
 		{"view_count", "Long?"},
-		{"placeholders", "List<Unit>"},
+		{"placeholders", "List<JsonObject>"},
 	}
 
 	for _, tt := range tests {

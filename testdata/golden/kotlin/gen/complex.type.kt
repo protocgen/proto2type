@@ -6,6 +6,7 @@ package test.v1
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.*
 
 /** Non-contiguous enum values. */
 @Serializable
@@ -116,12 +117,12 @@ data class Document(
     val id: String = "",
     @SerialName("settings_map") val settingsMap: Map<String, Settings?> = emptyMap(),
     @SerialName("code_names") val codeNames: Map<Int, String> = emptyMap(),
-    val metadata: Map<String, Any?> = emptyMap(),
-    val extension: Any? = null,
+    val metadata: Map<String, JsonElement> = JsonObject(emptyMap()),
+    val extension: JsonElement = JsonNull,
     @SerialName("update_mask") val updateMask: List<String> = emptyList(),
     val archived: Boolean? = null,
     @SerialName("view_count") val viewCount: Long? = null,
-    val placeholders: List<Unit> = emptyList()
+    val placeholders: List<JsonObject> = emptyList()
 )
 
 /** Recursive/self-referencing message. */
@@ -172,13 +173,13 @@ data class Event(
 sealed class WktPayloadContent {
     @Serializable
     @SerialName("struct_data")
-    data class StructData(val value: Map<String, Any?>) : WktPayloadContent()
+    data class StructData(val value: Map<String, JsonElement>) : WktPayloadContent()
     @Serializable
     @SerialName("any_value")
-    data class AnyValue(val value: Any?) : WktPayloadContent()
+    data class AnyValue(val value: JsonElement) : WktPayloadContent()
     @Serializable
     @SerialName("list_data")
-    data class ListData(val value: List<Any?>) : WktPayloadContent()
+    data class ListData(val value: JsonArray) : WktPayloadContent()
     @Serializable
     @SerialName("mask")
     data class Mask(val value: List<String>) : WktPayloadContent()

@@ -173,22 +173,22 @@ func TestKotlinFieldType(t *testing.T) {
 		{
 			name: "struct",
 			f:    DomainField{Kind: FieldKindStruct},
-			want: "Map<String, Any?>",
+			want: "Map<String, JsonElement>",
 		},
 		{
 			name: "value",
 			f:    DomainField{Kind: FieldKindValue},
-			want: "Any?",
+			want: "JsonElement",
 		},
 		{
 			name: "list value",
 			f:    DomainField{Kind: FieldKindListValue},
-			want: "List<Any?>",
+			want: "JsonArray",
 		},
 		{
 			name: "any",
 			f:    DomainField{Kind: FieldKindAny},
-			want: "Any?",
+			want: "JsonElement",
 		},
 		{
 			name: "bytes",
