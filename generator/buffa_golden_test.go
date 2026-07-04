@@ -70,7 +70,7 @@ func TestGoldenBuffaPrefixedOutput(t *testing.T) {
 	// Must contain standard infrastructure.
 	infrastructure := []string{
 		"pub enum ConversionError",
-		"impl From<&User>",
+		"impl TryFrom<&User>",
 		"impl TryFrom<&__buffa_mod::User>",
 	}
 	for _, s := range infrastructure {

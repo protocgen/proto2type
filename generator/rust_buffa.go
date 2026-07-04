@@ -195,10 +195,12 @@ func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg 
 	domainName := dm.Name
 	bufName := "__buffa_mod::" + domainName
 
-	// --- From<&DomainType> for __buffa_mod::ProtoType (domain → buffa) ---
+	// --- TryFrom<&DomainType> for __buffa_mod::ProtoType (domain → buffa) ---
 	g.P("#[allow(clippy::field_reassign_with_default)]")
-	g.P("impl From<&", domainName, "> for ", bufName, " {")
-	g.P("    fn from(d: &", domainName, ") -> Self {")
+	g.P("impl TryFrom<&", domainName, "> for ", bufName, " {")
+	g.P("    type Error = ConversionError;")
+	g.P()
+	g.P("    fn try_from(d: &", domainName, ") -> Result<Self, Self::Error> {")
 	g.P("        let mut b = Self::default();")
 
 	for _, f := range dm.Fields {
@@ -219,7 +221,7 @@ func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg 
 		g.P("        b.", rustFieldName, " = ", expr, ";")
 	}
 
-	g.P("        b")
+	g.P("        Ok(b)")
 	g.P("    }")
 	g.P("}")
 	g.P()
@@ -270,7 +272,7 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 	if f.Repeated {
 		switch f.Kind {
 		case FieldKindMessage:
-			return fmt.Sprintf("d.%s.iter().map(Into::into).collect()", fieldName)
+			return fmt.Sprintf("d.%s.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?", fieldName)
 		case FieldKindTimestamp:
 			return fmt.Sprintf("d.%s.iter().map(|dt| chrono_to_buffa_timestamp(dt)).collect()", fieldName)
 		case FieldKindScalar:
@@ -281,7 +283,7 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 		case FieldKindEnum:
 			return fmt.Sprintf("d.%s.iter().map(|v| buffa::EnumValue::from(*v as i32)).collect()", fieldName)
 		case FieldKindStruct:
-			return fmt.Sprintf("d.%s.iter().map(|m| serde_json::from_value(serde_json::Value::Object(m.clone())).expect(\"failed to convert serde_json::Map to protobuf Struct\")).collect()", fieldName)
+			return fmt.Sprintf("d.%s.iter().map(|m| serde_json::from_value(serde_json::Value::Object(m.clone())).map_err(|_| ConversionError::InvalidStructValue)).collect::<Result<Vec<_>, _>>()?", fieldName)
 		default:
 			return fmt.Sprintf("d.%s.clone()", fieldName)
 		}
@@ -302,15 +304,15 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 	case FieldKindMessage:
 		if f.Optional {
 			if f.NeedsBox {
-				return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.as_ref().into()), None => buffa::MessageField::none() }", fieldName)
+				return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.as_ref().try_into()?), None => buffa::MessageField::none() }", fieldName)
 			}
-			return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.into()), None => buffa::MessageField::none() }", fieldName)
+			return fmt.Sprintf("match &d.%s { Some(v) => buffa::MessageField::some(v.try_into()?), None => buffa::MessageField::none() }", fieldName)
 		}
 		// Required singular message field: directly convert.
 		if f.NeedsBox {
-			return fmt.Sprintf("buffa::MessageField::some((&*d.%s).into())", fieldName)
+			return fmt.Sprintf("buffa::MessageField::some((&*d.%s).try_into()?)", fieldName)
 		}
-		return fmt.Sprintf("buffa::MessageField::some((&d.%s).into())", fieldName)
+		return fmt.Sprintf("buffa::MessageField::some((&d.%s).try_into()?)", fieldName)
 
 	case FieldKindEnum:
 		if f.Optional {
@@ -323,9 +325,9 @@ func rustBuffaDomainToBufExpr(f *DomainField, fieldName string) string {
 
 	case FieldKindStruct:
 		if f.Optional {
-			return fmt.Sprintf("match &d.%s { Some(m) => buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(m.clone())).expect(\"failed to convert serde_json::Map to protobuf Struct\")), None => buffa::MessageField::none() }", fieldName)
+			return fmt.Sprintf("match &d.%s { Some(m) => buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(m.clone())).map_err(|_| ConversionError::InvalidStructValue)?), None => buffa::MessageField::none() }", fieldName)
 		}
-		return fmt.Sprintf("buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(d.%s.clone())).expect(\"failed to convert serde_json::Map to protobuf Struct\"))", fieldName)
+		return fmt.Sprintf("buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(d.%s.clone())).map_err(|_| ConversionError::InvalidStructValue)?)", fieldName)
 
 	case FieldKindDuration:
 		return fmt.Sprintf("d.%s", fieldName)
@@ -455,7 +457,7 @@ func rustBuffaBufToDomainScalar(f *DomainField, fieldName string) string {
 func generateBuffaDomainToBufOneof(g *protogen.GeneratedFile, o *DomainOneof, fieldName, parentMsg, oneofBase string) {
 	oneofPascal := toPascalCase(o.FieldName)
 
-	g.P("        b.", fieldName, " = d.", fieldName, ".as_ref().map(|v| match v {")
+	g.P("        b.", fieldName, " = d.", fieldName, ".as_ref().map(|v| -> Result<_, ConversionError> { match v {")
 	for _, v := range o.Variants {
 		variantPascal := v.Name
 
@@ -463,47 +465,47 @@ func generateBuffaDomainToBufOneof(g *protogen.GeneratedFile, o *DomainOneof, fi
 		case FieldKindMessage:
 			g.P("            ", o.Name, "::", variantPascal, "(inner) => {")
 			if v.NeedsBox {
-				g.P("                let converted: __buffa_mod::", v.TypeName, " = inner.as_ref().into();")
+				g.P("                let converted: __buffa_mod::", v.TypeName, " = inner.as_ref().try_into()?;")
 			} else {
-				g.P("                let converted: __buffa_mod::", v.TypeName, " = inner.into();")
+				g.P("                let converted: __buffa_mod::", v.TypeName, " = inner.try_into()?;")
 			}
-			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(Box::new(converted))")
+			g.P("                Ok(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(Box::new(converted)))")
 			g.P("            }")
 
 		case FieldKindTimestamp:
 			g.P("            ", o.Name, "::", variantPascal, "(dt) => {")
-			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(Box::new(chrono_to_buffa_timestamp(dt)))")
+			g.P("                Ok(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(Box::new(chrono_to_buffa_timestamp(dt))))")
 			g.P("            }")
 
 		case FieldKindScalar:
 			if v.ScalarKind == protoreflect.StringKind {
 				g.P("            ", o.Name, "::", variantPascal, "(v) => {")
-				g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v.clone().into())")
+				g.P("                Ok(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v.clone().into()))")
 				g.P("            }")
 			} else {
 				g.P("            ", o.Name, "::", variantPascal, "(v) => {")
-				g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(*v)")
+				g.P("                Ok(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(*v))")
 				g.P("            }")
 			}
 
 		case FieldKindEnum:
 			g.P("            ", o.Name, "::", variantPascal, "(v) => {")
-			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(buffa::EnumValue::from(*v as i32))")
+			g.P("                Ok(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(buffa::EnumValue::from(*v as i32)))")
 			g.P("            }")
 
 		case FieldKindStruct:
 			g.P("            ", o.Name, "::", variantPascal, "(m) => {")
-			g.P("                let converted = serde_json::from_value(serde_json::Value::Object(m.clone())).expect(\"failed to convert serde_json::Map to protobuf Struct\");")
-			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(Box::new(converted))")
+			g.P("                let converted = serde_json::from_value(serde_json::Value::Object(m.clone())).map_err(|_| ConversionError::InvalidStructValue)?;")
+			g.P("                Ok(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(Box::new(converted)))")
 			g.P("            }")
 
 		default:
 			g.P("            ", o.Name, "::", variantPascal, "(v) => {")
-			g.P("                ", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v.clone().into())")
+			g.P("                Ok(", oneofBase, toSnakeCase(parentMsg), "::", oneofPascal, "::", variantPascal, "(v.clone().into()))")
 			g.P("            }")
 		}
 	}
-	g.P("        });")
+	g.P("        } }).transpose()?;")
 }
 
 // generateBuffaBufToDomainOneof generates the buffa→domain oneof conversion.

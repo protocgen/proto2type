@@ -49,8 +49,10 @@ fn buffa_timestamp_to_chrono(
 }
 
 #[allow(clippy::field_reassign_with_default)]
-impl From<&ModelCatalogEntry> for __buffa_mod::ModelCatalogEntry {
-    fn from(d: &ModelCatalogEntry) -> Self {
+impl TryFrom<&ModelCatalogEntry> for __buffa_mod::ModelCatalogEntry {
+    type Error = ConversionError;
+
+    fn try_from(d: &ModelCatalogEntry) -> Result<Self, Self::Error> {
         let mut b = Self::default();
         b.model_id = d.model_id.clone().into();
         b.provider = d.provider.clone().into();
@@ -67,7 +69,7 @@ impl From<&ModelCatalogEntry> for __buffa_mod::ModelCatalogEntry {
         b.updated_at = buffa::MessageField::some(chrono_to_buffa_timestamp(&d.updated_at));
         b.notes = d.notes.clone().into();
         b.region = d.region.clone().into();
-        b
+        Ok(b)
     }
 }
 

@@ -51,8 +51,10 @@ fn buffa_timestamp_to_chrono(
 }
 
 #[allow(clippy::field_reassign_with_default)]
-impl From<&User> for __buffa_mod::User {
-    fn from(d: &User) -> Self {
+impl TryFrom<&User> for __buffa_mod::User {
+    type Error = ConversionError;
+
+    fn try_from(d: &User) -> Result<Self, Self::Error> {
         let mut b = Self::default();
         b.id = d.id.clone().into();
         b.email = d.email.clone().into();
@@ -61,34 +63,34 @@ impl From<&User> for __buffa_mod::User {
         b.age = d.age;
         b.roles = d.roles.iter().map(|s| s.clone().into()).collect();
         b.metadata = d.metadata.clone();
-        b.address = buffa::MessageField::some((&d.address).into());
+        b.address = buffa::MessageField::some((&d.address).try_into()?);
         b.created_at = buffa::MessageField::some(chrono_to_buffa_timestamp(&d.created_at));
         b.session_timeout = d.session_timeout;
         b.phone = d.phone.as_deref().map(Into::into);
         b.avatar = d.avatar.clone();
         b.nickname = d.nickname;
         b.status = buffa::EnumValue::from(d.status as i32);
-        b.contact_method = d.contact_method.as_ref().map(|v| match v {
+        b.contact_method = d.contact_method.as_ref().map(|v| -> Result<_, ConversionError> { match v {
             UserContactMethod::ContactEmail(v) => {
-                __buffa_mod::oneof::user::ContactMethod::ContactEmail(v.clone().into())
+                Ok(__buffa_mod::oneof::user::ContactMethod::ContactEmail(v.clone().into()))
             }
             UserContactMethod::ContactPhone(v) => {
-                __buffa_mod::oneof::user::ContactMethod::ContactPhone(v.clone().into())
+                Ok(__buffa_mod::oneof::user::ContactMethod::ContactPhone(v.clone().into()))
             }
-        });
-        b.tags = d.tags.iter().map(Into::into).collect();
+        } }).transpose()?;
+        b.tags = d.tags.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?;
         b.deleted_at = match &d.deleted_at { Some(dt) => buffa::MessageField::some(chrono_to_buffa_timestamp(dt)), None => buffa::MessageField::none() };
         b.previous_status = d.previous_status.map(|v| buffa::EnumValue::from(v as i32));
         b.update_mask = d.update_mask.clone().into();
-        b.extra_metadata = buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(d.extra_metadata.clone())).expect("failed to convert serde_json::Map to protobuf Struct"));
+        b.extra_metadata = buffa::MessageField::some(serde_json::from_value(serde_json::Value::Object(d.extra_metadata.clone())).map_err(|_| ConversionError::InvalidStructValue)?);
         b.preferences = d.preferences.clone().into();
         b.avatar_thumbnail = d.avatar_thumbnail.clone();
         b.field_masks = d.field_masks.clone();
-        b.structs = d.structs.iter().map(|m| serde_json::from_value(serde_json::Value::Object(m.clone())).expect("failed to convert serde_json::Map to protobuf Struct")).collect();
+        b.structs = d.structs.iter().map(|m| serde_json::from_value(serde_json::Value::Object(m.clone())).map_err(|_| ConversionError::InvalidStructValue)).collect::<Result<Vec<_>, _>>()?;
         b.lists = d.lists.clone();
         b.event_times = d.event_times.clone();
         b.configs = d.configs.clone();
-        b
+        Ok(b)
     }
 }
 
@@ -138,15 +140,17 @@ impl TryFrom<&__buffa_mod::User> for User {
 }
 
 #[allow(clippy::field_reassign_with_default)]
-impl From<&Address> for __buffa_mod::Address {
-    fn from(d: &Address) -> Self {
+impl TryFrom<&Address> for __buffa_mod::Address {
+    type Error = ConversionError;
+
+    fn try_from(d: &Address) -> Result<Self, Self::Error> {
         let mut b = Self::default();
         b.street = d.street.clone().into();
         b.city = d.city.clone().into();
         b.state = d.state.clone().into();
         b.zip = d.zip.clone().into();
         b.country = d.country.clone().into();
-        b
+        Ok(b)
     }
 }
 
@@ -166,12 +170,14 @@ impl TryFrom<&__buffa_mod::Address> for Address {
 }
 
 #[allow(clippy::field_reassign_with_default)]
-impl From<&Tag> for __buffa_mod::Tag {
-    fn from(d: &Tag) -> Self {
+impl TryFrom<&Tag> for __buffa_mod::Tag {
+    type Error = ConversionError;
+
+    fn try_from(d: &Tag) -> Result<Self, Self::Error> {
         let mut b = Self::default();
         b.key = d.key.clone().into();
         b.value = d.value.clone().into();
-        b
+        Ok(b)
     }
 }
 
