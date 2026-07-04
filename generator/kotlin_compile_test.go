@@ -1,10 +1,12 @@
 package generator
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 // TestKotlinGoldenCompile compiles the Kotlin golden files using the Gradle
@@ -21,6 +23,11 @@ func TestKotlinGoldenCompile(t *testing.T) {
 		t.Skip("gradle not found in PATH; skipping Kotlin compilation test (run inside nix develop)")
 	}
 
+	// Skip if java isn't available (required by gradle).
+	if _, err := exec.LookPath("java"); err != nil {
+		t.Skip("java not found in PATH; skipping Kotlin compilation test")
+	}
+
 	// Locate the tests/kotlin directory relative to this source file.
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -28,7 +35,11 @@ func TestKotlinGoldenCompile(t *testing.T) {
 	}
 	gradleDir := filepath.Join(filepath.Dir(thisFile), "..", "tests", "kotlin")
 
-	cmd := exec.Command(gradleBin, "compileKotlin", "--no-daemon", "-q")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	//nolint:gosec // gradleBin is from LookPath, not user-controlled
+	cmd := exec.CommandContext(ctx, gradleBin, "compileKotlin", "--no-daemon", "-q")
 	cmd.Dir = gradleDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
