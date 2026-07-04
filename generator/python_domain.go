@@ -51,6 +51,7 @@ type pythonImports struct {
 	needsTimedelta     bool
 	needsAny           bool
 	needsBase64        bool
+	needsEnum          bool // true when the file has enum definitions
 	hasTimestampFields bool // models with datetime fields need model_rebuild()
 	hasBytesFields     bool
 	timestampModels    []string // model names that have timestamp fields
@@ -59,6 +60,9 @@ type pythonImports struct {
 
 func scanPythonImports(ir *DomainFile, opts *Options) *pythonImports {
 	imps := &pythonImports{}
+	if len(ir.Enums) > 0 {
+		imps.needsEnum = true
+	}
 	for _, m := range ir.Messages {
 		if m.Skip {
 			continue
@@ -69,6 +73,9 @@ func scanPythonImports(ir *DomainFile, opts *Options) *pythonImports {
 }
 
 func scanPythonImportsMessage(m *DomainMessage, imps *pythonImports, opts *Options) {
+	if len(m.NestedEnums) > 0 {
+		imps.needsEnum = true
+	}
 	var hasTS, hasBytes bool
 	for _, f := range m.Fields {
 		scanPythonImportsField(f, imps)
@@ -110,18 +117,22 @@ func scanPythonImportsMessage(m *DomainMessage, imps *pythonImports, opts *Optio
 }
 
 func scanPythonImportsField(f *DomainField, imps *pythonImports) {
-	switch f.Kind {
-	case FieldKindTimestamp:
-		imps.needsDatetime = true
-	case FieldKindDuration:
-		imps.needsTimedelta = true
-	case FieldKindStruct, FieldKindValue, FieldKindAny, FieldKindListValue:
-		imps.needsAny = true
-	}
+	applyWKTImportFlags(f.Kind, imps)
 	if f.IsMap && f.MapValue != nil {
-		if f.MapValue.Kind == FieldKindStruct || f.MapValue.Kind == FieldKindValue {
-			imps.needsAny = true
-		}
+		applyWKTImportFlags(f.MapValue.Kind, imps)
+	}
+}
+
+// applyWKTImportFlags sets import flags based on a field kind. Reads from
+// wktPythonTable in python_types.go — no separate switch to maintain.
+func applyWKTImportFlags(kind FieldKind, imps *pythonImports) {
+	switch wktNeedsImport(kind) {
+	case wktImportDatetime:
+		imps.needsDatetime = true
+	case wktImportTimedelta:
+		imps.needsTimedelta = true
+	case wktImportAny:
+		imps.needsAny = true
 	}
 }
 
@@ -143,7 +154,9 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 	if imps.needsBase64 {
 		g.P("import base64")
 	}
-	g.P("from enum import Enum")
+	if imps.needsEnum {
+		g.P("from enum import Enum")
+	}
 
 	// typing imports.
 	var typingImports []string

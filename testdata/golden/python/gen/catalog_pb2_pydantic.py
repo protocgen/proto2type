@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from enum import Enum
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
