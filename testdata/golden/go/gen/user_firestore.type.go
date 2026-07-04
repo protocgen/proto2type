@@ -48,6 +48,11 @@ type UserFirestore struct {
 	Lists           [][]any                   `firestore:"lists,omitempty"`
 	EventTimes      map[string]time.Time      `firestore:"event_times,omitempty"`
 	Configs         map[string]map[string]any `firestore:"configs,omitempty"`
+	SingleValue     any                       `firestore:"single_value,omitempty"`
+	Values          []any                     `firestore:"values,omitempty"`
+	ValueMap        map[string]any            `firestore:"value_map,omitempty"`
+	Labels          map[string]*string        `firestore:"labels,omitempty"`
+	Scores          map[string]*int64         `firestore:"scores,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
@@ -176,6 +181,52 @@ func (u *UserFirestore) ToProto() *pb.User {
 			out.Configs[k] = s
 		}
 	}
+	if u.SingleValue != nil {
+		var err error
+		out.SingleValue, err = structpb.NewValue(u.SingleValue)
+		if err != nil {
+			log.Printf("proto2type: failed to convert %s.SingleValue to Value: %v", "UserFirestore", err)
+			out.SingleValue = nil
+		}
+	}
+	if len(u.Values) > 0 {
+		out.Values = make([]*structpb.Value, len(u.Values))
+		for i, v := range u.Values {
+			s, err := structpb.NewValue(v)
+			if err != nil {
+				log.Printf("proto2type: failed to convert %s.Values[%d] to Value: %v", "UserFirestore", i, err)
+				continue
+			}
+			out.Values[i] = s
+		}
+	}
+	if len(u.ValueMap) > 0 {
+		out.ValueMap = make(map[string]*structpb.Value, len(u.ValueMap))
+		for k, v := range u.ValueMap {
+			s, err := structpb.NewValue(v)
+			if err != nil {
+				log.Printf("proto2type: failed to convert %s.ValueMap[%v] to Value: %v", "UserFirestore", k, err)
+				continue
+			}
+			out.ValueMap[k] = s
+		}
+	}
+	if len(u.Labels) > 0 {
+		out.Labels = make(map[string]*wrapperspb.StringValue, len(u.Labels))
+		for k, v := range u.Labels {
+			if v != nil {
+				out.Labels[k] = wrapperspb.String(*v)
+			}
+		}
+	}
+	if len(u.Scores) > 0 {
+		out.Scores = make(map[string]*wrapperspb.Int64Value, len(u.Scores))
+		for k, v := range u.Scores {
+			if v != nil {
+				out.Scores[k] = wrapperspb.Int64(*v)
+			}
+		}
+	}
 	return out
 }
 
@@ -300,6 +351,49 @@ func (u *UserFirestore) TryToProto() (*pb.User, error) {
 				return nil, fmt.Errorf("proto2type: failed to convert %s.Configs[%v] to Struct: %w", "UserFirestore", k, err)
 			}
 			out.Configs[k] = s
+		}
+	}
+	if u.SingleValue != nil {
+		var err error
+		out.SingleValue, err = structpb.NewValue(u.SingleValue)
+		if err != nil {
+			return nil, fmt.Errorf("proto2type: failed to convert %s.SingleValue to Value: %w", "UserFirestore", err)
+		}
+	}
+	if len(u.Values) > 0 {
+		out.Values = make([]*structpb.Value, len(u.Values))
+		for i, v := range u.Values {
+			s, err := structpb.NewValue(v)
+			if err != nil {
+				return nil, fmt.Errorf("proto2type: failed to convert %s.Values[%d] to Value: %w", "UserFirestore", i, err)
+			}
+			out.Values[i] = s
+		}
+	}
+	if len(u.ValueMap) > 0 {
+		out.ValueMap = make(map[string]*structpb.Value, len(u.ValueMap))
+		for k, v := range u.ValueMap {
+			s, err := structpb.NewValue(v)
+			if err != nil {
+				return nil, fmt.Errorf("proto2type: failed to convert %s.ValueMap[%v] to Value: %w", "UserFirestore", k, err)
+			}
+			out.ValueMap[k] = s
+		}
+	}
+	if len(u.Labels) > 0 {
+		out.Labels = make(map[string]*wrapperspb.StringValue, len(u.Labels))
+		for k, v := range u.Labels {
+			if v != nil {
+				out.Labels[k] = wrapperspb.String(*v)
+			}
+		}
+	}
+	if len(u.Scores) > 0 {
+		out.Scores = make(map[string]*wrapperspb.Int64Value, len(u.Scores))
+		for k, v := range u.Scores {
+			if v != nil {
+				out.Scores[k] = wrapperspb.Int64(*v)
+			}
 		}
 	}
 	return out, nil
@@ -444,6 +538,48 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.SingleValue = nil
+	if msg.SingleValue != nil {
+		u.SingleValue = msg.SingleValue.AsInterface()
+	}
+	u.Values = nil
+	if len(msg.Values) > 0 {
+		u.Values = make([]any, len(msg.Values))
+		for i, v := range msg.Values {
+			if v != nil {
+				u.Values[i] = v.AsInterface()
+			}
+		}
+	}
+	u.ValueMap = nil
+	if len(msg.ValueMap) > 0 {
+		u.ValueMap = make(map[string]any, len(msg.ValueMap))
+		for k, v := range msg.ValueMap {
+			if v != nil {
+				u.ValueMap[k] = v.AsInterface()
+			}
+		}
+	}
+	u.Labels = nil
+	if len(msg.Labels) > 0 {
+		u.Labels = make(map[string]*string, len(msg.Labels))
+		for k, v := range msg.Labels {
+			if v != nil {
+				val := v.GetValue()
+				u.Labels[k] = &val
+			}
+		}
+	}
+	u.Scores = nil
+	if len(msg.Scores) > 0 {
+		u.Scores = make(map[string]*int64, len(msg.Scores))
+		for k, v := range msg.Scores {
+			if v != nil {
+				val := v.GetValue()
+				u.Scores[k] = &val
+			}
+		}
+	}
 }
 
 // ToDomain converts to the domain type.
@@ -474,6 +610,11 @@ func (u *UserFirestore) ToDomain() *User {
 		Lists:          u.Lists,
 		EventTimes:     u.EventTimes,
 		Configs:        u.Configs,
+		SingleValue:    u.SingleValue,
+		Values:         u.Values,
+		ValueMap:       u.ValueMap,
+		Labels:         u.Labels,
+		Scores:         u.Scores,
 	}
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
@@ -558,6 +699,11 @@ func (u *UserFirestore) FromDomain(d *User) {
 	u.Lists = d.Lists
 	u.EventTimes = d.EventTimes
 	u.Configs = d.Configs
+	u.SingleValue = d.SingleValue
+	u.Values = d.Values
+	u.ValueMap = d.ValueMap
+	u.Labels = d.Labels
+	u.Scores = d.Scores
 }
 
 // AddressFirestore is the Firestore storage representation of test.v1.Address.
