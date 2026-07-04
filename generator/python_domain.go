@@ -123,18 +123,15 @@ func scanPythonImportsField(f *DomainField, imps *pythonImports) {
 	}
 }
 
-// applyWKTImportFlags sets import flags based on a field kind. Used for both
-// top-level fields and map value types to keep the logic in one place.
-//
-// SYNC: when adding a new FieldKind here, also update wktPythonType in
-// python_types.go to return the corresponding Python type string.
+// applyWKTImportFlags sets import flags based on a field kind. Reads from
+// wktPythonTable in python_types.go — no separate switch to maintain.
 func applyWKTImportFlags(kind FieldKind, imps *pythonImports) {
-	switch kind {
-	case FieldKindTimestamp:
+	switch wktNeedsImport(kind) {
+	case wktImportDatetime:
 		imps.needsDatetime = true
-	case FieldKindDuration:
+	case wktImportTimedelta:
 		imps.needsTimedelta = true
-	case FieldKindStruct, FieldKindValue, FieldKindAny, FieldKindListValue:
+	case wktImportAny:
 		imps.needsAny = true
 	}
 }

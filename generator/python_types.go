@@ -66,36 +66,54 @@ func pythonFieldType(f *DomainField, opts *Options) string {
 
 	return baseType
 }
+// wktImport identifies which Python import a WKT kind requires.
+type wktImport int
+
+const (
+	wktImportNone      wktImport = iota // no special import needed
+	wktImportDatetime                   // from datetime import datetime
+	wktImportTimedelta                  // from datetime import timedelta
+	wktImportAny                        // from typing import Any
+)
+
+// wktPythonEntry defines the Python type and required import for a WKT kind.
+type wktPythonEntry struct {
+	Type   string    // the Python type annotation string
+	Import wktImport // which import this type requires
+}
+
+// wktPythonTable is the single source of truth for WKT→Python type mapping.
+// Both wktPythonType (type resolution) and wktNeedsImport (import scanning)
+// read from this table. When adding a new WKT kind, add it here once.
+var wktPythonTable = map[FieldKind]wktPythonEntry{
+	FieldKindTimestamp: {"datetime", wktImportDatetime},
+	FieldKindDuration:  {"timedelta", wktImportTimedelta},
+	FieldKindStruct:    {"dict[str, Any]", wktImportAny},
+	FieldKindValue:     {"Any", wktImportAny},
+	FieldKindAny:       {"Any", wktImportAny},
+	FieldKindListValue: {"list[Any]", wktImportAny},
+	FieldKindEmpty:     {"None", wktImportNone},
+	FieldKindFieldMask: {"list[str]", wktImportNone},
+}
 
 // wktPythonType returns the Python type for a well-known type or wrapper kind.
 // Returns (type, true) if the kind is a WKT/wrapper, ("", false) otherwise.
-// This is the single source of truth for WKT→Python type mapping, used by both
-// pythonSingularType and pythonMapValueType.
-//
-// SYNC: when adding a new FieldKind here, also update applyWKTImportFlags in
-// python_domain.go if the new type requires a Python import (datetime, Any, etc).
 func wktPythonType(kind FieldKind) (string, bool) {
-	switch kind {
-	case FieldKindTimestamp:
-		return "datetime", true
-	case FieldKindDuration:
-		return "timedelta", true
-	case FieldKindStruct:
-		return "dict[str, Any]", true
-	case FieldKindValue, FieldKindAny:
-		return "Any", true
-	case FieldKindListValue:
-		return "list[Any]", true
-	case FieldKindEmpty:
-		return "None", true
-	case FieldKindFieldMask:
-		return "list[str]", true
-	default:
-		if kind.IsWrapper() {
-			return pythonWrapperType(kind), true
-		}
-		return "", false
+	if entry, ok := wktPythonTable[kind]; ok {
+		return entry.Type, true
 	}
+	if kind.IsWrapper() {
+		return pythonWrapperType(kind), true
+	}
+	return "", false
+}
+
+// wktNeedsImport returns the import requirement for a WKT field kind.
+func wktNeedsImport(kind FieldKind) wktImport {
+	if entry, ok := wktPythonTable[kind]; ok {
+		return entry.Import
+	}
+	return wktImportNone
 }
 
 // pythonSingularType returns the Python type for a non-repeated, non-map field.
