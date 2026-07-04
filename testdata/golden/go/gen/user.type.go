@@ -75,7 +75,10 @@ func (u *User) ToProto() *pb.User {
 		out.CreatedAt = timestamppb.New(u.CreatedAt)
 	}
 	out.SessionTimeout = durationpb.New(u.SessionTimeout)
-	out.Phone = u.Phone
+	if u.Phone != nil {
+		v := *u.Phone
+		out.Phone = &v
+	}
 	if u.Avatar != nil {
 		out.Avatar = make([]byte, len(u.Avatar))
 		copy(out.Avatar, u.Avatar)
@@ -206,7 +209,10 @@ func (u *User) FromProto(msg *pb.User) {
 	if msg.SessionTimeout != nil {
 		u.SessionTimeout = msg.SessionTimeout.AsDuration()
 	}
-	u.Phone = msg.Phone
+	if msg.Phone != nil {
+		v := *msg.Phone
+		u.Phone = &v
+	}
 	u.Avatar = nil
 	if msg.Avatar != nil {
 		u.Avatar = make([]byte, len(msg.Avatar))

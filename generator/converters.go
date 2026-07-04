@@ -546,6 +546,7 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 			g.P("\t}")
 		} else if f.Kind == FieldKindStruct {
 			// Struct: domain map[string]any → proto *structpb.Struct
+			// TODO(proto2type): Consider TryToProto() (*pb.T, error) for fallible conversions.
 			structNew := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/structpb",
 				GoName:       "NewStruct",
@@ -645,8 +646,11 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 			g.P("\t\tout.", protoFieldName, " = &v")
 			g.P("\t}")
 		} else if f.Optional {
-			// Optional scalar: both domain and proto use *T, assign directly (PROTO-3)
-			g.P("\tout.", protoFieldName, " = ", recv, ".", domainFieldName, "")
+			// Optional scalar: copy through temporary to avoid pointer aliasing.
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tv := *", recv, ".", domainFieldName)
+			g.P("\t\tout.", protoFieldName, " = &v")
+			g.P("\t}")
 		}
 	}
 
@@ -973,8 +977,11 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 			}
 			g.P("\t}")
 		} else if f.Optional {
-			// Optional scalar: both proto and domain use *T, assign directly (PROTO-3)
-			g.P("\t", recv, ".", domainFieldName, " = msg.", protoFieldName)
+			// Optional scalar: copy through temporary to avoid pointer aliasing.
+			g.P("\tif msg.", protoFieldName, " != nil {")
+			g.P("\t\tv := *msg.", protoFieldName)
+			g.P("\t\t", recv, ".", domainFieldName, " = &v")
+			g.P("\t}")
 		} else if f.Kind == FieldKindEnum {
 			if f.EnumAsString {
 				// String enum: convert proto enum to its string name

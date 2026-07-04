@@ -39,6 +39,13 @@ func generateGo(gen *protogen.Plugin, file *protogen.File, opts *Options) error 
 	return nil
 }
 
+// ResetState clears per-invocation global state so that the generator is safe
+// to call again within the same process (e.g., plugin server mode, tests).
+// Call this once before processing a batch of files.
+func ResetState() {
+	emittedDeepCopyHelper = map[protogen.GoImportPath]bool{}
+}
+
 // generateGoDomain generates a Go domain type file for a proto file.
 func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	filename := outputFilename(file.GeneratedFilenamePrefix, ".type.go")

@@ -57,6 +57,10 @@ func main() {
 			return fmt.Errorf("proto2type: must specify at least one of domain=true or backend=<name>")
 		}
 
+		// Reset per-invocation generator state (prevents leaking across runs
+		// in plugin server mode or tests).
+		generator.ResetState()
+
 		for _, f := range gen.Files {
 			if !f.Generate {
 				continue
