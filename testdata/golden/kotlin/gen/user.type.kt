@@ -8,6 +8,7 @@ import kotlin.time.Duration
 import kotlinx.datetime.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.*
 
 /** UserStatus represents the user's account status. */
 @Serializable
@@ -56,7 +57,7 @@ data class User(
     @SerialName("created_at") val createdAt: Instant = Instant.fromEpochSeconds(0),
     @SerialName("session_timeout") val sessionTimeout: Duration = Duration.ZERO,
     val phone: String? = null,
-    // Note: ByteArray uses referential equality. Override equals()/hashCode() if needed.
+    /** Note: [ByteArray] fields use referential equality in data classes. Use contentEquals() for byte comparison. */
     val avatar: ByteArray = byteArrayOf(),
     val nickname: String? = null,
     val status: UserStatus = UserStatus.entries.first(),
@@ -65,15 +66,15 @@ data class User(
     @SerialName("deleted_at") val deletedAt: Instant? = null,
     @SerialName("previous_status") val previousStatus: UserStatus? = null,
     @SerialName("update_mask") val updateMask: List<String> = emptyList(),
-    @SerialName("extra_metadata") val extraMetadata: Map<String, Any?> = emptyMap(),
-    val preferences: List<Any?> = emptyList(),
-    // Note: ByteArray uses referential equality. Override equals()/hashCode() if needed.
+    @SerialName("extra_metadata") val extraMetadata: Map<String, JsonElement> = emptyMap(),
+    val preferences: JsonArray = JsonArray(emptyList()),
+    /** Note: [ByteArray] fields use referential equality in data classes. Use contentEquals() for byte comparison. */
     @SerialName("avatar_thumbnail") val avatarThumbnail: ByteArray? = null,
     @SerialName("field_masks") val fieldMasks: List<List<String>> = emptyList(),
-    val structs: List<Map<String, Any?>> = emptyList(),
-    val lists: List<List<Any?>> = emptyList(),
+    val structs: List<Map<String, JsonElement>> = emptyList(),
+    val lists: List<JsonArray> = emptyList(),
     @SerialName("event_times") val eventTimes: Map<String, Instant> = emptyMap(),
-    val configs: Map<String, Map<String, Any?>> = emptyMap()
+    val configs: Map<String, Map<String, JsonElement>> = emptyMap()
 )
 
 /** Address is a nested message. */

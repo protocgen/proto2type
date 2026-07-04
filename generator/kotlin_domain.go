@@ -43,6 +43,7 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 	needsSerialName := false
 	needsInstant := false
 	needsDuration := false
+	needsJsonTypes := false
 
 	for _, e := range ir.Enums {
 		needsSerializable = true
@@ -57,7 +58,7 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 			continue
 		}
 		needsSerializable = true
-		scanKotlinImports(m, &needsSerialName, &needsInstant, &needsDuration)
+		scanKotlinImports(m, &needsSerialName, &needsInstant, &needsDuration, &needsJsonTypes)
 	}
 
 	// --- Emit imports (kotlin.* before kotlinx.*, alphabetical within each group) ---
@@ -73,7 +74,10 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 	if needsSerializable {
 		g.P("import kotlinx.serialization.Serializable")
 	}
-	if needsSerializable || needsInstant || needsDuration {
+	if needsJsonTypes {
+		g.P("import kotlinx.serialization.json.*")
+	}
+	if needsSerializable || needsInstant || needsDuration || needsJsonTypes {
 		g.P()
 	}
 
@@ -94,9 +98,9 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 }
 
 // scanKotlinImports recursively scans a DomainMessage for import requirements.
-func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsDuration *bool) {
+func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsDuration, needsJsonTypes *bool) {
 	for _, f := range msg.Fields {
-		scanKotlinFieldImports(f, needsSerialName, needsInstant, needsDuration)
+		scanKotlinFieldImports(f, needsSerialName, needsInstant, needsDuration, needsJsonTypes)
 	}
 
 	// Oneofs always need @SerialName for variants.
@@ -111,6 +115,9 @@ func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsD
 			}
 			if v.Kind == FieldKindDuration {
 				*needsDuration = true
+			}
+			if v.Kind == FieldKindStruct || v.Kind == FieldKindValue || v.Kind == FieldKindListValue || v.Kind == FieldKindAny || v.Kind == FieldKindEmpty {
+				*needsJsonTypes = true
 			}
 		}
 		// The oneof field name itself may need @SerialName on the parent message field.
@@ -130,17 +137,20 @@ func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsD
 		if nested.Skip {
 			continue
 		}
-		scanKotlinImports(nested, needsSerialName, needsInstant, needsDuration)
+		scanKotlinImports(nested, needsSerialName, needsInstant, needsDuration, needsJsonTypes)
 	}
 }
 
 // scanKotlinFieldImports checks a single field for import requirements.
-func scanKotlinFieldImports(f *DomainField, needsSerialName, needsInstant, needsDuration *bool) {
+func scanKotlinFieldImports(f *DomainField, needsSerialName, needsInstant, needsDuration, needsJsonTypes *bool) {
 	if f.Kind == FieldKindTimestamp {
 		*needsInstant = true
 	}
 	if f.Kind == FieldKindDuration {
 		*needsDuration = true
+	}
+	if f.Kind == FieldKindStruct || f.Kind == FieldKindValue || f.Kind == FieldKindListValue || f.Kind == FieldKindAny || f.Kind == FieldKindEmpty {
+		*needsJsonTypes = true
 	}
 
 	// Map values may be timestamps/durations too.
@@ -151,6 +161,9 @@ func scanKotlinFieldImports(f *DomainField, needsSerialName, needsInstant, needs
 			}
 			if f.MapValue.Kind == FieldKindDuration {
 				*needsDuration = true
+			}
+			if f.MapValue.Kind == FieldKindStruct || f.MapValue.Kind == FieldKindValue || f.MapValue.Kind == FieldKindListValue || f.MapValue.Kind == FieldKindAny || f.MapValue.Kind == FieldKindEmpty {
+				*needsJsonTypes = true
 			}
 		}
 	}
@@ -272,7 +285,7 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 
 		var comment string
 		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
-			comment = "// Note: ByteArray uses referential equality. Override equals()/hashCode() if needed."
+			comment = "/** Note: [ByteArray] fields use referential equality in data classes. Use contentEquals() for byte comparison. */"
 		}
 
 		lines = append(lines, fieldLine{

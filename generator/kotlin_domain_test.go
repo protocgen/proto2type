@@ -459,12 +459,13 @@ func TestKotlinDurationImportDecision(t *testing.T) {
 	needsSerialName := false
 	needsInstant := false
 	needsDuration := false
+	needsJsonTypes := false
 
 	for _, m := range file.Messages {
 		if m.Skip {
 			continue
 		}
-		scanKotlinImports(m, &needsSerialName, &needsInstant, &needsDuration)
+		scanKotlinImports(m, &needsSerialName, &needsInstant, &needsDuration, &needsJsonTypes)
 	}
 
 	if !needsInstant {
@@ -475,6 +476,9 @@ func TestKotlinDurationImportDecision(t *testing.T) {
 	}
 	if !needsSerialName {
 		t.Error("needsSerialName = false, want true (User has fields needing @SerialName)")
+	}
+	if !needsJsonTypes {
+		t.Error("needsJsonTypes = false, want true (User has Struct field)")
 	}
 
 	// Verify catalog doesn't need Duration.
@@ -487,17 +491,21 @@ func TestKotlinDurationImportDecision(t *testing.T) {
 		catSerialName := false
 		catInstant := false
 		catDuration := false
+		catJsonTypes := false
 		for _, m := range catFile.Messages {
 			if m.Skip {
 				continue
 			}
-			scanKotlinImports(m, &catSerialName, &catInstant, &catDuration)
+			scanKotlinImports(m, &catSerialName, &catInstant, &catDuration, &catJsonTypes)
 		}
 		if catDuration {
 			t.Error("catalog needsDuration = true, want false")
 		}
 		if !catInstant {
 			t.Error("catalog needsInstant = false, want true")
+		}
+		if catJsonTypes {
+			t.Error("catalog needsJsonTypes = true, want false")
 		}
 	}
 }
