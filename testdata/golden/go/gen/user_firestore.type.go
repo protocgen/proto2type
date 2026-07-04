@@ -208,6 +208,8 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 	if msg.Phone != nil {
 		v := *msg.Phone
 		u.Phone = &v
+	} else {
+		u.Phone = nil
 	}
 	u.Avatar = nil
 	if msg.Avatar != nil {

@@ -981,6 +981,8 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 			g.P("\tif msg.", protoFieldName, " != nil {")
 			g.P("\t\tv := *msg.", protoFieldName)
 			g.P("\t\t", recv, ".", domainFieldName, " = &v")
+			g.P("\t} else {")
+			g.P("\t\t", recv, ".", domainFieldName, " = nil")
 			g.P("\t}")
 		} else if f.Kind == FieldKindEnum {
 			if f.EnumAsString {
