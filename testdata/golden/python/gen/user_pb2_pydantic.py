@@ -65,7 +65,7 @@ class User(BaseModel):
     field_masks: list[list[str]] = Field(default_factory=list, description='Repeated WKT reference types (Issue #52)')
     structs: list[dict[str, Any]] = Field(default_factory=list)
     lists: list[list[Any]] = Field(default_factory=list)
-    event_times: dict[str, Any] = Field(default_factory=dict, description='WKT map values (Issue #53)')
+    event_times: dict[str, datetime] = Field(default_factory=dict, description='WKT map values (Issue #53)')
     configs: dict[str, dict[str, Any]] = Field(default_factory=dict)
     contact_method: str | None = None
 
