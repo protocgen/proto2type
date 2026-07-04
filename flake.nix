@@ -24,6 +24,10 @@
             golangci-lint
             pre-commit
             lefthook
+            # Kotlin golden file compilation (Issue #107)
+            kotlin
+            gradle
+            jdk21
           ];
 
           shellHook = ''
