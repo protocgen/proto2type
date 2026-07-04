@@ -14,4 +14,5 @@ message KeywordFields {
     string mod = 4;
     int64 ref = 5;
     string super = 6;
+    bool cls = 7;
 }

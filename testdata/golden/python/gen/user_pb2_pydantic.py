@@ -42,7 +42,7 @@ class User(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str = Field(default='', exclude=True)
-    email: str = Field(...)
+    email: str = Field(..., pattern='^[^@]+@[^@]+\.[^@]+$')
     display_name: str = Field(..., min_length=1, max_length=255)
     active: bool = False
     age: int = Field(default=0, ge=0, le=150)
@@ -84,6 +84,11 @@ class User(BaseModel):
             return None
         return base64.b64encode(v).decode('ascii')
 
+
+
+Address.model_rebuild()
+Tag.model_rebuild()
+User.model_rebuild()
 
 __all__ = [
     'Address',

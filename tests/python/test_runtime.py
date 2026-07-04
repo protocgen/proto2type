@@ -350,6 +350,49 @@ test("Map with message values", test_map_message_values)
 
 
 # ---------------------------------------------------------------------------
+# Test: 'self' keyword field escaping
+# ---------------------------------------------------------------------------
+def test_self_keyword_field():
+    from keywords_pb2_pydantic import KeywordFields
+    # 'self' is escaped to 'self_' with alias='self'.
+    # Via alias:
+    k = KeywordFields(self=42)
+    assert k.self_ == 42, f"Expected 42 via alias, got {k.self_!r}"
+    # Via field name (populate_by_name=True):
+    k2 = KeywordFields(self_=99)
+    assert k2.self_ == 99, f"Expected 99 via field name, got {k2.self_!r}"
+
+
+test("'self' keyword field escaping", test_self_keyword_field)
+
+
+# ---------------------------------------------------------------------------
+# Test: Email constraint pattern rejects invalid emails
+# ---------------------------------------------------------------------------
+def test_email_constraint_pattern():
+    from user_pb2_pydantic import User
+    from pydantic import ValidationError
+    # Valid email should pass
+    u = User(email="user@example.com", display_name="X")
+    assert u.email == "user@example.com"
+    # Missing @ should fail
+    try:
+        User(email="not-an-email", display_name="X")
+        raise AssertionError("Email without @ should fail pattern")
+    except ValidationError:
+        pass
+    # Missing domain dot should fail
+    try:
+        User(email="user@nodot", display_name="X")
+        raise AssertionError("Email without domain dot should fail pattern")
+    except ValidationError:
+        pass
+
+
+test("Email constraint pattern rejects invalid emails", test_email_constraint_pattern)
+
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 print(f"\n1..{tests_run}")

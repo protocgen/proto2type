@@ -31,6 +31,10 @@ class FieldOptions(BaseModel):
     enum_as_string: OptionalBool | None = Field(default=None, description='Store this enum field as its string name instead of int32.  Per-field override for the global enum_as_string plugin option.')
 
 
+
+MessageOptions.model_rebuild()
+FieldOptions.model_rebuild()
+
 __all__ = [
     'FieldOptions',
     'MessageOptions',

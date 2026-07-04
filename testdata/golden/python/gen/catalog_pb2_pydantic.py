@@ -38,6 +38,9 @@ class ModelCatalogEntry(BaseModel):
         return v.strftime('%Y-%m-%dT%H:%M:%S.') + f'{v.microsecond // 1000:03d}' + 'Z'
 
 
+
+ModelCatalogEntry.model_rebuild()
+
 __all__ = [
     'ModelCatalogEntry',
 ]

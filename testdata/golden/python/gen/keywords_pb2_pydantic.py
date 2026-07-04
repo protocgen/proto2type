@@ -13,12 +13,16 @@ class KeywordFields(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     type_: str = Field(default='', alias='type')
-    self: int = 0
-    match: bool = False
+    self_: int = Field(default=0, alias='self')
+    match_: bool = Field(default=False, alias='match')
     mod: str = ''
     ref: int = 0
-    super: str = ''
+    super_: str = Field(default='', alias='super')
+    cls_: bool = Field(default=False, alias='cls')
 
+
+
+KeywordFields.model_rebuild()
 
 __all__ = [
     'KeywordFields',

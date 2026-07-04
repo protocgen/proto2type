@@ -34,6 +34,7 @@ impl From<&KeywordFields> for __buffa_mod::KeywordFields {
         b.r#mod = d.r#mod.clone().into();
         b.r#ref = d.r#ref;
         b.super_ = d.super_.clone().into();
+        b.cls = d.cls;
         b
     }
 }
@@ -50,6 +51,7 @@ impl TryFrom<&__buffa_mod::KeywordFields> for KeywordFields {
         d.r#mod = b.r#mod.to_string();
         d.r#ref = b.r#ref;
         d.super_ = b.super_.to_string();
+        d.cls = b.cls;
         Ok(d)
     }
 }

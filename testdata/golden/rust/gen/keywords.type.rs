@@ -23,5 +23,6 @@ pub struct KeywordFields {
     pub r#ref: i64,
     #[serde(rename = "super")]
     pub super_: String,
+    pub cls: bool,
 }
 

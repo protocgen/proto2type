@@ -379,6 +379,12 @@ func (c *ValidateConstraints) ToPydanticArgs() []string {
 	if c.Pattern != "" {
 		escaped := strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(c.Pattern)
 		args = append(args, fmt.Sprintf("pattern='%s'", escaped))
+	} else if c.Email {
+		args = append(args, `pattern='^[^@]+@[^@]+\.[^@]+$'`)
+	} else if c.UUID {
+		args = append(args, "pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'")
+	} else if c.URI {
+		args = append(args, "pattern='^https?://'")
 	}
 	if c.Gt != nil {
 		args = append(args, fmt.Sprintf("gt=%s", *c.Gt))

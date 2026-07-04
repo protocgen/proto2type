@@ -244,6 +244,8 @@ var pythonKeywords = map[string]bool{
 	"input": true, "print": true, "format": true, "map": true, "filter": true,
 	"hash": true, "len": true, "range": true, "str": true, "int": true,
 	"float": true, "bool": true, "bytes": true, "object": true, "property": true,
+	// implicit parameters and soft keywords
+	"self": true, "cls": true, "match": true, "super": true,
 }
 
 // escapePythonKeyword appends _ to Python keywords/builtins.
