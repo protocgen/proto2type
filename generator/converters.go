@@ -689,6 +689,7 @@ func needsTryToProto(dm *DomainMessage) bool {
 // generateTryToProto generates the TryToProto method that returns errors
 // instead of swallowing them with log.Printf. It is only generated for
 // messages that contain fallible WKT conversions (Struct, ListValue, Value).
+// TODO: refactor shared logic between ToProto and TryToProto
 func generateTryToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix string, opts *Options) {
 	structName := dm.Name + structSuffix
 	protoType := g.QualifiedGoIdent(dm.ProtoGoIdent)
@@ -1534,6 +1535,12 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 					g.P("\t\t", recv, ".", domainFieldName, " = msg.Get", protoFieldName, "().String()")
 				} else {
 					g.P("\t\t", recv, ".", domainFieldName, " = int32(msg.Get", protoFieldName, "())")
+				}
+				g.P("\t} else {")
+				if f.EnumAsString {
+					g.P("\t\t", recv, ".", domainFieldName, " = \"\"")
+				} else {
+					g.P("\t\t", recv, ".", domainFieldName, " = 0")
 				}
 				g.P("\t}")
 			}

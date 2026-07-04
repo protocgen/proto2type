@@ -374,6 +374,8 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 	}
 	if msg.PreviousStatus != nil {
 		u.PreviousStatus = int32(msg.GetPreviousStatus())
+	} else {
+		u.PreviousStatus = 0
 	}
 	u.UpdateMask = nil
 	if msg.UpdateMask != nil {
