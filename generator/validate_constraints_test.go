@@ -4,7 +4,115 @@ import (
 	"testing"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
+
+	validate "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 )
+
+func TestExtractNumericBounds(t *testing.T) {
+	s := func(v string) *string { return &v }
+
+	t.Run("extractUInt64Bounds", func(t *testing.T) {
+		vc := &ValidateConstraints{}
+		extractUInt64Bounds(&validate.UInt64Rules{
+			GreaterThan: &validate.UInt64Rules_Gte{Gte: 10},
+			LessThan:    &validate.UInt64Rules_Lt{Lt: 100},
+		}, vc)
+		assertBound(t, "Gte", vc.Gte, s("10"))
+		assertBound(t, "Lt", vc.Lt, s("100"))
+	})
+
+	t.Run("extractSInt32Bounds", func(t *testing.T) {
+		vc := &ValidateConstraints{}
+		extractSInt32Bounds(&validate.SInt32Rules{
+			GreaterThan: &validate.SInt32Rules_Gt{Gt: -5},
+			LessThan:    &validate.SInt32Rules_Lte{Lte: 50},
+		}, vc)
+		assertBound(t, "Gt", vc.Gt, s("-5"))
+		assertBound(t, "Lte", vc.Lte, s("50"))
+	})
+
+	t.Run("extractSInt64Bounds", func(t *testing.T) {
+		vc := &ValidateConstraints{}
+		extractSInt64Bounds(&validate.SInt64Rules{
+			GreaterThan: &validate.SInt64Rules_Gte{Gte: 0},
+			LessThan:    &validate.SInt64Rules_Lt{Lt: 9999},
+		}, vc)
+		assertBound(t, "Gte", vc.Gte, s("0"))
+		assertBound(t, "Lt", vc.Lt, s("9999"))
+	})
+
+	t.Run("extractFixed32Bounds", func(t *testing.T) {
+		vc := &ValidateConstraints{}
+		extractFixed32Bounds(&validate.Fixed32Rules{
+			GreaterThan: &validate.Fixed32Rules_Gt{Gt: 1},
+			LessThan:    &validate.Fixed32Rules_Lte{Lte: 255},
+		}, vc)
+		assertBound(t, "Gt", vc.Gt, s("1"))
+		assertBound(t, "Lte", vc.Lte, s("255"))
+	})
+
+	t.Run("extractFixed64Bounds", func(t *testing.T) {
+		vc := &ValidateConstraints{}
+		extractFixed64Bounds(&validate.Fixed64Rules{
+			GreaterThan: &validate.Fixed64Rules_Gte{Gte: 0},
+			LessThan:    &validate.Fixed64Rules_Lt{Lt: 1000000},
+		}, vc)
+		assertBound(t, "Gte", vc.Gte, s("0"))
+		assertBound(t, "Lt", vc.Lt, s("1000000"))
+	})
+
+	t.Run("extractSFixed32Bounds", func(t *testing.T) {
+		vc := &ValidateConstraints{}
+		extractSFixed32Bounds(&validate.SFixed32Rules{
+			GreaterThan: &validate.SFixed32Rules_Gt{Gt: -100},
+			LessThan:    &validate.SFixed32Rules_Lte{Lte: 100},
+		}, vc)
+		assertBound(t, "Gt", vc.Gt, s("-100"))
+		assertBound(t, "Lte", vc.Lte, s("100"))
+	})
+
+	t.Run("extractSFixed64Bounds", func(t *testing.T) {
+		vc := &ValidateConstraints{}
+		extractSFixed64Bounds(&validate.SFixed64Rules{
+			GreaterThan: &validate.SFixed64Rules_Gte{Gte: -1},
+			LessThan:    &validate.SFixed64Rules_Lt{Lt: 1},
+		}, vc)
+		assertBound(t, "Gte", vc.Gte, s("-1"))
+		assertBound(t, "Lt", vc.Lt, s("1"))
+	})
+
+	t.Run("zero-value rules leave bounds nil", func(t *testing.T) {
+		vc := &ValidateConstraints{}
+		extractUInt64Bounds(&validate.UInt64Rules{}, vc)
+		extractSInt32Bounds(&validate.SInt32Rules{}, vc)
+		extractSInt64Bounds(&validate.SInt64Rules{}, vc)
+		extractFixed32Bounds(&validate.Fixed32Rules{}, vc)
+		extractFixed64Bounds(&validate.Fixed64Rules{}, vc)
+		extractSFixed32Bounds(&validate.SFixed32Rules{}, vc)
+		extractSFixed64Bounds(&validate.SFixed64Rules{}, vc)
+		assertBound(t, "Gt", vc.Gt, nil)
+		assertBound(t, "Gte", vc.Gte, nil)
+		assertBound(t, "Lt", vc.Lt, nil)
+		assertBound(t, "Lte", vc.Lte, nil)
+	})
+}
+
+func assertBound(t *testing.T, name string, got, want *string) {
+	t.Helper()
+	if want == nil {
+		if got != nil {
+			t.Errorf("%s = %q, want nil", name, *got)
+		}
+		return
+	}
+	if got == nil {
+		t.Errorf("%s = nil, want %q", name, *want)
+		return
+	}
+	if *got != *want {
+		t.Errorf("%s = %q, want %q", name, *got, *want)
+	}
+}
 
 func TestValidateConstraints_HasConstraints(t *testing.T) {
 	minLen := uint64(1)

@@ -80,6 +80,41 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 		extractUInt32Bounds(ur, vc)
 	}
 
+	// UInt64 rules.
+	if ur := rules.GetUint64(); ur != nil {
+		extractUInt64Bounds(ur, vc)
+	}
+
+	// SInt32 rules.
+	if sr := rules.GetSint32(); sr != nil {
+		extractSInt32Bounds(sr, vc)
+	}
+
+	// SInt64 rules.
+	if sr := rules.GetSint64(); sr != nil {
+		extractSInt64Bounds(sr, vc)
+	}
+
+	// Fixed32 rules.
+	if fr := rules.GetFixed32(); fr != nil {
+		extractFixed32Bounds(fr, vc)
+	}
+
+	// Fixed64 rules.
+	if fr := rules.GetFixed64(); fr != nil {
+		extractFixed64Bounds(fr, vc)
+	}
+
+	// SFixed32 rules.
+	if sr := rules.GetSfixed32(); sr != nil {
+		extractSFixed32Bounds(sr, vc)
+	}
+
+	// SFixed64 rules.
+	if sr := rules.GetSfixed64(); sr != nil {
+		extractSFixed64Bounds(sr, vc)
+	}
+
 	// Float rules.
 	if fr := rules.GetFloat(); fr != nil {
 		extractFloatBounds(fr, vc)
@@ -98,6 +133,18 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 		}
 		if rr.MaxItems != nil {
 			v := rr.GetMaxItems()
+			vc.MaxItems = &v
+		}
+	}
+
+	// Map rules (min_pairs/max_pairs → MinItems/MaxItems).
+	if mr := rules.GetMap(); mr != nil {
+		if mr.MinPairs != nil {
+			v := mr.GetMinPairs()
+			vc.MinItems = &v
+		}
+		if mr.MaxPairs != nil {
+			v := mr.GetMaxPairs()
 			vc.MaxItems = &v
 		}
 	}
@@ -204,6 +251,146 @@ func extractDoubleBounds(r *validate.DoubleRules, vc *ValidateConstraints) {
 		vc.Lt = &s
 	case *validate.DoubleRules_Lte:
 		s := fmt.Sprintf("%g", lt.Lte)
+		vc.Lte = &s
+	}
+}
+
+// extractUInt64Bounds reads GreaterThan/LessThan oneof from UInt64Rules.
+func extractUInt64Bounds(r *validate.UInt64Rules, vc *ValidateConstraints) {
+	switch gt := r.GetGreaterThan().(type) {
+	case *validate.UInt64Rules_Gt:
+		s := fmt.Sprintf("%d", gt.Gt)
+		vc.Gt = &s
+	case *validate.UInt64Rules_Gte:
+		s := fmt.Sprintf("%d", gt.Gte)
+		vc.Gte = &s
+	}
+	switch lt := r.GetLessThan().(type) {
+	case *validate.UInt64Rules_Lt:
+		s := fmt.Sprintf("%d", lt.Lt)
+		vc.Lt = &s
+	case *validate.UInt64Rules_Lte:
+		s := fmt.Sprintf("%d", lt.Lte)
+		vc.Lte = &s
+	}
+}
+
+// extractSInt32Bounds reads GreaterThan/LessThan oneof from SInt32Rules.
+func extractSInt32Bounds(r *validate.SInt32Rules, vc *ValidateConstraints) {
+	switch gt := r.GetGreaterThan().(type) {
+	case *validate.SInt32Rules_Gt:
+		s := fmt.Sprintf("%d", gt.Gt)
+		vc.Gt = &s
+	case *validate.SInt32Rules_Gte:
+		s := fmt.Sprintf("%d", gt.Gte)
+		vc.Gte = &s
+	}
+	switch lt := r.GetLessThan().(type) {
+	case *validate.SInt32Rules_Lt:
+		s := fmt.Sprintf("%d", lt.Lt)
+		vc.Lt = &s
+	case *validate.SInt32Rules_Lte:
+		s := fmt.Sprintf("%d", lt.Lte)
+		vc.Lte = &s
+	}
+}
+
+// extractSInt64Bounds reads GreaterThan/LessThan oneof from SInt64Rules.
+func extractSInt64Bounds(r *validate.SInt64Rules, vc *ValidateConstraints) {
+	switch gt := r.GetGreaterThan().(type) {
+	case *validate.SInt64Rules_Gt:
+		s := fmt.Sprintf("%d", gt.Gt)
+		vc.Gt = &s
+	case *validate.SInt64Rules_Gte:
+		s := fmt.Sprintf("%d", gt.Gte)
+		vc.Gte = &s
+	}
+	switch lt := r.GetLessThan().(type) {
+	case *validate.SInt64Rules_Lt:
+		s := fmt.Sprintf("%d", lt.Lt)
+		vc.Lt = &s
+	case *validate.SInt64Rules_Lte:
+		s := fmt.Sprintf("%d", lt.Lte)
+		vc.Lte = &s
+	}
+}
+
+// extractFixed32Bounds reads GreaterThan/LessThan oneof from Fixed32Rules.
+func extractFixed32Bounds(r *validate.Fixed32Rules, vc *ValidateConstraints) {
+	switch gt := r.GetGreaterThan().(type) {
+	case *validate.Fixed32Rules_Gt:
+		s := fmt.Sprintf("%d", gt.Gt)
+		vc.Gt = &s
+	case *validate.Fixed32Rules_Gte:
+		s := fmt.Sprintf("%d", gt.Gte)
+		vc.Gte = &s
+	}
+	switch lt := r.GetLessThan().(type) {
+	case *validate.Fixed32Rules_Lt:
+		s := fmt.Sprintf("%d", lt.Lt)
+		vc.Lt = &s
+	case *validate.Fixed32Rules_Lte:
+		s := fmt.Sprintf("%d", lt.Lte)
+		vc.Lte = &s
+	}
+}
+
+// extractFixed64Bounds reads GreaterThan/LessThan oneof from Fixed64Rules.
+func extractFixed64Bounds(r *validate.Fixed64Rules, vc *ValidateConstraints) {
+	switch gt := r.GetGreaterThan().(type) {
+	case *validate.Fixed64Rules_Gt:
+		s := fmt.Sprintf("%d", gt.Gt)
+		vc.Gt = &s
+	case *validate.Fixed64Rules_Gte:
+		s := fmt.Sprintf("%d", gt.Gte)
+		vc.Gte = &s
+	}
+	switch lt := r.GetLessThan().(type) {
+	case *validate.Fixed64Rules_Lt:
+		s := fmt.Sprintf("%d", lt.Lt)
+		vc.Lt = &s
+	case *validate.Fixed64Rules_Lte:
+		s := fmt.Sprintf("%d", lt.Lte)
+		vc.Lte = &s
+	}
+}
+
+// extractSFixed32Bounds reads GreaterThan/LessThan oneof from SFixed32Rules.
+func extractSFixed32Bounds(r *validate.SFixed32Rules, vc *ValidateConstraints) {
+	switch gt := r.GetGreaterThan().(type) {
+	case *validate.SFixed32Rules_Gt:
+		s := fmt.Sprintf("%d", gt.Gt)
+		vc.Gt = &s
+	case *validate.SFixed32Rules_Gte:
+		s := fmt.Sprintf("%d", gt.Gte)
+		vc.Gte = &s
+	}
+	switch lt := r.GetLessThan().(type) {
+	case *validate.SFixed32Rules_Lt:
+		s := fmt.Sprintf("%d", lt.Lt)
+		vc.Lt = &s
+	case *validate.SFixed32Rules_Lte:
+		s := fmt.Sprintf("%d", lt.Lte)
+		vc.Lte = &s
+	}
+}
+
+// extractSFixed64Bounds reads GreaterThan/LessThan oneof from SFixed64Rules.
+func extractSFixed64Bounds(r *validate.SFixed64Rules, vc *ValidateConstraints) {
+	switch gt := r.GetGreaterThan().(type) {
+	case *validate.SFixed64Rules_Gt:
+		s := fmt.Sprintf("%d", gt.Gt)
+		vc.Gt = &s
+	case *validate.SFixed64Rules_Gte:
+		s := fmt.Sprintf("%d", gt.Gte)
+		vc.Gte = &s
+	}
+	switch lt := r.GetLessThan().(type) {
+	case *validate.SFixed64Rules_Lt:
+		s := fmt.Sprintf("%d", lt.Lt)
+		vc.Lt = &s
+	case *validate.SFixed64Rules_Lte:
+		s := fmt.Sprintf("%d", lt.Lte)
 		vc.Lte = &s
 	}
 }
