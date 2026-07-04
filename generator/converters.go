@@ -122,12 +122,20 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 	protoType := g.QualifiedGoIdent(dm.ProtoGoIdent)
 	recv := receiverName(structName)
 
-	// Declare fmtErrorf for fallible mode (used throughout error paths).
+	// Declare fmtErrorf for fallible mode, and logPrintf for infallible mode.
+	// Only declare logPrintf when the message has WKT conversions to avoid
+	// registering a spurious "log" import via g.QualifiedGoIdent.
 	var fmtErrorf string
+	var logPrintf string
 	if isFallible {
 		fmtErrorf = g.QualifiedGoIdent(protogen.GoIdent{
 			GoImportPath: "fmt",
 			GoName:       "Errorf",
+		})
+	} else if needsTryToProto(dm) {
+		logPrintf = g.QualifiedGoIdent(protogen.GoIdent{
+			GoImportPath: "log",
+			GoName:       "Printf",
 		})
 	}
 
@@ -266,10 +274,6 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 						g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
 							"{", v.ProtoGoName, ": s}")
 					} else {
-						logPrintf := g.QualifiedGoIdent(protogen.GoIdent{
-							GoImportPath: "log",
-							GoName:       "Printf",
-						})
 						g.P("\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", v.Name, " to Struct: %v\", \"", structName, "\", err)")
 						g.P("\t\t} else {")
 						g.P("\t\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
@@ -290,10 +294,6 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 						g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
 							"{", v.ProtoGoName, ": v}")
 					} else {
-						logPrintf := g.QualifiedGoIdent(protogen.GoIdent{
-							GoImportPath: "log",
-							GoName:       "Printf",
-						})
 						g.P("\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", v.Name, " to Value: %v\", \"", structName, "\", err)")
 						g.P("\t\t} else {")
 						g.P("\t\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
@@ -314,10 +314,6 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 						g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
 							"{", v.ProtoGoName, ": l}")
 					} else {
-						logPrintf := g.QualifiedGoIdent(protogen.GoIdent{
-							GoImportPath: "log",
-							GoName:       "Printf",
-						})
 						g.P("\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", v.Name, " to ListValue: %v\", \"", structName, "\", err)")
 						g.P("\t\t} else {")
 						g.P("\t\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
@@ -390,7 +386,6 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 				if isFallible {
 					g.P("\t\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%d] to Struct: %w\", \"", structName, "\", i, err)")
 				} else {
-					logPrintf := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "log", GoName: "Printf"})
 					g.P("\t\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%d] to Struct: %v\", \"", structName, "\", i, err)")
 					g.P("\t\t\t\tcontinue")
 				}
@@ -409,7 +404,6 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 				if isFallible {
 					g.P("\t\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%d] to ListValue: %w\", \"", structName, "\", i, err)")
 				} else {
-					logPrintf := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "log", GoName: "Printf"})
 					g.P("\t\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%d] to ListValue: %v\", \"", structName, "\", i, err)")
 					g.P("\t\t\t\tcontinue")
 				}
@@ -526,7 +520,6 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 				if isFallible {
 					g.P("\t\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%v] to Struct: %w\", \"", structName, "\", k, err)")
 				} else {
-					logPrintf := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "log", GoName: "Printf"})
 					g.P("\t\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%v] to Struct: %v\", \"", structName, "\", k, err)")
 					g.P("\t\t\t\tcontinue")
 				}
@@ -545,7 +538,6 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 				if isFallible {
 					g.P("\t\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%v] to ListValue: %w\", \"", structName, "\", k, err)")
 				} else {
-					logPrintf := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "log", GoName: "Printf"})
 					g.P("\t\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%v] to ListValue: %v\", \"", structName, "\", k, err)")
 					g.P("\t\t\t\tcontinue")
 				}
@@ -666,10 +658,6 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 			if isFallible {
 				g.P("\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, " to Struct: %w\", \"", structName, "\", err)")
 			} else {
-				logPrintf := g.QualifiedGoIdent(protogen.GoIdent{
-					GoImportPath: "log",
-					GoName:       "Printf",
-				})
 				g.P("\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, " to Struct: %v\", \"", structName, "\", err)")
 				g.P("\t\t\tout.", protoFieldName, " = nil")
 			}
@@ -688,11 +676,7 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 			if isFallible {
 				g.P("\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, " to ListValue: %w\", \"", structName, "\", err)")
 			} else {
-				logPrintf2 := g.QualifiedGoIdent(protogen.GoIdent{
-					GoImportPath: "log",
-					GoName:       "Printf",
-				})
-				g.P("\t\t\t", logPrintf2, "(\"proto2type: failed to convert %s.", domainFieldName, " to ListValue: %v\", \"", structName, "\", err)")
+				g.P("\t\t\t", logPrintf, "(\"proto2type: failed to convert %s.", domainFieldName, " to ListValue: %v\", \"", structName, "\", err)")
 				g.P("\t\t\tout.", protoFieldName, " = nil")
 			}
 			g.P("\t\t}")
