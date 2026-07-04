@@ -12,6 +12,9 @@ import (
 // When opts.Validate is true, generates a fun validate(): List<String> method that
 // returns a list of validation error messages. An empty list means valid.
 //
+// For nullable/optional fields, constraint checks are wrapped in ?.let { } blocks
+// to satisfy Kotlin null safety.
+//
 // NOTE: length validation counts characters (Unicode scalar values), not bytes.
 // This differs from proto's min_len/max_len which count bytes, but matches
 // user expectations and is consistent with Python/Pydantic and Rust/validator.
@@ -29,6 +32,12 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 		}
 	}
 	if !hasConstraints {
+		// Even without constraints on this message, recurse into nested messages.
+		for _, nested := range msg.NestedMessages {
+			if !nested.Skip {
+				generateKotlinValidate(g, nested, opts)
+			}
+		}
 		return
 	}
 
@@ -45,64 +54,82 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 
 		fieldName := escapeKotlinKeyword(toCamelCase(f.Name))
 
-		// Required (for nullable fields)
+		// Determine if this is a nullable/optional field that needs safe access.
+		hasNonRequiredConstraints := vc.Email || vc.URI || vc.UUID || vc.Pattern != "" ||
+			vc.MinLength != nil || vc.MaxLength != nil ||
+			vc.Gte != nil || vc.Gt != nil || vc.Lte != nil || vc.Lt != nil ||
+			vc.MinItems != nil || vc.MaxItems != nil
+
+		indent := "    "
+
+		// Required (for nullable fields) — always at top level.
 		if vc.Required && f.Optional {
 			g.P("    if (", fieldName, " == null) errors.add(\"", f.Name, " is required\")")
 		}
 
+		// For optional fields, wrap remaining checks in ?.let { } for null safety.
+		if f.Optional && hasNonRequiredConstraints {
+			g.P("    ", fieldName, "?.let { ", fieldName, " ->")
+			indent = "        "
+		}
+
 		// Email
 		if vc.Email {
-			g.P("    if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(Regex(\"^[^@\\\\s]+@[^@\\\\s]+\\\\.[^@\\\\s]+$\"))) errors.add(\"", f.Name, " must be a valid email\")")
+			g.P(indent, "if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(Regex(\"^[^@\\\\s]+@[^@\\\\s]+\\\\.[^@\\\\s]+$\"))) errors.add(\"", f.Name, " must be a valid email\")")
 		}
 
 		// URI
 		if vc.URI {
-			g.P("    if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(Regex(\"^https?://.*\"))) errors.add(\"", f.Name, " must be a valid URI\")")
+			g.P(indent, "if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(Regex(\"^https?://.*\"))) errors.add(\"", f.Name, " must be a valid URI\")")
 		}
 
 		// UUID
 		if vc.UUID {
-			g.P("    if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(Regex(\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\"))) errors.add(\"", f.Name, " must be a valid UUID\")")
+			g.P(indent, "if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(Regex(\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\"))) errors.add(\"", f.Name, " must be a valid UUID\")")
 		}
 
 		// Pattern
 		if vc.Pattern != "" {
-			escaped := strings.ReplaceAll(vc.Pattern, "\\", "\\\\")
-			escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
-			g.P("    if (!", fieldName, ".matches(Regex(\"", escaped, "\"))) errors.add(\"", f.Name, " must match pattern: ", vc.Pattern, "\")")
+			escaped := escapeKotlinStringLiteral(vc.Pattern)
+			g.P(indent, "if (!", fieldName, ".matches(Regex(\"", escaped, "\"))) errors.add(\"", f.Name, " must match pattern: ", escaped, "\")")
 		}
 
 		// String length (min_len / max_len)
 		// NOTE: counts characters, not bytes.
 		if vc.MinLength != nil {
-			g.P("    if (", fieldName, ".length < ", *vc.MinLength, ") errors.add(\"", f.Name, " must be at least ", *vc.MinLength, " characters\")")
+			g.P(indent, "if (", fieldName, ".length < ", *vc.MinLength, ") errors.add(\"", f.Name, " must be at least ", *vc.MinLength, " characters\")")
 		}
 		if vc.MaxLength != nil {
-			g.P("    if (", fieldName, ".length > ", *vc.MaxLength, ") errors.add(\"", f.Name, " must be at most ", *vc.MaxLength, " characters\")")
+			g.P(indent, "if (", fieldName, ".length > ", *vc.MaxLength, ") errors.add(\"", f.Name, " must be at most ", *vc.MaxLength, " characters\")")
 		}
 
 		// Numeric range
 		if vc.Gte != nil {
-			g.P("    if (", fieldName, " < ", *vc.Gte, ") errors.add(\"", f.Name, " must be >= ", *vc.Gte, "\")")
+			g.P(indent, "if (", fieldName, " < ", *vc.Gte, ") errors.add(\"", f.Name, " must be >= ", *vc.Gte, "\")")
 		}
 		if vc.Gt != nil {
-			g.P("    if (", fieldName, " <= ", *vc.Gt, ") errors.add(\"", f.Name, " must be > ", *vc.Gt, "\")")
+			g.P(indent, "if (", fieldName, " <= ", *vc.Gt, ") errors.add(\"", f.Name, " must be > ", *vc.Gt, "\")")
 		}
 		if vc.Lte != nil {
-			g.P("    if (", fieldName, " > ", *vc.Lte, ") errors.add(\"", f.Name, " must be <= ", *vc.Lte, "\")")
+			g.P(indent, "if (", fieldName, " > ", *vc.Lte, ") errors.add(\"", f.Name, " must be <= ", *vc.Lte, "\")")
 		}
 		if vc.Lt != nil {
-			g.P("    if (", fieldName, " >= ", *vc.Lt, ") errors.add(\"", f.Name, " must be < ", *vc.Lt, "\")")
+			g.P(indent, "if (", fieldName, " >= ", *vc.Lt, ") errors.add(\"", f.Name, " must be < ", *vc.Lt, "\")")
 		}
 
 		// Repeated min/max items
 		if f.Repeated {
 			if vc.MinItems != nil {
-				g.P("    if (", fieldName, ".size < ", *vc.MinItems, ") errors.add(\"", f.Name, " must have at least ", *vc.MinItems, " items\")")
+				g.P(indent, "if (", fieldName, ".size < ", *vc.MinItems, ") errors.add(\"", f.Name, " must have at least ", *vc.MinItems, " items\")")
 			}
 			if vc.MaxItems != nil {
-				g.P("    if (", fieldName, ".size > ", *vc.MaxItems, ") errors.add(\"", f.Name, " must have at most ", *vc.MaxItems, " items\")")
+				g.P(indent, "if (", fieldName, ".size > ", *vc.MaxItems, ") errors.add(\"", f.Name, " must have at most ", *vc.MaxItems, " items\")")
 			}
+		}
+
+		// Close ?.let block for optional fields.
+		if f.Optional && hasNonRequiredConstraints {
+			g.P("    }")
 		}
 	}
 
@@ -119,4 +146,21 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 	g.P("    }")
 	g.P("}")
 	g.P()
+
+	// Recursively generate validation for nested messages.
+	for _, nested := range msg.NestedMessages {
+		if !nested.Skip {
+			generateKotlinValidate(g, nested, opts)
+		}
+	}
+}
+
+// escapeKotlinStringLiteral escapes a string for use in a Kotlin double-quoted
+// string literal. Handles backslashes, double quotes, and dollar signs (which
+// trigger Kotlin string template interpolation).
+func escapeKotlinStringLiteral(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	s = strings.ReplaceAll(s, "$", "\\$")
+	return s
 }
