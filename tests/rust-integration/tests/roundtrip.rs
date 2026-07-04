@@ -106,6 +106,23 @@ fn sample_user() -> User {
         m.insert("notifications".into(), inner);
         m
     };
+    u.single_value = serde_json::Value::String("test_value".into());
+    u.values = vec![serde_json::Value::Number(42.into())];
+    u.value_map = {
+        let mut m = HashMap::new();
+        m.insert("key1".into(), serde_json::Value::Bool(true));
+        m
+    };
+    u.labels = {
+        let mut m = HashMap::new();
+        m.insert("env".into(), Some("prod".into()));
+        m
+    };
+    u.scores = {
+        let mut m = HashMap::new();
+        m.insert("level".into(), Some(99));
+        m
+    };
     u
 }
 
@@ -413,7 +430,12 @@ const USER_CREATE_TABLE: &str = "CREATE TABLE users (
     structs          TEXT    NOT NULL,
     lists            TEXT    NOT NULL,
     event_times      TEXT    NOT NULL,
-    configs          TEXT    NOT NULL
+    configs          TEXT    NOT NULL,
+    single_value     TEXT    NOT NULL,
+    values           TEXT    NOT NULL,
+    value_map        TEXT    NOT NULL,
+    labels           TEXT    NOT NULL,
+    scores           TEXT    NOT NULL
 );";
 
 const USER_INSERT: &str = "INSERT INTO users (
@@ -422,14 +444,16 @@ const USER_INSERT: &str = "INSERT INTO users (
     nickname, status, contact_method, tags,
     deleted_at, previous_status, update_mask, extra_metadata,
     preferences, avatar_thumbnail, field_masks, structs,
-    lists, event_times, configs
+    lists, event_times, configs, single_value, values,
+    value_map, labels, scores
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6, ?7,
     ?8, ?9, ?10, ?11, ?12,
     ?13, ?14, ?15, ?16,
     ?17, ?18, ?19, ?20,
     ?21, ?22, ?23, ?24,
-    ?25, ?26, ?27
+    ?25, ?26, ?27, ?28, ?29,
+    ?30, ?31, ?32
 )";
 
 macro_rules! user_row_params {
@@ -462,6 +486,11 @@ macro_rules! user_row_params {
             $row.lists,
             $row.event_times,
             $row.configs,
+            $row.single_value,
+            $row.values,
+            $row.value_map,
+            $row.labels,
+            $row.scores,
         ]
     };
 }
