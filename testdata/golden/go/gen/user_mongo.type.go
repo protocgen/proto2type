@@ -5,6 +5,7 @@
 package gen
 
 import (
+	fmt "fmt"
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -176,6 +177,132 @@ func (u *UserMongo) ToProto() *pb.User {
 		}
 	}
 	return out
+}
+
+// TryToProto converts to the protobuf message, returning an error if any
+// structpb or WKT conversion fails. Prefer this over ToProto when error
+// handling is important.
+func (u *UserMongo) TryToProto() (*pb.User, error) {
+	if u == nil {
+		return nil, nil
+	}
+	out := &pb.User{
+		Id:          u.ID,
+		Email:       u.Email,
+		DisplayName: u.DisplayName,
+		Active:      u.Active,
+		Age:         u.Age,
+		Roles:       u.Roles,
+		Metadata:    u.Metadata,
+		Status:      pb.UserStatus(u.Status),
+	}
+	if u.Address != nil {
+		out.Address = u.Address.ToProto()
+	}
+	if !u.CreatedAt.IsZero() {
+		out.CreatedAt = timestamppb.New(u.CreatedAt)
+	}
+	out.SessionTimeout = durationpb.New(u.SessionTimeout)
+	if u.Phone != nil {
+		v := *u.Phone
+		out.Phone = &v
+	}
+	if u.Avatar != nil {
+		out.Avatar = make([]byte, len(u.Avatar))
+		copy(out.Avatar, u.Avatar)
+	}
+	if u.Nickname != nil {
+		out.Nickname = wrapperspb.String(*u.Nickname)
+	}
+	if u.ContactEmail != nil {
+		out.ContactMethod = &pb.User_ContactEmail{ContactEmail: *u.ContactEmail}
+	}
+	if u.ContactPhone != nil {
+		out.ContactMethod = &pb.User_ContactPhone{ContactPhone: *u.ContactPhone}
+	}
+	if len(u.Tags) > 0 {
+		out.Tags = make([]*pb.Tag, len(u.Tags))
+		for i, v := range u.Tags {
+			if v != nil {
+				out.Tags[i] = v.ToProto()
+			}
+		}
+	}
+	if !u.DeletedAt.IsZero() {
+		out.DeletedAt = timestamppb.New(u.DeletedAt)
+	}
+	if u.PreviousStatus != 0 {
+		v := pb.UserStatus(u.PreviousStatus)
+		out.PreviousStatus = &v
+	}
+	if len(u.UpdateMask) > 0 {
+		paths := make([]string, len(u.UpdateMask))
+		copy(paths, u.UpdateMask)
+		out.UpdateMask = &fieldmaskpb.FieldMask{Paths: paths}
+	}
+	if len(u.ExtraMetadata) > 0 {
+		var err error
+		out.ExtraMetadata, err = structpb.NewStruct(u.ExtraMetadata)
+		if err != nil {
+			return nil, fmt.Errorf("proto2type: failed to convert %s.ExtraMetadata to Struct: %w", "UserMongo", err)
+		}
+	}
+	if len(u.Preferences) > 0 {
+		var err error
+		out.Preferences, err = structpb.NewList(u.Preferences)
+		if err != nil {
+			return nil, fmt.Errorf("proto2type: failed to convert %s.Preferences to ListValue: %w", "UserMongo", err)
+		}
+	}
+	if u.AvatarThumbnail != nil {
+		out.AvatarThumbnail = make([]byte, len(*u.AvatarThumbnail))
+		copy(out.AvatarThumbnail, *u.AvatarThumbnail)
+	}
+	if len(u.FieldMasks) > 0 {
+		out.FieldMasks = make([]*fieldmaskpb.FieldMask, len(u.FieldMasks))
+		for i, v := range u.FieldMasks {
+			paths := make([]string, len(v))
+			copy(paths, v)
+			out.FieldMasks[i] = &fieldmaskpb.FieldMask{Paths: paths}
+		}
+	}
+	if len(u.Structs) > 0 {
+		out.Structs = make([]*structpb.Struct, len(u.Structs))
+		for i, v := range u.Structs {
+			s, err := structpb.NewStruct(v)
+			if err != nil {
+				return nil, fmt.Errorf("proto2type: failed to convert %s.Structs[%d] to Struct: %w", "UserMongo", i, err)
+			}
+			out.Structs[i] = s
+		}
+	}
+	if len(u.Lists) > 0 {
+		out.Lists = make([]*structpb.ListValue, len(u.Lists))
+		for i, v := range u.Lists {
+			l, err := structpb.NewList(v)
+			if err != nil {
+				return nil, fmt.Errorf("proto2type: failed to convert %s.Lists[%d] to ListValue: %w", "UserMongo", i, err)
+			}
+			out.Lists[i] = l
+		}
+	}
+	if len(u.EventTimes) > 0 {
+		out.EventTimes = make(map[string]*timestamppb.Timestamp, len(u.EventTimes))
+		for k, v := range u.EventTimes {
+			out.EventTimes[k] = timestamppb.New(v)
+		}
+	}
+	if len(u.Configs) > 0 {
+		out.Configs = make(map[string]*structpb.Struct, len(u.Configs))
+		for k, v := range u.Configs {
+			s, err := structpb.NewStruct(v)
+			if err != nil {
+				return nil, fmt.Errorf("proto2type: failed to convert %s.Configs[%v] to Struct: %w", "UserMongo", k, err)
+			}
+			out.Configs[k] = s
+		}
+	}
+	return out, nil
 }
 
 // FromProto populates from a protobuf message.

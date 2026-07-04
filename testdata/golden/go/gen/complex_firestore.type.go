@@ -5,6 +5,7 @@
 package gen
 
 import (
+	fmt "fmt"
 	pb "github.com/protocgen/proto2type/testdata/golden/go/pb"
 	proto "google.golang.org/protobuf/proto"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -436,6 +437,57 @@ func (d *DocumentFirestore) ToProto() *pb.Document {
 	return out
 }
 
+// TryToProto converts to the protobuf message, returning an error if any
+// structpb or WKT conversion fails. Prefer this over ToProto when error
+// handling is important.
+func (d *DocumentFirestore) TryToProto() (*pb.Document, error) {
+	if d == nil {
+		return nil, nil
+	}
+	out := &pb.Document{
+		Id:        d.ID,
+		CodeNames: d.CodeNames,
+	}
+	if len(d.SettingsMap) > 0 {
+		out.SettingsMap = make(map[string]*pb.Settings, len(d.SettingsMap))
+		for k, v := range d.SettingsMap {
+			if v != nil {
+				out.SettingsMap[k] = v.ToProto()
+			}
+		}
+	}
+	if len(d.Metadata) > 0 {
+		var err error
+		out.Metadata, err = structpb.NewStruct(d.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("proto2type: failed to convert %s.Metadata to Struct: %w", "DocumentFirestore", err)
+		}
+	}
+	if d.Extension != nil {
+		if v, ok := d.Extension.(*anypb.Any); ok {
+			out.Extension = proto.Clone(v).(*anypb.Any)
+		}
+	}
+	if len(d.UpdateMask) > 0 {
+		paths := make([]string, len(d.UpdateMask))
+		copy(paths, d.UpdateMask)
+		out.UpdateMask = &fieldmaskpb.FieldMask{Paths: paths}
+	}
+	if d.Archived != nil {
+		out.Archived = wrapperspb.Bool(*d.Archived)
+	}
+	if d.ViewCount != nil {
+		out.ViewCount = wrapperspb.Int64(*d.ViewCount)
+	}
+	if len(d.Placeholders) > 0 {
+		out.Placeholders = make([]*emptypb.Empty, len(d.Placeholders))
+		for i := range d.Placeholders {
+			out.Placeholders[i] = &emptypb.Empty{}
+		}
+	}
+	return out, nil
+}
+
 // FromProto populates from a protobuf message.
 func (d *DocumentFirestore) FromProto(msg *pb.Document) {
 	if msg == nil {
@@ -817,6 +869,48 @@ func (w *WktPayloadFirestore) ToProto() *pb.WktPayload {
 		out.Content = &pb.WktPayload_Raw{Raw: *w.Raw}
 	}
 	return out
+}
+
+// TryToProto converts to the protobuf message, returning an error if any
+// structpb or WKT conversion fails. Prefer this over ToProto when error
+// handling is important.
+func (w *WktPayloadFirestore) TryToProto() (*pb.WktPayload, error) {
+	if w == nil {
+		return nil, nil
+	}
+	out := &pb.WktPayload{
+		Id: w.ID,
+	}
+	if w.StructData != nil {
+		s, err := structpb.NewStruct(*w.StructData)
+		if err != nil {
+			return nil, fmt.Errorf("proto2type: failed to convert %s.StructData to Struct: %w", "WktPayloadFirestore", err)
+		}
+		out.Content = &pb.WktPayload_StructData{StructData: s}
+	}
+	if w.AnyValue != nil {
+		v, err := structpb.NewValue(*w.AnyValue)
+		if err != nil {
+			return nil, fmt.Errorf("proto2type: failed to convert %s.AnyValue to Value: %w", "WktPayloadFirestore", err)
+		}
+		out.Content = &pb.WktPayload_AnyValue{AnyValue: v}
+	}
+	if w.ListData != nil {
+		l, err := structpb.NewList(*w.ListData)
+		if err != nil {
+			return nil, fmt.Errorf("proto2type: failed to convert %s.ListData to ListValue: %w", "WktPayloadFirestore", err)
+		}
+		out.Content = &pb.WktPayload_ListData{ListData: l}
+	}
+	if w.Mask != nil {
+		paths := make([]string, len(*w.Mask))
+		copy(paths, *w.Mask)
+		out.Content = &pb.WktPayload_Mask{Mask: &fieldmaskpb.FieldMask{Paths: paths}}
+	}
+	if w.Raw != nil {
+		out.Content = &pb.WktPayload_Raw{Raw: *w.Raw}
+	}
+	return out, nil
 }
 
 // FromProto populates from a protobuf message.
