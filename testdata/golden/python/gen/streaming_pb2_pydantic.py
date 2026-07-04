@@ -72,6 +72,16 @@ class WktEvent(BaseModel):
     payload: datetime | dict[str, Any] | str | None = None
 
 
+
+TextChunk.model_rebuild()
+ToolInvocation.model_rebuild()
+StreamDone.model_rebuild()
+StreamError.model_rebuild()
+StreamEvent.model_rebuild()
+NonEligible.model_rebuild()
+MultiOneof.model_rebuild()
+WktEvent.model_rebuild()
+
 __all__ = [
     'MultiOneof',
     'NonEligible',

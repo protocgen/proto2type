@@ -117,6 +117,18 @@ class WktPayload(BaseModel):
     content: dict[str, Any] | Any | str | None = None
 
 
+
+Settings.model_rebuild()
+OrganizationDepartmentTeam.model_rebuild()
+OrganizationDepartment.model_rebuild()
+Organization.model_rebuild()
+Notification.model_rebuild()
+Document.model_rebuild()
+TreeNode.model_rebuild()
+AuditLog.model_rebuild()
+Event.model_rebuild()
+WktPayload.model_rebuild()
+
 __all__ = [
     'AuditLog',
     'Document',

@@ -219,6 +219,9 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 		writePythonModel(g, m, opts)
 	}
 
+	// model_rebuild() for forward reference resolution.
+	writePythonModelRebuilds(g, ir)
+
 	// __all__ exports.
 	writePythonAllExports(g, ir)
 }
@@ -504,12 +507,25 @@ func writePythonAllExports(g *protogen.GeneratedFile, ir *DomainFile) {
 	g.P()
 }
 
-// writePythonModelRebuilds is no longer needed since datetime/timedelta are
-// now real imports (not behind TYPE_CHECKING). Kept as a no-op stub for
-// readability of the call chain.
-//
-//nolint:unused
-func writePythonModelRebuilds(_ *protogen.GeneratedFile, _ *pythonImports) {}
+// writePythonModelRebuilds emits Model.model_rebuild() for every non-skipped
+// model at the end of the file. This resolves forward references for
+// self-referencing and mutually-recursive Pydantic models.
+func writePythonModelRebuilds(g *protogen.GeneratedFile, ir *DomainFile) {
+	var names []string
+	for _, m := range ir.Messages {
+		if m.Skip {
+			continue
+		}
+		names = append(names, m.Name)
+	}
+	if len(names) > 0 {
+		g.P()
+		for _, name := range names {
+			g.P(name, ".model_rebuild()")
+		}
+		g.P()
+	}
+}
 
 // ensurePythonTrailingPeriod adds a trailing period for PEP 257 docstrings.
 func ensurePythonTrailingPeriod(s string) string {

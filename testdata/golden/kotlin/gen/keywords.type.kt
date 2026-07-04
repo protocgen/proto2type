@@ -16,6 +16,7 @@ data class KeywordFields(
     val match: Boolean = false,
     val mod: String = "",
     val ref: Long = 0L,
-    @SerialName("super") val `super`: String = ""
+    @SerialName("super") val `super`: String = "",
+    val cls: Boolean = false
 )
 

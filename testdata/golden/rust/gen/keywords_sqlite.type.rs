@@ -40,6 +40,7 @@ pub struct KeywordFieldsRow {
     pub r#mod: String,
     pub r#ref: i64,
     pub super_: String,
+    pub cls: bool,
 }
 
 impl KeywordFieldsRow {
@@ -52,6 +53,7 @@ impl KeywordFieldsRow {
             r#mod: row.get("mod")?,
             r#ref: row.get("ref")?,
             super_: row.get("super")?,
+            cls: row.get("cls")?,
         })
     }
 
@@ -64,6 +66,7 @@ impl KeywordFieldsRow {
             r#mod: self.r#mod.clone(),
             r#ref: self.r#ref,
             super_: self.super_.clone(),
+            cls: self.cls,
         })
     }
 
@@ -76,6 +79,7 @@ impl KeywordFieldsRow {
             r#mod: self.r#mod,
             r#ref: self.r#ref,
             super_: self.super_,
+            cls: self.cls,
         })
     }
 
@@ -88,6 +92,7 @@ impl KeywordFieldsRow {
             r#mod: d.r#mod.clone(),
             r#ref: d.r#ref,
             super_: d.super_.clone(),
+            cls: d.cls,
         })
     }
 }

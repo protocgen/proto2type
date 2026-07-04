@@ -244,6 +244,12 @@ var pythonKeywords = map[string]bool{
 	"input": true, "print": true, "format": true, "map": true, "filter": true,
 	"hash": true, "len": true, "range": true, "str": true, "int": true,
 	"float": true, "bool": true, "bytes": true, "object": true, "property": true,
+	// implicit parameters and soft keywords
+	"self": true, "cls": true, "match": true, "super": true,
+	// Pydantic v2 reserved model attributes
+	"model_config": true, "model_fields": true, "model_computed_fields": true,
+	"model_extra": true, "model_fields_set": true, "model_validate": true,
+	"model_dump": true, "model_rebuild": true,
 }
 
 // escapePythonKeyword appends _ to Python keywords/builtins.
