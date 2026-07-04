@@ -62,6 +62,9 @@ func irWrapperGoSliceType(kind FieldKind) string {
 // structSuffix is "" for domain, "Firestore" for Firestore, "Mongo" for Mongo, etc.
 func generateConverters(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix string, opts *Options) {
 	generateToProto(g, dm, structSuffix, opts)
+	if needsTryToProto(dm) {
+		generateTryToProto(g, dm, structSuffix, opts)
+	}
 	generateFromProto(g, dm, structSuffix, opts)
 }
 
@@ -546,7 +549,7 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 			g.P("\t}")
 		} else if f.Kind == FieldKindStruct {
 			// Struct: domain map[string]any → proto *structpb.Struct
-			// TODO(proto2type): Consider TryToProto() (*pb.T, error) for fallible conversions.
+			// Struct: domain map[string]any → proto *structpb.Struct (fallible; see TryToProto for error path)
 			structNew := g.QualifiedGoIdent(protogen.GoIdent{
 				GoImportPath: "google.golang.org/protobuf/types/known/structpb",
 				GoName:       "NewStruct",
@@ -655,6 +658,562 @@ func generateToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix 
 	}
 
 	g.P("\treturn out")
+	g.P("}")
+	g.P()
+}
+
+// needsTryToProto returns true if any field in the message uses a fallible
+// WKT conversion (structpb.NewStruct, structpb.NewList, structpb.NewValue)
+// that can return an error at runtime.
+func needsTryToProto(dm *DomainMessage) bool {
+	for _, f := range dm.Fields {
+		if f.IsOneof {
+			oneof := findOneof(dm, f.OneofTypeName)
+			for _, v := range oneof.Variants {
+				if v.Kind == FieldKindStruct || v.Kind == FieldKindValue || v.Kind == FieldKindListValue {
+					return true
+				}
+			}
+			continue
+		}
+		switch {
+		case f.Kind == FieldKindStruct || f.Kind == FieldKindListValue:
+			return true
+		case f.IsMap && f.MapValue != nil && (f.MapValue.Kind == FieldKindStruct || f.MapValue.Kind == FieldKindListValue):
+			return true
+		}
+	}
+	return false
+}
+
+// generateTryToProto generates the TryToProto method that returns errors
+// instead of swallowing them with log.Printf. It is only generated for
+// messages that contain fallible WKT conversions (Struct, ListValue, Value).
+// TODO: refactor shared logic between ToProto and TryToProto
+func generateTryToProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffix string, opts *Options) {
+	structName := dm.Name + structSuffix
+	protoType := g.QualifiedGoIdent(dm.ProtoGoIdent)
+	recv := receiverName(structName)
+
+	fmtErrorf := g.QualifiedGoIdent(protogen.GoIdent{
+		GoImportPath: "fmt",
+		GoName:       "Errorf",
+	})
+
+	g.P("// TryToProto converts to the protobuf message, returning an error if any")
+	g.P("// structpb or WKT conversion fails. Prefer this over ToProto when error")
+	g.P("// handling is important.")
+	g.P("func (", recv, " *", structName, ") TryToProto() (*", protoType, ", error) {")
+	g.P("\tif ", recv, " == nil {")
+	g.P("\t\treturn nil, nil")
+	g.P("\t}")
+
+	// Open the proto struct literal with non-special fields (same as ToProto).
+	g.P("\tout := &", protoType, "{")
+	for _, f := range dm.Fields {
+		if f.IsOneof {
+			continue
+		}
+		if f.DocID && structSuffix == "Firestore" {
+			continue
+		}
+		if f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration {
+			continue
+		}
+		if f.Kind.IsWrapper() {
+			continue
+		}
+		if f.Kind == FieldKindMessage && !f.IsMap {
+			continue
+		}
+		if f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue || f.Kind == FieldKindAny || f.Kind == FieldKindEmpty {
+			continue
+		}
+		if f.IsMap && f.MapValue != nil {
+			switch f.MapValue.Kind {
+			case FieldKindTimestamp, FieldKindDuration, FieldKindStruct, FieldKindListValue, FieldKindFieldMask, FieldKindMessage, FieldKindAny, FieldKindEmpty:
+				continue
+			}
+		}
+		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
+			continue
+		}
+		if f.Optional {
+			continue
+		}
+
+		domainFieldName := f.PascalName
+		protoFieldName := f.ProtoGoName
+
+		if f.Kind == FieldKindEnum {
+			enumIdent := g.QualifiedGoIdent(f.ProtoEnumGoIdent)
+			if f.EnumAsString {
+				g.P("\t\t", protoFieldName, ": ", enumIdent, "(", enumIdent, "_value[", recv, ".", domainFieldName, "]),")
+			} else {
+				g.P("\t\t", protoFieldName, ": ", enumIdent, "(", recv, ".", domainFieldName, "),")
+			}
+		} else {
+			g.P("\t\t", protoFieldName, ": ", recv, ".", domainFieldName, ",")
+		}
+	}
+	g.P("\t}")
+
+	// Handle well-known types and special fields outside the struct literal.
+	for _, f := range dm.Fields {
+		if f.IsOneof {
+			oneof := findOneof(dm, f.OneofTypeName)
+			for _, v := range oneof.Variants {
+				g.P("\tif ", recv, ".", v.Name, " != nil {")
+				switch v.Kind {
+				case FieldKindScalar:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": *", recv, ".", v.Name, "}")
+				case FieldKindMessage:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": ", recv, ".", v.Name, ".ToProto()}")
+				case FieldKindEnum:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					enumIdent := g.QualifiedGoIdent(v.ProtoEnumGoIdent)
+					if v.EnumAsString {
+						g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+							"{", v.ProtoGoName, ": ", enumIdent, "(", enumIdent, "_value[*", recv, ".", v.Name, "])}")
+					} else {
+						g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+							"{", v.ProtoGoName, ": ", enumIdent, "(*", recv, ".", v.Name, ")}")
+					}
+				case FieldKindTimestamp:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					tsNew := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/timestamppb",
+						GoName:       "New",
+					})
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": ", tsNew, "(*", recv, ".", v.Name, ")}")
+				case FieldKindDuration:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					durNew := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/durationpb",
+						GoName:       "New",
+					})
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": ", durNew, "(*", recv, ".", v.Name, ")}")
+				case FieldKindStruct:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					structNew := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/structpb",
+						GoName:       "NewStruct",
+					})
+					g.P("\t\ts, err := ", structNew, "(*", recv, ".", v.Name, ")")
+					g.P("\t\tif err != nil {")
+					g.P("\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", v.Name, " to Struct: %w\", \"", structName, "\", err)")
+					g.P("\t\t}")
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": s}")
+				case FieldKindValue:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					valNew := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/structpb",
+						GoName:       "NewValue",
+					})
+					g.P("\t\tv, err := ", valNew, "(*", recv, ".", v.Name, ")")
+					g.P("\t\tif err != nil {")
+					g.P("\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", v.Name, " to Value: %w\", \"", structName, "\", err)")
+					g.P("\t\t}")
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": v}")
+				case FieldKindListValue:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					listNew := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/structpb",
+						GoName:       "NewList",
+					})
+					g.P("\t\tl, err := ", listNew, "(*", recv, ".", v.Name, ")")
+					g.P("\t\tif err != nil {")
+					g.P("\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", v.Name, " to ListValue: %w\", \"", structName, "\", err)")
+					g.P("\t\t}")
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": l}")
+				case FieldKindFieldMask:
+					wrapperIdent := g.QualifiedGoIdent(v.ProtoGoIdent)
+					fmIdent := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/fieldmaskpb",
+						GoName:       "FieldMask",
+					})
+					g.P("\t\tpaths := make([]string, len(*", recv, ".", v.Name, "))")
+					g.P("\t\tcopy(paths, *", recv, ".", v.Name, ")")
+					g.P("\t\tout.", oneof.ProtoGoName, " = &", wrapperIdent,
+						"{", v.ProtoGoName, ": &", fmIdent, "{Paths: paths}}")
+				}
+				g.P("\t}")
+			}
+			continue
+		}
+		if f.DocID && structSuffix == "Firestore" {
+			continue
+		}
+
+		domainFieldName := f.PascalName
+		protoFieldName := f.ProtoGoName
+
+		// Handle repeated WKT types with loop-based conversion.
+		if f.Repeated && (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration || f.Kind == FieldKindFieldMask || f.Kind == FieldKindStruct || f.Kind == FieldKindListValue || f.Kind == FieldKindEmpty || f.Kind == FieldKindAny || f.Kind.IsWrapper()) {
+			switch f.Kind {
+			case FieldKindTimestamp:
+				tsNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/timestamppb", GoName: "New"})
+				tsType := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/timestamppb", GoName: "Timestamp"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make([]*", tsType, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tout.", protoFieldName, "[i] = ", tsNew, "(v)")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindDuration:
+				durNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/durationpb", GoName: "New"})
+				durType := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/durationpb", GoName: "Duration"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make([]*", durType, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tout.", protoFieldName, "[i] = ", durNew, "(v)")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindFieldMask:
+				fmType := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/fieldmaskpb", GoName: "FieldMask"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make([]*", fmType, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tpaths := make([]string, len(v))")
+				g.P("\t\t\tcopy(paths, v)")
+				g.P("\t\t\tout.", protoFieldName, "[i] = &", fmType, "{Paths: paths}")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindStruct:
+				structNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/structpb", GoName: "NewStruct"})
+				spbStruct := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/structpb", GoName: "Struct"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make([]*", spbStruct, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\ts, err := ", structNew, "(v)")
+				g.P("\t\t\tif err != nil {")
+				g.P("\t\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%d] to Struct: %w\", \"", structName, "\", i, err)")
+				g.P("\t\t\t}")
+				g.P("\t\t\tout.", protoFieldName, "[i] = s")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindListValue:
+				listNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/structpb", GoName: "NewList"})
+				spbListValue := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/structpb", GoName: "ListValue"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make([]*", spbListValue, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tl, err := ", listNew, "(v)")
+				g.P("\t\t\tif err != nil {")
+				g.P("\t\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%d] to ListValue: %w\", \"", structName, "\", i, err)")
+				g.P("\t\t\t}")
+				g.P("\t\t\tout.", protoFieldName, "[i] = l")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindEmpty:
+				emptypbEmpty := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/emptypb", GoName: "Empty"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make([]*", emptypbEmpty, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor i := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tout.", protoFieldName, "[i] = &", emptypbEmpty, "{}")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindAny:
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				anyType := g.QualifiedGoIdent(protogen.GoIdent{GoName: "Any", GoImportPath: "google.golang.org/protobuf/types/known/anypb"})
+				protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+				g.P("\t\tout.", protoFieldName, " = make([]*", anyType, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tif v != nil {")
+				g.P("\t\t\t\tif a, ok := v.(*", anyType, "); ok {")
+				g.P("\t\t\t\t\tout.", protoFieldName, "[i] = ", protoClone, "(a).(*", anyType, ")")
+				g.P("\t\t\t\t}")
+				g.P("\t\t\t}")
+				g.P("\t\t}")
+				g.P("\t}")
+			default:
+				if f.Kind == FieldKindWrapperBytes {
+					wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+						GoName:       "Bytes",
+					})
+					wrapperType := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+						GoName:       "BytesValue",
+					})
+					g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+					g.P("\t\tout.", protoFieldName, " = make([]*", wrapperType, ", len(", recv, ".", domainFieldName, "))")
+					g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+					g.P("\t\t\tif v != nil {")
+					g.P("\t\t\t\tb := make([]byte, len(*v))")
+					g.P("\t\t\t\tcopy(b, *v)")
+					g.P("\t\t\t\tout.", protoFieldName, "[i] = ", wrapperFunc, "(b)")
+					g.P("\t\t\t}")
+					g.P("\t\t}")
+					g.P("\t}")
+				} else if f.Kind.IsWrapper() {
+					funcName := irWrapperPbFuncName(f.Kind)
+					wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+						GoName:       funcName,
+					})
+					wrapperType := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+						GoName:       funcName + "Value",
+					})
+					g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+					g.P("\t\tout.", protoFieldName, " = make([]*", wrapperType, ", len(", recv, ".", domainFieldName, "))")
+					g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+					g.P("\t\t\tif v != nil {")
+					g.P("\t\t\t\tout.", protoFieldName, "[i] = ", wrapperFunc, "(*v)")
+					g.P("\t\t\t}")
+					g.P("\t\t}")
+					g.P("\t}")
+				}
+			}
+			continue
+		}
+
+		// Handle map fields with WKT or message values.
+		if f.IsMap && f.MapValue != nil && (f.MapValue.Kind == FieldKindTimestamp || f.MapValue.Kind == FieldKindDuration || f.MapValue.Kind == FieldKindFieldMask || f.MapValue.Kind == FieldKindStruct || f.MapValue.Kind == FieldKindListValue || f.MapValue.Kind == FieldKindMessage || f.MapValue.Kind == FieldKindAny || f.MapValue.Kind == FieldKindEmpty) {
+			keyType := goType(f.MapKey.ScalarKind)
+			switch f.MapValue.Kind {
+			case FieldKindTimestamp:
+				tsNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/timestamppb", GoName: "New"})
+				tsType := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/timestamppb", GoName: "Timestamp"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make(map[", keyType, "]*", tsType, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor k, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tout.", protoFieldName, "[k] = ", tsNew, "(v)")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindDuration:
+				durNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/durationpb", GoName: "New"})
+				durType := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/durationpb", GoName: "Duration"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make(map[", keyType, "]*", durType, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor k, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tout.", protoFieldName, "[k] = ", durNew, "(v)")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindFieldMask:
+				fmType := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/fieldmaskpb", GoName: "FieldMask"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make(map[", keyType, "]*", fmType, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor k, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tpaths := make([]string, len(v))")
+				g.P("\t\t\tcopy(paths, v)")
+				g.P("\t\t\tout.", protoFieldName, "[k] = &", fmType, "{Paths: paths}")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindStruct:
+				structNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/structpb", GoName: "NewStruct"})
+				spbStruct := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/structpb", GoName: "Struct"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make(map[", keyType, "]*", spbStruct, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor k, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\ts, err := ", structNew, "(v)")
+				g.P("\t\t\tif err != nil {")
+				g.P("\t\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%v] to Struct: %w\", \"", structName, "\", k, err)")
+				g.P("\t\t\t}")
+				g.P("\t\t\tout.", protoFieldName, "[k] = s")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindListValue:
+				listNew := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/structpb", GoName: "NewList"})
+				spbListValue := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/structpb", GoName: "ListValue"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make(map[", keyType, "]*", spbListValue, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor k, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tl, err := ", listNew, "(v)")
+				g.P("\t\t\tif err != nil {")
+				g.P("\t\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, "[%v] to ListValue: %w\", \"", structName, "\", k, err)")
+				g.P("\t\t\t}")
+				g.P("\t\t\tout.", protoFieldName, "[k] = l")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindMessage:
+				protoValType := g.QualifiedGoIdent(f.MapValue.ProtoGoIdent)
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make(map[", keyType, "]*", protoValType, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor k, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tif v != nil {")
+				g.P("\t\t\t\tout.", protoFieldName, "[k] = v.ToProto()")
+				g.P("\t\t\t}")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindAny:
+				anyType := g.QualifiedGoIdent(protogen.GoIdent{GoName: "Any", GoImportPath: "google.golang.org/protobuf/types/known/anypb"})
+				protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make(map[", keyType, "]*", anyType, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor k, v := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tif v != nil {")
+				g.P("\t\t\t\tif a, ok := v.(*", anyType, "); ok {")
+				g.P("\t\t\t\t\tout.", protoFieldName, "[k] = ", protoClone, "(a).(*", anyType, ")")
+				g.P("\t\t\t\t}")
+				g.P("\t\t\t}")
+				g.P("\t\t}")
+				g.P("\t}")
+			case FieldKindEmpty:
+				emptypbEmpty := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/emptypb", GoName: "Empty"})
+				g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+				g.P("\t\tout.", protoFieldName, " = make(map[", keyType, "]*", emptypbEmpty, ", len(", recv, ".", domainFieldName, "))")
+				g.P("\t\tfor k := range ", recv, ".", domainFieldName, " {")
+				g.P("\t\t\tout.", protoFieldName, "[k] = &", emptypbEmpty, "{}")
+				g.P("\t\t}")
+				g.P("\t}")
+			}
+			continue
+		}
+
+		if f.Kind == FieldKindTimestamp {
+			tsNew := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/timestamppb",
+				GoName:       "New",
+			})
+			if f.Optional && structSuffix == "" {
+				g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+				g.P("\t\tout.", protoFieldName, " = ", tsNew, "(*", recv, ".", domainFieldName, ")")
+				g.P("\t}")
+			} else {
+				g.P("\tif !", recv, ".", domainFieldName, ".IsZero() {")
+				g.P("\t\tout.", protoFieldName, " = ", tsNew, "(", recv, ".", domainFieldName, ")")
+				g.P("\t}")
+			}
+		} else if f.Kind == FieldKindDuration {
+			durNew := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/durationpb",
+				GoName:       "New",
+			})
+			if f.Optional && structSuffix == "" {
+				g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+				g.P("\t\tout.", protoFieldName, " = ", durNew, "(*", recv, ".", domainFieldName, ")")
+				g.P("\t}")
+			} else {
+				g.P("\tout.", protoFieldName, " = ", durNew, "(", recv, ".", domainFieldName, ")")
+			}
+		} else if f.Kind == FieldKindWrapperBytes {
+			wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+				GoName:       "Bytes",
+			})
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tb := make([]byte, len(*", recv, ".", domainFieldName, "))")
+			g.P("\t\tcopy(b, *", recv, ".", domainFieldName, ")")
+			g.P("\t\tout.", protoFieldName, " = ", wrapperFunc, "(b)")
+			g.P("\t}")
+		} else if f.Kind.IsWrapper() {
+			funcName := irWrapperPbFuncName(f.Kind)
+			wrapperFunc := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/wrapperspb",
+				GoName:       funcName,
+			})
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tout.", protoFieldName, " = ", wrapperFunc, "(*", recv, ".", domainFieldName, ")")
+			g.P("\t}")
+		} else if f.Kind == FieldKindFieldMask {
+			fmIdent := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/fieldmaskpb",
+				GoName:       "FieldMask",
+			})
+			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+			g.P("\t\tpaths := make([]string, len(", recv, ".", domainFieldName, "))")
+			g.P("\t\tcopy(paths, ", recv, ".", domainFieldName, ")")
+			g.P("\t\tout.", protoFieldName, " = &", fmIdent, "{Paths: paths}")
+			g.P("\t}")
+		} else if f.Kind == FieldKindStruct {
+			structNew := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/structpb",
+				GoName:       "NewStruct",
+			})
+			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+			g.P("\t\tvar err error")
+			g.P("\t\tout.", protoFieldName, ", err = ", structNew, "(", recv, ".", domainFieldName, ")")
+			g.P("\t\tif err != nil {")
+			g.P("\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, " to Struct: %w\", \"", structName, "\", err)")
+			g.P("\t\t}")
+			g.P("\t}")
+		} else if f.Kind == FieldKindListValue {
+			listNew := g.QualifiedGoIdent(protogen.GoIdent{
+				GoImportPath: "google.golang.org/protobuf/types/known/structpb",
+				GoName:       "NewList",
+			})
+			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+			g.P("\t\tvar err error")
+			g.P("\t\tout.", protoFieldName, ", err = ", listNew, "(", recv, ".", domainFieldName, ")")
+			g.P("\t\tif err != nil {")
+			g.P("\t\t\treturn nil, ", fmtErrorf, "(\"proto2type: failed to convert %s.", domainFieldName, " to ListValue: %w\", \"", structName, "\", err)")
+			g.P("\t\t}")
+			g.P("\t}")
+		} else if f.Kind == FieldKindAny && !f.Repeated {
+			anypbAny := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/anypb", GoName: "Any"})
+			protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tif v, ok := ", recv, ".", domainFieldName, ".(*", anypbAny, "); ok {")
+			g.P("\t\t\tout.", protoFieldName, " = ", protoClone, "(v).(*", anypbAny, ")")
+			g.P("\t\t}")
+			g.P("\t}")
+		} else if f.Kind == FieldKindEmpty && !f.Repeated {
+			emptypbEmpty := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/emptypb", GoName: "Empty"})
+			g.P("\tout.", protoFieldName, " = &", emptypbEmpty, "{}")
+		} else if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tout.", protoFieldName, " = ", recv, ".", domainFieldName, ".ToProto()")
+			g.P("\t}")
+		} else if f.Kind == FieldKindMessage && f.Repeated {
+			protoElemType := g.QualifiedGoIdent(f.ProtoMessageGoIdent)
+			g.P("\tif len(", recv, ".", domainFieldName, ") > 0 {")
+			g.P("\t\tout.", protoFieldName, " = make([]*", protoElemType, ", len(", recv, ".", domainFieldName, "))")
+			g.P("\t\tfor i, v := range ", recv, ".", domainFieldName, " {")
+			g.P("\t\t\tif v != nil {")
+			g.P("\t\t\t\tout.", protoFieldName, "[i] = v.ToProto()")
+			g.P("\t\t\t}")
+			g.P("\t\t}")
+			g.P("\t}")
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && f.Optional {
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tout.", protoFieldName, " = make([]byte, len(*", recv, ".", domainFieldName, "))")
+			g.P("\t\tcopy(out.", protoFieldName, ", *", recv, ".", domainFieldName, ")")
+			g.P("\t}")
+		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tout.", protoFieldName, " = make([]byte, len(", recv, ".", domainFieldName, "))")
+			g.P("\t\tcopy(out.", protoFieldName, ", ", recv, ".", domainFieldName, ")")
+			g.P("\t}")
+		} else if f.Optional && f.Kind == FieldKindEnum {
+			enumIdent := g.QualifiedGoIdent(f.ProtoEnumGoIdent)
+			if structSuffix == "" {
+				g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+				if f.EnumAsString {
+					g.P("\t\tv := ", enumIdent, "(", enumIdent, "_value[*", recv, ".", domainFieldName, "])")
+				} else {
+					g.P("\t\tv := ", enumIdent, "(*", recv, ".", domainFieldName, ")")
+				}
+			} else {
+				if f.EnumAsString {
+					g.P("\tif ", recv, ".", domainFieldName, " != \"\" {")
+					g.P("\t\tv := ", enumIdent, "(", enumIdent, "_value[", recv, ".", domainFieldName, "])")
+				} else {
+					g.P("\tif ", recv, ".", domainFieldName, " != 0 {")
+					g.P("\t\tv := ", enumIdent, "(", recv, ".", domainFieldName, ")")
+				}
+			}
+			g.P("\t\tout.", protoFieldName, " = &v")
+			g.P("\t}")
+		} else if f.Optional {
+			g.P("\tif ", recv, ".", domainFieldName, " != nil {")
+			g.P("\t\tv := *", recv, ".", domainFieldName)
+			g.P("\t\tout.", protoFieldName, " = &v")
+			g.P("\t}")
+		}
+	}
+
+	g.P("\treturn out, nil")
 	g.P("}")
 	g.P()
 }
@@ -967,6 +1526,9 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 					g.P("\t\tv := int32(msg.Get", protoFieldName, "())")
 					g.P("\t\t", recv, ".", domainFieldName, " = &v")
 				}
+				g.P("\t} else {")
+				g.P("\t\t", recv, ".", domainFieldName, " = nil")
+				g.P("\t}")
 			} else {
 				// Storage struct: optional enum is non-pointer
 				if f.EnumAsString {
@@ -974,8 +1536,14 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 				} else {
 					g.P("\t\t", recv, ".", domainFieldName, " = int32(msg.Get", protoFieldName, "())")
 				}
+				g.P("\t} else {")
+				if f.EnumAsString {
+					g.P("\t\t", recv, ".", domainFieldName, " = \"\"")
+				} else {
+					g.P("\t\t", recv, ".", domainFieldName, " = 0")
+				}
+				g.P("\t}")
 			}
-			g.P("\t}")
 		} else if f.Optional {
 			// Optional scalar: copy through temporary to avoid pointer aliasing.
 			g.P("\tif msg.", protoFieldName, " != nil {")
