@@ -144,6 +144,8 @@ jobs:
           chrono = { version = "0.4.20", features = ["serde"] }
           rusqlite = { version = "0.35", features = ["bundled"] }
           validator = { version = "0.20", features = ["derive"] }
+          lazy_static = "1"
+          regex = "1"
           EOF
           sed -i 's/^          //' /tmp/rust-compile-check/Cargo.toml
 
