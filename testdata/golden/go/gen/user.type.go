@@ -747,7 +747,7 @@ func (u *User) Clone() *User {
 	if u == nil {
 		return nil
 	}
-	c := &User{
+	clone := &User{
 		ID:             u.ID,
 		Email:          u.Email,
 		DisplayName:    u.DisplayName,
@@ -758,146 +758,146 @@ func (u *User) Clone() *User {
 		Status:         u.Status,
 	}
 	if u.Phone != nil {
-		v := *u.Phone
-		c.Phone = &v
+		val := *u.Phone
+		clone.Phone = &val
 	}
 	if u.Nickname != nil {
-		v := *u.Nickname
-		c.Nickname = &v
+		val := *u.Nickname
+		clone.Nickname = &val
 	}
 	if u.DeletedAt != nil {
-		v := *u.DeletedAt
-		c.DeletedAt = &v
+		val := *u.DeletedAt
+		clone.DeletedAt = &val
 	}
 	if u.PreviousStatus != nil {
-		v := *u.PreviousStatus
-		c.PreviousStatus = &v
+		val := *u.PreviousStatus
+		clone.PreviousStatus = &val
 	}
 	if u.AvatarThumbnail != nil {
-		b := make([]byte, len(*u.AvatarThumbnail))
-		copy(b, *u.AvatarThumbnail)
-		c.AvatarThumbnail = &b
+		copiedBytes := make([]byte, len(*u.AvatarThumbnail))
+		copy(copiedBytes, *u.AvatarThumbnail)
+		clone.AvatarThumbnail = &copiedBytes
 	}
 	if u.Roles != nil {
-		c.Roles = make([]string, len(u.Roles))
-		copy(c.Roles, u.Roles)
+		clone.Roles = make([]string, len(u.Roles))
+		copy(clone.Roles, u.Roles)
 	}
 	if u.Tags != nil {
-		c.Tags = make([]*Tag, len(u.Tags))
+		clone.Tags = make([]*Tag, len(u.Tags))
 		for i, v := range u.Tags {
 			if v != nil {
-				c.Tags[i] = v.Clone()
+				clone.Tags[i] = v.Clone()
 			}
 		}
 	}
 	if u.FieldMasks != nil {
-		c.FieldMasks = make([][]string, len(u.FieldMasks))
+		clone.FieldMasks = make([][]string, len(u.FieldMasks))
 		for i, v := range u.FieldMasks {
 			if v != nil {
-				c.FieldMasks[i] = make([]string, len(v))
-				copy(c.FieldMasks[i], v)
+				clone.FieldMasks[i] = make([]string, len(v))
+				copy(clone.FieldMasks[i], v)
 			}
 		}
 	}
 	if u.Structs != nil {
-		c.Structs = make([]map[string]any, len(u.Structs))
+		clone.Structs = make([]map[string]any, len(u.Structs))
 		for i, v := range u.Structs {
 			if v != nil {
-				c.Structs[i] = deepCopyValue(v).(map[string]any)
+				clone.Structs[i] = deepCopyValue(v).(map[string]any)
 			}
 		}
 	}
 	if u.Lists != nil {
-		c.Lists = make([][]any, len(u.Lists))
+		clone.Lists = make([][]any, len(u.Lists))
 		for i, v := range u.Lists {
 			if v != nil {
-				c.Lists[i] = deepCopyValue(v).([]any)
+				clone.Lists[i] = deepCopyValue(v).([]any)
 			}
 		}
 	}
 	if u.Values != nil {
-		c.Values = make([]any, len(u.Values))
+		clone.Values = make([]any, len(u.Values))
 		for i, v := range u.Values {
-			c.Values[i] = deepCopyValue(v)
+			clone.Values[i] = deepCopyValue(v)
 		}
 	}
 	if u.Avatar != nil {
-		c.Avatar = make([]byte, len(u.Avatar))
-		copy(c.Avatar, u.Avatar)
+		clone.Avatar = make([]byte, len(u.Avatar))
+		copy(clone.Avatar, u.Avatar)
 	}
 	if u.Metadata != nil {
-		c.Metadata = make(map[string]string, len(u.Metadata))
+		clone.Metadata = make(map[string]string, len(u.Metadata))
 		for k, v := range u.Metadata {
-			c.Metadata[k] = v
+			clone.Metadata[k] = v
 		}
 	}
 	if u.EventTimes != nil {
-		c.EventTimes = make(map[string]time.Time, len(u.EventTimes))
+		clone.EventTimes = make(map[string]time.Time, len(u.EventTimes))
 		for k, v := range u.EventTimes {
-			c.EventTimes[k] = v
+			clone.EventTimes[k] = v
 		}
 	}
 	if u.Configs != nil {
-		c.Configs = make(map[string]map[string]any, len(u.Configs))
+		clone.Configs = make(map[string]map[string]any, len(u.Configs))
 		for k, v := range u.Configs {
 			if v != nil {
-				c.Configs[k] = deepCopyValue(v).(map[string]any)
+				clone.Configs[k] = deepCopyValue(v).(map[string]any)
 			} else {
-				c.Configs[k] = nil
+				clone.Configs[k] = nil
 			}
 		}
 	}
 	if u.ValueMap != nil {
-		c.ValueMap = make(map[string]any, len(u.ValueMap))
+		clone.ValueMap = make(map[string]any, len(u.ValueMap))
 		for k, v := range u.ValueMap {
-			c.ValueMap[k] = deepCopyValue(v)
+			clone.ValueMap[k] = deepCopyValue(v)
 		}
 	}
 	if u.Labels != nil {
-		c.Labels = make(map[string]*string, len(u.Labels))
+		clone.Labels = make(map[string]*string, len(u.Labels))
 		for k, v := range u.Labels {
 			if v != nil {
 				cpy := *v
-				c.Labels[k] = &cpy
+				clone.Labels[k] = &cpy
 			} else {
-				c.Labels[k] = nil
+				clone.Labels[k] = nil
 			}
 		}
 	}
 	if u.Scores != nil {
-		c.Scores = make(map[string]*int64, len(u.Scores))
+		clone.Scores = make(map[string]*int64, len(u.Scores))
 		for k, v := range u.Scores {
 			if v != nil {
 				cpy := *v
-				c.Scores[k] = &cpy
+				clone.Scores[k] = &cpy
 			} else {
-				c.Scores[k] = nil
+				clone.Scores[k] = nil
 			}
 		}
 	}
 	if u.Address != nil {
-		c.Address = u.Address.Clone()
+		clone.Address = u.Address.Clone()
 	}
 	if u.UpdateMask != nil {
-		c.UpdateMask = make([]string, len(u.UpdateMask))
-		copy(c.UpdateMask, u.UpdateMask)
+		clone.UpdateMask = make([]string, len(u.UpdateMask))
+		copy(clone.UpdateMask, u.UpdateMask)
 	}
 	if u.ExtraMetadata != nil {
-		c.ExtraMetadata = deepCopyValue(u.ExtraMetadata).(map[string]any)
+		clone.ExtraMetadata = deepCopyValue(u.ExtraMetadata).(map[string]any)
 	}
 	if u.Preferences != nil {
-		c.Preferences = deepCopyValue(u.Preferences).([]any)
+		clone.Preferences = deepCopyValue(u.Preferences).([]any)
 	}
-	c.SingleValue = deepCopyValue(u.SingleValue)
+	clone.SingleValue = deepCopyValue(u.SingleValue)
 	if u.ContactEmail != nil {
-		v := *u.ContactEmail
-		c.ContactEmail = &v
+		val := *u.ContactEmail
+		clone.ContactEmail = &val
 	}
 	if u.ContactPhone != nil {
-		v := *u.ContactPhone
-		c.ContactPhone = &v
+		val := *u.ContactPhone
+		clone.ContactPhone = &val
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether u and other are equal.
@@ -1248,14 +1248,14 @@ func (a *Address) Clone() *Address {
 	if a == nil {
 		return nil
 	}
-	c := &Address{
+	clone := &Address{
 		Street:  a.Street,
 		City:    a.City,
 		State:   a.State,
 		Zip:     a.Zip,
 		Country: a.Country,
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether a and other are equal.
@@ -1345,11 +1345,11 @@ func (t *Tag) Clone() *Tag {
 	if t == nil {
 		return nil
 	}
-	c := &Tag{
+	clone := &Tag{
 		Key:   t.Key,
 		Value: t.Value,
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether t and other are equal.

@@ -66,11 +66,11 @@ func (s *Settings) Clone() *Settings {
 	if s == nil {
 		return nil
 	}
-	c := &Settings{
+	clone := &Settings{
 		Theme:  s.Theme,
 		Locale: s.Locale,
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether s and other are equal.
@@ -168,18 +168,18 @@ func (o *Organization) Clone() *Organization {
 	if o == nil {
 		return nil
 	}
-	c := &Organization{
+	clone := &Organization{
 		Name: o.Name,
 	}
 	if o.Departments != nil {
-		c.Departments = make([]*OrganizationDepartment, len(o.Departments))
+		clone.Departments = make([]*OrganizationDepartment, len(o.Departments))
 		for i, v := range o.Departments {
 			if v != nil {
-				c.Departments[i] = v.Clone()
+				clone.Departments[i] = v.Clone()
 			}
 		}
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether o and other are equal.
@@ -283,18 +283,18 @@ func (o *OrganizationDepartment) Clone() *OrganizationDepartment {
 	if o == nil {
 		return nil
 	}
-	c := &OrganizationDepartment{
+	clone := &OrganizationDepartment{
 		Name: o.Name,
 	}
 	if o.Teams != nil {
-		c.Teams = make([]*OrganizationDepartmentTeam, len(o.Teams))
+		clone.Teams = make([]*OrganizationDepartmentTeam, len(o.Teams))
 		for i, v := range o.Teams {
 			if v != nil {
-				c.Teams[i] = v.Clone()
+				clone.Teams[i] = v.Clone()
 			}
 		}
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether o and other are equal.
@@ -382,14 +382,14 @@ func (o *OrganizationDepartmentTeam) Clone() *OrganizationDepartmentTeam {
 	if o == nil {
 		return nil
 	}
-	c := &OrganizationDepartmentTeam{
+	clone := &OrganizationDepartmentTeam{
 		Name: o.Name,
 	}
 	if o.Members != nil {
-		c.Members = make([]string, len(o.Members))
-		copy(c.Members, o.Members)
+		clone.Members = make([]string, len(o.Members))
+		copy(clone.Members, o.Members)
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether o and other are equal.
@@ -526,31 +526,31 @@ func (n *Notification) Clone() *Notification {
 	if n == nil {
 		return nil
 	}
-	c := &Notification{
+	clone := &Notification{
 		ID:       n.ID,
 		Priority: n.Priority,
 	}
 	if n.Email != nil {
-		v := *n.Email
-		c.Email = &v
+		val := *n.Email
+		clone.Email = &val
 	}
 	if n.Sms != nil {
-		v := *n.Sms
-		c.Sms = &v
+		val := *n.Sms
+		clone.Sms = &val
 	}
 	if n.PushToken != nil {
-		v := *n.PushToken
-		c.PushToken = &v
+		val := *n.PushToken
+		clone.PushToken = &val
 	}
 	if n.PlainText != nil {
-		v := *n.PlainText
-		c.PlainText = &v
+		val := *n.PlainText
+		clone.PlainText = &val
 	}
 	if n.Html != nil {
-		v := *n.Html
-		c.Html = &v
+		val := *n.Html
+		clone.Html = &val
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether n and other are equal.
@@ -889,52 +889,52 @@ func (d *Document) Clone() *Document {
 	if d == nil {
 		return nil
 	}
-	c := &Document{
+	clone := &Document{
 		ID: d.ID,
 	}
 	if d.Archived != nil {
-		v := *d.Archived
-		c.Archived = &v
+		val := *d.Archived
+		clone.Archived = &val
 	}
 	if d.ViewCount != nil {
-		v := *d.ViewCount
-		c.ViewCount = &v
+		val := *d.ViewCount
+		clone.ViewCount = &val
 	}
 	if d.Placeholders != nil {
-		c.Placeholders = make([]struct{}, len(d.Placeholders))
-		copy(c.Placeholders, d.Placeholders)
+		clone.Placeholders = make([]struct{}, len(d.Placeholders))
+		copy(clone.Placeholders, d.Placeholders)
 	}
 	if d.SettingsMap != nil {
-		c.SettingsMap = make(map[string]*Settings, len(d.SettingsMap))
+		clone.SettingsMap = make(map[string]*Settings, len(d.SettingsMap))
 		for k, v := range d.SettingsMap {
 			if v != nil {
-				c.SettingsMap[k] = v.Clone()
+				clone.SettingsMap[k] = v.Clone()
 			} else {
-				c.SettingsMap[k] = nil
+				clone.SettingsMap[k] = nil
 			}
 		}
 	}
 	if d.CodeNames != nil {
-		c.CodeNames = make(map[int32]string, len(d.CodeNames))
+		clone.CodeNames = make(map[int32]string, len(d.CodeNames))
 		for k, v := range d.CodeNames {
-			c.CodeNames[k] = v
+			clone.CodeNames[k] = v
 		}
 	}
 	if d.Metadata != nil {
-		c.Metadata = deepCopyValue(d.Metadata).(map[string]any)
+		clone.Metadata = deepCopyValue(d.Metadata).(map[string]any)
 	}
 	if d.Extension != nil {
 		if m, ok := d.Extension.(proto.Message); ok {
-			c.Extension = proto.Clone(m)
+			clone.Extension = proto.Clone(m)
 		} else {
-			c.Extension = d.Extension
+			clone.Extension = d.Extension
 		}
 	}
 	if d.UpdateMask != nil {
-		c.UpdateMask = make([]string, len(d.UpdateMask))
-		copy(c.UpdateMask, d.UpdateMask)
+		clone.UpdateMask = make([]string, len(d.UpdateMask))
+		copy(clone.UpdateMask, d.UpdateMask)
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether d and other are equal.
@@ -1101,21 +1101,21 @@ func (t *TreeNode) Clone() *TreeNode {
 	if t == nil {
 		return nil
 	}
-	c := &TreeNode{
+	clone := &TreeNode{
 		Value: t.Value,
 	}
 	if t.Children != nil {
-		c.Children = make([]*TreeNode, len(t.Children))
+		clone.Children = make([]*TreeNode, len(t.Children))
 		for i, v := range t.Children {
 			if v != nil {
-				c.Children[i] = v.Clone()
+				clone.Children[i] = v.Clone()
 			}
 		}
 	}
 	if t.Parent != nil {
-		c.Parent = t.Parent.Clone()
+		clone.Parent = t.Parent.Clone()
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether t and other are equal.
@@ -1215,12 +1215,12 @@ func (a *AuditLog) Clone() *AuditLog {
 	if a == nil {
 		return nil
 	}
-	c := &AuditLog{
+	clone := &AuditLog{
 		ID:     a.ID,
 		Action: a.Action,
 		UserID: a.UserID,
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether a and other are equal.
@@ -1335,21 +1335,21 @@ func (e *Event) Clone() *Event {
 	if e == nil {
 		return nil
 	}
-	c := &Event{
+	clone := &Event{
 		ID: e.ID,
 	}
 	if e.TextMessage != nil {
-		v := *e.TextMessage
-		c.TextMessage = &v
+		val := *e.TextMessage
+		clone.TextMessage = &val
 	}
 	if e.SettingsUpdate != nil {
-		c.SettingsUpdate = e.SettingsUpdate.Clone()
+		clone.SettingsUpdate = e.SettingsUpdate.Clone()
 	}
 	if e.PriorityChange != nil {
-		v := *e.PriorityChange
-		c.PriorityChange = &v
+		val := *e.PriorityChange
+		clone.PriorityChange = &val
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether e and other are equal.
@@ -1637,47 +1637,47 @@ func (w *WktPayload) Clone() *WktPayload {
 	if w == nil {
 		return nil
 	}
-	c := &WktPayload{
+	clone := &WktPayload{
 		ID: w.ID,
 	}
 	if w.StructData != nil {
 		if *w.StructData == nil {
-			c.StructData = new(map[string]any)
+			clone.StructData = new(map[string]any)
 		} else {
 			val := deepCopyValue(*w.StructData).(map[string]any)
-			c.StructData = &val
+			clone.StructData = &val
 		}
 	}
 	if w.AnyValue != nil {
 		if *w.AnyValue == nil {
-			c.AnyValue = new(any)
+			clone.AnyValue = new(any)
 		} else {
 			val := deepCopyValue(*w.AnyValue)
-			c.AnyValue = &val
+			clone.AnyValue = &val
 		}
 	}
 	if w.ListData != nil {
 		if *w.ListData == nil {
-			c.ListData = new([]any)
+			clone.ListData = new([]any)
 		} else {
 			val := deepCopyValue(*w.ListData).([]any)
-			c.ListData = &val
+			clone.ListData = &val
 		}
 	}
 	if w.Mask != nil {
 		if *w.Mask == nil {
-			c.Mask = new([]string)
+			clone.Mask = new([]string)
 		} else {
-			s := make([]string, len(*w.Mask))
-			copy(s, *w.Mask)
-			c.Mask = &s
+			copiedPaths := make([]string, len(*w.Mask))
+			copy(copiedPaths, *w.Mask)
+			clone.Mask = &copiedPaths
 		}
 	}
 	if w.Raw != nil {
-		v := *w.Raw
-		c.Raw = &v
+		val := *w.Raw
+		clone.Raw = &val
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether w and other are equal.

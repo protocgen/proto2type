@@ -16,3 +16,4 @@ __pycache__/
 # Gradle (Kotlin golden file CI)
 tests/kotlin/build/
 tests/kotlin/.gradle/
+.bin/

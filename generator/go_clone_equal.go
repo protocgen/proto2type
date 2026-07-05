@@ -62,12 +62,18 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 	name := dm.Name
 	recv := receiverName(name)
 
+	// Choose a local variable name for the clone that doesn't shadow the receiver.
+	cloneVar := "clone"
+	if recv == "clone" {
+		cloneVar = "cln"
+	}
+
 	g.P("// Clone returns a deep copy of ", name, ".")
 	g.P("func (", recv, " *", name, ") Clone() *", name, " {")
 	g.P("\tif ", recv, " == nil {")
 	g.P("\t\treturn nil")
 	g.P("\t}")
-	g.P("\tc := &", name, "{")
+	g.P("\t", cloneVar, " := &", name, "{")
 
 	// Direct-copy fields in the struct literal
 	for _, f := range dm.Fields {
@@ -108,21 +114,21 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			// Special case: optional bytes needs deep copy of the underlying slice
 			if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 				g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-				g.P("\t\tb := make([]byte, len(*", recv, ".", f.PascalName, "))")
-				g.P("\t\tcopy(b, *", recv, ".", f.PascalName, ")")
-				g.P("\t\tc.", f.PascalName, " = &b")
+				g.P("\t\tcopiedBytes := make([]byte, len(*", recv, ".", f.PascalName, "))")
+				g.P("\t\tcopy(copiedBytes, *", recv, ".", f.PascalName, ")")
+				g.P("\t\t", cloneVar, ".", f.PascalName, " = &copiedBytes")
 				g.P("\t}")
 			} else if f.Kind == FieldKindWrapperBytes {
 				// *[]byte wrapper: deep copy the underlying bytes
 				g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-				g.P("\t\tb := make([]byte, len(*", recv, ".", f.PascalName, "))")
-				g.P("\t\tcopy(b, *", recv, ".", f.PascalName, ")")
-				g.P("\t\tc.", f.PascalName, " = &b")
+				g.P("\t\tcopiedBytes := make([]byte, len(*", recv, ".", f.PascalName, "))")
+				g.P("\t\tcopy(copiedBytes, *", recv, ".", f.PascalName, ")")
+				g.P("\t\t", cloneVar, ".", f.PascalName, " = &copiedBytes")
 				g.P("\t}")
 			} else {
 				g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-				g.P("\t\tv := *", recv, ".", f.PascalName)
-				g.P("\t\tc.", f.PascalName, " = &v")
+				g.P("\t\tval := *", recv, ".", f.PascalName)
+				g.P("\t\t", cloneVar, ".", f.PascalName, " = &val")
 				g.P("\t}")
 			}
 		}
@@ -137,42 +143,42 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			continue
 		}
 		g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-		g.P("\t\tc.", f.PascalName, " = make(", goDomainFieldTypeFromIR(f), ", len(", recv, ".", f.PascalName, "))")
+		g.P("\t\t", cloneVar, ".", f.PascalName, " = make(", goDomainFieldTypeFromIR(f), ", len(", recv, ".", f.PascalName, "))")
 		if f.Kind == FieldKindMessage {
 			// Repeated messages: clone each element
 			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tc.", f.PascalName, "[i] = v.Clone()")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[i] = v.Clone()")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 		} else if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 			// Repeated bytes: deep copy each element
 			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tc.", f.PascalName, "[i] = make([]byte, len(v))")
-			g.P("\t\t\t\tcopy(c.", f.PascalName, "[i], v)")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[i] = make([]byte, len(v))")
+			g.P("\t\t\t\tcopy(", cloneVar, ".", f.PascalName, "[i], v)")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 		} else if f.Kind == FieldKindFieldMask {
 			// Repeated FieldMask ([][]string): deep copy each element
 			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tc.", f.PascalName, "[i] = make([]string, len(v))")
-			g.P("\t\t\t\tcopy(c.", f.PascalName, "[i], v)")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[i] = make([]string, len(v))")
+			g.P("\t\t\t\tcopy(", cloneVar, ".", f.PascalName, "[i], v)")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 		} else if f.Kind == FieldKindStruct {
 			// Repeated Struct ([]map[string]any): deep copy each element
 			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tc.", f.PascalName, "[i] = deepCopyValue(v).(map[string]any)")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[i] = deepCopyValue(v).(map[string]any)")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 		} else if f.Kind == FieldKindListValue {
 			// Repeated ListValue ([][]any): deep copy each element
 			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tc.", f.PascalName, "[i] = deepCopyValue(v).([]any)")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[i] = deepCopyValue(v).([]any)")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 		} else if f.Kind == FieldKindAny {
@@ -181,27 +187,27 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			protoMessage := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Message"})
 			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
 			g.P("\t\t\tif m, ok := v.(", protoMessage, "); ok {")
-			g.P("\t\t\t\tc.", f.PascalName, "[i] = ", protoClone, "(m)")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[i] = ", protoClone, "(m)")
 			g.P("\t\t\t} else {")
-			g.P("\t\t\t\tc.", f.PascalName, "[i] = v")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[i] = v")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 		} else if f.Kind == FieldKindValue {
 			// Repeated Value ([]any): deep copy each element
 			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
-			g.P("\t\t\tc.", f.PascalName, "[i] = deepCopyValue(v)")
+			g.P("\t\t\t", cloneVar, ".", f.PascalName, "[i] = deepCopyValue(v)")
 			g.P("\t\t}")
 		} else if f.Kind.IsWrapper() {
 			// Repeated wrapper (e.g. []*string): deep copy each pointer
 			g.P("\t\tfor i, v := range ", recv, ".", f.PascalName, " {")
 			g.P("\t\t\tif v != nil {")
 			g.P("\t\t\t\tcpy := *v")
-			g.P("\t\t\t\tc.", f.PascalName, "[i] = &cpy")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[i] = &cpy")
 			g.P("\t\t\t}")
 			g.P("\t\t}")
 		} else {
 			// Scalar slices: copy is sufficient
-			g.P("\t\tcopy(c.", f.PascalName, ", ", recv, ".", f.PascalName, ")")
+			g.P("\t\tcopy(", cloneVar, ".", f.PascalName, ", ", recv, ".", f.PascalName, ")")
 		}
 		g.P("\t}")
 	}
@@ -215,8 +221,8 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			continue
 		}
 		g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-		g.P("\t\tc.", f.PascalName, " = make([]byte, len(", recv, ".", f.PascalName, "))")
-		g.P("\t\tcopy(c.", f.PascalName, ", ", recv, ".", f.PascalName, ")")
+		g.P("\t\t", cloneVar, ".", f.PascalName, " = make([]byte, len(", recv, ".", f.PascalName, "))")
+		g.P("\t\tcopy(", cloneVar, ".", f.PascalName, ", ", recv, ".", f.PascalName, ")")
 		g.P("\t}")
 	}
 
@@ -231,56 +237,56 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 		keyType := goType(f.MapKey.ScalarKind)
 		valType := goMapValueTypeFromIR(f.MapValue)
 		g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-		g.P("\t\tc.", f.PascalName, " = make(map[", keyType, "]", valType, ", len(", recv, ".", f.PascalName, "))")
+		g.P("\t\t", cloneVar, ".", f.PascalName, " = make(map[", keyType, "]", valType, ", len(", recv, ".", f.PascalName, "))")
 		g.P("\t\tfor k, v := range ", recv, ".", f.PascalName, " {")
 		if f.MapValue != nil && f.MapValue.Kind == FieldKindMessage {
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = v.Clone()")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = v.Clone()")
 			g.P("\t\t\t} else {")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = nil")
 			g.P("\t\t\t}")
 		} else if f.MapValue != nil && f.MapValue.ScalarKind == protoreflect.BytesKind {
 			g.P("\t\t\tif v != nil {")
 			g.P("\t\t\t\tbuf := make([]byte, len(v))")
 			g.P("\t\t\t\tcopy(buf, v)")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = buf")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = buf")
 			g.P("\t\t\t} else {")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = nil")
 			g.P("\t\t\t}")
 		} else if f.MapValue != nil && f.MapValue.Kind == FieldKindStruct {
 			// map value is map[string]any: deep copy via deepCopyValue
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = deepCopyValue(v).(map[string]any)")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = deepCopyValue(v).(map[string]any)")
 			g.P("\t\t\t} else {")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = nil")
 			g.P("\t\t\t}")
 		} else if f.MapValue != nil && f.MapValue.Kind == FieldKindListValue {
 			// map value is []any: deep copy via deepCopyValue
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = deepCopyValue(v).([]any)")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = deepCopyValue(v).([]any)")
 			g.P("\t\t\t} else {")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = nil")
 			g.P("\t\t\t}")
 		} else if f.MapValue != nil && f.MapValue.Kind == FieldKindValue {
 			// map value is any: deep copy via deepCopyValue
-			g.P("\t\t\tc.", f.PascalName, "[k] = deepCopyValue(v)")
+			g.P("\t\t\t", cloneVar, ".", f.PascalName, "[k] = deepCopyValue(v)")
 		} else if f.MapValue != nil && f.MapValue.Kind == FieldKindAny {
 			// map value is any holding proto.Message: deep copy via proto.Clone
 			protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
 			protoMessage := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Message"})
 			g.P("\t\t\tif m, ok := v.(", protoMessage, "); ok {")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = ", protoClone, "(m)")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = ", protoClone, "(m)")
 			g.P("\t\t\t} else {")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = v")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = v")
 			g.P("\t\t\t}")
 		} else if f.MapValue != nil && f.MapValue.Kind == FieldKindFieldMask {
 			// map value is []string: copy the slice
 			g.P("\t\t\tif v != nil {")
-			g.P("\t\t\t\ts := make([]string, len(v))")
-			g.P("\t\t\t\tcopy(s, v)")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = s")
+			g.P("\t\t\t\tcopiedPaths := make([]string, len(v))")
+			g.P("\t\t\t\tcopy(copiedPaths, v)")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = copiedPaths")
 			g.P("\t\t\t} else {")
-			g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
+			g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = nil")
 			g.P("\t\t\t}")
 		} else if f.MapValue != nil && f.MapValue.Kind.IsWrapper() {
 			// map value is a wrapper pointer (e.g. *string, *int64): deep copy by dereference
@@ -288,20 +294,20 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\tbuf := make([]byte, len(*v))")
 				g.P("\t\t\t\tcopy(buf, *v)")
-				g.P("\t\t\t\tc.", f.PascalName, "[k] = &buf")
+				g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = &buf")
 				g.P("\t\t\t} else {")
-				g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
+				g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = nil")
 				g.P("\t\t\t}")
 			} else {
 				g.P("\t\t\tif v != nil {")
 				g.P("\t\t\t\tcpy := *v")
-				g.P("\t\t\t\tc.", f.PascalName, "[k] = &cpy")
+				g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = &cpy")
 				g.P("\t\t\t} else {")
-				g.P("\t\t\t\tc.", f.PascalName, "[k] = nil")
+				g.P("\t\t\t\t", cloneVar, ".", f.PascalName, "[k] = nil")
 				g.P("\t\t\t}")
 			}
 		} else {
-			g.P("\t\t\tc.", f.PascalName, "[k] = v")
+			g.P("\t\t\t", cloneVar, ".", f.PascalName, "[k] = v")
 		}
 		g.P("\t\t}")
 		g.P("\t}")
@@ -316,7 +322,7 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			continue
 		}
 		g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-		g.P("\t\tc.", f.PascalName, " = ", recv, ".", f.PascalName, ".Clone()")
+		g.P("\t\t", cloneVar, ".", f.PascalName, " = ", recv, ".", f.PascalName, ".Clone()")
 		g.P("\t}")
 	}
 
@@ -332,8 +338,8 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			}
 			// []string: make + copy
 			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-			g.P("\t\tc.", f.PascalName, " = make([]string, len(", recv, ".", f.PascalName, "))")
-			g.P("\t\tcopy(c.", f.PascalName, ", ", recv, ".", f.PascalName, ")")
+			g.P("\t\t", cloneVar, ".", f.PascalName, " = make([]string, len(", recv, ".", f.PascalName, "))")
+			g.P("\t\tcopy(", cloneVar, ".", f.PascalName, ", ", recv, ".", f.PascalName, ")")
 			g.P("\t}")
 		case FieldKindListValue:
 			if f.Repeated || f.IsMap {
@@ -341,7 +347,7 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			}
 			// []any: deep copy via deepCopyValue
 			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-			g.P("\t\tc.", f.PascalName, " = deepCopyValue(", recv, ".", f.PascalName, ").([]any)")
+			g.P("\t\t", cloneVar, ".", f.PascalName, " = deepCopyValue(", recv, ".", f.PascalName, ").([]any)")
 			g.P("\t}")
 		case FieldKindStruct:
 			if f.Repeated || f.IsMap {
@@ -349,14 +355,14 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			}
 			// map[string]any: deep copy via deepCopyValue
 			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
-			g.P("\t\tc.", f.PascalName, " = deepCopyValue(", recv, ".", f.PascalName, ").(map[string]any)")
+			g.P("\t\t", cloneVar, ".", f.PascalName, " = deepCopyValue(", recv, ".", f.PascalName, ").(map[string]any)")
 			g.P("\t}")
 		case FieldKindValue:
 			if f.Repeated || f.IsMap {
 				continue
 			}
 			// any: deep copy via deepCopyValue
-			g.P("\tc.", f.PascalName, " = deepCopyValue(", recv, ".", f.PascalName, ")")
+			g.P("\t", cloneVar, ".", f.PascalName, " = deepCopyValue(", recv, ".", f.PascalName, ")")
 		case FieldKindAny:
 			if f.Repeated || f.IsMap {
 				continue
@@ -366,9 +372,9 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			protoMessage := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Message"})
 			g.P("\tif ", recv, ".", f.PascalName, " != nil {")
 			g.P("\t\tif m, ok := ", recv, ".", f.PascalName, ".(", protoMessage, "); ok {")
-			g.P("\t\t\tc.", f.PascalName, " = ", protoClone, "(m)")
+			g.P("\t\t\t", cloneVar, ".", f.PascalName, " = ", protoClone, "(m)")
 			g.P("\t\t} else {")
-			g.P("\t\t\tc.", f.PascalName, " = ", recv, ".", f.PascalName)
+			g.P("\t\t\t", cloneVar, ".", f.PascalName, " = ", recv, ".", f.PascalName)
 			g.P("\t\t}")
 			g.P("\t}")
 		}
@@ -384,12 +390,12 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 			switch v.Kind {
 			case FieldKindMessage:
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
-				g.P("\t\tc.", v.Name, " = ", recv, ".", v.Name, ".Clone()")
+				g.P("\t\t", cloneVar, ".", v.Name, " = ", recv, ".", v.Name, ".Clone()")
 				g.P("\t}")
 			case FieldKindScalar:
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
-				g.P("\t\tv := *", recv, ".", v.Name)
-				g.P("\t\tc.", v.Name, " = &v")
+				g.P("\t\tval := *", recv, ".", v.Name)
+				g.P("\t\t", cloneVar, ".", v.Name, " = &val")
 				g.P("\t}")
 			case FieldKindStruct:
 				// *map[string]any: preserve nil inner map vs deep copy populated map.
@@ -397,20 +403,20 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 				// produce an empty map, breaking Clone().Equal(original).
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
 				g.P("\t\tif *", recv, ".", v.Name, " == nil {")
-				g.P("\t\t\tc.", v.Name, " = new(map[string]any)")
+				g.P("\t\t\t", cloneVar, ".", v.Name, " = new(map[string]any)")
 				g.P("\t\t} else {")
 				g.P("\t\t\tval := deepCopyValue(*", recv, ".", v.Name, ").(map[string]any)")
-				g.P("\t\t\tc.", v.Name, " = &val")
+				g.P("\t\t\t", cloneVar, ".", v.Name, " = &val")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindValue:
 				// *any: preserve nil inner value vs deep copy.
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
 				g.P("\t\tif *", recv, ".", v.Name, " == nil {")
-				g.P("\t\t\tc.", v.Name, " = new(any)")
+				g.P("\t\t\t", cloneVar, ".", v.Name, " = new(any)")
 				g.P("\t\t} else {")
 				g.P("\t\t\tval := deepCopyValue(*", recv, ".", v.Name, ")")
-				g.P("\t\t\tc.", v.Name, " = &val")
+				g.P("\t\t\t", cloneVar, ".", v.Name, " = &val")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindListValue:
@@ -419,10 +425,10 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 				// produce an empty slice, breaking Clone().Equal(original).
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
 				g.P("\t\tif *", recv, ".", v.Name, " == nil {")
-				g.P("\t\t\tc.", v.Name, " = new([]any)")
+				g.P("\t\t\t", cloneVar, ".", v.Name, " = new([]any)")
 				g.P("\t\t} else {")
 				g.P("\t\t\tval := deepCopyValue(*", recv, ".", v.Name, ").([]any)")
-				g.P("\t\t\tc.", v.Name, " = &val")
+				g.P("\t\t\t", cloneVar, ".", v.Name, " = &val")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindFieldMask:
@@ -431,11 +437,11 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 				// (non-nil empty slice), breaking Clone().Equal(original).
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
 				g.P("\t\tif *", recv, ".", v.Name, " == nil {")
-				g.P("\t\t\tc.", v.Name, " = new([]string)")
+				g.P("\t\t\t", cloneVar, ".", v.Name, " = new([]string)")
 				g.P("\t\t} else {")
-				g.P("\t\t\ts := make([]string, len(*", recv, ".", v.Name, "))")
-				g.P("\t\t\tcopy(s, *", recv, ".", v.Name, ")")
-				g.P("\t\t\tc.", v.Name, " = &s")
+				g.P("\t\t\tcopiedPaths := make([]string, len(*", recv, ".", v.Name, "))")
+				g.P("\t\t\tcopy(copiedPaths, *", recv, ".", v.Name, ")")
+				g.P("\t\t\t", cloneVar, ".", v.Name, " = &copiedPaths")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindAny:
@@ -445,23 +451,23 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
 				g.P("\t\tif m, ok := (*", recv, ".", v.Name, ").(", protoMessage, "); ok {")
 				g.P("\t\t\tval := any(", protoClone, "(m))")
-				g.P("\t\t\tc.", v.Name, " = &val")
+				g.P("\t\t\t", cloneVar, ".", v.Name, " = &val")
 				g.P("\t\t} else {")
 				g.P("\t\t\tval := deepCopyValue(*", recv, ".", v.Name, ")")
-				g.P("\t\t\tc.", v.Name, " = &val")
+				g.P("\t\t\t", cloneVar, ".", v.Name, " = &val")
 				g.P("\t\t}")
 				g.P("\t}")
 			default:
 				// Enum, Timestamp, Duration, etc. — all pointer types, copy value
 				g.P("\tif ", recv, ".", v.Name, " != nil {")
-				g.P("\t\tv := *", recv, ".", v.Name)
-				g.P("\t\tc.", v.Name, " = &v")
+				g.P("\t\tval := *", recv, ".", v.Name)
+				g.P("\t\t", cloneVar, ".", v.Name, " = &val")
 				g.P("\t}")
 			}
 		}
 	}
 
-	g.P("\treturn c")
+	g.P("\treturn ", cloneVar)
 	g.P("}")
 	g.P()
 }
