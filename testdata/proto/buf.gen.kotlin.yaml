@@ -12,3 +12,4 @@ plugins:
     opt:
       - paths=source_relative
       - lang=kotlin
+      - validate=true

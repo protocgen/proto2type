@@ -38,7 +38,7 @@ func main() {
 	flags.StringVar(&opts.GoPackage, "go_package", "", "override Go package for generated types (import path;package_name)")
 	flags.BoolVar(&opts.RustExhaustive, "rust_exhaustive", false, "generate exhaustive Rust structs (omit #[non_exhaustive])")
 	flags.StringVar(&opts.BufModule, "buffa_module", "", "Rust module path for buffa proto types (required for backend=buffa)")
-	flags.BoolVar(&opts.Validate, "validate", false, "generate Validate() method using protovalidate")
+	flags.StringVar(&opts.Validate, "validate", "", "validation strategy: true (default per lang), validator (Rust), native (Kotlin)")
 	flags.StringVar(&opts.BufOneofPrefix, "buffa_oneof_prefix", "", "module prefix before oneof submodule (e.g. __buffa for connectrpc-build)")
 	flags.StringVar(&opts.DomainModule, "domain_module", "", "Rust module path for domain type imports in buffa output (default: use super::*)")
 	flags.StringVar(&opts.PythonBaseClass, "python_base_class", "BaseModel", "Python: custom Pydantic base class")

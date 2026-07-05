@@ -553,7 +553,7 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\x8b\x11\n" +
+	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\xb3\x11\n" +
 	"\x04User\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x03R\x02id\x12 \n" +
 	"\x05email\x18\x02 \x01(\tB\n" +
@@ -561,15 +561,17 @@ const file_user_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x03 \x01(\tB\r\xe0A\x02\xbaH\ar\x05\x10\x01\x18\xff\x01R\vdisplayName\x12\x16\n" +
 	"\x06active\x18\x04 \x01(\bR\x06active\x12\x1c\n" +
 	"\x03age\x18\x05 \x01(\x05B\n" +
-	"\xbaH\a\x1a\x05\x18\x96\x01(\x00R\x03age\x12\x14\n" +
-	"\x05roles\x18\x06 \x03(\tR\x05roles\x127\n" +
+	"\xbaH\a\x1a\x05\x18\x96\x01(\x00R\x03age\x12 \n" +
+	"\x05roles\x18\x06 \x03(\tB\n" +
+	"\xbaH\a\x92\x01\x04\b\x01\x10\n" +
+	"R\x05roles\x127\n" +
 	"\bmetadata\x18\a \x03(\v2\x1b.test.v1.User.MetadataEntryR\bmetadata\x12*\n" +
 	"\aaddress\x18\b \x01(\v2\x10.test.v1.AddressR\aaddress\x12>\n" +
 	"\n" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampB\x03\xe0A\x03R\tcreatedAt\x12B\n" +
 	"\x0fsession_timeout\x18\n" +
-	" \x01(\v2\x19.google.protobuf.DurationR\x0esessionTimeout\x12\x19\n" +
-	"\x05phone\x18\v \x01(\tH\x01R\x05phone\x88\x01\x01\x12\x16\n" +
+	" \x01(\v2\x19.google.protobuf.DurationR\x0esessionTimeout\x125\n" +
+	"\x05phone\x18\v \x01(\tB\x1a\xbaH\x17r\x15\x10\a\x18\x142\x0f^\\+?[0-9\\-\\s]+$H\x01R\x05phone\x88\x01\x01\x12\x16\n" +
 	"\x06avatar\x18\f \x01(\fR\x06avatar\x128\n" +
 	"\bnickname\x18\r \x01(\v2\x1c.google.protobuf.StringValueR\bnickname\x12+\n" +
 	"\x06status\x18\x0e \x01(\x0e2\x13.test.v1.UserStatusR\x06status\x12%\n" +
@@ -618,12 +620,12 @@ const file_user_proto_rawDesc = "" +
 	"\x06_phoneB\r\n" +
 	"\v_deleted_atB\x12\n" +
 	"\x10_previous_statusB\x13\n" +
-	"\x11_avatar_thumbnail\"w\n" +
-	"\aAddress\x12\x16\n" +
-	"\x06street\x18\x01 \x01(\tR\x06street\x12\x12\n" +
-	"\x04city\x18\x02 \x01(\tR\x04city\x12\x14\n" +
-	"\x05state\x18\x03 \x01(\tR\x05state\x12\x10\n" +
-	"\x03zip\x18\x04 \x01(\tR\x03zip\x12\x18\n" +
+	"\x11_avatar_thumbnail\"\xb3\x01\n" +
+	"\aAddress\x12\x1f\n" +
+	"\x06street\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06street\x12\x1b\n" +
+	"\x04city\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04city\x12\x1f\n" +
+	"\x05state\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x02\x18\x02R\x05state\x12/\n" +
+	"\x03zip\x18\x04 \x01(\tB\x1d\xbaH\x1ar\x182\x16^[0-9]{5}(-[0-9]{4})?$R\x03zip\x12\x18\n" +
 	"\acountry\x18\x05 \x01(\tR\acountry\"-\n" +
 	"\x03Tag\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +

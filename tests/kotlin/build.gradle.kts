@@ -10,6 +10,8 @@ repositories {
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.2")
+
+    testImplementation(kotlin("test"))
 }
 
 // Point the main source set at the golden output directory.
@@ -19,4 +21,8 @@ sourceSets {
             srcDir("../../testdata/golden/kotlin/gen")
         }
     }
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

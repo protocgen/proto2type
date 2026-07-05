@@ -28,3 +28,17 @@ data class ModelCatalogEntry(
     val region: String = ""
 )
 
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun ModelCatalogEntry.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun ModelCatalogEntry.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("ModelCatalogEntry: validation failed: " + errors.joinToString("; "))
+    }
+}
+

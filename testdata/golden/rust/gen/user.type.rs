@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 use validator::Validate;
+use lazy_static::lazy_static;
+use regex::Regex;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
@@ -65,6 +67,7 @@ pub struct User {
     #[validate(range(min = 0, max = 150))]
     pub age: i32,
     #[serde(default)]
+    #[validate(length(min = 1, max = 10))]
     pub roles: Vec<String>,
     #[serde(default)]
     pub metadata: HashMap<String, String>,
@@ -75,6 +78,7 @@ pub struct User {
     /// Duration in milliseconds
     pub session_timeout: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(length(min = 7, max = 20), regex(path = *RE_PHONE_PATTERN))]
     pub phone: Option<String>,
     pub avatar: Vec<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -119,17 +123,29 @@ pub struct User {
     pub scores: HashMap<String, Option<i64>>,
 }
 
+lazy_static! {
+    static ref RE_PHONE_PATTERN: Regex = Regex::new(r"^\+?[0-9\-\s]+$").unwrap();
+}
+
 /// Domain representation of test.v1.Address.
 ///
 /// Address is a nested message.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
 #[non_exhaustive]
 pub struct Address {
+    #[validate(length(min = 1))]
     pub street: String,
+    #[validate(length(min = 1))]
     pub city: String,
+    #[validate(length(min = 2, max = 2))]
     pub state: String,
+    #[validate(regex(path = *RE_ZIP_PATTERN))]
     pub zip: String,
     pub country: String,
+}
+
+lazy_static! {
+    static ref RE_ZIP_PATTERN: Regex = Regex::new(r"^[0-9]{5}(-[0-9]{4})?$").unwrap();
 }
 
 /// Domain representation of test.v1.Tag.

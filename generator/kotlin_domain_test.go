@@ -531,8 +531,40 @@ func TestKotlinGoldenFiles(t *testing.T) {
 				"import kotlinx.datetime.Instant",
 				"import kotlin.time.Duration",
 				"package test.v1",
+				// Validation: generated extension functions
+				"fun User.validate(): List<String>",
+				"fun User.validateOrThrow()",
+				// Validation: email check
+				`email.matches(Regex(`,
+				`errors.add("email must be a valid email")`,
+				// Validation: display_name length
+				"displayName.length < 1",
+				"displayName.length > 255",
+				// Validation: age range
+				"age < 0",
+				"age > 150",
+				// Validation: roles repeated
+				"roles.size < 1",
+				"roles.size > 10",
+				// Validation: optional phone with ?.let null safety
+				"phone?.let { phone ->",
+				"phone.length < 7",
+				"phone.length > 20",
+				// Validation: pattern regex
+				`phone.matches(Regex(`,
+				// Validation: nested message propagation
+				`address?.validate()?.let {`,
+				`errors.addAll(it.map { e -> "address.$e" })`,
+				// Validation: Address gets its own validate
+				"fun Address.validate(): List<String>",
+				"street.length < 1",
+				"state.length < 2",
+				"state.length > 2",
+				`zip.matches(Regex(`,
+				// Validation: Tag gets empty validate (always generated)
+				"fun Tag.validate(): List<String>",
 			},
-			nil,
+			[]string{},
 		},
 		{
 			"../testdata/golden/kotlin/gen/catalog.type.kt",
@@ -541,6 +573,8 @@ func TestKotlinGoldenFiles(t *testing.T) {
 				"data class ModelCatalogEntry(",
 				"@SerialName(\"model_id\")",
 				"@SerialName(\"display_name\")",
+				// All messages get validate() when validate=true
+				"fun ModelCatalogEntry.validate(): List<String>",
 			},
 			[]string{
 				"import kotlin.time.Duration",
@@ -552,8 +586,10 @@ func TestKotlinGoldenFiles(t *testing.T) {
 				"@Serializable",
 				"data class KeywordFields(",
 				"`super`",
+				// All messages get validate() when validate=true
+				"fun KeywordFields.validate(): List<String>",
 			},
-			nil,
+			[]string{},
 		},
 	}
 

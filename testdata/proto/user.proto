@@ -32,12 +32,12 @@ message User {
   ];
   bool active = 4;
   int32 age = 5 [(buf.validate.field).int32 = {gte: 0, lte: 150}];
-  repeated string roles = 6;
+  repeated string roles = 6 [(buf.validate.field).repeated = {min_items: 1, max_items: 10}];
   map<string, string> metadata = 7;
   Address address = 8;
   google.protobuf.Timestamp created_at = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
   google.protobuf.Duration session_timeout = 10;
-  optional string phone = 11;
+  optional string phone = 11 [(buf.validate.field).string = {min_len: 7, max_len: 20, pattern: "^\\+?[0-9\\-\\s]+$"}];
   bytes avatar = 12;
   google.protobuf.StringValue nickname = 13;
   UserStatus status = 14;
@@ -79,10 +79,10 @@ message User {
 
 // Address is a nested message.
 message Address {
-  string street = 1;
-  string city = 2;
-  string state = 3;
-  string zip = 4;
+  string street = 1 [(buf.validate.field).string = {min_len: 1}];
+  string city = 2 [(buf.validate.field).string = {min_len: 1}];
+  string state = 3 [(buf.validate.field).string = {min_len: 2, max_len: 2}];
+  string zip = 4 [(buf.validate.field).string = {pattern: "^[0-9]{5}(-[0-9]{4})?$"}];
   string country = 5;
 }
 

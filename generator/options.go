@@ -34,17 +34,23 @@ type Options struct {
 	// Required for backend=buffa (e.g. "crate::proto::candela::harness::v1").
 	BufModule string
 
-	// Validate enables validation code generation from buf.validate constraints.
+	// Validate selects the validation strategy for code generation.
+	// When non-empty, enables validation code generation from buf.validate constraints.
+	// When empty (default), no validation code is generated.
 	//
-	// Go: generates Validate() method that delegates to protovalidate.Validate(d.ToProto()).
-	// Oneof mutual-exclusion checks are always generated regardless of this flag.
+	// Supported values ("true" selects the default strategy per language):
 	//
-	// Rust: adds #[derive(Validate)] and #[validate(...)] attributes from the
-	// validator crate. Users call .validate() -> Result<(), ValidationErrors>.
+	//   Go:     "true" → protovalidate delegation via Validate() method.
+	//   Rust:   "true" | "validator" → validator crate (#[derive(Validate)]).
+	//   Kotlin: "true" | "native"   → hand-rolled validate(): List<String>.
+	//   Python: constraints are always emitted via Pydantic Field() args.
+	//
+	// Oneof mutual-exclusion checks (Go) are always generated regardless of this flag.
+	//
 	// NOTE: length validation counts characters (Unicode scalar values), not bytes.
 	// This differs from proto's min_len/max_len which count bytes, but matches
 	// user expectations and is consistent with Python/Pydantic.
-	Validate bool
+	Validate string
 
 	// BufOneofPrefix is an optional module prefix inserted between the buffa module
 	// and the "oneof" submodule in generated Rust code.
@@ -78,4 +84,9 @@ type Options struct {
 
 	// PythonStripProtoSuffix uses base.py instead of base_pb2_pydantic.py (Python only).
 	PythonStripProtoSuffix bool
+}
+
+// ValidateEnabled returns true if any validation strategy is configured.
+func (o *Options) ValidateEnabled() bool {
+	return o.Validate != ""
 }

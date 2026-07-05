@@ -20,3 +20,17 @@ data class KeywordFields(
     val cls: Boolean = false
 )
 
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun KeywordFields.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun KeywordFields.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("KeywordFields: validation failed: " + errors.joinToString("; "))
+    }
+}
+
