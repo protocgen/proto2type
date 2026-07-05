@@ -543,12 +543,12 @@ def test_wkt_timestamp_map():
         roles=["user"],
         event_times={"login": dt1, "signup": dt2},
     )
-    assert u.event_times["login"].year == 2025
-    assert u.event_times["signup"].year == 2026
+    assert u.event_times["login"] == dt1
+    assert u.event_times["signup"] == dt2
     data = u.model_dump()
     restored = User.model_validate(data)
-    assert restored.event_times["login"].year == 2025
-    assert restored.event_times["signup"].year == 2026
+    assert restored.event_times["login"] == dt1
+    assert restored.event_times["signup"] == dt2
 
 
 test("WKT Timestamp map (event_times)", test_wkt_timestamp_map)
@@ -590,7 +590,10 @@ def test_wkt_all_fields_json_roundtrip():
     assert restored.update_mask == ["email"]
     assert restored.field_masks == [["a", "b"]]
     assert restored.configs["cache"]["ttl"] == 60
-    assert restored.event_times["deploy"].year == 2025
+    assert restored.event_times["deploy"] == dt
+    assert restored.value_map == {"k": "v"}
+    assert restored.structs == [{"s": 1}]
+    assert restored.lists == [[1, 2], ["a"]]
 
 
 test("WKT all fields JSON roundtrip", test_wkt_all_fields_json_roundtrip)

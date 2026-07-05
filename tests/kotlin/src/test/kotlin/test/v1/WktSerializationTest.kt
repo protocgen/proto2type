@@ -417,6 +417,26 @@ class WktSerializationTest {
     }
 
     // -----------------------------------------------------------------------
+    // 11b. Bytes fields
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `avatar bytes roundtrip with content`() {
+        val bytes = byteArrayOf(1, 2, 3, 4)
+        val user = User(avatar = bytes)
+        val decoded = roundtrip(user)
+        assertContentEquals(bytes, decoded.avatar)
+    }
+
+    @Test
+    fun `avatarThumbnail roundtrips with content`() {
+        val thumb = byteArrayOf(9, 8, 7)
+        val user = User(avatarThumbnail = thumb)
+        val decoded = roundtrip(user)
+        assertContentEquals(thumb, decoded.avatarThumbnail)
+    }
+
+    // -----------------------------------------------------------------------
     // 12. Full roundtrip — every WKT field populated
     // -----------------------------------------------------------------------
 
@@ -440,6 +460,8 @@ class WktSerializationTest {
             createdAt = Instant.parse("2024-06-01T12:00:00Z"),
             sessionTimeout = 2.hours,
             phone = "+1-503-555-0199",
+            avatar = byteArrayOf(0xDE.toByte(), 0xAD.toByte(), 0xBE.toByte(), 0xEF.toByte()),
+            avatarThumbnail = byteArrayOf(1, 2, 3),
             nickname = "fullie",
             status = UserStatus.ACTIVE,
             contactMethod = UserContactMethod.ContactEmail("full@example.com"),
@@ -506,6 +528,7 @@ class WktSerializationTest {
             decoded.copy(avatar = emptyBytes, avatarThumbnail = null),
         )
         assertContentEquals(user.avatar, decoded.avatar)
+        assertContentEquals(user.avatarThumbnail, decoded.avatarThumbnail)
 
         // Spot-check a few WKT fields for extra confidence.
         assertEquals(2.hours, decoded.sessionTimeout)
