@@ -16,7 +16,12 @@ import kotlin.test.assertFailsWith
  * - Boundary values (min/max edges)
  * - Multiple errors collected at once
  * - validateOrThrow() convenience method
- * - Messages without constraints have no validate()
+ * - Optional field null safety (?.let)
+ * - Pattern regex validation
+ * - Repeated field min_items / max_items
+ * - Nested message validation propagation
+ * - Address constraints (street, city, state, zip pattern)
+ * - Tag empty validate (no constraints)
  */
 class ValidationTest {
 
@@ -30,7 +35,18 @@ class ValidationTest {
         email = "alice@example.com",
         displayName = "Alice",
         active = true,
-        age = 30
+        age = 30,
+        roles = listOf("admin"),
+        address = validAddress()
+    )
+
+    /** Creates a valid Address with all constraints satisfied. */
+    private fun validAddress() = Address(
+        street = "123 Main St",
+        city = "Springfield",
+        state = "IL",
+        zip = "62701",
+        country = "US"
     )
 
     // -----------------------------------------------------------------------
@@ -201,6 +217,178 @@ class ValidationTest {
     }
 
     // -----------------------------------------------------------------------
+    // Repeated field constraints (roles: min_items=1, max_items=10)
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `empty roles fails min_items`() {
+        val user = validUser().copy(roles = emptyList())
+        val errors = user.validate()
+        assertTrue(errors.any { "roles" in it }, "empty roles should fail min_items=1")
+    }
+
+    @Test
+    fun `single role passes`() {
+        val user = validUser().copy(roles = listOf("admin"))
+        val errors = user.validate()
+        assertTrue(errors.none { "roles" in it }, "1 role should pass, got: $errors")
+    }
+
+    @Test
+    fun `10 roles passes max boundary`() {
+        val user = validUser().copy(roles = (1..10).map { "role$it" })
+        val errors = user.validate()
+        assertTrue(errors.none { "roles" in it }, "10 roles should pass max_items=10")
+    }
+
+    @Test
+    fun `11 roles fails max_items`() {
+        val user = validUser().copy(roles = (1..11).map { "role$it" })
+        val errors = user.validate()
+        assertTrue(errors.any { "roles" in it }, "11 roles should fail max_items=10")
+    }
+
+    // -----------------------------------------------------------------------
+    // Optional field null safety — phone (?.let path)
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `null phone passes validation - optional field`() {
+        val user = validUser().copy(phone = null)
+        val errors = user.validate()
+        assertTrue(
+            errors.none { "phone" in it },
+            "null phone should pass (optional), got: $errors"
+        )
+    }
+
+    @Test
+    fun `valid phone passes validation`() {
+        val user = validUser().copy(phone = "+1-555-123-4567")
+        val errors = user.validate()
+        assertTrue(
+            errors.none { "phone" in it },
+            "valid phone should pass, got: $errors"
+        )
+    }
+
+    @Test
+    fun `phone too short fails min_len`() {
+        val user = validUser().copy(phone = "12345") // 5 chars < min_len=7
+        val errors = user.validate()
+        assertTrue(errors.any { "phone" in it }, "5-char phone should fail min_len=7")
+    }
+
+    @Test
+    fun `phone too long fails max_len`() {
+        val user = validUser().copy(phone = "+1-555-123-456-7890-999") // > 20 chars
+        val errors = user.validate()
+        assertTrue(errors.any { "phone" in it }, "phone > 20 chars should fail max_len=20")
+    }
+
+    @Test
+    fun `phone with letters fails pattern`() {
+        val user = validUser().copy(phone = "555-CALL-NOW") // letters don't match pattern
+        val errors = user.validate()
+        assertTrue(errors.any { "phone" in it && "pattern" in it }, "letters in phone should fail pattern")
+    }
+
+    @Test
+    fun `phone at min boundary passes`() {
+        val user = validUser().copy(phone = "1234567") // exactly 7 chars
+        val errors = user.validate()
+        assertTrue(
+            errors.none { "phone" in it },
+            "7-char phone should pass min_len=7, got: $errors"
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // Nested message validation — Address
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `valid address passes validation`() {
+        val errors = validAddress().validate()
+        assertTrue(errors.isEmpty(), "valid address should have no errors, got: $errors")
+    }
+
+    @Test
+    fun `empty street fails address validation`() {
+        val addr = validAddress().copy(street = "")
+        val errors = addr.validate()
+        assertTrue(errors.any { "street" in it }, "empty street should fail min_len=1")
+    }
+
+    @Test
+    fun `empty city fails address validation`() {
+        val addr = validAddress().copy(city = "")
+        val errors = addr.validate()
+        assertTrue(errors.any { "city" in it }, "empty city should fail min_len=1")
+    }
+
+    @Test
+    fun `state too short fails address validation`() {
+        val addr = validAddress().copy(state = "I") // 1 char < min_len=2
+        val errors = addr.validate()
+        assertTrue(errors.any { "state" in it }, "1-char state should fail min_len=2")
+    }
+
+    @Test
+    fun `state too long fails address validation`() {
+        val addr = validAddress().copy(state = "ILL") // 3 chars > max_len=2
+        val errors = addr.validate()
+        assertTrue(errors.any { "state" in it }, "3-char state should fail max_len=2")
+    }
+
+    @Test
+    fun `state exactly 2 chars passes`() {
+        val errors = validAddress().copy(state = "CA").validate()
+        assertTrue(errors.none { "state" in it }, "2-char state should pass")
+    }
+
+    @Test
+    fun `valid zip passes pattern`() {
+        for (zip in listOf("90210", "62701", "10001-1234")) {
+            val errors = validAddress().copy(zip = zip).validate()
+            assertTrue(errors.none { "zip" in it }, "zip '$zip' should pass pattern")
+        }
+    }
+
+    @Test
+    fun `invalid zip fails pattern`() {
+        for (zip in listOf("1234", "ABCDE", "123456", "12345-")) {
+            val errors = validAddress().copy(zip = zip).validate()
+            assertTrue(errors.any { "zip" in it }, "zip '$zip' should fail pattern")
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Nested message propagation — User.address errors prefixed
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `user with invalid address gets nested errors`() {
+        val user = validUser().copy(address = Address(zip = "bad"))
+        val errors = user.validate()
+        // Should have nested errors prefixed with "address."
+        assertTrue(errors.any { it.startsWith("address.") }, "should prefix nested errors, got: $errors")
+        assertTrue(errors.any { "address.street" in it }, "should report address.street error")
+        assertTrue(errors.any { "address.city" in it }, "should report address.city error")
+        assertTrue(errors.any { "address.zip" in it }, "should report address.zip error")
+    }
+
+    @Test
+    fun `user with null address skips nested validation`() {
+        val user = validUser().copy(address = null)
+        val errors = user.validate()
+        assertTrue(
+            errors.none { it.startsWith("address.") },
+            "null address should skip nested validation, got: $errors"
+        )
+    }
+
+    // -----------------------------------------------------------------------
     // Multiple errors
     // -----------------------------------------------------------------------
 
@@ -249,31 +437,28 @@ class ValidationTest {
         assertTrue(msg.contains("age"), "should mention age")
     }
 
+    @Test
+    fun `address validateOrThrow throws for invalid address`() {
+        val addr = Address(zip = "bad")
+        val ex = assertFailsWith<IllegalStateException> {
+            addr.validateOrThrow()
+        }
+        assertTrue(ex.message!!.contains("Address"), "should mention Address type")
+    }
+
     // -----------------------------------------------------------------------
-    // No-constraint messages should not have validate()
+    // Tag - empty validate (no constraints, but method exists)
     // -----------------------------------------------------------------------
 
     @Test
-    fun `address has no validate method - no constraints`() {
-        // Address has no buf.validate constraints, so no validate() is generated.
-        // This test verifies the codegen correctly skips constraint-free messages.
-        // If validate() were generated on Address, this would compile but be wrong.
-        val address = Address(
-            street = "123 Main St",
-            city = "Springfield",
-            state = "IL",
-            zip = "62701",
-            country = "US"
-        )
-        // We can only verify at compile-time that Address does NOT have validate().
-        // If this file compiles, it means Address.validate() was NOT generated
-        // (since we don't call it and the test project has no other references).
-        assertEquals("Springfield", address.city)
+    fun `tag validate returns empty list - no constraints`() {
+        val tag = Tag(key = "env", value = "prod")
+        val errors = tag.validate()
+        assertTrue(errors.isEmpty(), "tag with no constraints should always pass")
     }
 
     @Test
-    fun `tag has no validate method - no constraints`() {
-        val tag = Tag(key = "env", value = "prod")
-        assertEquals("env", tag.key)
+    fun `tag validateOrThrow passes - no constraints`() {
+        Tag(key = "env", value = "prod").validateOrThrow() // should not throw
     }
 }

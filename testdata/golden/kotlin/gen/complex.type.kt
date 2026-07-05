@@ -52,6 +52,20 @@ data class Settings(
     val locale: String = ""
 )
 
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun Settings.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun Settings.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("Settings: validation failed: " + errors.joinToString("; "))
+    }
+}
+
 /** Deeply nested messages (3 levels). */
 @Serializable
 data class Organization(
@@ -70,6 +84,50 @@ data class OrganizationDepartmentTeam(
     val name: String = "",
     val members: List<String> = emptyList()
 )
+
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun Organization.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    departments.forEachIndexed { i, v -> v.validate().forEach { e -> errors.add("departments[$i].$e") } }
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun Organization.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("Organization: validation failed: " + errors.joinToString("; "))
+    }
+}
+
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun OrganizationDepartment.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    teams.forEachIndexed { i, v -> v.validate().forEach { e -> errors.add("teams[$i].$e") } }
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun OrganizationDepartment.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("OrganizationDepartment: validation failed: " + errors.joinToString("; "))
+    }
+}
+
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun OrganizationDepartmentTeam.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun OrganizationDepartmentTeam.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("OrganizationDepartmentTeam: validation failed: " + errors.joinToString("; "))
+    }
+}
 
 /**
  * Oneof group: channel.
@@ -111,6 +169,20 @@ data class Notification(
     val priority: Priority = Priority.entries.first()
 )
 
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun Notification.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun Notification.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("Notification: validation failed: " + errors.joinToString("; "))
+    }
+}
+
 /** Map with message values and various WKTs. */
 @Serializable
 data class Document(
@@ -125,6 +197,20 @@ data class Document(
     val placeholders: List<JsonObject> = emptyList()
 )
 
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun Document.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun Document.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("Document: validation failed: " + errors.joinToString("; "))
+    }
+}
+
 /** Recursive/self-referencing message. */
 @Serializable
 data class TreeNode(
@@ -133,6 +219,22 @@ data class TreeNode(
     val parent: TreeNode? = null
 )
 
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun TreeNode.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    children.forEachIndexed { i, v -> v.validate().forEach { e -> errors.add("children[$i].$e") } }
+    parent?.validate()?.let { errors.addAll(it.map { e -> "parent.$e" }) }
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun TreeNode.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("TreeNode: validation failed: " + errors.joinToString("; "))
+    }
+}
+
 /** Message with skipped field and name override. */
 @Serializable
 data class AuditLog(
@@ -140,6 +242,20 @@ data class AuditLog(
     val action: String = "",
     @SerialName("user_id") val userId: String = ""
 )
+
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun AuditLog.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun AuditLog.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("AuditLog: validation failed: " + errors.joinToString("; "))
+    }
+}
 
 /**
  * Oneof group: payload.
@@ -164,6 +280,20 @@ data class Event(
     val id: String = "",
     val payload: EventPayload? = null
 )
+
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun Event.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun Event.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("Event: validation failed: " + errors.joinToString("; "))
+    }
+}
 
 /**
  * Oneof group: content.
@@ -199,4 +329,18 @@ data class WktPayload(
     val id: String = "",
     val content: WktPayloadContent? = null
 )
+
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun WktPayload.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun WktPayload.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("WktPayload: validation failed: " + errors.joinToString("; "))
+    }
+}
 

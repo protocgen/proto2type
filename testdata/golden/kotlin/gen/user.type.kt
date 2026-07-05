@@ -90,6 +90,15 @@ fun User.validate(): List<String> {
     if (displayName.length > 255) errors.add("display_name must be at most 255 characters")
     if (age < 0) errors.add("age must be >= 0")
     if (age > 150) errors.add("age must be <= 150")
+    if (roles.size < 1) errors.add("roles must have at least 1 items")
+    if (roles.size > 10) errors.add("roles must have at most 10 items")
+    phone?.let { phone ->
+        if (!phone.matches(Regex("^\\+?[0-9\\-\\s]+\$"))) errors.add("phone must match pattern: ^\\+?[0-9\\-\\s]+\$")
+        if (phone.length < 7) errors.add("phone must be at least 7 characters")
+        if (phone.length > 20) errors.add("phone must be at most 20 characters")
+    }
+    address?.validate()?.let { errors.addAll(it.map { e -> "address.$e" }) }
+    tags.forEachIndexed { i, v -> v.validate().forEach { e -> errors.add("tags[$i].$e") } }
     return errors
 }
 
@@ -111,10 +120,43 @@ data class Address(
     val country: String = ""
 )
 
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun Address.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    if (street.length < 1) errors.add("street must be at least 1 characters")
+    if (city.length < 1) errors.add("city must be at least 1 characters")
+    if (state.length < 2) errors.add("state must be at least 2 characters")
+    if (state.length > 2) errors.add("state must be at most 2 characters")
+    if (!zip.matches(Regex("^[0-9]{5}(-[0-9]{4})?\$"))) errors.add("zip must match pattern: ^[0-9]{5}(-[0-9]{4})?\$")
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun Address.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("Address: validation failed: " + errors.joinToString("; "))
+    }
+}
+
 /** Tag is a label with a key-value pair. */
 @Serializable
 data class Tag(
     val key: String = "",
     val value: String = ""
 )
+
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun Tag.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun Tag.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("Tag: validation failed: " + errors.joinToString("; "))
+    }
+}
 

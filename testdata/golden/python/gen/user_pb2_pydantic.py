@@ -22,10 +22,10 @@ class Address(BaseModel):
     """Address is a nested message."""
     model_config = ConfigDict(populate_by_name=True)
 
-    street: str = ''
-    city: str = ''
-    state: str = ''
-    zip: str = ''
+    street: str = Field(default='', min_length=1)
+    city: str = Field(default='', min_length=1)
+    state: str = Field(default='', min_length=2, max_length=2)
+    zip: str = Field(default='', pattern='^[0-9]{5}(-[0-9]{4})?$')
     country: str = ''
 
 
@@ -46,12 +46,12 @@ class User(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=255)
     active: bool = False
     age: int = Field(default=0, ge=0, le=150)
-    roles: list[str] = Field(default_factory=list)
+    roles: list[str] = Field(default_factory=list, min_length=1, max_length=10)
     metadata: dict[str, str] = Field(default_factory=dict)
     address: Address | None = None
     created_at: datetime | None = Field(default=None, exclude=True)
     session_timeout: timedelta | None = None
-    phone: str | None = None
+    phone: str | None = Field(default=None, min_length=7, max_length=20, pattern='^\\+?[0-9\\-\\s]+$')
     avatar: bytes = b''
     nickname: str | None = None
     status: UserStatus | None = None

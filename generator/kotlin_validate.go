@@ -19,27 +19,14 @@ import (
 // This differs from proto's min_len/max_len which count bytes, but matches
 // user expectations and is consistent with Python/Pydantic and Rust/validator.
 func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts *Options) {
-	if !opts.Validate {
+	if !opts.ValidateEnabled() {
 		return
 	}
 
-	// Check if this message has any constraints to validate.
-	hasConstraints := false
-	for _, f := range msg.Fields {
-		if f.ValidateConstraints != nil && f.ValidateConstraints.HasConstraints() {
-			hasConstraints = true
-			break
-		}
-	}
-	if !hasConstraints {
-		// Even without constraints on this message, recurse into nested messages.
-		for _, nested := range msg.NestedMessages {
-			if !nested.Skip {
-				generateKotlinValidate(g, nested, opts)
-			}
-		}
-		return
-	}
+	// Always generate validate() when opts.Validate is true, even if this
+	// message has no direct constraints. This ensures nested validate() calls
+	// (from parent messages) always resolve. Messages without constraints will
+	// have a validate() that just returns emptyList().
 
 	// Extension function: fun ClassName.validate(): List<String>
 	g.P("/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */")
@@ -130,6 +117,22 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 		// Close ?.let block for optional fields.
 		if f.Optional && hasNonRequiredConstraints {
 			g.P("    }")
+		}
+	}
+
+	// Nested message validation — propagate validate() to message-typed fields.
+	// All proto3 message fields are nullable in Kotlin (Type? = null), so use safe calls.
+	// Consistent with Rust's #[validate(nested)].
+	for _, f := range msg.Fields {
+		if f.Kind != FieldKindMessage || f.IsMap || f.IsOneof {
+			continue
+		}
+		fieldName := escapeKotlinKeyword(toCamelCase(f.Name))
+		if f.Repeated {
+			g.P("    ", fieldName, ".forEachIndexed { i, v -> v.validate().forEach { e -> errors.add(\"", f.Name, "[$i].$e\") } }")
+		} else {
+			// Singular message fields are always nullable in Kotlin (Type? = null).
+			g.P("    ", fieldName, "?.validate()?.let { errors.addAll(it.map { e -> \"", f.Name, ".$e\" }) }")
 		}
 	}
 

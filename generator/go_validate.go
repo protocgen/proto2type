@@ -14,7 +14,7 @@ import (
 func generateGoValidate(g *protogen.GeneratedFile, dm *DomainMessage, opts *Options) {
 	recv := receiverName(dm.Name)
 	hasOneofs := dm.HasNonSyntheticOneof
-	useProtovalidate := opts.Validate
+	useProtovalidate := opts.ValidateEnabled()
 
 	// Skip if nothing to validate.
 	if !hasOneofs && !useProtovalidate {

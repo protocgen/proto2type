@@ -61,7 +61,7 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 		}
 		needsSerde = true
 		irScanRustImports(dm, &needsChrono, &needsHashMap)
-		if opts.Validate {
+		if opts.ValidateEnabled() {
 			needsValidator = true
 			irScanRustValidation(dm, &needsLazyStatic)
 		}
@@ -306,7 +306,7 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 	}
 
 	// Derive attributes
-	if opts.Validate {
+	if opts.ValidateEnabled() {
 		g.P("#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]")
 	} else {
 		g.P("#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]")
@@ -358,7 +358,7 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 		}
 
 		// Validator attributes from IR constraints
-		if opts.Validate {
+		if opts.ValidateEnabled() {
 			if vattrs := rustValidateAttrs(f); len(vattrs) > 0 {
 				g.P("    #[validate(", strings.Join(vattrs, ", "), ")]")
 			}
@@ -376,7 +376,7 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 	g.P()
 
 	// Emit lazy_static regex constants for pattern/UUID validators
-	if opts.Validate {
+	if opts.ValidateEnabled() {
 		rustEmitRegexConstants(g, dm)
 	}
 
