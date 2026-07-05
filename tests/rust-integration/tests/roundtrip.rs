@@ -786,6 +786,14 @@ fn test_boundary_values_pass_validation() {
     user.email = "a@b.c".into();
     user.display_name = "x".into(); // min = 1
     user.age = 0; // min = 0
+    user.roles = vec!["r".into()]; // min_items = 1
+    let mut addr = Address::default();
+    addr.street = "s".into();
+    addr.city = "c".into();
+    addr.state = "IL".into();
+    addr.zip = "62701".into();
+    addr.country = "US".into();
+    user.address = Some(addr);
     assert!(user.validate().is_ok(), "min boundary values should pass");
 
     user.display_name = "x".repeat(255); // max = 255
