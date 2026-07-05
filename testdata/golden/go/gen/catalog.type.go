@@ -136,7 +136,7 @@ func (m *ModelCatalogEntry) Clone() *ModelCatalogEntry {
 	if m == nil {
 		return nil
 	}
-	c := &ModelCatalogEntry{
+	clone := &ModelCatalogEntry{
 		ModelID:          m.ModelID,
 		Provider:         m.Provider,
 		DisplayName:      m.DisplayName,
@@ -153,10 +153,10 @@ func (m *ModelCatalogEntry) Clone() *ModelCatalogEntry {
 		Region:           m.Region,
 	}
 	if m.Aliases != nil {
-		c.Aliases = make([]string, len(m.Aliases))
-		copy(c.Aliases, m.Aliases)
+		clone.Aliases = make([]string, len(m.Aliases))
+		copy(clone.Aliases, m.Aliases)
 	}
-	return c
+	return clone
 }
 
 // Equal reports whether m and other are equal.
