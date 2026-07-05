@@ -407,6 +407,196 @@ test("Email constraint pattern rejects invalid emails", test_email_constraint_pa
 
 
 # ---------------------------------------------------------------------------
+# Test: WKT Value fields (single_value, values, value_map)
+# ---------------------------------------------------------------------------
+def test_wkt_value_fields():
+    from user_pb2_pydantic import User
+    u = User(
+        email="wkt@example.com",
+        display_name="WKT User",
+        roles=["user"],
+        single_value="hello",
+        values=["a", 1, True, None, {"nested": "dict"}],
+        value_map={"str_key": "val", "int_key": 42, "bool_key": False, "null_key": None},
+    )
+    assert u.single_value == "hello"
+    assert u.values == ["a", 1, True, None, {"nested": "dict"}]
+    assert u.value_map["null_key"] is None
+    data = u.model_dump()
+    restored = User.model_validate(data)
+    assert restored.single_value == "hello"
+    assert restored.values == ["a", 1, True, None, {"nested": "dict"}]
+    assert restored.value_map["int_key"] == 42
+
+
+test("WKT Value fields (single_value, values, value_map)", test_wkt_value_fields)
+
+
+# ---------------------------------------------------------------------------
+# Test: WKT wrapper map fields (labels, scores)
+# ---------------------------------------------------------------------------
+def test_wkt_wrapper_map_fields():
+    from user_pb2_pydantic import User
+    u = User(
+        email="wkt@example.com",
+        display_name="WKT User",
+        roles=["user"],
+        labels={"env": "prod", "region": None},
+        scores={"math": 95, "science": None},
+    )
+    assert u.labels["env"] == "prod"
+    assert u.labels["region"] is None
+    assert u.scores["math"] == 95
+    assert u.scores["science"] is None
+    data = u.model_dump()
+    restored = User.model_validate(data)
+    assert restored.labels == {"env": "prod", "region": None}
+    assert restored.scores == {"math": 95, "science": None}
+
+
+test("WKT wrapper map fields (labels, scores)", test_wkt_wrapper_map_fields)
+
+
+# ---------------------------------------------------------------------------
+# Test: WKT Struct fields (extra_metadata, structs, configs)
+# ---------------------------------------------------------------------------
+def test_wkt_struct_fields():
+    from user_pb2_pydantic import User
+    u = User(
+        email="wkt@example.com",
+        display_name="WKT User",
+        roles=["user"],
+        extra_metadata={"level": 5, "tags": ["a", "b"]},
+        structs=[{"x": 1}, {"y": "two"}],
+        configs={"db": {"host": "localhost", "port": 5432}},
+    )
+    assert u.extra_metadata["level"] == 5
+    assert u.structs[1]["y"] == "two"
+    assert u.configs["db"]["port"] == 5432
+    data = u.model_dump()
+    restored = User.model_validate(data)
+    assert restored.extra_metadata == {"level": 5, "tags": ["a", "b"]}
+    assert restored.structs == [{"x": 1}, {"y": "two"}]
+    assert restored.configs["db"]["host"] == "localhost"
+
+
+test("WKT Struct fields (extra_metadata, structs, configs)", test_wkt_struct_fields)
+
+
+# ---------------------------------------------------------------------------
+# Test: WKT ListValue fields (preferences, lists)
+# ---------------------------------------------------------------------------
+def test_wkt_listvalue_fields():
+    from user_pb2_pydantic import User
+    u = User(
+        email="wkt@example.com",
+        display_name="WKT User",
+        roles=["user"],
+        preferences=["dark_mode", 42, True],
+        lists=[["a", "b"], [1, 2, 3]],
+    )
+    assert u.preferences == ["dark_mode", 42, True]
+    assert u.lists[0] == ["a", "b"]
+    assert u.lists[1] == [1, 2, 3]
+    data = u.model_dump()
+    restored = User.model_validate(data)
+    assert restored.preferences == ["dark_mode", 42, True]
+    assert restored.lists == [["a", "b"], [1, 2, 3]]
+
+
+test("WKT ListValue fields (preferences, lists)", test_wkt_listvalue_fields)
+
+
+# ---------------------------------------------------------------------------
+# Test: WKT FieldMask fields (update_mask, field_masks)
+# ---------------------------------------------------------------------------
+def test_wkt_fieldmask_fields():
+    from user_pb2_pydantic import User
+    u = User(
+        email="wkt@example.com",
+        display_name="WKT User",
+        roles=["user"],
+        update_mask=["email", "display_name", "active"],
+        field_masks=[["a", "b"], ["c"]],
+    )
+    assert u.update_mask == ["email", "display_name", "active"]
+    assert u.field_masks == [["a", "b"], ["c"]]
+    data = u.model_dump()
+    restored = User.model_validate(data)
+    assert restored.update_mask == ["email", "display_name", "active"]
+    assert restored.field_masks == [["a", "b"], ["c"]]
+
+
+test("WKT FieldMask fields (update_mask, field_masks)", test_wkt_fieldmask_fields)
+
+
+# ---------------------------------------------------------------------------
+# Test: WKT Timestamp map (event_times)
+# ---------------------------------------------------------------------------
+def test_wkt_timestamp_map():
+    from user_pb2_pydantic import User
+    dt1 = datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+    dt2 = datetime(2026, 7, 4, 18, 30, 0, tzinfo=timezone.utc)
+    u = User(
+        email="wkt@example.com",
+        display_name="WKT User",
+        roles=["user"],
+        event_times={"login": dt1, "signup": dt2},
+    )
+    assert u.event_times["login"].year == 2025
+    assert u.event_times["signup"].year == 2026
+    data = u.model_dump()
+    restored = User.model_validate(data)
+    assert restored.event_times["login"].year == 2025
+    assert restored.event_times["signup"].year == 2026
+
+
+test("WKT Timestamp map (event_times)", test_wkt_timestamp_map)
+
+
+# ---------------------------------------------------------------------------
+# Test: WKT all fields JSON roundtrip
+# ---------------------------------------------------------------------------
+def test_wkt_all_fields_json_roundtrip():
+    from user_pb2_pydantic import User
+    dt = datetime(2025, 3, 20, 8, 0, 0, tzinfo=timezone.utc)
+    u = User(
+        email="wkt@example.com",
+        display_name="WKT User",
+        roles=["user"],
+        single_value={"nested": True},
+        values=[1, "two", None],
+        value_map={"k": "v"},
+        labels={"env": "staging", "empty": None},
+        scores={"total": 100},
+        extra_metadata={"debug": False},
+        preferences=["fast", "secure"],
+        structs=[{"s": 1}],
+        lists=[[1, 2], ["a"]],
+        configs={"cache": {"ttl": 60}},
+        update_mask=["email"],
+        field_masks=[["a", "b"]],
+        event_times={"deploy": dt},
+    )
+    json_str = u.model_dump_json()
+    restored = User.model_validate_json(json_str)
+    assert restored.email == "wkt@example.com"
+    assert restored.single_value == {"nested": True}
+    assert restored.values == [1, "two", None]
+    assert restored.labels["empty"] is None
+    assert restored.scores["total"] == 100
+    assert restored.extra_metadata == {"debug": False}
+    assert restored.preferences == ["fast", "secure"]
+    assert restored.update_mask == ["email"]
+    assert restored.field_masks == [["a", "b"]]
+    assert restored.configs["cache"]["ttl"] == 60
+    assert restored.event_times["deploy"].year == 2025
+
+
+test("WKT all fields JSON roundtrip", test_wkt_all_fields_json_roundtrip)
+
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 print(f"\n1..{tests_run}")
