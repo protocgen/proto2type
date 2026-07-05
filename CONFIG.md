@@ -14,7 +14,7 @@ Target language for code generation.
 |---|---|
 | Values | `go`, `rust`, `python`, `kotlin`, `typescript` |
 
-> **Note:** `go`, `rust`, and `python` are currently supported. Other languages are on the [roadmap](README.md#roadmap).
+> **Note:** `go`, `rust`, `python`, and `kotlin` are currently supported. Other languages are on the [roadmap](README.md#roadmap).
 
 #### Rust-specific behaviour
 
@@ -43,6 +43,20 @@ When `lang=python`:
 - `google.api.field_behavior` annotations → `Field(...)` (REQUIRED) / `Field(exclude=True)` (OUTPUT_ONLY)
 - `buf/validate` constraints → `Field()` kwargs (`min_length`, `max_length`, `ge`, `le`, `gt`, `lt`, `pattern`)
 - File suffix: `{proto_name}_pb2.py`
+
+#### Kotlin-specific behaviour
+
+When `lang=kotlin`:
+
+- **Domain types** are `@Serializable` data classes using `kotlinx.serialization`
+- `google.protobuf.Timestamp` → `kotlinx.datetime.Instant`
+- `google.protobuf.Duration` → `kotlin.time.Duration`
+- Nested messages → nullable `T?`
+- `repeated` / `map` → `List<T>` / `Map<K, V>` with defaults `emptyList()` / `emptyMap()`
+- Optional fields → `T?` with default `null`
+- Enums → `@Serializable enum class` with `@SerialName` and `fromValue(Int)` companion
+- Oneofs → `@Serializable sealed class` with data class variants
+- File suffix: `{proto_name}.type.kt`
 
 ##### Python Plugin Options
 
@@ -106,6 +120,25 @@ Controls the default `omitempty` behavior for optional and zero-value fields.
 | When `true` | `optional`, `repeated`, `map`, and message fields get `omitempty` |
 | When `false` | Only fields with explicit `(proto2type.field).omitempty = OPTIONAL_BOOL_TRUE` get `omitempty` |
 
+### `validate`
+
+Selects the validation strategy for code generation from `buf.validate` constraints.
+
+| Default | `""` (empty — no validation) |
+|---|---|
+| Values | `true` (default per language), `validator` (Rust), `native` (Kotlin) |
+
+Behavior per language:
+
+| Language | Strategy | Generated Code |
+|---|---|---|
+| Go | `true` → protovalidate | `Validate()` method delegating to `protovalidate.Validate(d.ToProto())` |
+| Rust | `true` or `validator` | `#[derive(Validate)]` + `#[validate(...)]` attributes (validator crate) |
+| Kotlin | `true` or `native` | Extension functions `fun T.validate(): List<String>` + `fun T.validateOrThrow()` |
+| Python | _(always)_ | Constraints mapped to Pydantic `Field()` kwargs (no `validate` flag needed) |
+
+> **Note:** Length validation counts characters, not bytes.
+
 ### Summary Table
 
 | Option | Default | Description |
@@ -116,6 +149,7 @@ Controls the default `omitempty` behavior for optional and zero-value fields.
 | `output_file` | _(auto)_ | Override output filename |
 | `enum_as_string` | `false` | Enums as `string` instead of `int32` |
 | `omitempty_default` | `true` | Default `omitempty` for optional/zero-value fields |
+| `validate` | `""` | Validation strategy from `buf.validate` constraints |
 
 ## Proto Options
 
@@ -446,5 +480,8 @@ Generated Rust code depends on these crates:
 | `serde_json` | 1.0 | Widely audited |
 | `chrono` | 0.4.20+ | Pin to avoid RUSTSEC-2020-0159 |
 | `rusqlite` | 0.35 | C FFI to SQLite |
+| `validator` | 0.18 | Used when `validate=true` for `#[derive(Validate)]` |
+| `lazy_static` | 1.4 | Used by generated pattern/UUID validation code |
+| `regex` | 1.0 | Used by generated pattern validation code |
 
 Run `cargo audit` regularly on projects using generated code.

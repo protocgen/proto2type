@@ -29,7 +29,8 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 - 🗄️ **SQLite backend (Rust)** — `Row` structs with `to_domain()` / `from_domain()`, JSON-serialised nested fields
 - 🔌 **Works without a database** — generate domain types only, no backend required
 - 🐍 **Python/Pydantic backend** — Pydantic `BaseModel` classes with `Field()` validation, `google.api.field_behavior` and `buf/validate` support
-- 🌐 **Multi-language** — Go, Rust, and Python supported; Kotlin / TypeScript planned
+- ✅ **Validation** — `buf.validate` constraint checking: Rust via `validator` crate, Kotlin via native `validate()`, Python via Pydantic `Field()`
+- 🌐 **Multi-language** — Go, Rust, Python, and Kotlin supported; TypeScript planned
 
 ## Install
 
@@ -152,6 +153,83 @@ plugins:
 
 > **Note:** The standalone `proto2pydantic` tool has been absorbed into `proto2type`. Use `lang=python` going forward.
 
+### Kotlin
+
+**Serializable data classes** (kotlinx.serialization + kotlinx.datetime):
+
+```yaml
+# buf.gen.kotlin.yaml
+version: v2
+plugins:
+  - local: protoc-gen-proto2type
+    out: gen/kotlin
+    opt:
+      - lang=kotlin
+      - validate=true
+```
+
+Generates `@Serializable` data classes with proper WKT mappings, sealed class oneofs, and — when `validate=true` — native `validate()` / `validateOrThrow()` extension functions from `buf.validate` constraints.
+
+### Validation
+
+When `validate=true` (or a language-specific strategy), `proto2type` reads `buf.validate` constraints from your protos and generates native validation code.
+
+Given this proto:
+
+```protobuf
+syntax = "proto3";
+package test.v1;
+
+import "buf/validate/validate.proto";
+
+message User {
+  string email = 1 [(buf.validate.field).string.email = true];
+  string display_name = 2 [(buf.validate.field).string.min_len = 1];
+  int32 age = 3 [(buf.validate.field).int32 = { gte: 0, lte: 150 }];
+}
+```
+
+**Kotlin** (`validate=true`) generates:
+
+```kotlin
+fun User.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    if (email.isNotEmpty() && !email.matches(Regex(...))) errors.add("email must be a valid email")
+    if (displayName.length < 1) errors.add("display_name must be at least 1 characters")
+    if (age < 0) errors.add("age must be >= 0")
+    if (age > 150) errors.add("age must be <= 150")
+    return errors
+}
+
+fun User.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) throw IllegalArgumentException(errors.joinToString("; "))
+}
+```
+
+**Rust** (`validate=true`) generates:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Validate)]
+pub struct User {
+    #[validate(email)]
+    pub email: String,
+    #[validate(length(min = 1))]
+    pub display_name: String,
+    #[validate(range(min = 0, max = 150))]
+    pub age: i32,
+}
+```
+
+**Python** maps constraints automatically to Pydantic `Field()` kwargs (no `validate` flag needed):
+
+```python
+class User(BaseModel):
+    email: str = Field(..., pattern=r"^[^@]+@[^@]+$")
+    display_name: str = Field(..., min_length=1)
+    age: int = Field(..., ge=0, le=150)
+```
+
 #### Field Behavior & Validation
 
 `proto2type` reads `google.api.field_behavior` annotations and `buf/validate` constraints from your protos and maps them to Pydantic `Field()` kwargs:
@@ -185,6 +263,7 @@ See [CONFIG.md](CONFIG.md) for the full reference, including proto-level annotat
 | `output_file` | _(auto)_ | Override output filename |
 | `enum_as_string` | `false` | Store enums as string names instead of `int32` |
 | `omitempty_default` | `true` | Default `omitempty` for optional / zero-value fields |
+| `validate` | `""` | Validation strategy from `buf.validate` constraints (`true`, `validator`, `native`) |
 
 ## Example
 
@@ -346,6 +425,28 @@ message User {
 | Nested message | `Option<Box<T>>` | `String` (JSON) |
 | Enum | `i32` (default) or `String` (`enum_as_string=true`) | `i32` / `String` |
 
+### Kotlin Type Mapping
+
+| Proto Type | Kotlin Domain Type |
+|---|---|
+| `string` | `String` |
+| `int32`, `sint32`, `sfixed32` | `Int` |
+| `int64`, `sint64`, `sfixed64` | `Long` |
+| `uint32`, `fixed32` | `UInt` |
+| `uint64`, `fixed64` | `ULong` |
+| `float` | `Float` |
+| `double` | `Double` |
+| `bool` | `Boolean` |
+| `bytes` | `ByteArray` |
+| `repeated T` | `List<T>` (default `emptyList()`) |
+| `map<K, V>` | `Map<K, V>` (default `emptyMap()`) |
+| `optional T` | `T?` (default `null`) |
+| `google.protobuf.Timestamp` | `kotlinx.datetime.Instant` |
+| `google.protobuf.Duration` | `kotlin.time.Duration` |
+| Nested message | `T?` (nullable) |
+| Enum | `@Serializable enum class` with `@SerialName` and `fromValue(Int)` companion |
+| Oneof | `@Serializable sealed class` with data class variants |
+
 ## Roadmap
 
 | Phase | Scope | Status |
@@ -353,8 +454,9 @@ message User {
 | **1** | Go + Firestore + MongoDB | ✅ Done |
 | **1.5** | Rust + SQLite | ✅ Done |
 | **2** | Python (absorbs [proto2pydantic](https://github.com/protocgen/proto2pydantic)) | ✅ Done |
-| **3** | DynamoDB + Datastore + Kotlin | Planned |
-| **4** | Spanner + TypeScript + SQL ORMs | Planned |
+| **3** | Kotlin + Validation | ✅ Done |
+| **4** | DynamoDB + Datastore + Spanner | Planned |
+| **5** | TypeScript + SQL ORMs | Planned |
 
 ## Development
 

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-04
+
+### Added
+- **Kotlin validation codegen** (`validate=true`): Native `validate(): List<String>` and `validateOrThrow()` extension functions generated from `buf.validate` constraints. Supports email, string length, numeric range, pattern regex, repeated min/max items, optional field null safety (`?.let`), and recursive nested message validation.
+- **Rust validation codegen** (`validate=true`): `#[derive(Validate)]` with `#[validate(...)]` attributes from the `validator` crate. Supports email, length, range, pattern, nested, and required constraints.
+- **`validate` option**: Changed from `bool` to `string` to support multiple validation strategies per language (e.g. `validator` vs `garde` for Rust). `validate=true` selects the default strategy per language. Added `ValidateEnabled()` helper method.
+
+### Changed
+- **All messages get `validate()`/`validateOrThrow()`** (Kotlin): When `validate=true`, even messages without direct constraints get empty validation functions, enabling safe recursive nested validation.
+
+### Fixed
+- **CI: `buf-setup-action` rate limiting**: Added `github_token` to prevent GitHub API rate limit errors during CI.
+- **Rust CI: missing `lazy_static` + `regex` dependencies**: Added crate dependencies needed by generated pattern/UUID validation code.
+
 ## [0.5.0] - 2026-07-03
 
 ### Added
