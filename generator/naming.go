@@ -284,6 +284,12 @@ func topologicalSortMessages(msgs []*DomainMessage) []*DomainMessage {
 					deps[i] = append(deps[i], j)
 				}
 			}
+			// Map value types store their dependency in MapValue, not MessageTypeName.
+			if f.IsMap && f.MapValue != nil && f.MapValue.MessageTypeName != "" && f.MapValue.MessageTypeName != m.Name {
+				if j, ok := idx[f.MapValue.MessageTypeName]; ok {
+					deps[i] = append(deps[i], j)
+				}
+			}
 		}
 		// Also check oneof variants.
 		for _, o := range m.Oneofs {

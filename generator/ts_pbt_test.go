@@ -45,7 +45,13 @@ func FuzzTsJoinQuoted(f *testing.F) {
 	f.Add("foo,\"bar\",baz")
 
 	f.Fuzz(func(t *testing.T, s string) {
+		if s == "" {
+			return
+		}
 		parts := strings.Split(s, ",")
+		if len(parts) == 0 {
+			return
+		}
 		out := tsJoinQuoted(parts)
 		// Property: output should have exactly len(parts) quoted elements.
 		// Each element is wrapped in double quotes. Count quote pairs.
@@ -54,6 +60,28 @@ func FuzzTsJoinQuoted(f *testing.F) {
 		if quoteCount < len(parts)*2 {
 			t.Errorf("tsJoinQuoted(%q) = %q, expected at least %d quotes, got %d",
 				parts, out, len(parts)*2, quoteCount)
+		}
+
+		if !strings.HasPrefix(out, "\"") || !strings.HasSuffix(out, "\"") {
+			t.Errorf("tsJoinQuoted(%q) = %q, must start and end with quotes", parts, out)
+		}
+
+		for i := 0; i < len(out); i++ {
+			if out[i] == '\n' {
+				t.Errorf("tsJoinQuoted(%q) = %q, contains unescaped newline", parts, out)
+			}
+			if out[i] == '\\' {
+				if i+1 >= len(out) {
+					t.Errorf("tsJoinQuoted(%q) = %q, contains unescaped trailing backslash", parts, out)
+				}
+				i++ // skip escaped char
+			}
+		}
+
+		if len(parts) >= 2 {
+			if strings.Count(out, "\", \"") != len(parts)-1 {
+				t.Errorf("tsJoinQuoted(%q) = %q, commas must separate quoted segments", parts, out)
+			}
 		}
 	})
 }

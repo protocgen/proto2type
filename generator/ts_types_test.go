@@ -53,11 +53,11 @@ func TestTSWKTZodType(t *testing.T) {
 		{FieldKindWrapperDouble, "z.number().nullable()"},
 		{FieldKindWrapperString, "z.string().nullable()"},
 		{FieldKindWrapperBytes, "z.string().nullable()"},
-		{FieldKindStruct, "z.record(z.string(), z.unknown())"},
+		{FieldKindStruct, "z.record(z.string().refine(k => k !== '__proto__'), z.unknown())"},
 		{FieldKindValue, "z.unknown()"},
 		{FieldKindListValue, "z.array(z.unknown())"},
 		{FieldKindFieldMask, "z.string()"},
-		{FieldKindEmpty, "z.object({})"},
+		{FieldKindEmpty, "z.record(z.string(), z.never())"},
 		{FieldKindAny, "z.unknown()"},
 	}
 
@@ -104,5 +104,31 @@ func TestTSOutputFilename(t *testing.T) {
 	opts.OutputFile = "custom.ts"
 	if got := tsOutputFilename("path/to/my_file.proto", opts); got != "custom.ts" {
 		t.Errorf("got %q, want custom.ts", got)
+	}
+}
+
+func TestTsMapValueZodType(t *testing.T) {
+	opts := &Options{}
+	tests := []struct {
+		name string
+		info *MapTypeInfo
+		want string
+	}{
+		{"nil MapTypeInfo", nil, "z.unknown()"},
+		{"FieldKindScalar String", &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind}, "z.string()"},
+		{"FieldKindScalar Int32", &MapTypeInfo{Kind: FieldKindScalar, ScalarKind: protoreflect.Int32Kind}, "z.number().int()"},
+		{"FieldKindTimestamp", &MapTypeInfo{Kind: FieldKindTimestamp}, "z.string().datetime({ offset: true })"},
+		{"FieldKindMessage Foo", &MapTypeInfo{Kind: FieldKindMessage, MessageTypeName: "Foo"}, "FooSchema"},
+		{"FieldKindEnum Bar", &MapTypeInfo{Kind: FieldKindEnum, EnumTypeName: "Bar"}, "BarSchema"},
+		{"FieldKindStruct", &MapTypeInfo{Kind: FieldKindStruct}, "z.record(z.string().refine(k => k !== '__proto__'), z.unknown())"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tsMapValueZodType(tt.info, opts)
+			if got != tt.want {
+				t.Errorf("tsMapValueZodType() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

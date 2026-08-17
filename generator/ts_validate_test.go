@@ -61,7 +61,7 @@ func TestTsZodConstraints_Int64String(t *testing.T) {
 	}
 	opts := &Options{TSInt64Style: "string"}
 	got := tsZodConstraints(f, opts)
-	expected := `.refine(v => BigInt(v) > 0n, { message: "must be > 0" }).refine(v => BigInt(v) >= 1n, { message: "must be >= 1" }).refine(v => BigInt(v) < 10n, { message: "must be < 10" }).refine(v => BigInt(v) <= 9n, { message: "must be <= 9" })`
+	expected := `.refine(v => { try { return BigInt(v) > 0n; } catch { return false; } }, { message: "must be > 0" }).refine(v => { try { return BigInt(v) >= 1n; } catch { return false; } }, { message: "must be >= 1" }).refine(v => { try { return BigInt(v) < 10n; } catch { return false; } }, { message: "must be < 10" }).refine(v => { try { return BigInt(v) <= 9n; } catch { return false; } }, { message: "must be <= 9" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}
@@ -78,7 +78,7 @@ func TestTsZodConstraints_Int64BigInt(t *testing.T) {
 	}
 	opts := &Options{TSInt64Style: "bigint"}
 	got := tsZodConstraints(f, opts)
-	expected := `.gt(0n).gte(1n)`
+	expected := `.refine(v => v > 0n, { message: "must be > 0" }).refine(v => v >= 1n, { message: "must be >= 1" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}
@@ -95,7 +95,7 @@ func TestTsZodConstraints_BytesLength(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	expected := `.refine(v => { if (!/^[A-Za-z0-9+/\-_]*={0,2}$/.test(v) || v.length % 4 !== 0) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= 5; }, { message: "bytes must be valid base64 and at least 5 bytes" }).refine(v => { if (!/^[A-Za-z0-9+/\-_]*={0,2}$/.test(v) || v.length % 4 !== 0) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= 10; }, { message: "bytes must be valid base64 and at most 10 bytes" })`
+	expected := `.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) || v.length % 4 !== 0) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= 5; }, { message: "bytes must be valid base64 and at least 5 bytes" }).refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) || v.length % 4 !== 0) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= 10; }, { message: "bytes must be valid base64 and at most 10 bytes" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}

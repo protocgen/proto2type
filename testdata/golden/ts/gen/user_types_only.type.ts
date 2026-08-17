@@ -36,11 +36,11 @@ export interface User {
   tags: Tag[];
   deletedAt?: string;
   previousStatus?: UserStatus;
-  updateMask?: string[];
+  updateMask?: string;
   extraMetadata?: Record<string, unknown>;
   preferences?: unknown[];
   avatarThumbnail?: string;
-  fieldMasks: string[][];
+  fieldMasks: string[];
   structs: Record<string, unknown>[];
   lists: unknown[][];
   eventTimes: Record<string, string>;

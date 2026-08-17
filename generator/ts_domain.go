@@ -447,7 +447,7 @@ func tsPlainBaseType(f *DomainField, opts *Options) string {
 	case f.Kind == FieldKindListValue:
 		return "unknown[]"
 	case f.Kind == FieldKindFieldMask:
-		return "string[]"
+		return "string"
 	case f.Kind == FieldKindEmpty:
 		return "Record<string, never>"
 	case f.Kind == FieldKindAny:
@@ -511,7 +511,7 @@ func tsPlainBaseTypeFromMapInfo(info *MapTypeInfo, opts *Options) string {
 	case FieldKindListValue:
 		return "unknown[]"
 	case FieldKindFieldMask:
-		return "string[]"
+		return "string"
 	case FieldKindEmpty:
 		return "Record<string, never>"
 	case FieldKindAny:
@@ -599,13 +599,13 @@ func tsOneofVariantZodType(v *OneofVariant, opts *Options) string {
 	case FieldKindDuration:
 		return "z.string()"
 	case FieldKindStruct:
-		return "z.record(z.string(), z.unknown())"
+		return "z.record(z.string().refine(k => k !== '__proto__'), z.unknown())"
 	case FieldKindValue:
 		return "z.unknown()"
 	case FieldKindListValue:
 		return "z.array(z.unknown())"
 	case FieldKindFieldMask:
-		return "z.array(z.string())"
+		return "z.string()"
 	case FieldKindEmpty:
 		return "z.record(z.string(), z.never())"
 	case FieldKindAny:
@@ -637,7 +637,7 @@ func tsPlainOneofVariantType(v *OneofVariant, opts *Options) string {
 	case FieldKindListValue:
 		return "unknown[]"
 	case FieldKindFieldMask:
-		return "string[]"
+		return "string"
 	case FieldKindEmpty:
 		return "Record<string, never>"
 	case FieldKindAny:

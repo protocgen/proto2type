@@ -83,7 +83,7 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 	case FieldKindWrapperString, FieldKindWrapperBytes:
 		return "z.string().nullable()", true
 	case FieldKindStruct:
-		return "z.record(z.string(), z.unknown())", true
+		return "z.record(z.string().refine(k => k !== '__proto__'), z.unknown())", true
 	case FieldKindValue:
 		return "z.unknown()", true
 	case FieldKindListValue:
@@ -91,7 +91,7 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 	case FieldKindFieldMask:
 		return "z.string()", true
 	case FieldKindEmpty:
-		return "z.object({})", true
+		return "z.record(z.string(), z.never())", true
 	case FieldKindAny:
 		return "z.unknown()", true
 	}
