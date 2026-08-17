@@ -19,7 +19,10 @@ func generateTypeScript(gen *protogen.Plugin, file *protogen.File, opts *Options
 
 // generateTypeScriptDomain generates TypeScript/Zod output for a proto file.
 func generateTypeScriptDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	// NOTE: Cross-file imports are not yet supported.
+	// NOTE: Cross-file imports are not yet supported. This is an existing
+	// architectural limitation shared with Python and Kotlin backends. External
+	// types referenced in message fields or oneof variants will compile only
+	// when all generated files are in the same module scope.
 	ir := BuildDomainFile(file, opts)
 	ir.Messages = flattenMessages(ir.Messages)
 	ir.Messages = topologicalSortMessages(ir.Messages)
@@ -114,6 +117,14 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 
 	recursive := isRecursive(m)
 
+	// Determine which oneofs need exclusivity refinement (2+ variants).
+	var exclusiveOneofs []*DomainOneof
+	for _, o := range m.Oneofs {
+		if len(o.Variants) >= 2 {
+			exclusiveOneofs = append(exclusiveOneofs, o)
+		}
+	}
+
 	if recursive {
 		// For recursive types: emit a manual type alias first, then use z.lazy().
 		g.P("export type ", m.Name, " = {")
@@ -125,8 +136,14 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 			if tsFieldNeedsOptional(f, opts) {
 				optMark = "?"
 			}
-			// Use plain type for recursive field types.
 			g.P(fmt.Sprintf("  %s%s: %s;", f.CamelName, optMark, tsPlainType(f, opts)))
+		}
+		// Oneof variants in the type alias.
+		for _, o := range m.Oneofs {
+			for _, v := range o.Variants {
+				tsType := tsPlainOneofVariantType(v, opts)
+				g.P(fmt.Sprintf("  %s?: %s;", toCamelCase(v.ProtoName), tsType))
+			}
 		}
 		g.P("};")
 		g.P("export const ", m.Name, "Schema: z.ZodType<", m.Name, "> = z.lazy(() => z.object({")
@@ -134,12 +151,11 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 		g.P("export const ", m.Name, "Schema = z.object({")
 	}
 
-	// Emit fields.
+	// Emit regular fields.
 	for _, f := range m.Fields {
 		if f.FieldSkip || f.IsOneof {
 			continue
 		}
-
 		zodExpr := tsFieldZodExpr(f, opts)
 		g.P(fmt.Sprintf("  %s: %s,", f.CamelName, zodExpr))
 	}
@@ -155,11 +171,35 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 
 	if recursive {
 		g.P("}));")
+	} else if len(exclusiveOneofs) > 0 {
+		// Chain .superRefine() to enforce mutual exclusion of oneof variants.
+		g.P("}).superRefine((data, ctx) => {")
+		for _, o := range exclusiveOneofs {
+			varKeys := make([]string, 0, len(o.Variants))
+			for _, v := range o.Variants {
+				varKeys = append(varKeys, toCamelCase(v.ProtoName))
+			}
+			localVar := toCamelCase(o.FieldName)
+			g.P(fmt.Sprintf("  const %sKeys = [%s] as const;",
+				localVar, tsJoinQuoted(varKeys)))
+			g.P(fmt.Sprintf("  const %sCount = %sKeys.filter(k => (data as Record<string, unknown>)[k] !== undefined).length;",
+				localVar, localVar))
+			g.P(fmt.Sprintf("  if (%sCount > 1) {", localVar))
+			g.P("    ctx.addIssue({")
+			g.P("      code: z.ZodIssueCode.custom,")
+			g.P(fmt.Sprintf(`      message: "oneof %s: at most one of " + %sKeys.join(", ") + " may be set",`,
+				o.FieldName, localVar))
+			g.P("      path: [],")
+			g.P("    });")
+			g.P("  }")
+		}
+		g.P("});")
 	} else {
 		g.P("});")
-		if !opts.TSExplicitTypes {
-			g.P("export type ", m.Name, " = z.infer<typeof ", m.Name, "Schema>;")
-		}
+	}
+
+	if !recursive && !opts.TSExplicitTypes {
+		g.P("export type ", m.Name, " = z.infer<typeof ", m.Name, "Schema>;")
 	}
 
 	// Emit explicit interface if requested and not recursive.
@@ -258,6 +298,14 @@ func writeTSExplicitInterface(g *protogen.GeneratedFile, m *DomainMessage, opts 
 		g.P(fmt.Sprintf("  %s%s: %s;", f.CamelName, optMark, tsType))
 	}
 	for _, o := range m.Oneofs {
+		if len(o.Variants) >= 2 {
+			varNames := make([]string, 0, len(o.Variants))
+			for _, v := range o.Variants {
+				varNames = append(varNames, toCamelCase(v.ProtoName))
+			}
+			g.P(fmt.Sprintf("  /** @oneof %s — at most one of: %s */",
+				o.FieldName, strings.Join(varNames, ", ")))
+		}
 		for _, v := range o.Variants {
 			tsType := tsPlainOneofVariantType(v, opts)
 			g.P(fmt.Sprintf("  %s?: %s;", toCamelCase(v.ProtoName), tsType))
@@ -393,6 +441,16 @@ func tsPlainBaseTypeFromMapInfo(info *MapTypeInfo, opts *Options) string {
 // sanitizeJSDoc escapes JSDoc closing tags in comments.
 func sanitizeJSDoc(s string) string {
 	return strings.ReplaceAll(s, "*/", "* /")
+}
+
+// tsJoinQuoted returns a comma-separated list of double-quoted JS string literals.
+// e.g. ["a", "b", "c"] → `"a", "b", "c"`.
+func tsJoinQuoted(keys []string) string {
+	quoted := make([]string, len(keys))
+	for i, k := range keys {
+		quoted[i] = strconv.Quote(k)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // tsScalarDefault returns the default value string for a scalar kind.
