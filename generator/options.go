@@ -84,6 +84,21 @@ type Options struct {
 
 	// PythonStripProtoSuffix uses base.py instead of base_pb2_pydantic.py (Python only).
 	PythonStripProtoSuffix bool
+
+	// TSInt64Style controls int64/uint64 representation in TypeScript:
+	// "string" (default, JSON-safe) or "bigint".
+	TSInt64Style string
+
+	// TSEnumStyle controls enum representation in TypeScript:
+	// "enum" (default, z.enum) or "native" (z.nativeEnum with const object).
+	TSEnumStyle string
+
+	// TSExplicitTypes emits explicit export interface alongside z.infer
+	// for improved IDE performance in large codebases.
+	TSExplicitTypes bool
+
+	// TSZodImport controls the zod import path (default "zod").
+	TSZodImport string
 }
 
 // ValidateEnabled returns true if any validation strategy is configured.
