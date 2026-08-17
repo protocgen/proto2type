@@ -18,8 +18,8 @@ func TestTSScalarZodType(t *testing.T) {
 		{protoreflect.Sfixed32Kind, "z.number().int()"},
 		{protoreflect.Uint32Kind, "z.number().int().nonnegative()"},
 		{protoreflect.Fixed32Kind, "z.number().int().nonnegative()"},
-		{protoreflect.Int64Kind, "z.string()"},
-		{protoreflect.Uint64Kind, "z.string()"},
+		{protoreflect.Int64Kind, "z.union([z.string(), z.number()]).pipe(z.coerce.string())"},
+		{protoreflect.Uint64Kind, "z.union([z.string(), z.number()]).pipe(z.coerce.string())"},
 		{protoreflect.FloatKind, "z.number()"},
 		{protoreflect.DoubleKind, "z.number()"},
 		{protoreflect.StringKind, "z.string()"},
@@ -46,14 +46,14 @@ func TestTSWKTZodType(t *testing.T) {
 		{FieldKindDuration, `z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration (e.g. '1.5s')" })`},
 		{FieldKindWrapperBool, "z.boolean().nullable()"},
 		{FieldKindWrapperInt32, "z.number().int().nullable()"},
-		{FieldKindWrapperInt64, "z.string().nullable()"},
+		{FieldKindWrapperInt64, "z.union([z.string(), z.number()]).pipe(z.coerce.string()).nullable()"},
 		{FieldKindWrapperUInt32, "z.number().int().nonnegative().nullable()"},
-		{FieldKindWrapperUInt64, "z.string().nullable()"},
+		{FieldKindWrapperUInt64, "z.union([z.string(), z.number()]).pipe(z.coerce.string()).nullable()"},
 		{FieldKindWrapperFloat, "z.number().nullable()"},
 		{FieldKindWrapperDouble, "z.number().nullable()"},
 		{FieldKindWrapperString, "z.string().nullable()"},
 		{FieldKindWrapperBytes, "z.string().nullable()"},
-		{FieldKindStruct, "z.record(z.string().refine(k => k !== '__proto__'), z.unknown())"},
+		{FieldKindStruct, "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())"},
 		{FieldKindValue, "z.unknown()"},
 		{FieldKindListValue, "z.array(z.unknown())"},
 		{FieldKindFieldMask, `z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" })`},
@@ -78,10 +78,10 @@ func TestTSWKTZodType(t *testing.T) {
 func TestTSScalarZodType_BigInt(t *testing.T) {
 	opts := &Options{TSInt64Style: "bigint"}
 
-	expBigInt := "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())"
-	expBigIntNN := `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
-	expWrapBigInt := "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nullable()"
-	expWrapBigIntNN := `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`
+	expBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint())`
+	expBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
+	expWrapBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint()).nullable()`
+	expWrapBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`
 
 	if got := tsScalarZodType(protoreflect.Int64Kind, opts); got != expBigInt {
 		t.Errorf("Int64 = %q, want %s", got, expBigInt)
@@ -125,7 +125,7 @@ func TestTsMapValueZodType(t *testing.T) {
 		{"FieldKindTimestamp", &MapTypeInfo{Kind: FieldKindTimestamp}, "z.string().datetime({ offset: true })"},
 		{"FieldKindMessage Foo", &MapTypeInfo{Kind: FieldKindMessage, MessageTypeName: "Foo"}, "FooSchema"},
 		{"FieldKindEnum Bar", &MapTypeInfo{Kind: FieldKindEnum, EnumTypeName: "Bar"}, "BarSchema"},
-		{"FieldKindStruct", &MapTypeInfo{Kind: FieldKindStruct}, "z.record(z.string().refine(k => k !== '__proto__'), z.unknown())"},
+		{"FieldKindStruct", &MapTypeInfo{Kind: FieldKindStruct}, "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())"},
 	}
 
 	for _, tt := range tests {

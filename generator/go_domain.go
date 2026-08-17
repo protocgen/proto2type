@@ -10,16 +10,24 @@ import (
 	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
 )
 
-// emittedDeepCopyHelper tracks which Go import paths have already had the
-// deepCopyValue helper emitted, preventing redeclaration when multiple
-// proto files map to the same Go package.
-var emittedDeepCopyHelper = map[protogen.GoImportPath]bool{}
+type goGenerator struct {
+	// emittedDeepCopyHelper tracks which Go import paths have already had the
+	// deepCopyValue helper emitted, preventing redeclaration when multiple
+	// proto files map to the same Go package.
+	emittedDeepCopyHelper map[protogen.GoImportPath]bool
+}
+
+func newGoGenerator() *goGenerator {
+	return &goGenerator{
+		emittedDeepCopyHelper: make(map[protogen.GoImportPath]bool),
+	}
+}
 
 // generateGo generates Go output files for a proto file.
-func generateGo(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	// Generate domain types if requested.
 	if opts.Domain {
-		if err := generateGoDomain(gen, file, opts); err != nil {
+		if err := gg.generateGoDomain(gen, file, opts); err != nil {
 			return err
 		}
 	}
@@ -39,15 +47,8 @@ func generateGo(gen *protogen.Plugin, file *protogen.File, opts *Options) error 
 	return nil
 }
 
-// ResetState clears per-invocation global state so that the generator is safe
-// to call again within the same process (e.g., plugin server mode, tests).
-// Call this once before processing a batch of files.
-func ResetState() {
-	emittedDeepCopyHelper = map[protogen.GoImportPath]bool{}
-}
-
 // generateGoDomain generates a Go domain type file for a proto file.
-func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+func (gg *goGenerator) generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	filename := outputFilename(file.GeneratedFilenamePrefix, ".type.go")
 
 	// Determine the Go import path and package name for generated types.
@@ -81,7 +82,10 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 	}
 
 	// Build IR from the proto file.
-	df := BuildDomainFile(file, opts)
+	df, err := BuildDomainFile(file, opts)
+	if err != nil {
+		return err
+	}
 
 	g := gen.NewGeneratedFile(filename, goImportPath)
 
@@ -105,8 +109,8 @@ func generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) 
 
 	// Emit the deepCopyValue helper if any message needs it for Clone,
 	// but only once per Go package (import path).
-	if irNeedsDeepCopyHelper(df.Messages) && !emittedDeepCopyHelper[goImportPath] {
-		emittedDeepCopyHelper[goImportPath] = true
+	if irNeedsDeepCopyHelper(df.Messages) && !gg.emittedDeepCopyHelper[goImportPath] {
+		gg.emittedDeepCopyHelper[goImportPath] = true
 		generateGoDeepCopyHelper(g)
 	}
 

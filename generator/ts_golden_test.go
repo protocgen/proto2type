@@ -8,6 +8,22 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 )
 
+func assertGoldenMatch(t *testing.T, got, want string) {
+	t.Helper()
+	if got == want {
+		return
+	}
+	gotLines := strings.Split(got, "\n")
+	wantLines := strings.Split(want, "\n")
+	for i := 0; i < len(gotLines) && i < len(wantLines); i++ {
+		if gotLines[i] != wantLines[i] {
+			t.Errorf("first diff at line %d:\n  got:  %q\n  want: %q", i+1, gotLines[i], wantLines[i])
+			return
+		}
+	}
+	t.Errorf("line count differs: got %d, want %d", len(gotLines), len(wantLines))
+}
+
 func TestTSGoldenUpdate(t *testing.T) {
 	if os.Getenv("UPDATE_GOLDEN") == "" {
 		t.Skip("set UPDATE_GOLDEN=1 to regenerate golden files")
@@ -23,6 +39,7 @@ func TestTSGoldenUpdate(t *testing.T) {
 		{"bigint", &Options{Lang: "ts", Domain: true, TSInt64Style: "bigint"}, "../testdata/golden/ts/gen/user_bigint.type.ts"},
 		{"validate", &Options{Lang: "ts", Domain: true, Validate: "true"}, "../testdata/golden/ts/gen/user_validate.type.ts"},
 		{"types_only", &Options{Lang: "ts", Domain: true, TSTypesOnly: true}, "../testdata/golden/ts/gen/user_types_only.type.ts"},
+		{"strict", &Options{Lang: "typescript", Domain: true, TSExplicitTypes: true, TSStrict: true, TSZodImport: "zod"}, "../testdata/golden/ts/gen/user_strict.type.ts"},
 	}
 
 	if err := os.MkdirAll("../testdata/golden/ts/gen", 0755); err != nil {
@@ -76,9 +93,7 @@ func TestTSGoldenMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
 	}
-	if content != string(golden) {
-		t.Errorf("output does not match golden file")
-	}
+	assertGoldenMatch(t, content, string(golden))
 }
 
 func TestTSGoldenBigInt(t *testing.T) {
@@ -97,9 +112,7 @@ func TestTSGoldenBigInt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
 	}
-	if content != string(golden) {
-		t.Errorf("output does not match golden file")
-	}
+	assertGoldenMatch(t, content, string(golden))
 }
 
 func TestTSGoldenValidate(t *testing.T) {
@@ -118,9 +131,7 @@ func TestTSGoldenValidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
 	}
-	if content != string(golden) {
-		t.Errorf("output does not match golden file")
-	}
+	assertGoldenMatch(t, content, string(golden))
 }
 
 func TestTSGoldenTypesOnly(t *testing.T) {
@@ -139,9 +150,7 @@ func TestTSGoldenTypesOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
 	}
-	if content != string(golden) {
-		t.Errorf("output does not match golden file")
-	}
+	assertGoldenMatch(t, content, string(golden))
 	// Verify zero Zod references.
 	if strings.Contains(content, "import { z }") || strings.Contains(content, "z.object") || strings.Contains(content, "z.enum") {
 		t.Errorf("types-only output must not contain Zod references")
@@ -165,5 +174,28 @@ func TestTSTypesOnlyValidateConflict(t *testing.T) {
 				t.Errorf("error should mention ts_types_only, got: %v", err)
 			}
 		}
+	}
+}
+
+func TestTSGoldenStrict(t *testing.T) {
+	fds := buildFileDescriptorSet(t)
+	gen := newPlugin(t, fds, []string{"user.proto"})
+	opts := &Options{Lang: "typescript", Domain: true, TSExplicitTypes: true, TSStrict: true, TSZodImport: "zod"}
+	for _, f := range gen.Files {
+		if f.Generate {
+			if err := generateTypeScript(gen, f, opts); err != nil {
+				t.Fatalf("generateTypeScript: %v", err)
+			}
+		}
+	}
+	content := extractTSOutput(t, gen)
+	golden, err := os.ReadFile("../testdata/golden/ts/gen/user_strict.type.ts")
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	assertGoldenMatch(t, content, string(golden))
+	// Verify .strict() is present on all z.object schemas.
+	if !strings.Contains(content, ".strict()") {
+		t.Error("strict golden output should contain .strict()")
 	}
 }

@@ -1,8 +1,10 @@
 package generator
 
 import (
-	"google.golang.org/protobuf/reflect/protoreflect"
+	"strings"
 	"testing"
+
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func uint64Ptr(v uint64) *uint64 { return &v }
@@ -23,7 +25,7 @@ func TestTsZodConstraints_StringField(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	expected := `.min(3).max(100).email().url().uuid().regex(new RegExp("^[a-z]+$"), { message: "must match pattern ^[a-z]+$" })`
+	expected := `.min(3).max(100).email().url().uuid().regex(new RegExp("^[a-z]+$"), { message: "must match pattern" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}
@@ -95,7 +97,7 @@ func TestTsZodConstraints_BytesLength(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	expected := `.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) || v.length % 4 !== 0) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= 5; }, { message: "bytes must be valid base64 and at least 5 bytes" }).refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) || v.length % 4 !== 0) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= 10; }, { message: "bytes must be valid base64 and at most 10 bytes" })`
+	expected := `.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= 5; }, { message: "bytes must be valid base64 and at least 5 bytes" }).refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= 10; }, { message: "bytes must be valid base64 and at most 10 bytes" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}
@@ -133,5 +135,85 @@ func TestTsOneofVariantZodConstraints(t *testing.T) {
 	expected := `.min(3)`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
+	}
+}
+
+func TestTsZodConstraints_NewStringConstraints(t *testing.T) {
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{
+			Len:      uint64Ptr(10),
+			Prefix:   "hello",
+			Suffix:   "world",
+			Contains: "foo",
+			Hostname: true,
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	for _, want := range []string{".length(10)", `.startsWith("hello")`, `.endsWith("world")`, `.includes("foo")`, `hostname`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in output: %s", want, got)
+		}
+	}
+}
+
+func TestTsZodConstraints_IP(t *testing.T) {
+	f := &DomainField{
+		Kind:                FieldKindScalar,
+		ScalarKind:          protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{IP: true},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, ".ip()") {
+		t.Errorf("missing .ip() in output: %s", got)
+	}
+}
+
+func TestTsZodConstraints_NumericConst(t *testing.T) {
+	constVal := "42"
+	f := &DomainField{
+		Kind:                FieldKindScalar,
+		ScalarKind:          protoreflect.Int32Kind,
+		ValidateConstraints: &ValidateConstraints{Const: &constVal},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, "v === 42") {
+		t.Errorf("missing const check in output: %s", got)
+	}
+}
+
+func TestTsZodConstraints_InNotIn(t *testing.T) {
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.Int32Kind,
+		ValidateConstraints: &ValidateConstraints{
+			In:    []string{"1", "2", "3"},
+			NotIn: []string{"10", "20"},
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, "[1, 2, 3].includes") {
+		t.Errorf("missing In check: %s", got)
+	}
+	if !strings.Contains(got, "![10, 20].includes") {
+		t.Errorf("missing NotIn check: %s", got)
+	}
+}
+
+func TestTsZodConstraints_Unique(t *testing.T) {
+	f := &DomainField{
+		Kind:                FieldKindScalar,
+		ScalarKind:          protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{Unique: true},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, "new Set(v).size === v.length") {
+		t.Errorf("missing unique check: %s", got)
 	}
 }

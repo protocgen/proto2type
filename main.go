@@ -18,12 +18,31 @@ package main
 import (
 	"flag"
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/types/pluginpb"
 
 	"github.com/protocgen/proto2type/generator"
 )
+
+type presetFlag struct {
+	opts *generator.Options
+}
+
+func (p presetFlag) String() string { return p.opts.TSPreset }
+func (p presetFlag) Set(val string) error {
+	p.opts.TSPreset = val
+	switch val {
+	case "zod-strict":
+		p.opts.TSStrict = true
+		p.opts.TSExplicitTypes = true
+		p.opts.Validate = "true"
+	case "types-only":
+		p.opts.TSTypesOnly = true
+	}
+	return nil
+}
 
 func main() {
 	var flags flag.FlagSet
@@ -53,26 +72,42 @@ func main() {
 	flags.StringVar(&opts.TSZodImport, "ts_zod_import", "zod", "TypeScript: Zod import path")
 	flags.BoolVar(&opts.TSTypesOnly, "ts_types_only", false, "TypeScript: emit plain types without Zod")
 	flags.BoolVar(&opts.TSStrict, "ts_strict", false, "TypeScript: append .strict() to reject unknown fields")
-	flags.BoolVar(&opts.Debug, "ts_debug", false, "emit IR debug information to stderr")
+	flags.Var(presetFlag{opts: opts}, "ts_preset", "TypeScript: preset (zod-strict, types-only)")
+	flags.BoolVar(&opts.Debug, "debug", false, "emit IR debug information to stderr")
 
 	protogen.Options{
 		ParamFunc: flags.Set,
 	}.Run(func(gen *protogen.Plugin) error {
-		gen.SupportedFeatures = uint64(pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
+		gen.SupportedFeatures = uint64(
+			pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL,
+		)
+
+		if strings.Contains(opts.TSZodImport, "..") || strings.HasPrefix(opts.TSZodImport, "/") {
+			return fmt.Errorf("ts_zod_import must not contain path traversal")
+		}
+
+		var generatedCount int
+		for _, f := range gen.Files {
+			if f.Generate {
+				generatedCount++
+			}
+		}
+		if opts.OutputFile != "" && generatedCount > 1 {
+			return fmt.Errorf("output_file cannot be used with multiple proto files")
+		}
 
 		if !opts.Domain && opts.Backend == "" {
 			return fmt.Errorf("proto2type: must specify at least one of domain=true or backend=<name>")
 		}
 
-		// Reset per-invocation generator state (prevents leaking across runs
-		// in plugin server mode or tests).
-		generator.ResetState()
+		// Instantiate a new runner for this invocation.
+		runner := generator.NewRunner()
 
 		for _, f := range gen.Files {
 			if !f.Generate {
 				continue
 			}
-			if err := generator.GenerateFile(gen, f, opts); err != nil {
+			if err := runner.GenerateFile(gen, f, opts); err != nil {
 				return err
 			}
 		}

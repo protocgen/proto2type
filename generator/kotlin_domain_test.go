@@ -15,9 +15,13 @@ func TestKotlinFieldType_Integration(t *testing.T) {
 
 	// Build IR for the user.proto file.
 	var file *DomainFile
+	var err error
 	for _, f := range gen.Files {
 		if f.Generate {
-			file = BuildDomainFile(f, opts)
+			file, err = BuildDomainFile(f, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
 			break
 		}
 	}
@@ -81,9 +85,13 @@ func TestKotlinFieldDefault_Integration(t *testing.T) {
 	opts := &Options{Lang: "kotlin", Domain: true}
 
 	var file *DomainFile
+	var err error
 	for _, f := range gen.Files {
 		if f.Generate {
-			file = BuildDomainFile(f, opts)
+			file, err = BuildDomainFile(f, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
 			break
 		}
 	}
@@ -147,9 +155,13 @@ func TestKotlinEnumGeneration_Integration(t *testing.T) {
 	opts := &Options{Lang: "kotlin", Domain: true}
 
 	var file *DomainFile
+	var err error
 	for _, f := range gen.Files {
 		if f.Generate {
-			file = BuildDomainFile(f, opts)
+			file, err = BuildDomainFile(f, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
 			break
 		}
 	}
@@ -208,7 +220,10 @@ func TestKotlinOneofDetection_Integration(t *testing.T) {
 		if !f.Generate {
 			continue
 		}
-		df := BuildDomainFile(f, opts)
+		df, err := BuildDomainFile(f, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, m := range df.Messages {
 			if m.Name == "User" {
 				user = m
@@ -252,9 +267,13 @@ func TestKotlinKeywordEscaping_Integration(t *testing.T) {
 	opts := &Options{Lang: "kotlin", Domain: true}
 
 	var file *DomainFile
+	var err error
 	for _, f := range gen.Files {
 		if f.Generate {
-			file = BuildDomainFile(f, opts)
+			file, err = BuildDomainFile(f, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
 			break
 		}
 	}
@@ -315,9 +334,13 @@ func TestKotlinCatalogFields_Integration(t *testing.T) {
 	opts := &Options{Lang: "kotlin", Domain: true}
 
 	var file *DomainFile
+	var err error
 	for _, f := range gen.Files {
 		if f.Generate {
-			file = BuildDomainFile(f, opts)
+			file, err = BuildDomainFile(f, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
 			break
 		}
 	}
@@ -446,9 +469,13 @@ func TestKotlinDurationImportDecision(t *testing.T) {
 	opts := &Options{Lang: "kotlin", Domain: true}
 
 	var file *DomainFile
+	var err error
 	for _, f := range gen.Files {
 		if f.Generate {
-			file = BuildDomainFile(f, opts)
+			file, err = BuildDomainFile(f, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
 			break
 		}
 	}
@@ -487,7 +514,10 @@ func TestKotlinDurationImportDecision(t *testing.T) {
 		if !f.Generate {
 			continue
 		}
-		catFile := BuildDomainFile(f, opts)
+		catFile, err := BuildDomainFile(f, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
 		catSerialName := false
 		catInstant := false
 		catDuration := false

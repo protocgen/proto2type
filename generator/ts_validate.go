@@ -24,30 +24,46 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 	if vc.MinLength != nil {
 		if isBytesField {
 			// buf.validate byte length refers to decoded bytes, not base64 string length.
-			parts = append(parts, fmt.Sprintf(`.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) || v.length %% 4 !== 0) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= %d; }, { message: "bytes must be valid base64 and at least %d bytes" })`, *vc.MinLength, *vc.MinLength))
+			parts = append(parts, fmt.Sprintf(`.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= %d; }, { message: "bytes must be valid base64 and at least %d bytes" })`, *vc.MinLength, *vc.MinLength))
 		} else {
 			parts = append(parts, fmt.Sprintf(".min(%d)", *vc.MinLength))
 		}
 	}
 	if vc.MaxLength != nil {
 		if isBytesField {
-			parts = append(parts, fmt.Sprintf(`.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) || v.length %% 4 !== 0) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= %d; }, { message: "bytes must be valid base64 and at most %d bytes" })`, *vc.MaxLength, *vc.MaxLength))
+			parts = append(parts, fmt.Sprintf(`.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= %d; }, { message: "bytes must be valid base64 and at most %d bytes" })`, *vc.MaxLength, *vc.MaxLength))
 		} else {
 			parts = append(parts, fmt.Sprintf(".max(%d)", *vc.MaxLength))
 		}
 	}
 	if vc.Email {
-		parts = append(parts, ".email()")
+		if vc.IgnoreEmpty {
+			parts = append(parts, `.refine(v => v === "" || z.string().email().safeParse(v).success, { message: "must be a valid email" })`)
+		} else {
+			parts = append(parts, ".email()")
+		}
 	}
 	if vc.URI {
-		parts = append(parts, ".url()")
+		if vc.IgnoreEmpty {
+			parts = append(parts, `.refine(v => v === "" || z.string().url().safeParse(v).success, { message: "must be a valid url" })`)
+		} else {
+			parts = append(parts, ".url()")
+		}
 	}
 	if vc.UUID {
-		parts = append(parts, ".uuid()")
+		if vc.IgnoreEmpty {
+			parts = append(parts, `.refine(v => v === "" || z.string().uuid().safeParse(v).success, { message: "must be a valid uuid" })`)
+		} else {
+			parts = append(parts, ".uuid()")
+		}
 	}
 	if vc.Pattern != "" {
 		escaped := strconv.Quote(vc.Pattern)
-		parts = append(parts, fmt.Sprintf(`.regex(new RegExp(%s), { message: "must match pattern %s" })`, escaped, vc.Pattern))
+		if vc.IgnoreEmpty {
+			parts = append(parts, fmt.Sprintf(`.refine(((re) => (v) => v === "" || re.test(v))(new RegExp(%s)), { message: "must match pattern" })`, escaped))
+		} else {
+			parts = append(parts, fmt.Sprintf(`.regex(new RegExp(%s), { message: "must match pattern" })`, escaped))
+		}
 	}
 	if vc.Len != nil {
 		parts = append(parts, fmt.Sprintf(".length(%d)", *vc.Len))
@@ -63,10 +79,18 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 	}
 	if vc.Hostname {
 		// Zod doesn't have .hostname(), use regex
-		parts = append(parts, `.regex(new RegExp("^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"), { message: "must be a valid hostname" })`)
+		if vc.IgnoreEmpty {
+			parts = append(parts, `.refine(((re) => (v) => v === "" || re.test(v))(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/), { message: "must be a valid hostname" })`)
+		} else {
+			parts = append(parts, `.regex(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/, { message: "must be a valid hostname" })`)
+		}
 	}
 	if vc.IP {
-		parts = append(parts, `.ip()`)
+		if vc.IgnoreEmpty {
+			parts = append(parts, `.refine(v => v === "" || z.string().ip().safeParse(v).success, { message: "must be a valid ip" })`)
+		} else {
+			parts = append(parts, `.ip()`)
+		}
 	}
 
 	// Numeric constraints

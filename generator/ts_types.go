@@ -17,6 +17,9 @@ func tsZodType(f *DomainField, opts *Options) string {
 	}
 	// Enum
 	if f.Kind == FieldKindEnum {
+		if f.EnumTypeName == "NullValue" || f.EnumTypeName == "google.protobuf.NullValue" {
+			return "z.null()"
+		}
 		return f.EnumTypeName + "Schema"
 	}
 	// Message
@@ -37,14 +40,14 @@ func tsScalarZodType(k protoreflect.Kind, opts *Options) string {
 		return "z.number().int().nonnegative()"
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())"
+			return "z.union([z.string().max(100).regex(/^-?\\d+$/), z.bigint()]).pipe(z.coerce.bigint())"
 		}
-		return "z.string()"
+		return "z.union([z.string(), z.number()]).pipe(z.coerce.string())"
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
+			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
 		}
-		return "z.string()"
+		return "z.union([z.string(), z.number()]).pipe(z.coerce.string())"
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
 		return "z.number()"
 	case protoreflect.StringKind, protoreflect.BytesKind:
@@ -70,20 +73,20 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 		return "z.number().int().nonnegative().nullable()", true
 	case FieldKindWrapperInt64:
 		if opts.TSInt64Style == "bigint" {
-			return "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nullable()", true
+			return "z.union([z.string().max(100).regex(/^-?\\d+$/), z.bigint()]).pipe(z.coerce.bigint()).nullable()", true
 		}
-		return "z.string().nullable()", true
+		return "z.union([z.string(), z.number()]).pipe(z.coerce.string()).nullable()", true
 	case FieldKindWrapperUInt64:
 		if opts.TSInt64Style == "bigint" {
-			return `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`, true
+			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`, true
 		}
-		return "z.string().nullable()", true
+		return "z.union([z.string(), z.number()]).pipe(z.coerce.string()).nullable()", true
 	case FieldKindWrapperFloat, FieldKindWrapperDouble:
 		return "z.number().nullable()", true
 	case FieldKindWrapperString, FieldKindWrapperBytes:
 		return "z.string().nullable()", true
 	case FieldKindStruct:
-		return "z.record(z.string().refine(k => k !== '__proto__'), z.unknown())", true
+		return "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())", true
 	case FieldKindValue:
 		return "z.unknown()", true
 	case FieldKindListValue:

@@ -223,6 +223,8 @@ type DomainField struct {
 	EnumAsString bool
 	// Omitempty is the resolved omitempty flag for this field.
 	Omitempty bool
+	// Deprecated is true when the field has the deprecated option set.
+	Deprecated bool
 
 	// FieldBehaviors from google.api.field_behavior annotations.
 	// nil means no annotation present.

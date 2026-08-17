@@ -1380,3 +1380,140 @@ func (t *Tag) Validate() error {
 	}
 	return nil
 }
+
+// Category is the domain representation of test.v1.Category.
+//
+// Category is a recursive tree structure for testing z.lazy() generation.
+type Category struct {
+	Name     string      `json:"name,omitempty"`
+	Parent   *Category   `json:"parent,omitempty"`
+	Children []*Category `json:"children,omitempty"`
+}
+
+// ToProto converts to the protobuf message.
+func (c *Category) ToProto() *pb.Category {
+	if c == nil {
+		return nil
+	}
+	out := &pb.Category{
+		Name: c.Name,
+	}
+	if c.Parent != nil {
+		out.Parent = c.Parent.ToProto()
+	}
+	if len(c.Children) > 0 {
+		out.Children = make([]*pb.Category, len(c.Children))
+		for i, v := range c.Children {
+			if v != nil {
+				out.Children[i] = v.ToProto()
+			}
+		}
+	}
+	return out
+}
+
+// FromProto populates from a protobuf message.
+func (c *Category) FromProto(msg *pb.Category) {
+	if msg == nil {
+		return
+	}
+	c.Name = msg.Name
+	c.Parent = nil
+	if msg.Parent != nil {
+		c.Parent = &Category{}
+		c.Parent.FromProto(msg.Parent)
+	}
+	c.Children = nil
+	if len(msg.Children) > 0 {
+		c.Children = make([]*Category, len(msg.Children))
+		for i, v := range msg.Children {
+			if v != nil {
+				elem := &Category{}
+				elem.FromProto(v)
+				c.Children[i] = elem
+			}
+		}
+	}
+}
+
+// ApplyFieldMaskCategory copies fields from src to dst based on the given paths.
+func ApplyFieldMaskCategory(dst, src *Category, paths []string) {
+	if dst == nil || src == nil {
+		return
+	}
+	for _, path := range paths {
+		switch path {
+		case "name":
+			dst.Name = src.Name
+		case "parent":
+			dst.Parent = src.Parent.Clone()
+		case "children":
+			dst.Children = src.Children
+		}
+	}
+}
+
+// Clone returns a deep copy of Category.
+func (c *Category) Clone() *Category {
+	if c == nil {
+		return nil
+	}
+	clone := &Category{
+		Name: c.Name,
+	}
+	if c.Children != nil {
+		clone.Children = make([]*Category, len(c.Children))
+		for i, v := range c.Children {
+			if v != nil {
+				clone.Children[i] = v.Clone()
+			}
+		}
+	}
+	if c.Parent != nil {
+		clone.Parent = c.Parent.Clone()
+	}
+	return clone
+}
+
+// Equal reports whether c and other are equal.
+func (c *Category) Equal(other *Category) bool {
+	if c == other {
+		return true
+	}
+	if c == nil || other == nil {
+		return false
+	}
+	if c.Name != other.Name {
+		return false
+	}
+	if (c.Parent == nil) != (other.Parent == nil) {
+		return false
+	}
+	if c.Parent != nil && !c.Parent.Equal(other.Parent) {
+		return false
+	}
+	if len(c.Children) != len(other.Children) {
+		return false
+	}
+	for i := range c.Children {
+		if (c.Children[i] == nil) != (other.Children[i] == nil) {
+			return false
+		}
+		if c.Children[i] != nil && !c.Children[i].Equal(other.Children[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// Validate checks domain invariants on Category.
+// It also runs buf.validate constraints via protovalidate.
+func (c *Category) Validate() error {
+	if c == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(c.ToProto()); err != nil {
+		return err
+	}
+	return nil
+}

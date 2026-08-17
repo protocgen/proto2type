@@ -548,6 +548,67 @@ func (x *Tag) GetValue() string {
 	return ""
 }
 
+// Category is a recursive tree structure for testing z.lazy() generation.
+type Category struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Parent        *Category              `protobuf:"bytes,2,opt,name=parent,proto3" json:"parent,omitempty"`     // singular self-ref → z.lazy()
+	Children      []*Category            `protobuf:"bytes,3,rep,name=children,proto3" json:"children,omitempty"` // repeated self-ref → z.array(z.lazy())
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Category) Reset() {
+	*x = Category{}
+	mi := &file_user_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Category) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Category) ProtoMessage() {}
+
+func (x *Category) ProtoReflect() protoreflect.Message {
+	mi := &file_user_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Category.ProtoReflect.Descriptor instead.
+func (*Category) Descriptor() ([]byte, []int) {
+	return file_user_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Category) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Category) GetParent() *Category {
+	if x != nil {
+		return x.Parent
+	}
+	return nil
+}
+
+func (x *Category) GetChildren() []*Category {
+	if x != nil {
+		return x.Children
+	}
+	return nil
+}
+
 var File_user_proto protoreflect.FileDescriptor
 
 const file_user_proto_rawDesc = "" +
@@ -629,7 +690,11 @@ const file_user_proto_rawDesc = "" +
 	"\acountry\x18\x05 \x01(\tR\acountry\"-\n" +
 	"\x03Tag\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value*u\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"x\n" +
+	"\bCategory\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12)\n" +
+	"\x06parent\x18\x02 \x01(\v2\x11.test.v1.CategoryR\x06parent\x12-\n" +
+	"\bchildren\x18\x03 \x03(\v2\x11.test.v1.CategoryR\bchildren*u\n" +
 	"\n" +
 	"UserStatus\x12\x1b\n" +
 	"\x17USER_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
@@ -650,60 +715,63 @@ func file_user_proto_rawDescGZIP() []byte {
 }
 
 var file_user_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_user_proto_goTypes = []any{
 	(UserStatus)(0),                // 0: test.v1.UserStatus
 	(*User)(nil),                   // 1: test.v1.User
 	(*Address)(nil),                // 2: test.v1.Address
 	(*Tag)(nil),                    // 3: test.v1.Tag
-	nil,                            // 4: test.v1.User.MetadataEntry
-	nil,                            // 5: test.v1.User.EventTimesEntry
-	nil,                            // 6: test.v1.User.ConfigsEntry
-	nil,                            // 7: test.v1.User.ValueMapEntry
-	nil,                            // 8: test.v1.User.LabelsEntry
-	nil,                            // 9: test.v1.User.ScoresEntry
-	(*timestamppb.Timestamp)(nil),  // 10: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),    // 11: google.protobuf.Duration
-	(*wrapperspb.StringValue)(nil), // 12: google.protobuf.StringValue
-	(*fieldmaskpb.FieldMask)(nil),  // 13: google.protobuf.FieldMask
-	(*structpb.Struct)(nil),        // 14: google.protobuf.Struct
-	(*structpb.ListValue)(nil),     // 15: google.protobuf.ListValue
-	(*structpb.Value)(nil),         // 16: google.protobuf.Value
-	(*wrapperspb.Int64Value)(nil),  // 17: google.protobuf.Int64Value
+	(*Category)(nil),               // 4: test.v1.Category
+	nil,                            // 5: test.v1.User.MetadataEntry
+	nil,                            // 6: test.v1.User.EventTimesEntry
+	nil,                            // 7: test.v1.User.ConfigsEntry
+	nil,                            // 8: test.v1.User.ValueMapEntry
+	nil,                            // 9: test.v1.User.LabelsEntry
+	nil,                            // 10: test.v1.User.ScoresEntry
+	(*timestamppb.Timestamp)(nil),  // 11: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),    // 12: google.protobuf.Duration
+	(*wrapperspb.StringValue)(nil), // 13: google.protobuf.StringValue
+	(*fieldmaskpb.FieldMask)(nil),  // 14: google.protobuf.FieldMask
+	(*structpb.Struct)(nil),        // 15: google.protobuf.Struct
+	(*structpb.ListValue)(nil),     // 16: google.protobuf.ListValue
+	(*structpb.Value)(nil),         // 17: google.protobuf.Value
+	(*wrapperspb.Int64Value)(nil),  // 18: google.protobuf.Int64Value
 }
 var file_user_proto_depIdxs = []int32{
-	4,  // 0: test.v1.User.metadata:type_name -> test.v1.User.MetadataEntry
+	5,  // 0: test.v1.User.metadata:type_name -> test.v1.User.MetadataEntry
 	2,  // 1: test.v1.User.address:type_name -> test.v1.Address
-	10, // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
-	11, // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
-	12, // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
+	11, // 2: test.v1.User.created_at:type_name -> google.protobuf.Timestamp
+	12, // 3: test.v1.User.session_timeout:type_name -> google.protobuf.Duration
+	13, // 4: test.v1.User.nickname:type_name -> google.protobuf.StringValue
 	0,  // 5: test.v1.User.status:type_name -> test.v1.UserStatus
 	3,  // 6: test.v1.User.tags:type_name -> test.v1.Tag
-	10, // 7: test.v1.User.deleted_at:type_name -> google.protobuf.Timestamp
+	11, // 7: test.v1.User.deleted_at:type_name -> google.protobuf.Timestamp
 	0,  // 8: test.v1.User.previous_status:type_name -> test.v1.UserStatus
-	13, // 9: test.v1.User.update_mask:type_name -> google.protobuf.FieldMask
-	14, // 10: test.v1.User.extra_metadata:type_name -> google.protobuf.Struct
-	15, // 11: test.v1.User.preferences:type_name -> google.protobuf.ListValue
-	13, // 12: test.v1.User.field_masks:type_name -> google.protobuf.FieldMask
-	14, // 13: test.v1.User.structs:type_name -> google.protobuf.Struct
-	15, // 14: test.v1.User.lists:type_name -> google.protobuf.ListValue
-	5,  // 15: test.v1.User.event_times:type_name -> test.v1.User.EventTimesEntry
-	6,  // 16: test.v1.User.configs:type_name -> test.v1.User.ConfigsEntry
-	16, // 17: test.v1.User.single_value:type_name -> google.protobuf.Value
-	16, // 18: test.v1.User.values:type_name -> google.protobuf.Value
-	7,  // 19: test.v1.User.value_map:type_name -> test.v1.User.ValueMapEntry
-	8,  // 20: test.v1.User.labels:type_name -> test.v1.User.LabelsEntry
-	9,  // 21: test.v1.User.scores:type_name -> test.v1.User.ScoresEntry
-	10, // 22: test.v1.User.EventTimesEntry.value:type_name -> google.protobuf.Timestamp
-	14, // 23: test.v1.User.ConfigsEntry.value:type_name -> google.protobuf.Struct
-	16, // 24: test.v1.User.ValueMapEntry.value:type_name -> google.protobuf.Value
-	12, // 25: test.v1.User.LabelsEntry.value:type_name -> google.protobuf.StringValue
-	17, // 26: test.v1.User.ScoresEntry.value:type_name -> google.protobuf.Int64Value
-	27, // [27:27] is the sub-list for method output_type
-	27, // [27:27] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	14, // 9: test.v1.User.update_mask:type_name -> google.protobuf.FieldMask
+	15, // 10: test.v1.User.extra_metadata:type_name -> google.protobuf.Struct
+	16, // 11: test.v1.User.preferences:type_name -> google.protobuf.ListValue
+	14, // 12: test.v1.User.field_masks:type_name -> google.protobuf.FieldMask
+	15, // 13: test.v1.User.structs:type_name -> google.protobuf.Struct
+	16, // 14: test.v1.User.lists:type_name -> google.protobuf.ListValue
+	6,  // 15: test.v1.User.event_times:type_name -> test.v1.User.EventTimesEntry
+	7,  // 16: test.v1.User.configs:type_name -> test.v1.User.ConfigsEntry
+	17, // 17: test.v1.User.single_value:type_name -> google.protobuf.Value
+	17, // 18: test.v1.User.values:type_name -> google.protobuf.Value
+	8,  // 19: test.v1.User.value_map:type_name -> test.v1.User.ValueMapEntry
+	9,  // 20: test.v1.User.labels:type_name -> test.v1.User.LabelsEntry
+	10, // 21: test.v1.User.scores:type_name -> test.v1.User.ScoresEntry
+	4,  // 22: test.v1.Category.parent:type_name -> test.v1.Category
+	4,  // 23: test.v1.Category.children:type_name -> test.v1.Category
+	11, // 24: test.v1.User.EventTimesEntry.value:type_name -> google.protobuf.Timestamp
+	15, // 25: test.v1.User.ConfigsEntry.value:type_name -> google.protobuf.Struct
+	17, // 26: test.v1.User.ValueMapEntry.value:type_name -> google.protobuf.Value
+	13, // 27: test.v1.User.LabelsEntry.value:type_name -> google.protobuf.StringValue
+	18, // 28: test.v1.User.ScoresEntry.value:type_name -> google.protobuf.Int64Value
+	29, // [29:29] is the sub-list for method output_type
+	29, // [29:29] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_user_proto_init() }
@@ -721,7 +789,7 @@ func file_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_proto_rawDesc), len(file_user_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

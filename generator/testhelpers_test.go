@@ -18,7 +18,11 @@ func buildIRForProto(t *testing.T, protoFile string, opts *Options) *DomainFile 
 
 	for _, f := range gen.Files {
 		if f.Generate {
-			return BuildDomainFile(f, opts)
+			df, err := BuildDomainFile(f, opts)
+			if err != nil {
+				panic(err)
+			}
+			return df
 		}
 	}
 	t.Fatalf("no generated file found for %s", protoFile)
@@ -98,7 +102,10 @@ func irFindDomainMessageInPlugin(t *testing.T, gen *protogen.Plugin, opts *Optio
 		if !f.Generate {
 			continue
 		}
-		df := BuildDomainFile(f, opts)
+		df, err := BuildDomainFile(f, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, m := range df.Messages {
 			if m.Name == msgName {
 				return m

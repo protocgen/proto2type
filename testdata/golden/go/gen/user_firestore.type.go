@@ -816,3 +816,100 @@ func (t *TagFirestore) FromDomain(d *Tag) {
 	t.Key = d.Key
 	t.Value = d.Value
 }
+
+// CategoryFirestore is the Firestore storage representation of test.v1.Category.
+type CategoryFirestore struct {
+	Name     string               `firestore:"name,omitempty"`
+	Parent   *CategoryFirestore   `firestore:"parent,omitempty"`
+	Children []*CategoryFirestore `firestore:"children,omitempty"`
+}
+
+// ToProto converts to the protobuf message.
+func (c *CategoryFirestore) ToProto() *pb.Category {
+	if c == nil {
+		return nil
+	}
+	out := &pb.Category{
+		Name: c.Name,
+	}
+	if c.Parent != nil {
+		out.Parent = c.Parent.ToProto()
+	}
+	if len(c.Children) > 0 {
+		out.Children = make([]*pb.Category, len(c.Children))
+		for i, v := range c.Children {
+			if v != nil {
+				out.Children[i] = v.ToProto()
+			}
+		}
+	}
+	return out
+}
+
+// FromProto populates from a protobuf message.
+func (c *CategoryFirestore) FromProto(msg *pb.Category) {
+	if msg == nil {
+		return
+	}
+	c.Name = msg.Name
+	c.Parent = nil
+	if msg.Parent != nil {
+		c.Parent = &CategoryFirestore{}
+		c.Parent.FromProto(msg.Parent)
+	}
+	c.Children = nil
+	if len(msg.Children) > 0 {
+		c.Children = make([]*CategoryFirestore, len(msg.Children))
+		for i, v := range msg.Children {
+			if v != nil {
+				elem := &CategoryFirestore{}
+				elem.FromProto(v)
+				c.Children[i] = elem
+			}
+		}
+	}
+}
+
+// ToDomain converts to the domain type.
+func (c *CategoryFirestore) ToDomain() *Category {
+	if c == nil {
+		return nil
+	}
+	d := &Category{
+		Name: c.Name,
+	}
+	if c.Parent != nil {
+		d.Parent = c.Parent.ToDomain()
+	}
+	if len(c.Children) > 0 {
+		d.Children = make([]*Category, len(c.Children))
+		for i, v := range c.Children {
+			if v != nil {
+				d.Children[i] = v.ToDomain()
+			}
+		}
+	}
+	return d
+}
+
+// FromDomain populates from the domain type.
+func (c *CategoryFirestore) FromDomain(d *Category) {
+	if d == nil {
+		return
+	}
+	c.Name = d.Name
+	if d.Parent != nil {
+		c.Parent = &CategoryFirestore{}
+		c.Parent.FromDomain(d.Parent)
+	}
+	if len(d.Children) > 0 {
+		c.Children = make([]*CategoryFirestore, len(d.Children))
+		for i, v := range d.Children {
+			if v != nil {
+				elem := &CategoryFirestore{}
+				elem.FromDomain(v)
+				c.Children[i] = elem
+			}
+		}
+	}
+}

@@ -20,7 +20,10 @@ func generateKotlin(gen *protogen.Plugin, file *protogen.File, opts *Options) er
 
 // generateKotlinDomain generates a Kotlin domain type file from the IR.
 func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	ir := BuildDomainFile(file, opts)
+	ir, err := BuildDomainFile(file, opts)
+	if err != nil {
+		return err
+	}
 
 	filename := outputFilename(file.GeneratedFilenamePrefix, ".type.kt")
 	g := gen.NewGeneratedFile(filename, "")

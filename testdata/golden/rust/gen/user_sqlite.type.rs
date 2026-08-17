@@ -376,3 +376,63 @@ impl TryFrom<TagRow> for Tag {
     }
 }
 
+/// SQLite storage representation of test.v1.Category.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CategoryRow {
+    pub name: String,
+    pub parent: Option<String>,
+    pub children: String,
+}
+
+impl CategoryRow {
+    /// Constructs a CategoryRow from a rusqlite::Row using named column access.
+    pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(Self {
+            name: row.get("name")?,
+            parent: row.get("parent")?,
+            children: row.get("children")?,
+        })
+    }
+
+    /// Converts this row to the domain type.
+    pub fn to_domain(&self) -> Result<Category, ConversionError> {
+        Ok(Category {
+            name: self.name.clone(),
+            parent: match &self.parent { Some(s) => Some(Box::new(serde_json::from_str(s)?)), None => None },
+            children: serde_json::from_str(&self.children)?,
+        })
+    }
+
+    /// Converts this row into the domain type, consuming self.
+    pub fn into_domain(self) -> Result<Category, ConversionError> {
+        Ok(Category {
+            name: self.name,
+            parent: match self.parent { Some(s) => Some(Box::new(serde_json::from_str(&s)?)), None => None },
+            children: serde_json::from_str(&self.children)?,
+        })
+    }
+
+    /// Constructs a row from the domain type.
+    pub fn from_domain(d: &Category) -> Result<Self, ConversionError> {
+        Ok(Self {
+            name: d.name.clone(),
+            parent: match &d.parent { Some(v) => Some(serde_json::to_string(v.as_ref())?), None => None },
+            children: serde_json::to_string(&d.children)?,
+        })
+    }
+}
+
+impl TryFrom<&Category> for CategoryRow {
+    type Error = ConversionError;
+    fn try_from(d: &Category) -> Result<Self, Self::Error> {
+        Self::from_domain(d)
+    }
+}
+
+impl TryFrom<CategoryRow> for Category {
+    type Error = ConversionError;
+    fn try_from(row: CategoryRow) -> Result<Self, Self::Error> {
+        row.into_domain()
+    }
+}
+

@@ -108,6 +108,9 @@ type Options struct {
 	// rejecting unknown fields per ProtoJSON spec. Default: false.
 	TSStrict bool
 
+	// TSPreset applies preset configurations for TypeScript.
+	TSPreset string
+
 	// Debug emits IR debug information to stderr when set.
 	Debug bool
 }

@@ -90,13 +90,24 @@ class User(BaseModel):
         return base64.b64encode(v).decode('ascii')
 
 
+class Category(BaseModel):
+    """Category is a recursive tree structure for testing z.lazy() generation."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = ''
+    parent: Category | None = None
+    children: list[Category] = Field(default_factory=list)
+
+
 
 Address.model_rebuild()
 Tag.model_rebuild()
 User.model_rebuild()
+Category.model_rebuild()
 
 __all__ = [
     'Address',
+    'Category',
     'Tag',
     'User',
     'UserStatus',

@@ -15,7 +15,7 @@ import (
 
 // buildFileDescriptorSet runs `buf build` on the testdata/proto directory and
 // returns the compiled FileDescriptorSet. It skips the test if buf is not available.
-func buildFileDescriptorSet(t *testing.T) *descriptorpb.FileDescriptorSet {
+func buildFileDescriptorSet(t testing.TB) *descriptorpb.FileDescriptorSet {
 	t.Helper()
 
 	tmpFile, err := os.CreateTemp(t.TempDir(), "fdset-*.bin")
@@ -52,7 +52,7 @@ func buildFileDescriptorSet(t *testing.T) *descriptorpb.FileDescriptorSet {
 
 // newPlugin creates a protogen.Plugin from a FileDescriptorSet, requesting
 // code generation for the given file names.
-func newPlugin(t *testing.T, fds *descriptorpb.FileDescriptorSet, filesToGenerate []string) *protogen.Plugin {
+func newPlugin(t testing.TB, fds *descriptorpb.FileDescriptorSet, filesToGenerate []string) *protogen.Plugin {
 	t.Helper()
 
 	req := &pluginpb.CodeGeneratorRequest{
@@ -815,7 +815,10 @@ func TestRustExhaustiveOption_GeneratedOutput(t *testing.T) {
 					continue
 				}
 				g := gen.NewGeneratedFile("test_"+tt.name+".rs", f.GoImportPath)
-				df := BuildDomainFile(f, opts)
+				df, err := BuildDomainFile(f, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
 				for _, dm := range df.Messages {
 					err := generateRustDomainMessageFromIR(g, dm, opts)
 					if err != nil {

@@ -1,10 +1,12 @@
 package generator
 
 import (
+	"fmt"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 // maxNestingDepth is the maximum allowed depth for nested proto messages.
@@ -21,7 +23,7 @@ const maxNestingDepth = 64
 // for MessageTypeName/EnumTypeName. When multi-file IR support is added,
 // irMessageNameFromDesc and irEnumNameFromDesc will need package-qualified
 // names to disambiguate types from different proto packages.
-func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
+func BuildDomainFile(file *protogen.File, opts *Options) (*DomainFile, error) {
 	df := &DomainFile{
 		SourcePath: file.Desc.Path(),
 		Package:    string(file.Desc.Package()),
@@ -34,7 +36,10 @@ func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
 
 	// Top-level messages.
 	for _, msg := range file.Messages {
-		dm := buildDomainMessage(msg, "", opts, 0)
+		dm, err := buildDomainMessage(msg, "", opts, 0)
+		if err != nil {
+			return nil, err
+		}
 		if dm != nil {
 			df.Messages = append(df.Messages, dm)
 		}
@@ -43,13 +48,15 @@ func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
 	// Post-process: detect flattened name collisions (PB-4).
 	// e.g. message Foo_Bar {} and message Foo { message Bar {} } both
 	// flatten to "FooBar", which would produce duplicate type names.
-	detectNameCollisions(df)
+	if err := detectNameCollisions(df); err != nil {
+		return nil, err
+	}
 
 	// Post-process: detect recursive types and set NeedsBox on fields
 	// that participate in type cycles (e.g. TreeNode.parent -> TreeNode).
 	markRecursiveFields(df)
 
-	return df
+	return df, nil
 }
 
 // buildDomainMessage recursively builds the IR for a message and its children.
@@ -57,16 +64,16 @@ func BuildDomainFile(file *protogen.File, opts *Options) *DomainFile {
 // flattened parent name (e.g. "User" → nested "Settings" becomes "User_Settings").
 // depth tracks the current nesting level; exceeding maxNestingDepth panics.
 // Returns nil if the message is skipped.
-func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options, depth int) *DomainMessage {
+func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options, depth int) (*DomainMessage, error) {
 	if depth >= maxNestingDepth {
-		irPanic("proto2type: message %q exceeds maximum nesting depth of %d", msg.Desc.FullName(), maxNestingDepth)
+		return nil, fmt.Errorf("proto2type: message %q exceeds maximum nesting depth of %d", msg.Desc.FullName(), maxNestingDepth)
 	}
 	if isMessageSkipped(msg) {
 		return &DomainMessage{
 			Name:     irMessageName(msg, parentName),
 			FullName: string(msg.Desc.FullName()),
 			Skip:     true,
-		}
+		}, nil
 	}
 
 	name := irMessageName(msg, parentName)
@@ -131,23 +138,37 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options,
 		if nested.Desc.IsMapEntry() {
 			continue
 		}
-		child := buildDomainMessage(nested, name, opts, depth+1)
+		child, err := buildDomainMessage(nested, name, opts, depth+1)
+		if err != nil {
+			return nil, err
+		}
 		if child != nil {
 			dm.NestedMessages = append(dm.NestedMessages, child)
 		}
 	}
 
-	return dm
+	return dm, nil
 }
 
 // buildDomainField builds the IR for a single field.
 func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 	protoName := string(field.Desc.Name())
 
+	camelName := toCamelCase(protoName)
+	if opts.Lang == "typescript" {
+		camelName = string(field.Desc.JSONName())
+	}
+
+	optsMsg, ok := field.Desc.Options().(*descriptorpb.FieldOptions)
+	isDeprecated := false
+	if ok && optsMsg != nil {
+		isDeprecated = optsMsg.GetDeprecated()
+	}
+
 	df := &DomainField{
 		Name:       protoName,
 		PascalName: toPascalCase(protoName),
-		CamelName:  toCamelCase(protoName),
+		CamelName:  camelName,
 		Optional:   field.Desc.HasOptionalKeyword(),
 		Repeated:   field.Desc.IsList(),
 		IsMap:      field.Desc.IsMap(),
@@ -160,6 +181,7 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 		Inline:          isInline(field),
 		EnumAsString:    isEnumAsString(field, opts),
 		Omitempty:       shouldOmitempty(field, opts),
+		Deprecated:      isDeprecated,
 
 		FieldBehaviors:      getFieldBehaviors(field),
 		ValidateConstraints: extractValidateConstraints(field),
@@ -489,42 +511,55 @@ func irEnumNameFromDesc(ed protoreflect.EnumDescriptor) string {
 //
 //	message Foo_Bar {}          → "FooBar"
 //	message Foo { message Bar {} } → "FooBar"   (collision!)
-func detectNameCollisions(df *DomainFile) {
+func detectNameCollisions(df *DomainFile) error {
 	// name → proto full name of the first type that claimed it.
 	seen := make(map[string]string)
 
-	collectMessageNames(df.Messages, seen)
+	if err := collectMessageNames(df.Messages, seen); err != nil {
+		return err
+	}
 
 	for _, e := range df.Enums {
-		recordName(seen, e.Name, e.FullName)
+		if err := recordName(seen, e.Name, e.FullName); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // collectMessageNames recursively collects message (and nested enum) names,
 // panicking on duplicates.
-func collectMessageNames(msgs []*DomainMessage, seen map[string]string) {
+func collectMessageNames(msgs []*DomainMessage, seen map[string]string) error {
 	for _, msg := range msgs {
 		if msg.Skip {
 			continue
 		}
-		recordName(seen, msg.Name, msg.FullName)
+		if err := recordName(seen, msg.Name, msg.FullName); err != nil {
+			return err
+		}
 
 		// Nested enums inside this message.
 		for _, e := range msg.NestedEnums {
-			recordName(seen, e.Name, e.FullName)
+			if err := recordName(seen, e.Name, e.FullName); err != nil {
+				return err
+			}
 		}
 
-		collectMessageNames(msg.NestedMessages, seen)
+		if err := collectMessageNames(msg.NestedMessages, seen); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // recordName checks if name is already in seen and panics with a collision
 // error if so; otherwise it records it.
-func recordName(seen map[string]string, name, fullName string) {
+func recordName(seen map[string]string, name, fullName string) error {
 	if prev, ok := seen[name]; ok {
-		irPanic("proto2type: name collision — %q and %q both flatten to %q", fullName, prev, name)
+		return fmt.Errorf("proto2type: name collision — %q and %q both flatten to %q", fullName, prev, name)
 	}
 	seen[name] = fullName
+	return nil
 }
 
 // ---------------------------------------------------------------------------

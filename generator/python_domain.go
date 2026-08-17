@@ -13,7 +13,10 @@ import (
 func generatePython(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	applyPythonPreset(opts)
 
-	ir := BuildDomainFile(file, opts)
+	ir, err := BuildDomainFile(file, opts)
+	if err != nil {
+		return err
+	}
 
 	// Flatten nested messages into the top-level list so the topological
 	// sort sees every type and emits definitions in dependency order.
