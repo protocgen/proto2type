@@ -16,6 +16,9 @@ func generateTypeScript(gen *protogen.Plugin, file *protogen.File, opts *Options
 	if opts.Backend != "" {
 		return fmt.Errorf("proto2type: TypeScript does not support backend %q", opts.Backend)
 	}
+	if opts.TSTypesOnly && opts.ValidateEnabled() {
+		return fmt.Errorf("proto2type: validate=%q requires Zod runtime; cannot be used with ts_types_only=true", opts.Validate)
+	}
 	if !opts.Domain {
 		return nil
 	}
@@ -44,35 +47,41 @@ func writeTSFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options) {
 	g.P("// source: ", ir.SourcePath)
 	g.P("/* eslint-disable */")
 
-	hasRegex := false
-	for _, m := range ir.Messages {
-		for _, f := range m.Fields {
-			if f.ValidateConstraints != nil && f.ValidateConstraints.Pattern != "" {
-				hasRegex = true
-				break
+	if !opts.TSTypesOnly {
+		hasRegex := false
+		for _, m := range ir.Messages {
+			for _, f := range m.Fields {
+				if f.ValidateConstraints != nil && f.ValidateConstraints.Pattern != "" {
+					hasRegex = true
+					break
+				}
 			}
 		}
-	}
 
-	if opts.TSInt64Style == "bigint" {
-		g.P("// ⚠️  NOTE: BigInt values cannot be serialized with JSON.stringify() without a custom replacer.")
-		g.P("// See: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigInt#use_within_json")
-	}
-	if hasRegex {
-		g.P("// ⚠️  SECURITY: Regex patterns from buf.validate are designed for RE2 (non-backtracking).")
-		g.P("// This generated code uses JavaScript's RegExp (backtracking). Review patterns for ReDoS.")
-	}
+		if opts.TSInt64Style == "bigint" {
+			g.P("// ⚠️  NOTE: BigInt values cannot be serialized with JSON.stringify() without a custom replacer.")
+			g.P("// See: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigInt#use_within_json")
+		}
+		if hasRegex {
+			g.P("// ⚠️  SECURITY: Regex patterns from buf.validate are designed for RE2 (non-backtracking).")
+			g.P("// This generated code uses JavaScript's RegExp (backtracking). Review patterns for ReDoS.")
+		}
 
-	zodImport := "zod"
-	if opts.TSZodImport != "" {
-		zodImport = opts.TSZodImport
+		zodImport := "zod"
+		if opts.TSZodImport != "" {
+			zodImport = opts.TSZodImport
+		}
+		g.P(fmt.Sprintf(`import { z } from %s;`, strconv.Quote(zodImport)))
 	}
-	g.P(fmt.Sprintf(`import { z } from %s;`, strconv.Quote(zodImport)))
 
 	// Cross-file imports: collect external type references and emit ESM imports.
-	imports := collectTSImports(ir)
+	imports := collectTSImports(ir, opts)
 	for _, imp := range imports {
-		g.P(fmt.Sprintf(`import { %s } from %s;`, strings.Join(imp.names, ", "), strconv.Quote(imp.path)))
+		if opts.TSTypesOnly {
+			g.P(fmt.Sprintf(`import type { %s } from %s;`, strings.Join(imp.names, ", "), strconv.Quote(imp.path)))
+		} else {
+			g.P(fmt.Sprintf(`import { %s } from %s;`, strings.Join(imp.names, ", "), strconv.Quote(imp.path)))
+		}
 	}
 	g.P()
 
@@ -102,6 +111,27 @@ func writeTSEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
 		g.P("/** ", sanitizeJSDoc(e.Comment), " */")
 	}
 
+	// Build quoted value list for reuse.
+	vals := make([]string, 0, len(e.Values))
+	for _, v := range e.Values {
+		vals = append(vals, fmt.Sprintf(`"%s"`, v.Name))
+	}
+
+	if opts.TSTypesOnly {
+		// Types-only mode: emit pure type alias, no Zod.
+		if opts.TSEnumStyle == "native" {
+			g.P("export const ", e.Name, " = {")
+			for _, v := range e.Values {
+				g.P(fmt.Sprintf("  %s: %q,", tsSafeKey(v.Name), v.Name))
+			}
+			g.P("} as const;")
+			g.P("export type ", e.Name, " = (typeof ", e.Name, ")[keyof typeof ", e.Name, "];")
+		} else {
+			g.P("export type ", e.Name, " = ", strings.Join(vals, " | "), " | (string & {});")
+		}
+		return
+	}
+
 	if opts.TSEnumStyle == "native" {
 		// Native enum: const object + z.nativeEnum.
 		g.P("export const ", e.Name, " = {")
@@ -112,18 +142,9 @@ func writeTSEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
 		g.P("export const ", e.Name, "Schema = z.nativeEnum(", e.Name, ");")
 		g.P("export type ", e.Name, " = z.infer<typeof ", e.Name, "Schema>;")
 	} else {
-		// Default: z.enum.
-		vals := make([]string, 0, len(e.Values))
-		for _, v := range e.Values {
-			vals = append(vals, fmt.Sprintf(`"%s"`, v.Name))
-		}
-		if opts.TSExplicitTypes {
-			g.P("export type ", e.Name, " = ", strings.Join(vals, " | "), " | (string & {});")
-			g.P("export const ", e.Name, "Schema: z.ZodType<", e.Name, "> = z.enum([", strings.Join(vals, ", "), "]).or(z.string());")
-		} else {
-			g.P("export const ", e.Name, "Schema = z.enum([", strings.Join(vals, ", "), "]).or(z.string());")
-			g.P("export type ", e.Name, " = z.infer<typeof ", e.Name, "Schema>;")
-		}
+		// Default: z.enum with explicit type to avoid z.infer collapse on .or(z.string()).
+		g.P("export type ", e.Name, " = ", strings.Join(vals, " | "), " | (string & {});")
+		g.P("export const ", e.Name, "Schema: z.ZodType<", e.Name, "> = z.enum([", strings.Join(vals, ", "), "]).or(z.string());")
 	}
 }
 
@@ -146,6 +167,12 @@ func isRecursive(m *DomainMessage) bool {
 }
 
 func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) {
+	if opts.TSTypesOnly {
+		// Types-only mode: emit interface/type alias only, no Zod schemas.
+		writeTSExplicitInterface(g, m, opts)
+		return
+	}
+
 	if m.Comment != "" {
 		g.P("/** ", sanitizeJSDoc(m.Comment), " */")
 	}
@@ -623,7 +650,7 @@ type tsImportEntry struct {
 
 // collectTSImports scans the IR for cross-file type references and returns
 // grouped, deduplicated import entries sorted by path.
-func collectTSImports(ir *DomainFile) []tsImportEntry {
+func collectTSImports(ir *DomainFile, opts *Options) []tsImportEntry {
 	// Map from proto source path → set of type names needed.
 	needed := make(map[string]map[string]bool)
 
@@ -634,7 +661,10 @@ func collectTSImports(ir *DomainFile) []tsImportEntry {
 		if needed[sourcePath] == nil {
 			needed[sourcePath] = make(map[string]bool)
 		}
-		needed[sourcePath][typeName+"Schema"] = true
+		// In types-only mode, skip Schema imports (no Zod runtime).
+		if !opts.TSTypesOnly {
+			needed[sourcePath][typeName+"Schema"] = true
+		}
 		needed[sourcePath][typeName] = true
 	}
 

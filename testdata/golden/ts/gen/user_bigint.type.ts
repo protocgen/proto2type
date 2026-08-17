@@ -8,8 +8,8 @@
 import { z } from "zod";
 
 /** UserStatus represents the user's account status. */
-export const UserStatusSchema = z.enum(["Unspecified", "Active", "Suspended", "Deleted"]).or(z.string());
-export type UserStatus = z.infer<typeof UserStatusSchema>;
+export type UserStatus = "Unspecified" | "Active" | "Suspended" | "Deleted" | (string & {});
+export const UserStatusSchema: z.ZodType<UserStatus> = z.enum(["Unspecified", "Active", "Suspended", "Deleted"]).or(z.string());
 
 /** Address is a nested message. */
 export const AddressSchema = z.object({

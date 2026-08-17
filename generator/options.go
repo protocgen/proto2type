@@ -99,6 +99,10 @@ type Options struct {
 
 	// TSZodImport controls the zod import path (default "zod").
 	TSZodImport string
+
+	// TSTypesOnly emits plain TypeScript interfaces and type aliases without
+	// Zod schemas or runtime dependencies. Incompatible with validate.
+	TSTypesOnly bool
 }
 
 // ValidateEnabled returns true if any validation strategy is configured.

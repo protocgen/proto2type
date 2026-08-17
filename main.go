@@ -51,6 +51,7 @@ func main() {
 	flags.StringVar(&opts.TSEnumStyle, "ts_enum_style", "enum", "TypeScript: enum style (enum, native)")
 	flags.BoolVar(&opts.TSExplicitTypes, "ts_explicit_types", true, "TypeScript: emit explicit interface types")
 	flags.StringVar(&opts.TSZodImport, "ts_zod_import", "zod", "TypeScript: Zod import path")
+	flags.BoolVar(&opts.TSTypesOnly, "ts_types_only", false, "TypeScript: emit plain types without Zod")
 
 	protogen.Options{
 		ParamFunc: flags.Set,

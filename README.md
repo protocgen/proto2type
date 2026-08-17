@@ -234,10 +234,22 @@ export const UserSchema: z.ZodType<User> = z.object({
 
 | Option | Default | Description |
 |---|---|---|
+| `ts_types_only` | `false` | Emit plain TypeScript types without Zod (zero dependencies) |
 | `ts_int64` | `string` | Int64 representation: `string` (safe) or `bigint` (native) |
 | `ts_enum_style` | `enum` | Enum style: `enum` (open `z.enum().or(z.string())`) or `native` (`z.nativeEnum()`) |
 | `ts_explicit_types` | `true` | Emit explicit `interface` types alongside Zod schemas |
 | `ts_zod_import` | `zod` | Zod import path (e.g. `zod/v4` or `@scope/zod`) |
+
+#### Choose Your TS Mode
+
+| | Types Only | Full Zod |
+|---|---|---|
+| **Dependencies** | 📦 Zero | 🛡️ `zod` peer dep |
+| **Bundle impact** | ⚡ 0 KB | ~14 KB min+gzip |
+| **Use case** | UI components, SDKs, shared packages | API routes, form validation, ingestion |
+| **Config** | `ts_types_only=true` | _(default)_ or `validate=true` |
+
+> **Migration**: switching from types-only to full Zod is a zero-diff upgrade — all `interface` and `type` definitions are structurally identical to `z.infer<typeof Schema>`.
 
 Generates `@Serializable` data classes with proper WKT mappings, sealed class oneofs, and — when `validate=true` — native `validate()` / `validateOrThrow()` extension functions from `buf.validate` constraints.
 
