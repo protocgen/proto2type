@@ -39,7 +39,9 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 	}
 
 	// Numeric constraints
-	isBigInt := opts.TSInt64Style == "bigint" && (f.ScalarKind == protoreflect.Int64Kind || f.ScalarKind == protoreflect.Uint64Kind || f.ScalarKind == protoreflect.Sint64Kind || f.ScalarKind == protoreflect.Sfixed64Kind || f.ScalarKind == protoreflect.Fixed64Kind)
+	isInt64Kind := f.ScalarKind == protoreflect.Int64Kind || f.ScalarKind == protoreflect.Uint64Kind || f.ScalarKind == protoreflect.Sint64Kind || f.ScalarKind == protoreflect.Sfixed64Kind || f.ScalarKind == protoreflect.Fixed64Kind
+	isBigInt := opts.TSInt64Style == "bigint" && isInt64Kind
+	isInt64String := opts.TSInt64Style != "bigint" && isInt64Kind
 
 	formatNum := func(v string) string {
 		if isBigInt {
@@ -49,16 +51,32 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 	}
 
 	if vc.Gt != nil {
-		parts = append(parts, fmt.Sprintf(".gt(%s)", formatNum(*vc.Gt)))
+		if isInt64String {
+			parts = append(parts, fmt.Sprintf(`.refine(v => BigInt(v) > %sn, { message: "must be > %s" })`, *vc.Gt, *vc.Gt))
+		} else {
+			parts = append(parts, fmt.Sprintf(".gt(%s)", formatNum(*vc.Gt)))
+		}
 	}
 	if vc.Gte != nil {
-		parts = append(parts, fmt.Sprintf(".gte(%s)", formatNum(*vc.Gte)))
+		if isInt64String {
+			parts = append(parts, fmt.Sprintf(`.refine(v => BigInt(v) >= %sn, { message: "must be >= %s" })`, *vc.Gte, *vc.Gte))
+		} else {
+			parts = append(parts, fmt.Sprintf(".gte(%s)", formatNum(*vc.Gte)))
+		}
 	}
 	if vc.Lt != nil {
-		parts = append(parts, fmt.Sprintf(".lt(%s)", formatNum(*vc.Lt)))
+		if isInt64String {
+			parts = append(parts, fmt.Sprintf(`.refine(v => BigInt(v) < %sn, { message: "must be < %s" })`, *vc.Lt, *vc.Lt))
+		} else {
+			parts = append(parts, fmt.Sprintf(".lt(%s)", formatNum(*vc.Lt)))
+		}
 	}
 	if vc.Lte != nil {
-		parts = append(parts, fmt.Sprintf(".lte(%s)", formatNum(*vc.Lte)))
+		if isInt64String {
+			parts = append(parts, fmt.Sprintf(`.refine(v => BigInt(v) <= %sn, { message: "must be <= %s" })`, *vc.Lte, *vc.Lte))
+		} else {
+			parts = append(parts, fmt.Sprintf(".lte(%s)", formatNum(*vc.Lte)))
+		}
 	}
 
 	// Repeated constraints are handled in writeTSMessage for arrays,

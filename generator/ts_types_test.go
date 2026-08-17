@@ -56,7 +56,7 @@ func TestTSWKTZodType(t *testing.T) {
 		{FieldKindStruct, "z.record(z.string(), z.unknown())"},
 		{FieldKindValue, "z.unknown()"},
 		{FieldKindListValue, "z.array(z.unknown())"},
-		{FieldKindFieldMask, "z.array(z.string())"},
+		{FieldKindFieldMask, "z.string()"},
 		{FieldKindEmpty, "z.object({})"},
 		{FieldKindAny, "z.unknown()"},
 	}
@@ -78,23 +78,27 @@ func TestTSWKTZodType(t *testing.T) {
 func TestTSScalarZodType_BigInt(t *testing.T) {
 	opts := &Options{TSInt64Style: "bigint"}
 
-	if got := tsScalarZodType(protoreflect.Int64Kind, opts); got != "z.coerce.bigint()" {
-		t.Errorf("Int64 = %q, want z.coerce.bigint()", got)
+	expBigInt := "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())"
+	expBigIntNN := "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nonnegative()"
+	expWrapBigInt := "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nullable()"
+
+	if got := tsScalarZodType(protoreflect.Int64Kind, opts); got != expBigInt {
+		t.Errorf("Int64 = %q, want %s", got, expBigInt)
 	}
-	if got := tsScalarZodType(protoreflect.Uint64Kind, opts); got != "z.coerce.bigint().nonnegative()" {
-		t.Errorf("Uint64 = %q, want z.coerce.bigint().nonnegative()", got)
+	if got := tsScalarZodType(protoreflect.Uint64Kind, opts); got != expBigIntNN {
+		t.Errorf("Uint64 = %q, want %s", got, expBigIntNN)
 	}
 
 	gotWkt, _ := tsWKTZodType(FieldKindWrapperInt64, opts)
-	if gotWkt != "z.coerce.bigint().nullable()" {
-		t.Errorf("WrapperInt64 = %q, want z.coerce.bigint().nullable()", gotWkt)
+	if gotWkt != expWrapBigInt {
+		t.Errorf("WrapperInt64 = %q, want %s", gotWkt, expWrapBigInt)
 	}
 }
 
 func TestTSOutputFilename(t *testing.T) {
 	opts := &Options{}
-	if got := tsOutputFilename("path/to/my_file.proto", opts); got != "my_file.type.ts" {
-		t.Errorf("got %q, want my_file.type.ts", got)
+	if got := tsOutputFilename("path/to/my_file.proto", opts); got != "path/to/my_file.type.ts" {
+		t.Errorf("got %q, want path/to/my_file.type.ts", got)
 	}
 
 	opts.OutputFile = "custom.ts"

@@ -1,8 +1,6 @@
 package generator
 
 import (
-	"path/filepath"
-
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -39,12 +37,12 @@ func tsScalarZodType(k protoreflect.Kind, opts *Options) string {
 		return "z.number().int().nonnegative()"
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return "z.coerce.bigint()"
+			return "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())"
 		}
 		return "z.string()"
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return "z.coerce.bigint().nonnegative()"
+			return "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nonnegative()"
 		}
 		return "z.string()"
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
@@ -72,12 +70,12 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 		return "z.number().int().nonnegative().nullable()", true
 	case FieldKindWrapperInt64:
 		if opts.TSInt64Style == "bigint" {
-			return "z.coerce.bigint().nullable()", true
+			return "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nullable()", true
 		}
 		return "z.string().nullable()", true
 	case FieldKindWrapperUInt64:
 		if opts.TSInt64Style == "bigint" {
-			return "z.coerce.bigint().nonnegative().nullable()", true
+			return "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nonnegative().nullable()", true
 		}
 		return "z.string().nullable()", true
 	case FieldKindWrapperFloat, FieldKindWrapperDouble:
@@ -91,7 +89,7 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 	case FieldKindListValue:
 		return "z.array(z.unknown())", true
 	case FieldKindFieldMask:
-		return "z.array(z.string())", true
+		return "z.string()", true
 	case FieldKindEmpty:
 		return "z.object({})", true
 	case FieldKindAny:
@@ -126,6 +124,5 @@ func tsOutputFilename(protoPath string, opts *Options) string {
 	if opts.OutputFile != "" {
 		return outputFilename(opts.OutputFile, "")
 	}
-	base := filepath.Base(protoPath)
-	return outputFilename(base, ".type.ts")
+	return outputFilename(protoPath, ".type.ts")
 }

@@ -76,7 +76,7 @@ func writeTSEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
 		// Native enum: const object + z.nativeEnum.
 		g.P("export const ", e.Name, " = {")
 		for _, v := range e.Values {
-			g.P(fmt.Sprintf(`  %s: "%s",`, v.Name, v.Name))
+			g.P(fmt.Sprintf("  %s: %q,", tsSafeKey(v.Name), v.Name))
 		}
 		g.P("} as const;")
 		g.P("export const ", e.Name, "Schema = z.nativeEnum(", e.Name, ");")
@@ -157,12 +157,14 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 			continue
 		}
 		zodExpr := tsFieldZodExpr(f, opts)
-		g.P(fmt.Sprintf("  %s: %s,", f.CamelName, zodExpr))
+		g.P(fmt.Sprintf("  %s: %s,", tsSafeKey(f.CamelName), zodExpr))
 	}
 
 	// Oneof variants: emit each as an optional field.
 	for _, o := range m.Oneofs {
 		for _, v := range o.Variants {
+			// TODO(review): Apply buf.validate constraints to oneof variants.
+			// Currently skipped because OneofVariant doesn't carry ValidateConstraints.
 			baseType := tsOneofVariantZodType(v, opts)
 			zodExpr := baseType + ".optional()"
 			g.P(fmt.Sprintf("  %s: %s,", toCamelCase(v.ProtoName), zodExpr))
@@ -170,29 +172,18 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 	}
 
 	if recursive {
-		g.P("}));")
+		if len(exclusiveOneofs) > 0 {
+			// Chain .superRefine() inside the z.lazy() thunk.
+			g.P("}).superRefine((data, ctx) => {")
+			emitOneofExclusivity(g, exclusiveOneofs)
+			g.P("}));")
+		} else {
+			g.P("}));")
+		}
 	} else if len(exclusiveOneofs) > 0 {
 		// Chain .superRefine() to enforce mutual exclusion of oneof variants.
 		g.P("}).superRefine((data, ctx) => {")
-		for _, o := range exclusiveOneofs {
-			varKeys := make([]string, 0, len(o.Variants))
-			for _, v := range o.Variants {
-				varKeys = append(varKeys, toCamelCase(v.ProtoName))
-			}
-			localVar := toCamelCase(o.FieldName)
-			g.P(fmt.Sprintf("  const %sKeys = [%s] as const;",
-				localVar, tsJoinQuoted(varKeys)))
-			g.P(fmt.Sprintf("  const %sCount = %sKeys.filter(k => (data as Record<string, unknown>)[k] !== undefined).length;",
-				localVar, localVar))
-			g.P(fmt.Sprintf("  if (%sCount > 1) {", localVar))
-			g.P("    ctx.addIssue({")
-			g.P("      code: z.ZodIssueCode.custom,")
-			g.P(fmt.Sprintf(`      message: "oneof %s: at most one of " + %sKeys.join(", ") + " may be set",`,
-				o.FieldName, localVar))
-			g.P("      path: [],")
-			g.P("    });")
-			g.P("  }")
-		}
+		emitOneofExclusivity(g, exclusiveOneofs)
 		g.P("});")
 	} else {
 		g.P("});")
@@ -208,14 +199,46 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 	}
 }
 
+func emitOneofExclusivity(g *protogen.GeneratedFile, exclusiveOneofs []*DomainOneof) {
+	for _, o := range exclusiveOneofs {
+		varKeys := make([]string, 0, len(o.Variants))
+		for _, v := range o.Variants {
+			varKeys = append(varKeys, toCamelCase(v.ProtoName))
+		}
+		localVar := toCamelCase(o.FieldName)
+		g.P(fmt.Sprintf("  const %sKeys = [%s] as const;",
+			localVar, tsJoinQuoted(varKeys)))
+		g.P(fmt.Sprintf("  const %sCount = %sKeys.filter(k => (data as Record<string, unknown>)[k] !== undefined).length;",
+			localVar, localVar))
+		g.P(fmt.Sprintf("  if (%sCount > 1) {", localVar))
+		g.P("    ctx.addIssue({")
+		g.P("      code: z.ZodIssueCode.custom,")
+		g.P(fmt.Sprintf(`      message: "oneof %s: at most one of " + %sKeys.join(", ") + " may be set",`,
+			o.FieldName, localVar))
+		g.P("      path: [],")
+		g.P("    });")
+		g.P("  }")
+	}
+}
+
 // tsFieldZodExpr builds the complete Zod expression for a field,
 // including base type, validation constraints, container wrapping, and optionality.
 func tsFieldZodExpr(f *DomainField, opts *Options) string {
 	baseType := tsZodType(f, opts)
 
+	hasNullable := false
+	if strings.HasSuffix(baseType, ".nullable()") {
+		baseType = strings.TrimSuffix(baseType, ".nullable()")
+		hasNullable = true
+	}
+
 	// Apply validation constraints to the base type.
 	if opts.ValidateEnabled() {
 		baseType += tsZodConstraints(f, opts)
+	}
+
+	if hasNullable {
+		baseType += ".nullable()"
 	}
 
 	zodExpr := baseType
@@ -223,7 +246,7 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 	if f.IsMap {
 		// Map field: z.record(key, value).default({})
 		valType := tsMapValueZodType(f.MapValue, opts)
-		zodExpr = fmt.Sprintf("z.record(z.string(), %s)", valType)
+		zodExpr = fmt.Sprintf("z.record(z.string().refine(k => k !== '__proto__'), %s)", valType)
 		// Map size constraints
 		if opts.ValidateEnabled() && f.ValidateConstraints != nil {
 			if f.ValidateConstraints.MinItems != nil {
@@ -251,12 +274,8 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 		// Singular field: add .optional() if needed.
 		if tsFieldNeedsOptional(f, opts) {
 			zodExpr += ".optional()"
-		} else if f.Kind == FieldKindScalar {
-			zodExpr += ".default(" + tsScalarDefault(f.ScalarKind) + ")"
-		} else if f.Kind == FieldKindEnum {
-			// Enums default to zero value — but since we use z.enum with string values,
-			// just make them optional to match proto3 JSON behavior
-			zodExpr += ".optional()"
+		} else if f.Kind == FieldKindScalar && !tsFieldIsRequired(f, opts) {
+			zodExpr += ".default(" + tsScalarDefault(f.ScalarKind, opts) + ")"
 		}
 	}
 
@@ -279,7 +298,11 @@ func tsFieldNeedsOptional(f *DomainField, opts *Options) bool {
 		f.Kind == FieldKindValue || f.Kind == FieldKindListValue ||
 		f.Kind == FieldKindFieldMask || f.Kind == FieldKindEmpty ||
 		f.Kind == FieldKindAny || f.Kind.IsWrapper()
-	return isMessageLike || f.Optional || f.IsOneof
+	return isMessageLike || f.Optional || f.IsOneof || f.Kind == FieldKindEnum
+}
+
+func tsFieldIsRequired(f *DomainField, opts *Options) bool {
+	return opts.ValidateEnabled() && f.ValidateConstraints != nil && f.ValidateConstraints.Required
 }
 
 // writeTSExplicitInterface emits a plain TypeScript interface alongside the Zod schema.
@@ -443,6 +466,14 @@ func sanitizeJSDoc(s string) string {
 	return strings.ReplaceAll(s, "*/", "* /")
 }
 
+// tsSafeKey wraps dangerous keys in computed property syntax.
+func tsSafeKey(name string) string {
+	if name == "__proto__" || name == "constructor" || name == "prototype" {
+		return fmt.Sprintf("[%q]", name)
+	}
+	return name
+}
+
 // tsJoinQuoted returns a comma-separated list of double-quoted JS string literals.
 // e.g. ["a", "b", "c"] → `"a", "b", "c"`.
 func tsJoinQuoted(keys []string) string {
@@ -454,7 +485,7 @@ func tsJoinQuoted(keys []string) string {
 }
 
 // tsScalarDefault returns the default value string for a scalar kind.
-func tsScalarDefault(k protoreflect.Kind) string {
+func tsScalarDefault(k protoreflect.Kind, opts *Options) string {
 	switch k {
 	case protoreflect.BoolKind:
 		return "false"
@@ -464,6 +495,9 @@ func tsScalarDefault(k protoreflect.Kind) string {
 		return "0"
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
 		protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		if opts.TSInt64Style == "bigint" {
+			return "0n"
+		}
 		return `""`
 	case protoreflect.StringKind:
 		return `""`
