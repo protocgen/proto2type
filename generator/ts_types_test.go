@@ -43,7 +43,7 @@ func TestTSWKTZodType(t *testing.T) {
 		want string
 	}{
 		{FieldKindTimestamp, "z.string().datetime({ offset: true })"},
-		{FieldKindDuration, "z.string()"},
+		{FieldKindDuration, `z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration (e.g. '1.5s')" })`},
 		{FieldKindWrapperBool, "z.boolean().nullable()"},
 		{FieldKindWrapperInt32, "z.number().int().nullable()"},
 		{FieldKindWrapperInt64, "z.string().nullable()"},
@@ -56,9 +56,9 @@ func TestTSWKTZodType(t *testing.T) {
 		{FieldKindStruct, "z.record(z.string().refine(k => k !== '__proto__'), z.unknown())"},
 		{FieldKindValue, "z.unknown()"},
 		{FieldKindListValue, "z.array(z.unknown())"},
-		{FieldKindFieldMask, "z.string()"},
+		{FieldKindFieldMask, `z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" })`},
 		{FieldKindEmpty, "z.record(z.string(), z.never())"},
-		{FieldKindAny, "z.unknown()"},
+		{FieldKindAny, `z.object({ "@type": z.string() }).passthrough()`},
 	}
 
 	opts := &Options{TSInt64Style: "string"}

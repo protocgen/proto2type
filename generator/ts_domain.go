@@ -1,7 +1,9 @@
 package generator
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path"
 	"sort"
 	"strconv"
@@ -28,6 +30,10 @@ func generateTypeScript(gen *protogen.Plugin, file *protogen.File, opts *Options
 // generateTypeScriptDomain generates TypeScript/Zod output for a proto file.
 func generateTypeScriptDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	ir := BuildDomainFile(file, opts)
+	if opts.Debug {
+		irJSON, _ := json.MarshalIndent(ir, "", "  ")
+		_, _ = fmt.Fprintf(os.Stderr, "--- proto2type IR for %s ---\n%s\n", file.Desc.Path(), irJSON)
+	}
 	ir.Messages = flattenMessages(ir.Messages)
 	ir.Messages = topologicalSortMessages(ir.Messages)
 
@@ -247,22 +253,27 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 		}
 	}
 
+	strict := ""
+	if opts.TSStrict {
+		strict = ".strict()"
+	}
+
 	if recursive {
 		if len(exclusiveOneofs) > 0 {
 			// Chain .superRefine() inside the z.lazy() thunk.
-			g.P("}).superRefine((data, ctx) => {")
+			g.P("})" + strict + ".superRefine((data, ctx) => {")
 			emitOneofExclusivity(g, exclusiveOneofs)
 			g.P("}));")
 		} else {
-			g.P("}));")
+			g.P("})" + strict + ");")
 		}
 	} else if len(exclusiveOneofs) > 0 {
 		// Chain .superRefine() to enforce mutual exclusion of oneof variants.
-		g.P("}).superRefine((data, ctx) => {")
+		g.P("})" + strict + ".superRefine((data, ctx) => {")
 		emitOneofExclusivity(g, exclusiveOneofs)
 		g.P("});")
 	} else {
-		g.P("});")
+		g.P("})" + strict + ";")
 	}
 
 	if !recursive && !opts.TSExplicitTypes {
@@ -345,6 +356,12 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 		// Singular field: add .optional() if needed.
 		if tsFieldNeedsOptional(f, opts) {
 			zodExpr += ".optional()"
+		} else if f.Kind == FieldKindEnum && !tsFieldIsRequired(f, opts) {
+			if f.EnumDefaultName != "" {
+				zodExpr += fmt.Sprintf(".default(%s)", strconv.Quote(f.EnumDefaultName))
+			} else {
+				zodExpr += ".optional()"
+			}
 		} else if f.Kind == FieldKindScalar && !tsFieldIsRequired(f, opts) {
 			zodExpr += ".default(" + tsScalarDefault(f.ScalarKind, opts) + ")"
 		}
@@ -369,7 +386,7 @@ func tsFieldNeedsOptional(f *DomainField, opts *Options) bool {
 		f.Kind == FieldKindValue || f.Kind == FieldKindListValue ||
 		f.Kind == FieldKindFieldMask || f.Kind == FieldKindEmpty ||
 		f.Kind == FieldKindAny || f.Kind.IsWrapper()
-	return isMessageLike || f.Optional || f.IsOneof || f.Kind == FieldKindEnum
+	return isMessageLike || f.Optional || f.IsOneof
 }
 
 func tsFieldIsRequired(f *DomainField, opts *Options) bool {
@@ -451,7 +468,7 @@ func tsPlainBaseType(f *DomainField, opts *Options) string {
 	case f.Kind == FieldKindEmpty:
 		return "Record<string, never>"
 	case f.Kind == FieldKindAny:
-		return "unknown"
+		return `{ "@type": string; [key: string]: unknown }`
 	default:
 		return "unknown"
 	}
@@ -515,7 +532,7 @@ func tsPlainBaseTypeFromMapInfo(info *MapTypeInfo, opts *Options) string {
 	case FieldKindEmpty:
 		return "Record<string, never>"
 	case FieldKindAny:
-		return "unknown"
+		return `{ "@type": string; [key: string]: unknown }`
 	}
 	if info.Kind.IsWrapper() {
 		return tsPlainWrapperType(info.Kind, opts) + " | null"
@@ -597,7 +614,7 @@ func tsOneofVariantZodType(v *OneofVariant, opts *Options) string {
 	case FieldKindTimestamp:
 		return "z.string().datetime({ offset: true })"
 	case FieldKindDuration:
-		return "z.string()"
+		return `z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration" })`
 	case FieldKindStruct:
 		return "z.record(z.string().refine(k => k !== '__proto__'), z.unknown())"
 	case FieldKindValue:
@@ -605,11 +622,11 @@ func tsOneofVariantZodType(v *OneofVariant, opts *Options) string {
 	case FieldKindListValue:
 		return "z.array(z.unknown())"
 	case FieldKindFieldMask:
-		return "z.string()"
+		return `z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" })`
 	case FieldKindEmpty:
 		return "z.record(z.string(), z.never())"
 	case FieldKindAny:
-		return "z.unknown()"
+		return `z.object({ "@type": z.string() }).passthrough()`
 	default:
 		if v.Kind.IsWrapper() {
 			t, _ := tsWKTZodType(v.Kind, opts)
@@ -641,7 +658,7 @@ func tsPlainOneofVariantType(v *OneofVariant, opts *Options) string {
 	case FieldKindEmpty:
 		return "Record<string, never>"
 	case FieldKindAny:
-		return "unknown"
+		return `{ "@type": string; [key: string]: unknown }`
 	default:
 		if v.Kind.IsWrapper() {
 			return tsPlainWrapperType(v.Kind, opts) + " | null"

@@ -363,6 +363,28 @@ type ValidateConstraints struct {
 	Lte       *string
 	MinItems  *uint64
 	MaxItems  *uint64
+
+	// String constraints
+	Len      *uint64 // exact string length
+	Prefix   string  // string must start with
+	Suffix   string  // string must end with
+	Contains string  // string must contain
+	Hostname bool    // string must be valid hostname
+	IP       bool    // string must be valid IP
+
+	// Numeric constraints
+	Const *string  // field must equal this value
+	In    []string // field must be one of these values
+	NotIn []string // field must NOT be one of these values
+
+	// Repeated constraints
+	Unique bool // repeated items must be unique
+
+	// Enum constraints
+	DefinedOnly bool // enum value must be defined (not unknown)
+
+	// Meta
+	IgnoreEmpty bool // skip validation when field is zero-value
 }
 
 func (c *ValidateConstraints) HasConstraints() bool {
@@ -373,7 +395,10 @@ func (c *ValidateConstraints) HasConstraints() bool {
 		c.MinLength != nil || c.MaxLength != nil ||
 		c.Pattern != "" || c.Email || c.UUID || c.URI ||
 		c.Gt != nil || c.Gte != nil || c.Lt != nil || c.Lte != nil ||
-		c.MinItems != nil || c.MaxItems != nil
+		c.MinItems != nil || c.MaxItems != nil ||
+		c.Len != nil || c.Prefix != "" || c.Suffix != "" || c.Contains != "" ||
+		c.Hostname || c.IP || c.Const != nil || len(c.In) > 0 || len(c.NotIn) > 0 ||
+		c.Unique || c.DefinedOnly || c.IgnoreEmpty
 }
 
 func (c *ValidateConstraints) ToPydanticArgs() []string {

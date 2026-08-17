@@ -596,6 +596,7 @@ func canReachSelf(target, current string, adj map[string][]string, visited map[s
 // This uses actual reachability (not global recursive membership) to avoid
 // false positives when independent recursive cycles exist.
 func markFieldsInMessages(msgs []*DomainMessage, adj map[string][]string) {
+	visited := make(map[string]bool)
 	for _, msg := range msgs {
 		if msg.Skip {
 			continue
@@ -603,7 +604,8 @@ func markFieldsInMessages(msgs []*DomainMessage, adj map[string][]string) {
 		for _, f := range msg.Fields {
 			if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
 				// Check if the field's type can reach back to the containing message.
-				if canReachSelf(msg.Name, f.MessageTypeName, adj, make(map[string]bool)) {
+				clear(visited)
+				if canReachSelf(msg.Name, f.MessageTypeName, adj, visited) {
 					f.NeedsBox = true
 				}
 			}
@@ -611,7 +613,8 @@ func markFieldsInMessages(msgs []*DomainMessage, adj map[string][]string) {
 		for _, o := range msg.Oneofs {
 			for _, v := range o.Variants {
 				if v.Kind == FieldKindMessage {
-					if canReachSelf(msg.Name, v.TypeName, adj, make(map[string]bool)) {
+					clear(visited)
+					if canReachSelf(msg.Name, v.TypeName, adj, visited) {
 						v.NeedsBox = true
 					}
 				}

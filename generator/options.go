@@ -103,6 +103,13 @@ type Options struct {
 	// TSTypesOnly emits plain TypeScript interfaces and type aliases without
 	// Zod schemas or runtime dependencies. Incompatible with validate.
 	TSTypesOnly bool
+
+	// TSStrict appends .strict() to all generated Zod object schemas,
+	// rejecting unknown fields per ProtoJSON spec. Default: false.
+	TSStrict bool
+
+	// Debug emits IR debug information to stderr when set.
+	Debug bool
 }
 
 // ValidateEnabled returns true if any validation strategy is configured.

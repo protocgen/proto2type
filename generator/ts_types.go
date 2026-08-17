@@ -61,7 +61,7 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 	case FieldKindTimestamp:
 		return "z.string().datetime({ offset: true })", true
 	case FieldKindDuration:
-		return "z.string()", true
+		return `z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration (e.g. '1.5s')" })`, true
 	case FieldKindWrapperBool:
 		return "z.boolean().nullable()", true
 	case FieldKindWrapperInt32:
@@ -89,11 +89,11 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 	case FieldKindListValue:
 		return "z.array(z.unknown())", true
 	case FieldKindFieldMask:
-		return "z.string()", true
+		return `z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" })`, true
 	case FieldKindEmpty:
 		return "z.record(z.string(), z.never())", true
 	case FieldKindAny:
-		return "z.unknown()", true
+		return `z.object({ "@type": z.string() }).passthrough()`, true
 	}
 	return "", false
 }

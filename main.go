@@ -52,6 +52,8 @@ func main() {
 	flags.BoolVar(&opts.TSExplicitTypes, "ts_explicit_types", true, "TypeScript: emit explicit interface types")
 	flags.StringVar(&opts.TSZodImport, "ts_zod_import", "zod", "TypeScript: Zod import path")
 	flags.BoolVar(&opts.TSTypesOnly, "ts_types_only", false, "TypeScript: emit plain types without Zod")
+	flags.BoolVar(&opts.TSStrict, "ts_strict", false, "TypeScript: append .strict() to reject unknown fields")
+	flags.BoolVar(&opts.Debug, "ts_debug", false, "emit IR debug information to stderr")
 
 	protogen.Options{
 		ParamFunc: flags.Set,

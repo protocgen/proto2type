@@ -32,7 +32,7 @@ export interface User {
   phone?: string;
   avatar: string;
   nickname?: string | null;
-  status?: UserStatus;
+  status: UserStatus;
   tags: Tag[];
   deletedAt?: string;
   previousStatus?: UserStatus;
