@@ -2,6 +2,8 @@ package generator
 
 import (
 	"fmt"
+	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -11,6 +13,9 @@ import (
 
 // generateTypeScript generates TypeScript/Zod output for a proto file.
 func generateTypeScript(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+	if opts.Backend != "" {
+		return fmt.Errorf("proto2type: TypeScript does not support backend %q", opts.Backend)
+	}
 	if !opts.Domain {
 		return nil
 	}
@@ -39,11 +44,36 @@ func writeTSFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options) {
 	g.P("// source: ", ir.SourcePath)
 	g.P("/* eslint-disable */")
 
+	hasRegex := false
+	for _, m := range ir.Messages {
+		for _, f := range m.Fields {
+			if f.ValidateConstraints != nil && f.ValidateConstraints.Pattern != "" {
+				hasRegex = true
+				break
+			}
+		}
+	}
+
+	if opts.TSInt64Style == "bigint" {
+		g.P("// ⚠️  NOTE: BigInt values cannot be serialized with JSON.stringify() without a custom replacer.")
+		g.P("// See: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigInt#use_within_json")
+	}
+	if hasRegex {
+		g.P("// ⚠️  SECURITY: Regex patterns from buf.validate are designed for RE2 (non-backtracking).")
+		g.P("// This generated code uses JavaScript's RegExp (backtracking). Review patterns for ReDoS.")
+	}
+
 	zodImport := "zod"
 	if opts.TSZodImport != "" {
 		zodImport = opts.TSZodImport
 	}
 	g.P(fmt.Sprintf(`import { z } from %s;`, strconv.Quote(zodImport)))
+
+	// Cross-file imports: collect external type references and emit ESM imports.
+	imports := collectTSImports(ir)
+	for _, imp := range imports {
+		g.P(fmt.Sprintf(`import { %s } from %s;`, strings.Join(imp.names, ", "), strconv.Quote(imp.path)))
+	}
 	g.P()
 
 	// Enums.
@@ -87,8 +117,13 @@ func writeTSEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
 		for _, v := range e.Values {
 			vals = append(vals, fmt.Sprintf(`"%s"`, v.Name))
 		}
-		g.P("export const ", e.Name, "Schema = z.enum([", strings.Join(vals, ", "), "]);")
-		g.P("export type ", e.Name, " = z.infer<typeof ", e.Name, "Schema>;")
+		if opts.TSExplicitTypes {
+			g.P("export type ", e.Name, " = ", strings.Join(vals, " | "), " | (string & {});")
+			g.P("export const ", e.Name, "Schema: z.ZodType<", e.Name, "> = z.enum([", strings.Join(vals, ", "), "]).or(z.string());")
+		} else {
+			g.P("export const ", e.Name, "Schema = z.enum([", strings.Join(vals, ", "), "]).or(z.string());")
+			g.P("export type ", e.Name, " = z.infer<typeof ", e.Name, "Schema>;")
+		}
 	}
 }
 
@@ -148,7 +183,12 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 		g.P("};")
 		g.P("export const ", m.Name, "Schema: z.ZodType<", m.Name, "> = z.lazy(() => z.object({")
 	} else {
-		g.P("export const ", m.Name, "Schema = z.object({")
+		if opts.TSExplicitTypes {
+			writeTSExplicitInterface(g, m, opts)
+			g.P("export const ", m.Name, "Schema: z.ZodType<", m.Name, "> = z.object({")
+		} else {
+			g.P("export const ", m.Name, "Schema = z.object({")
+		}
 	}
 
 	// Emit regular fields.
@@ -163,9 +203,10 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 	// Oneof variants: emit each as an optional field.
 	for _, o := range m.Oneofs {
 		for _, v := range o.Variants {
-			// TODO(review): Apply buf.validate constraints to oneof variants.
-			// Currently skipped because OneofVariant doesn't carry ValidateConstraints.
 			baseType := tsOneofVariantZodType(v, opts)
+			if opts.ValidateEnabled() {
+				baseType += tsOneofVariantZodConstraints(v, opts)
+			}
 			zodExpr := baseType + ".optional()"
 			g.P(fmt.Sprintf("  %s: %s,", toCamelCase(v.ProtoName), zodExpr))
 		}
@@ -191,11 +232,6 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 
 	if !recursive && !opts.TSExplicitTypes {
 		g.P("export type ", m.Name, " = z.infer<typeof ", m.Name, "Schema>;")
-	}
-
-	// Emit explicit interface if requested and not recursive.
-	if opts.TSExplicitTypes && !recursive {
-		writeTSExplicitInterface(g, m, opts)
 	}
 }
 
@@ -577,4 +613,103 @@ func tsPlainOneofVariantType(v *OneofVariant, opts *Options) string {
 		}
 		return "unknown"
 	}
+}
+
+// tsImportEntry represents a group of names to import from a single module.
+type tsImportEntry struct {
+	path  string   // relative ESM import path (e.g. "./other.type.js")
+	names []string // sorted list of identifiers to import
+}
+
+// collectTSImports scans the IR for cross-file type references and returns
+// grouped, deduplicated import entries sorted by path.
+func collectTSImports(ir *DomainFile) []tsImportEntry {
+	// Map from proto source path → set of type names needed.
+	needed := make(map[string]map[string]bool)
+
+	addRef := func(sourcePath, typeName string) {
+		if sourcePath == "" || typeName == "" {
+			return
+		}
+		if needed[sourcePath] == nil {
+			needed[sourcePath] = make(map[string]bool)
+		}
+		needed[sourcePath][typeName+"Schema"] = true
+		needed[sourcePath][typeName] = true
+	}
+
+	for _, m := range ir.Messages {
+		for _, f := range m.Fields {
+			if f.MessageSourcePath != "" {
+				addRef(f.MessageSourcePath, f.MessageTypeName)
+			}
+			if f.EnumSourcePath != "" {
+				addRef(f.EnumSourcePath, f.EnumTypeName)
+			}
+		}
+		for _, o := range m.Oneofs {
+			for _, v := range o.Variants {
+				if v.SourcePath != "" {
+					addRef(v.SourcePath, v.TypeName)
+				}
+			}
+		}
+	}
+
+	if len(needed) == 0 {
+		return nil
+	}
+
+	// Convert to sorted import entries.
+	var entries []tsImportEntry
+	for protoPath, nameSet := range needed {
+		// Map proto path to relative .type.js import path.
+		relPath := tsImportPath(ir.SourcePath, protoPath)
+		var names []string
+		for n := range nameSet {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		entries = append(entries, tsImportEntry{path: relPath, names: names})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].path < entries[j].path
+	})
+	return entries
+}
+
+// tsImportPath computes the relative ESM import path from the current proto
+// file to the referenced proto file, using .type.js extension.
+func tsImportPath(fromProto, toProto string) string {
+	fromDir := path.Dir(fromProto)
+	// Strip .proto extension, add .type.js.
+	toBase := strings.TrimSuffix(toProto, ".proto") + ".type.js"
+
+	// Compute relative path using POSIX conventions (proto paths are always forward-slash).
+	// Split both into components and find common prefix.
+	fromParts := strings.Split(fromDir, "/")
+	toParts := strings.Split(toBase, "/")
+
+	if fromDir == "." {
+		fromParts = nil
+	}
+
+	// Find common prefix length.
+	common := 0
+	for common < len(fromParts) && common < len(toParts) && fromParts[common] == toParts[common] {
+		common++
+	}
+
+	// Build relative path: go up for remaining fromParts, then down for remaining toParts.
+	var relParts []string
+	for i := common; i < len(fromParts); i++ {
+		relParts = append(relParts, "..")
+	}
+	relParts = append(relParts, toParts[common:]...)
+
+	rel := strings.Join(relParts, "/")
+	if !strings.HasPrefix(rel, ".") {
+		rel = "./" + rel
+	}
+	return rel
 }

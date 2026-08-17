@@ -50,7 +50,7 @@ func main() {
 	flags.StringVar(&opts.TSInt64Style, "ts_int64", "string", "TypeScript: int64 representation (string, bigint)")
 	flags.StringVar(&opts.TSEnumStyle, "ts_enum_style", "enum", "TypeScript: enum style (enum, native)")
 	flags.BoolVar(&opts.TSExplicitTypes, "ts_explicit_types", true, "TypeScript: emit explicit interface types")
-	flags.StringVar(&opts.TSZodImport, "zod_import", "zod", "TypeScript: Zod import path")
+	flags.StringVar(&opts.TSZodImport, "ts_zod_import", "zod", "TypeScript: Zod import path")
 
 	protogen.Options{
 		ParamFunc: flags.Set,

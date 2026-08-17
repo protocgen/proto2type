@@ -192,9 +192,16 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 
 	if kind == FieldKindMessage {
 		df.MessageTypeName = irMessageNameFromDesc(field.Desc.Message())
+		// Track cross-file references for import generation.
+		if field.Desc.Message().ParentFile() != field.Desc.ParentFile() {
+			df.MessageSourcePath = string(field.Desc.Message().ParentFile().Path())
+		}
 	}
 	if kind == FieldKindEnum {
 		df.EnumTypeName = irEnumNameFromDesc(field.Desc.Enum())
+		if field.Desc.Enum().ParentFile() != field.Desc.ParentFile() {
+			df.EnumSourcePath = string(field.Desc.Enum().ParentFile().Path())
+		}
 		if enumDesc := field.Desc.Enum(); enumDesc.Values().Len() > 0 {
 			df.EnumDefaultName = string(enumDesc.Values().Get(0).Name())
 		}
@@ -392,6 +399,9 @@ func buildDomainOneof(msg *protogen.Message, oneof *protogen.Oneof, msgIRName st
 		case FieldKindMessage:
 			variant.TypeName = irMessageNameFromDesc(field.Desc.Message())
 			variant.ProtoMessageGoIdent = field.Message.GoIdent
+			if field.Desc.Message().ParentFile() != field.Desc.ParentFile() {
+				variant.SourcePath = string(field.Desc.Message().ParentFile().Path())
+			}
 		case FieldKindEnum:
 			variant.ProtoEnumGoIdent = field.Enum.GoIdent
 			if isEnumAsString(field, opts) {
@@ -399,9 +409,17 @@ func buildDomainOneof(msg *protogen.Message, oneof *protogen.Oneof, msgIRName st
 			} else {
 				variant.TypeName = irEnumNameFromDesc(field.Desc.Enum())
 			}
+			if field.Desc.Enum().ParentFile() != field.Desc.ParentFile() {
+				variant.SourcePath = string(field.Desc.Enum().ParentFile().Path())
+			}
 		}
 
 		do.Variants = append(do.Variants, variant)
+
+		// Extract buf.validate constraints for oneof variant fields.
+		if vc := extractValidateConstraints(field); vc != nil && vc.HasConstraints() {
+			variant.ValidateConstraints = vc
+		}
 	}
 
 	return do

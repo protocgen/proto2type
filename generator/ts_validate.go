@@ -17,12 +17,22 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 
 	var parts []string
 
-	// String constraints
+	// String/bytes length constraints.
+	isBytesField := f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind
 	if vc.MinLength != nil {
-		parts = append(parts, fmt.Sprintf(".min(%d)", *vc.MinLength))
+		if isBytesField {
+			// buf.validate byte length refers to decoded bytes, not base64 string length.
+			parts = append(parts, fmt.Sprintf(`.refine(v => { const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= %d; }, { message: "bytes must be at least %d bytes" })`, *vc.MinLength, *vc.MinLength))
+		} else {
+			parts = append(parts, fmt.Sprintf(".min(%d)", *vc.MinLength))
+		}
 	}
 	if vc.MaxLength != nil {
-		parts = append(parts, fmt.Sprintf(".max(%d)", *vc.MaxLength))
+		if isBytesField {
+			parts = append(parts, fmt.Sprintf(`.refine(v => { const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= %d; }, { message: "bytes must be at most %d bytes" })`, *vc.MaxLength, *vc.MaxLength))
+		} else {
+			parts = append(parts, fmt.Sprintf(".max(%d)", *vc.MaxLength))
+		}
 	}
 	if vc.Email {
 		parts = append(parts, ".email()")
@@ -79,12 +89,25 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 		}
 	}
 
-	// Repeated constraints are handled in writeTSMessage for arrays,
-	// but keeping them here is fine if not applied there, though
-	// the logic in ts_domain.go applies them separately to the array wrapper.
-	// Wait, the prompt spec says to put them here.
-	// Ah, writeTSMessage already does it for array wrapper, but let's keep it here if called for base type?
-	// Actually, if it's repeated, these shouldn't be applied to the base type. Let's let ts_domain handle array constraints.
-
 	return strings.Join(parts, "")
+}
+
+// tsOneofVariantZodConstraints returns Zod constraint chains for a oneof variant's
+// buf.validate constraints. Returns empty string if no constraints.
+func tsOneofVariantZodConstraints(v *OneofVariant, opts *Options) string {
+	vc := v.ValidateConstraints
+	if vc == nil || !vc.HasConstraints() {
+		return ""
+	}
+
+	// Build a minimal DomainField to reuse tsZodConstraints logic.
+	f := &DomainField{
+		Kind:                FieldKindScalar,
+		ScalarKind:          v.ScalarKind,
+		ValidateConstraints: vc,
+	}
+	if v.Kind != FieldKindScalar {
+		f.Kind = v.Kind
+	}
+	return tsZodConstraints(f, opts)
 }

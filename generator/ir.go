@@ -177,6 +177,9 @@ type DomainField struct {
 	// MessageTypeName is the PascalCase IR type name for message-typed fields.
 	// Empty for scalars and WKTs.
 	MessageTypeName string
+	// MessageSourcePath is the proto file path of the referenced message type.
+	// Empty when the message is in the same file.
+	MessageSourcePath string
 	// NeedsBox is true when a message-typed field requires heap allocation
 	// (Box<T> in Rust) because the type is part of a recursive cycle.
 	// False for non-recursive message fields (which can use Option<T> directly).
@@ -184,6 +187,9 @@ type DomainField struct {
 	// EnumTypeName is the PascalCase IR enum type name for enum-typed fields.
 	// Empty for non-enum fields.
 	EnumTypeName string
+	// EnumSourcePath is the proto file path of the referenced enum type.
+	// Empty when the enum is in the same file.
+	EnumSourcePath string
 	// EnumDefaultName is the proto name of the first (zero-value) enum value.
 	// Used by backends with explicit defaults (Kotlin, Python) when EnumAsString is true.
 	EnumDefaultName string
@@ -318,6 +324,8 @@ type OneofVariant struct {
 	ScalarKind protoreflect.Kind
 	// TypeName is the resolved type name for message/enum variants.
 	TypeName string
+	// SourcePath is the proto file path of the referenced type. Empty when same file.
+	SourcePath string
 	// EnumAsString is true when the enum should be serialised as its string name.
 	EnumAsString bool
 	// NeedsBox is true when a message-typed variant requires heap allocation
@@ -335,6 +343,8 @@ type OneofVariant struct {
 	// ProtoMessageGoIdent is the protogen.GoIdent for message types.
 	// Used for QualifiedGoIdent to resolve e.g. pb.Settings.
 	ProtoMessageGoIdent protogen.GoIdent
+	// ValidateConstraints holds buf/validate rules for this variant field.
+	ValidateConstraints *ValidateConstraints
 }
 
 // ValidateConstraints holds buf/validate rules extracted from proto field options.
