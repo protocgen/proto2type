@@ -2,12 +2,14 @@ package generator
 
 import (
 	"fmt"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"strconv"
 	"strings"
 )
 
 // tsZodConstraints returns additional Zod method chain segments for a field's
 // buf.validate constraints. Returns empty string if no constraints.
-func tsZodConstraints(f *DomainField) string {
+func tsZodConstraints(f *DomainField, opts *Options) string {
 	vc := f.ValidateConstraints
 	if vc == nil || !vc.HasConstraints() {
 		return ""
@@ -32,23 +34,31 @@ func tsZodConstraints(f *DomainField) string {
 		parts = append(parts, ".uuid()")
 	}
 	if vc.Pattern != "" {
-		escaped := strings.ReplaceAll(vc.Pattern, "\\", "\\\\")
-		escaped = strings.ReplaceAll(escaped, "/", "\\/")
-		parts = append(parts, fmt.Sprintf(".regex(/%s/)", escaped))
+		escaped := strconv.Quote(vc.Pattern)
+		parts = append(parts, fmt.Sprintf(".regex(new RegExp(%s))", escaped))
 	}
 
 	// Numeric constraints
+	isBigInt := opts.TSInt64Style == "bigint" && (f.ScalarKind == protoreflect.Int64Kind || f.ScalarKind == protoreflect.Uint64Kind || f.ScalarKind == protoreflect.Sint64Kind || f.ScalarKind == protoreflect.Sfixed64Kind || f.ScalarKind == protoreflect.Fixed64Kind)
+
+	formatNum := func(v string) string {
+		if isBigInt {
+			return v + "n"
+		}
+		return v
+	}
+
 	if vc.Gt != nil {
-		parts = append(parts, fmt.Sprintf(".gt(%s)", *vc.Gt))
+		parts = append(parts, fmt.Sprintf(".gt(%s)", formatNum(*vc.Gt)))
 	}
 	if vc.Gte != nil {
-		parts = append(parts, fmt.Sprintf(".gte(%s)", *vc.Gte))
+		parts = append(parts, fmt.Sprintf(".gte(%s)", formatNum(*vc.Gte)))
 	}
 	if vc.Lt != nil {
-		parts = append(parts, fmt.Sprintf(".lt(%s)", *vc.Lt))
+		parts = append(parts, fmt.Sprintf(".lt(%s)", formatNum(*vc.Lt)))
 	}
 	if vc.Lte != nil {
-		parts = append(parts, fmt.Sprintf(".lte(%s)", *vc.Lte))
+		parts = append(parts, fmt.Sprintf(".lte(%s)", formatNum(*vc.Lte)))
 	}
 
 	// Repeated constraints are handled in writeTSMessage for arrays,

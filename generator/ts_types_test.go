@@ -102,9 +102,3 @@ func TestTSOutputFilename(t *testing.T) {
 		t.Errorf("got %q, want custom.ts", got)
 	}
 }
-
-func TestTSMapKeyZodType(t *testing.T) {
-	if got := tsMapKeyZodType(nil); got != "z.string()" {
-		t.Errorf("got %q, want z.string()", got)
-	}
-}

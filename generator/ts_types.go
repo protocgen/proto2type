@@ -2,7 +2,6 @@ package generator
 
 import (
 	"path/filepath"
-	"strings"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -29,6 +28,7 @@ func tsZodType(f *DomainField, opts *Options) string {
 	return "z.unknown()"
 }
 
+// tsScalarZodType returns the Zod type for a scalar kind.
 func tsScalarZodType(k protoreflect.Kind, opts *Options) string {
 	switch k {
 	case protoreflect.BoolKind:
@@ -39,12 +39,12 @@ func tsScalarZodType(k protoreflect.Kind, opts *Options) string {
 		return "z.number().int().nonnegative()"
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return "z.bigint()"
+			return "z.coerce.bigint()"
 		}
 		return "z.string()"
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return "z.bigint().nonnegative()"
+			return "z.coerce.bigint().nonnegative()"
 		}
 		return "z.string()"
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
@@ -57,10 +57,11 @@ func tsScalarZodType(k protoreflect.Kind, opts *Options) string {
 	}
 }
 
+// tsWKTZodType returns the Zod type for a well-known type.
 func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 	switch k {
 	case FieldKindTimestamp:
-		return "z.string().datetime()", true
+		return "z.string().datetime({ offset: true })", true
 	case FieldKindDuration:
 		return "z.string()", true
 	case FieldKindWrapperBool:
@@ -71,12 +72,12 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 		return "z.number().int().nonnegative().nullable()", true
 	case FieldKindWrapperInt64:
 		if opts.TSInt64Style == "bigint" {
-			return "z.bigint().nullable()", true
+			return "z.coerce.bigint().nullable()", true
 		}
 		return "z.string().nullable()", true
 	case FieldKindWrapperUInt64:
 		if opts.TSInt64Style == "bigint" {
-			return "z.bigint().nonnegative().nullable()", true
+			return "z.coerce.bigint().nonnegative().nullable()", true
 		}
 		return "z.string().nullable()", true
 	case FieldKindWrapperFloat, FieldKindWrapperDouble:
@@ -97,12 +98,6 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 		return "z.unknown()", true
 	}
 	return "", false
-}
-
-// tsMapKeyZodType returns the Zod type for a map key.
-// Proto map keys are always scalars, and JSON serializes all keys as strings.
-func tsMapKeyZodType(info *MapTypeInfo) string {
-	return "z.string()"
 }
 
 // tsMapValueZodType returns the Zod type for a map value using MapTypeInfo.
@@ -126,12 +121,11 @@ func tsMapValueZodType(info *MapTypeInfo, opts *Options) string {
 	}
 }
 
-// tsOutputFilename determines the output .ts filename.
+// tsOutputFilename determines the output .ts filename safely.
 func tsOutputFilename(protoPath string, opts *Options) string {
 	if opts.OutputFile != "" {
-		return opts.OutputFile
+		return outputFilename(opts.OutputFile, "")
 	}
 	base := filepath.Base(protoPath)
-	base = strings.TrimSuffix(base, ".proto")
-	return base + ".type.ts"
+	return outputFilename(base, ".type.ts")
 }

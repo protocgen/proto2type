@@ -36,7 +36,7 @@ func GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) (ret
 			}
 		}
 	}()
-	if len(file.Messages) == 0 {
+	if len(file.Messages) == 0 && len(file.Enums) == 0 {
 		return nil
 	}
 

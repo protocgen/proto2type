@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -16,7 +17,9 @@ func generateTypeScript(gen *protogen.Plugin, file *protogen.File, opts *Options
 	return generateTypeScriptDomain(gen, file, opts)
 }
 
+// generateTypeScriptDomain generates TypeScript/Zod output for a proto file.
 func generateTypeScriptDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+	// NOTE: Cross-file imports are not yet supported.
 	ir := BuildDomainFile(file, opts)
 	ir.Messages = flattenMessages(ir.Messages)
 	ir.Messages = topologicalSortMessages(ir.Messages)
@@ -37,7 +40,7 @@ func writeTSFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options) {
 	if opts.TSZodImport != "" {
 		zodImport = opts.TSZodImport
 	}
-	g.P(fmt.Sprintf(`import { z } from "%s";`, zodImport))
+	g.P(fmt.Sprintf(`import { z } from %s;`, strconv.Quote(zodImport)))
 	g.P()
 
 	// Enums.
@@ -63,7 +66,7 @@ func writeTSFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options) {
 
 func writeTSEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
 	if e.Comment != "" {
-		g.P("/** ", e.Comment, " */")
+		g.P("/** ", sanitizeJSDoc(e.Comment), " */")
 	}
 
 	if opts.TSEnumStyle == "native" {
@@ -94,12 +97,19 @@ func isRecursive(m *DomainMessage) bool {
 			return true
 		}
 	}
+	for _, o := range m.Oneofs {
+		for _, v := range o.Variants {
+			if v.NeedsBox {
+				return true
+			}
+		}
+	}
 	return false
 }
 
 func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) {
 	if m.Comment != "" {
-		g.P("/** ", m.Comment, " */")
+		g.P("/** ", sanitizeJSDoc(m.Comment), " */")
 	}
 
 	recursive := isRecursive(m)
@@ -115,8 +125,8 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 			if tsFieldNeedsOptional(f, opts) {
 				optMark = "?"
 			}
-			// Use any for recursive field types; z.infer will resolve.
-			g.P(fmt.Sprintf("  %s%s: any;", f.CamelName, optMark))
+			// Use plain type for recursive field types.
+			g.P(fmt.Sprintf("  %s%s: %s;", f.CamelName, optMark, tsPlainType(f, opts)))
 		}
 		g.P("};")
 		g.P("export const ", m.Name, "Schema: z.ZodType<", m.Name, "> = z.lazy(() => z.object({")
@@ -126,7 +136,7 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 
 	// Emit fields.
 	for _, f := range m.Fields {
-		if f.FieldSkip {
+		if f.FieldSkip || f.IsOneof {
 			continue
 		}
 
@@ -134,11 +144,22 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 		g.P(fmt.Sprintf("  %s: %s,", f.CamelName, zodExpr))
 	}
 
+	// Oneof variants: emit each as an optional field.
+	for _, o := range m.Oneofs {
+		for _, v := range o.Variants {
+			baseType := tsOneofVariantZodType(v, opts)
+			zodExpr := baseType + ".optional()"
+			g.P(fmt.Sprintf("  %s: %s,", toCamelCase(v.ProtoName), zodExpr))
+		}
+	}
+
 	if recursive {
 		g.P("}));")
 	} else {
 		g.P("});")
-		g.P("export type ", m.Name, " = z.infer<typeof ", m.Name, "Schema>;")
+		if !opts.TSExplicitTypes {
+			g.P("export type ", m.Name, " = z.infer<typeof ", m.Name, "Schema>;")
+		}
 	}
 
 	// Emit explicit interface if requested and not recursive.
@@ -154,7 +175,7 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 
 	// Apply validation constraints to the base type.
 	if opts.ValidateEnabled() {
-		baseType += tsZodConstraints(f)
+		baseType += tsZodConstraints(f, opts)
 	}
 
 	zodExpr := baseType
@@ -163,7 +184,16 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 		// Map field: z.record(key, value).default({})
 		valType := tsMapValueZodType(f.MapValue, opts)
 		zodExpr = fmt.Sprintf("z.record(z.string(), %s)", valType)
-		zodExpr += ".default({})"
+		// Map size constraints
+		if opts.ValidateEnabled() && f.ValidateConstraints != nil {
+			if f.ValidateConstraints.MinItems != nil {
+				zodExpr += fmt.Sprintf(".refine(v => Object.keys(v).length >= %d, { message: 'Map must have at least %d entries' })", *f.ValidateConstraints.MinItems, *f.ValidateConstraints.MinItems)
+			}
+			if f.ValidateConstraints.MaxItems != nil {
+				zodExpr += fmt.Sprintf(".refine(v => Object.keys(v).length <= %d, { message: 'Map must have at most %d entries' })", *f.ValidateConstraints.MaxItems, *f.ValidateConstraints.MaxItems)
+			}
+		}
+		zodExpr += ".default(() => ({}))"
 	} else if f.Repeated {
 		// Repeated field: z.array(base).default([])
 		zodExpr = fmt.Sprintf("z.array(%s)", baseType)
@@ -176,10 +206,16 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 				zodExpr += fmt.Sprintf(".max(%d)", *f.ValidateConstraints.MaxItems)
 			}
 		}
-		zodExpr += ".default([])"
+		zodExpr += ".default(() => [])"
 	} else {
 		// Singular field: add .optional() if needed.
 		if tsFieldNeedsOptional(f, opts) {
+			zodExpr += ".optional()"
+		} else if f.Kind == FieldKindScalar {
+			zodExpr += ".default(" + tsScalarDefault(f.ScalarKind) + ")"
+		} else if f.Kind == FieldKindEnum {
+			// Enums default to zero value — but since we use z.enum with string values,
+			// just make them optional to match proto3 JSON behavior
 			zodExpr += ".optional()"
 		}
 	}
@@ -197,16 +233,21 @@ func tsFieldNeedsOptional(f *DomainField, opts *Options) bool {
 	if opts.ValidateEnabled() && f.ValidateConstraints != nil && f.ValidateConstraints.Required {
 		return false
 	}
-	// Message types, optional scalars, and oneof-collapsed fields are optional.
-	return f.Kind == FieldKindMessage || f.Optional || f.IsOneof
+	// All message-based types (messages, WKTs, wrappers) are optional in proto3.
+	isMessageLike := f.Kind == FieldKindMessage || f.Kind == FieldKindTimestamp ||
+		f.Kind == FieldKindDuration || f.Kind == FieldKindStruct ||
+		f.Kind == FieldKindValue || f.Kind == FieldKindListValue ||
+		f.Kind == FieldKindFieldMask || f.Kind == FieldKindEmpty ||
+		f.Kind == FieldKindAny || f.Kind.IsWrapper()
+	return isMessageLike || f.Optional || f.IsOneof
 }
 
 // writeTSExplicitInterface emits a plain TypeScript interface alongside the Zod schema.
 // This can improve IDE performance compared to z.infer in large codebases.
 func writeTSExplicitInterface(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) {
-	g.P("export interface I", m.Name, " {")
+	g.P("export interface ", m.Name, " {")
 	for _, f := range m.Fields {
-		if f.FieldSkip {
+		if f.FieldSkip || f.IsOneof {
 			continue
 		}
 		tsType := tsPlainType(f, opts)
@@ -215,6 +256,12 @@ func writeTSExplicitInterface(g *protogen.GeneratedFile, m *DomainMessage, opts 
 			optMark = "?"
 		}
 		g.P(fmt.Sprintf("  %s%s: %s;", f.CamelName, optMark, tsType))
+	}
+	for _, o := range m.Oneofs {
+		for _, v := range o.Variants {
+			tsType := tsPlainOneofVariantType(v, opts)
+			g.P(fmt.Sprintf("  %s?: %s;", toCamelCase(v.ProtoName), tsType))
+		}
 	}
 	g.P("}")
 }
@@ -309,6 +356,28 @@ func tsPlainWrapperType(k FieldKind, opts *Options) string {
 }
 
 func tsPlainBaseTypeFromMapInfo(info *MapTypeInfo, opts *Options) string {
+	if info == nil {
+		return "unknown"
+	}
+	switch info.Kind {
+	case FieldKindTimestamp, FieldKindDuration:
+		return "string"
+	case FieldKindStruct:
+		return "Record<string, unknown>"
+	case FieldKindValue:
+		return "unknown"
+	case FieldKindListValue:
+		return "unknown[]"
+	case FieldKindFieldMask:
+		return "string[]"
+	case FieldKindEmpty:
+		return "Record<string, never>"
+	case FieldKindAny:
+		return "unknown"
+	}
+	if info.Kind.IsWrapper() {
+		return tsPlainWrapperType(info.Kind, opts) + " | null"
+	}
 	switch info.Kind {
 	case FieldKindScalar:
 		return tsPlainScalarType(info.ScalarKind, opts)
@@ -317,6 +386,103 @@ func tsPlainBaseTypeFromMapInfo(info *MapTypeInfo, opts *Options) string {
 	case FieldKindMessage:
 		return info.MessageTypeName
 	default:
+		return "unknown"
+	}
+}
+
+// sanitizeJSDoc escapes JSDoc closing tags in comments.
+func sanitizeJSDoc(s string) string {
+	return strings.ReplaceAll(s, "*/", "* /")
+}
+
+// tsScalarDefault returns the default value string for a scalar kind.
+func tsScalarDefault(k protoreflect.Kind) string {
+	switch k {
+	case protoreflect.BoolKind:
+		return "false"
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
+		protoreflect.Uint32Kind, protoreflect.Fixed32Kind,
+		protoreflect.FloatKind, protoreflect.DoubleKind:
+		return "0"
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
+		protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return `""`
+	case protoreflect.StringKind:
+		return `""`
+	case protoreflect.BytesKind:
+		return `""`
+	default:
+		return `""`
+	}
+}
+
+// tsOneofVariantZodType returns the Zod type expression for a oneof variant.
+func tsOneofVariantZodType(v *OneofVariant, opts *Options) string {
+	switch v.Kind {
+	case FieldKindScalar:
+		return tsScalarZodType(v.ScalarKind, opts)
+	case FieldKindMessage:
+		if v.NeedsBox {
+			return fmt.Sprintf("z.lazy(() => %sSchema)", v.TypeName)
+		}
+		return fmt.Sprintf("%sSchema", v.TypeName)
+	case FieldKindEnum:
+		if opts.TSEnumStyle == "native" {
+			return fmt.Sprintf("z.nativeEnum(%s)", v.TypeName)
+		}
+		return fmt.Sprintf("%sSchema", v.TypeName)
+	case FieldKindTimestamp:
+		return "z.string().datetime({ offset: true })"
+	case FieldKindDuration:
+		return "z.string()"
+	case FieldKindStruct:
+		return "z.record(z.string(), z.unknown())"
+	case FieldKindValue:
+		return "z.unknown()"
+	case FieldKindListValue:
+		return "z.array(z.unknown())"
+	case FieldKindFieldMask:
+		return "z.array(z.string())"
+	case FieldKindEmpty:
+		return "z.record(z.string(), z.never())"
+	case FieldKindAny:
+		return "z.unknown()"
+	default:
+		if v.Kind.IsWrapper() {
+			t, _ := tsWKTZodType(v.Kind, opts)
+			return t
+		}
+		return "z.unknown()"
+	}
+}
+
+// tsPlainOneofVariantType returns the plain TS type for a oneof variant.
+func tsPlainOneofVariantType(v *OneofVariant, opts *Options) string {
+	switch v.Kind {
+	case FieldKindScalar:
+		return tsPlainScalarType(v.ScalarKind, opts)
+	case FieldKindMessage:
+		return v.TypeName
+	case FieldKindEnum:
+		return v.TypeName
+	case FieldKindTimestamp, FieldKindDuration:
+		return "string"
+	case FieldKindStruct:
+		return "Record<string, unknown>"
+	case FieldKindValue:
+		return "unknown"
+	case FieldKindListValue:
+		return "unknown[]"
+	case FieldKindFieldMask:
+		return "string[]"
+	case FieldKindEmpty:
+		return "Record<string, never>"
+	case FieldKindAny:
+		return "unknown"
+	default:
+		if v.Kind.IsWrapper() {
+			return tsPlainWrapperType(v.Kind, opts) + " | null"
+		}
 		return "unknown"
 	}
 }
