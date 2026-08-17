@@ -14,7 +14,7 @@ export const AddressSchema = z.object({
   street: z.string().min(1).default(""),
   city: z.string().min(1).default(""),
   state: z.string().min(2).max(2).default(""),
-  zip: z.string().regex(new RegExp("^[0-9]{5}(-[0-9]{4})?$")).default(""),
+  zip: z.string().regex(new RegExp("^[0-9]{5}(-[0-9]{4})?$"), { message: "must match pattern ^[0-9]{5}(-[0-9]{4})?$" }).default(""),
   country: z.string().default(""),
 });
 export type Address = z.infer<typeof AddressSchema>;
@@ -38,7 +38,7 @@ export const UserSchema = z.object({
   address: AddressSchema.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),
   sessionTimeout: z.string().optional(),
-  phone: z.string().min(7).max(20).regex(new RegExp("^\\+?[0-9\\-\\s]+$")).optional(),
+  phone: z.string().min(7).max(20).regex(new RegExp("^\\+?[0-9\\-\\s]+$"), { message: "must match pattern ^\+?[0-9\-\s]+$" }).optional(),
   avatar: z.string().default(""),
   nickname: z.string().nullable().optional(),
   status: UserStatusSchema.optional(),

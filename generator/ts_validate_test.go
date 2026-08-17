@@ -23,7 +23,7 @@ func TestTsZodConstraints_StringField(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	expected := `.min(3).max(100).email().url().uuid().regex(new RegExp("^[a-z]+$"))`
+	expected := `.min(3).max(100).email().url().uuid().regex(new RegExp("^[a-z]+$"), { message: "must match pattern ^[a-z]+$" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}

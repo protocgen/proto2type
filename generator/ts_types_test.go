@@ -79,8 +79,9 @@ func TestTSScalarZodType_BigInt(t *testing.T) {
 	opts := &Options{TSInt64Style: "bigint"}
 
 	expBigInt := "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())"
-	expBigIntNN := "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nonnegative()"
+	expBigIntNN := `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
 	expWrapBigInt := "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nullable()"
+	expWrapBigIntNN := `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`
 
 	if got := tsScalarZodType(protoreflect.Int64Kind, opts); got != expBigInt {
 		t.Errorf("Int64 = %q, want %s", got, expBigInt)
@@ -92,6 +93,10 @@ func TestTSScalarZodType_BigInt(t *testing.T) {
 	gotWkt, _ := tsWKTZodType(FieldKindWrapperInt64, opts)
 	if gotWkt != expWrapBigInt {
 		t.Errorf("WrapperInt64 = %q, want %s", gotWkt, expWrapBigInt)
+	}
+	gotWktU, _ := tsWKTZodType(FieldKindWrapperUInt64, opts)
+	if gotWktU != expWrapBigIntNN {
+		t.Errorf("WrapperUInt64 = %q, want %s", gotWktU, expWrapBigIntNN)
 	}
 }
 

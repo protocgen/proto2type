@@ -42,7 +42,7 @@ func tsScalarZodType(k protoreflect.Kind, opts *Options) string {
 		return "z.string()"
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nonnegative()"
+			return `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
 		}
 		return "z.string()"
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
@@ -75,7 +75,7 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 		return "z.string().nullable()", true
 	case FieldKindWrapperUInt64:
 		if opts.TSInt64Style == "bigint" {
-			return "z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).nonnegative().nullable()", true
+			return `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`, true
 		}
 		return "z.string().nullable()", true
 	case FieldKindWrapperFloat, FieldKindWrapperDouble:

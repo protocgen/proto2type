@@ -45,7 +45,7 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 	}
 	if vc.Pattern != "" {
 		escaped := strconv.Quote(vc.Pattern)
-		parts = append(parts, fmt.Sprintf(".regex(new RegExp(%s))", escaped))
+		parts = append(parts, fmt.Sprintf(`.regex(new RegExp(%s), { message: "must match pattern %s" })`, escaped, vc.Pattern))
 	}
 
 	// Numeric constraints
