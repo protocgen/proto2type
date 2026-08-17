@@ -42,7 +42,7 @@ func TestTSWKTZodType(t *testing.T) {
 		kind FieldKind
 		want string
 	}{
-		{FieldKindTimestamp, "z.string().datetime()"},
+		{FieldKindTimestamp, "z.string().datetime({ offset: true })"},
 		{FieldKindDuration, "z.string()"},
 		{FieldKindWrapperBool, "z.boolean().nullable()"},
 		{FieldKindWrapperInt32, "z.number().int().nullable()"},
@@ -78,16 +78,16 @@ func TestTSWKTZodType(t *testing.T) {
 func TestTSScalarZodType_BigInt(t *testing.T) {
 	opts := &Options{TSInt64Style: "bigint"}
 
-	if got := tsScalarZodType(protoreflect.Int64Kind, opts); got != "z.bigint()" {
-		t.Errorf("Int64 = %q, want z.bigint()", got)
+	if got := tsScalarZodType(protoreflect.Int64Kind, opts); got != "z.coerce.bigint()" {
+		t.Errorf("Int64 = %q, want z.coerce.bigint()", got)
 	}
-	if got := tsScalarZodType(protoreflect.Uint64Kind, opts); got != "z.bigint().nonnegative()" {
-		t.Errorf("Uint64 = %q, want z.bigint().nonnegative()", got)
+	if got := tsScalarZodType(protoreflect.Uint64Kind, opts); got != "z.coerce.bigint().nonnegative()" {
+		t.Errorf("Uint64 = %q, want z.coerce.bigint().nonnegative()", got)
 	}
 
 	gotWkt, _ := tsWKTZodType(FieldKindWrapperInt64, opts)
-	if gotWkt != "z.bigint().nullable()" {
-		t.Errorf("WrapperInt64 = %q, want z.bigint().nullable()", gotWkt)
+	if gotWkt != "z.coerce.bigint().nullable()" {
+		t.Errorf("WrapperInt64 = %q, want z.coerce.bigint().nullable()", gotWkt)
 	}
 }
 
