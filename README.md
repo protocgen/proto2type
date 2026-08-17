@@ -29,8 +29,8 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 - 🗄️ **SQLite backend (Rust)** — `Row` structs with `to_domain()` / `from_domain()`, JSON-serialised nested fields
 - 🔌 **Works without a database** — generate domain types only, no backend required
 - 🐍 **Python/Pydantic backend** — Pydantic `BaseModel` classes with `Field()` validation, `google.api.field_behavior` and `buf/validate` support
-- ✅ **Validation** — `buf.validate` constraint checking: Rust via `validator` crate, Kotlin via native `validate()`, Python via Pydantic `Field()`
-- 🌐 **Multi-language** — Go, Rust, Python, and Kotlin supported; TypeScript planned
+- ✅ **Validation** — `buf.validate` constraint checking: Rust via `validator` crate, Kotlin via native `validate()`, Python via Pydantic `Field()`, TypeScript via Zod chains
+- 🌐 **Multi-language** — Go, Rust, Python, Kotlin, and TypeScript supported
 
 ## Install
 
@@ -169,6 +169,89 @@ plugins:
 ```
 
 Generates `@Serializable` data classes with proper WKT mappings, sealed class oneofs, and — when `validate=true` — native `validate()` / `validateOrThrow()` extension functions from `buf.validate` constraints.
+
+### TypeScript
+
+**Zod schemas + inferred types** (runtime validation out of the box):
+
+```yaml
+# buf.gen.yaml
+version: v2
+plugins:
+  - local: protoc-gen-proto2type
+    out: gen/ts
+    opt:
+      - lang=typescript
+      - validate=true
+```
+
+**BigInt mode** (native `bigint` for int64 instead of string):
+
+```yaml
+plugins:
+  - local: protoc-gen-proto2type
+    out: gen/ts
+    opt:
+      - lang=typescript
+      - ts_int64=bigint
+```
+
+**Explicit TypeScript interfaces** (emitted by default alongside Zod schemas):
+
+```yaml
+plugins:
+  - local: protoc-gen-proto2type
+    out: gen/ts
+    opt:
+      - lang=typescript
+      - ts_explicit_types=true
+      - ts_enum_style=native
+```
+
+Generated output looks like:
+
+```typescript
+import { z } from "zod";
+
+export interface User {
+  id: string;
+  email: string;
+  displayName: string;
+  active: boolean;
+  address?: Address;
+  createdAt?: string;
+}
+
+export const UserSchema: z.ZodType<User> = z.object({
+  id: z.string().default(""),
+  email: z.string().default(""),
+  displayName: z.string().default(""),
+  active: z.boolean().default(false),
+  address: AddressSchema.optional(),
+  createdAt: z.string().datetime({ offset: true }).optional(),
+});
+```
+
+#### TypeScript Options
+
+| Option | Default | Description |
+|---|---|---|
+| `ts_types_only` | `false` | Emit plain TypeScript types without Zod (zero dependencies) |
+| `ts_int64` | `string` | Int64 representation: `string` (safe) or `bigint` (native) |
+| `ts_enum_style` | `enum` | Enum style: `enum` (open `z.enum().or(z.string())`) or `native` (`z.nativeEnum()`) |
+| `ts_explicit_types` | `true` | Emit explicit `interface` types alongside Zod schemas |
+| `ts_zod_import` | `zod` | Zod import path (e.g. `zod/v4` or `@scope/zod`) |
+
+#### Choose Your TS Mode
+
+| | Types Only | Full Zod |
+|---|---|---|
+| **Dependencies** | 📦 Zero | 🛡️ `zod` peer dep |
+| **Bundle impact** | ⚡ 0 KB | ~14 KB min+gzip |
+| **Use case** | UI components, SDKs, shared packages | API routes, form validation, ingestion |
+| **Config** | `ts_types_only=true` | _(default)_ or `validate=true` |
+
+> **Migration**: switching from types-only to full Zod is a zero-diff upgrade — all `interface` and `type` definitions are structurally identical to `z.infer<typeof Schema>`.
 
 ### Validation
 
@@ -447,6 +530,37 @@ message User {
 | Enum | `@Serializable enum class` with `@SerialName` and `fromValue(Int)` companion |
 | Oneof | `@Serializable sealed class` with data class variants |
 
+### TypeScript Type Mapping
+
+| Proto Type | Zod Schema | TypeScript Type |
+|---|---|---|
+| `bool` | `z.boolean()` | `boolean` |
+| `int32`, `sint32`, `sfixed32` | `z.number().int()` | `number` |
+| `uint32`, `fixed32` | `z.number().int().nonnegative()` | `number` |
+| `int64`, `sint64`, `sfixed64` (string mode) | `z.string()` | `string` |
+| `uint64`, `fixed64` (string mode) | `z.string()` | `string` |
+| `int64`, `sint64`, `sfixed64` (bigint mode) | `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())` | `bigint` |
+| `uint64`, `fixed64` (bigint mode) | `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())` | `bigint` (nonnegative) |
+| `float`, `double` | `z.number()` | `number` |
+| `string` | `z.string()` | `string` |
+| `bytes` | `z.string()` | `string` (base64) |
+| `repeated T` | `z.array(T)` | `T[]` |
+| `map<K, V>` | `z.record(z.string(), V)` | `Record<string, V>` |
+| `google.protobuf.Timestamp` | `z.string().datetime({ offset: true })` | `string` (ISO 8601) |
+| `google.protobuf.Duration` | `z.string()` | `string` |
+| `google.protobuf.FieldMask` | `z.string()` | `string` |
+| `google.protobuf.StringValue` | `z.string().nullable()` | `string \| null` |
+| `google.protobuf.BoolValue` | `z.boolean().nullable()` | `boolean \| null` |
+| `google.protobuf.Int32Value` | `z.number().int().nullable()` | `number \| null` |
+| `google.protobuf.UInt32Value` | `z.number().int().nonnegative().nullable()` | `number \| null` |
+| `google.protobuf.Int64Value` | `z.string().nullable()` | `string \| null` (or `bigint \| null`) |
+| `google.protobuf.UInt64Value` | `z.string().nullable()` | `string \| null` (or `bigint \| null`) |
+| `google.protobuf.FloatValue` / `DoubleValue` | `z.number().nullable()` | `number \| null` |
+| `google.protobuf.BytesValue` | `z.string().nullable()` | `string \| null` |
+| Nested message | `MessageSchema.optional()` | `Message \| undefined` |
+| Enum | `z.enum([...]).or(z.string())` | `string` (open) |
+| Oneof | `z.object({}).superRefine()` | mutual exclusion via refinement |
+
 ## Roadmap
 
 | Phase | Scope | Status |
@@ -456,7 +570,7 @@ message User {
 | **2** | Python (absorbs [proto2pydantic](https://github.com/protocgen/proto2pydantic)) | ✅ Done |
 | **3** | Kotlin + Validation | ✅ Done |
 | **4** | DynamoDB + Datastore + Spanner | Planned |
-| **5** | TypeScript + SQL ORMs | Planned |
+| **5** | TypeScript + Zod | ✅ Done |
 
 ## Development
 

@@ -192,9 +192,16 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 
 	if kind == FieldKindMessage {
 		df.MessageTypeName = irMessageNameFromDesc(field.Desc.Message())
+		// Track cross-file references for import generation.
+		if field.Desc.Message().ParentFile() != field.Desc.ParentFile() {
+			df.MessageSourcePath = string(field.Desc.Message().ParentFile().Path())
+		}
 	}
 	if kind == FieldKindEnum {
 		df.EnumTypeName = irEnumNameFromDesc(field.Desc.Enum())
+		if field.Desc.Enum().ParentFile() != field.Desc.ParentFile() {
+			df.EnumSourcePath = string(field.Desc.Enum().ParentFile().Path())
+		}
 		if enumDesc := field.Desc.Enum(); enumDesc.Values().Len() > 0 {
 			df.EnumDefaultName = string(enumDesc.Values().Get(0).Name())
 		}
@@ -320,6 +327,9 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 		default:
 			mi.Kind = FieldKindMessage
 			mi.MessageTypeName = irMessageNameFromDesc(valDesc.Message())
+			if valDesc.Message().ParentFile() != field.Desc.ParentFile() {
+				mi.SourcePath = string(valDesc.Message().ParentFile().Path())
+			}
 			// Store the GoIdent so Go converters can produce qualified refs (e.g. pb.Settings).
 			// field.Message is the map entry; its Fields[1] is the value field.
 			if len(field.Message.Fields) > 1 && field.Message.Fields[1].Message != nil {
@@ -332,6 +342,9 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 	if valDesc.Kind() == protoreflect.EnumKind {
 		mi.Kind = FieldKindEnum
 		mi.EnumTypeName = irEnumNameFromDesc(valDesc.Enum())
+		if valDesc.Enum().ParentFile() != field.Desc.ParentFile() {
+			mi.SourcePath = string(valDesc.Enum().ParentFile().Path())
+		}
 		return mi
 	}
 
@@ -392,6 +405,9 @@ func buildDomainOneof(msg *protogen.Message, oneof *protogen.Oneof, msgIRName st
 		case FieldKindMessage:
 			variant.TypeName = irMessageNameFromDesc(field.Desc.Message())
 			variant.ProtoMessageGoIdent = field.Message.GoIdent
+			if field.Desc.Message().ParentFile() != field.Desc.ParentFile() {
+				variant.SourcePath = string(field.Desc.Message().ParentFile().Path())
+			}
 		case FieldKindEnum:
 			variant.ProtoEnumGoIdent = field.Enum.GoIdent
 			if isEnumAsString(field, opts) {
@@ -399,9 +415,17 @@ func buildDomainOneof(msg *protogen.Message, oneof *protogen.Oneof, msgIRName st
 			} else {
 				variant.TypeName = irEnumNameFromDesc(field.Desc.Enum())
 			}
+			if field.Desc.Enum().ParentFile() != field.Desc.ParentFile() {
+				variant.SourcePath = string(field.Desc.Enum().ParentFile().Path())
+			}
 		}
 
 		do.Variants = append(do.Variants, variant)
+
+		// Extract buf.validate constraints for oneof variant fields.
+		if vc := extractValidateConstraints(field); vc != nil && vc.HasConstraints() {
+			variant.ValidateConstraints = vc
+		}
 	}
 
 	return do
@@ -572,6 +596,7 @@ func canReachSelf(target, current string, adj map[string][]string, visited map[s
 // This uses actual reachability (not global recursive membership) to avoid
 // false positives when independent recursive cycles exist.
 func markFieldsInMessages(msgs []*DomainMessage, adj map[string][]string) {
+	visited := make(map[string]bool)
 	for _, msg := range msgs {
 		if msg.Skip {
 			continue
@@ -579,7 +604,8 @@ func markFieldsInMessages(msgs []*DomainMessage, adj map[string][]string) {
 		for _, f := range msg.Fields {
 			if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
 				// Check if the field's type can reach back to the containing message.
-				if canReachSelf(msg.Name, f.MessageTypeName, adj, make(map[string]bool)) {
+				clear(visited)
+				if canReachSelf(msg.Name, f.MessageTypeName, adj, visited) {
 					f.NeedsBox = true
 				}
 			}
@@ -587,7 +613,8 @@ func markFieldsInMessages(msgs []*DomainMessage, adj map[string][]string) {
 		for _, o := range msg.Oneofs {
 			for _, v := range o.Variants {
 				if v.Kind == FieldKindMessage {
-					if canReachSelf(msg.Name, v.TypeName, adj, make(map[string]bool)) {
+					clear(visited)
+					if canReachSelf(msg.Name, v.TypeName, adj, visited) {
 						v.NeedsBox = true
 					}
 				}

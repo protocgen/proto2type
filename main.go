@@ -47,6 +47,13 @@ func main() {
 	flags.StringVar(&opts.PythonPreset, "python_preset", "", "Python: preset (a2a)")
 	flags.StringVar(&opts.PythonDescription, "python_description", "", "Python: module-level docstring")
 	flags.BoolVar(&opts.PythonStripProtoSuffix, "python_strip_proto_suffix", false, "Python: use base.py instead of base_pb2_pydantic.py")
+	flags.StringVar(&opts.TSInt64Style, "ts_int64", "string", "TypeScript: int64 representation (string, bigint)")
+	flags.StringVar(&opts.TSEnumStyle, "ts_enum_style", "enum", "TypeScript: enum style (enum, native)")
+	flags.BoolVar(&opts.TSExplicitTypes, "ts_explicit_types", true, "TypeScript: emit explicit interface types")
+	flags.StringVar(&opts.TSZodImport, "ts_zod_import", "zod", "TypeScript: Zod import path")
+	flags.BoolVar(&opts.TSTypesOnly, "ts_types_only", false, "TypeScript: emit plain types without Zod")
+	flags.BoolVar(&opts.TSStrict, "ts_strict", false, "TypeScript: append .strict() to reject unknown fields")
+	flags.BoolVar(&opts.Debug, "ts_debug", false, "emit IR debug information to stderr")
 
 	protogen.Options{
 		ParamFunc: flags.Set,

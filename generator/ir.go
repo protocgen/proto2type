@@ -177,6 +177,9 @@ type DomainField struct {
 	// MessageTypeName is the PascalCase IR type name for message-typed fields.
 	// Empty for scalars and WKTs.
 	MessageTypeName string
+	// MessageSourcePath is the proto file path of the referenced message type.
+	// Empty when the message is in the same file.
+	MessageSourcePath string
 	// NeedsBox is true when a message-typed field requires heap allocation
 	// (Box<T> in Rust) because the type is part of a recursive cycle.
 	// False for non-recursive message fields (which can use Option<T> directly).
@@ -184,6 +187,9 @@ type DomainField struct {
 	// EnumTypeName is the PascalCase IR enum type name for enum-typed fields.
 	// Empty for non-enum fields.
 	EnumTypeName string
+	// EnumSourcePath is the proto file path of the referenced enum type.
+	// Empty when the enum is in the same file.
+	EnumSourcePath string
 	// EnumDefaultName is the proto name of the first (zero-value) enum value.
 	// Used by backends with explicit defaults (Kotlin, Python) when EnumAsString is true.
 	EnumDefaultName string
@@ -260,6 +266,7 @@ type MapTypeInfo struct {
 	ScalarKind      protoreflect.Kind
 	MessageTypeName string
 	EnumTypeName    string
+	SourcePath      string // ADD THIS: proto file path for cross-file import resolution
 
 	// ProtoGoIdent is the protogen.GoIdent for the map value message type.
 	// Used by Go backend converters for QualifiedGoIdent (e.g. pb.Settings).
@@ -318,6 +325,8 @@ type OneofVariant struct {
 	ScalarKind protoreflect.Kind
 	// TypeName is the resolved type name for message/enum variants.
 	TypeName string
+	// SourcePath is the proto file path of the referenced type. Empty when same file.
+	SourcePath string
 	// EnumAsString is true when the enum should be serialised as its string name.
 	EnumAsString bool
 	// NeedsBox is true when a message-typed variant requires heap allocation
@@ -335,6 +344,8 @@ type OneofVariant struct {
 	// ProtoMessageGoIdent is the protogen.GoIdent for message types.
 	// Used for QualifiedGoIdent to resolve e.g. pb.Settings.
 	ProtoMessageGoIdent protogen.GoIdent
+	// ValidateConstraints holds buf/validate rules for this variant field.
+	ValidateConstraints *ValidateConstraints
 }
 
 // ValidateConstraints holds buf/validate rules extracted from proto field options.
@@ -352,6 +363,28 @@ type ValidateConstraints struct {
 	Lte       *string
 	MinItems  *uint64
 	MaxItems  *uint64
+
+	// String constraints
+	Len      *uint64 // exact string length
+	Prefix   string  // string must start with
+	Suffix   string  // string must end with
+	Contains string  // string must contain
+	Hostname bool    // string must be valid hostname
+	IP       bool    // string must be valid IP
+
+	// Numeric constraints
+	Const *string  // field must equal this value
+	In    []string // field must be one of these values
+	NotIn []string // field must NOT be one of these values
+
+	// Repeated constraints
+	Unique bool // repeated items must be unique
+
+	// Enum constraints
+	DefinedOnly bool // enum value must be defined (not unknown)
+
+	// Meta
+	IgnoreEmpty bool // skip validation when field is zero-value
 }
 
 func (c *ValidateConstraints) HasConstraints() bool {
@@ -362,7 +395,10 @@ func (c *ValidateConstraints) HasConstraints() bool {
 		c.MinLength != nil || c.MaxLength != nil ||
 		c.Pattern != "" || c.Email || c.UUID || c.URI ||
 		c.Gt != nil || c.Gte != nil || c.Lt != nil || c.Lte != nil ||
-		c.MinItems != nil || c.MaxItems != nil
+		c.MinItems != nil || c.MaxItems != nil ||
+		c.Len != nil || c.Prefix != "" || c.Suffix != "" || c.Contains != "" ||
+		c.Hostname || c.IP || c.Const != nil || len(c.In) > 0 || len(c.NotIn) > 0 ||
+		c.Unique || c.DefinedOnly || c.IgnoreEmpty
 }
 
 func (c *ValidateConstraints) ToPydanticArgs() []string {

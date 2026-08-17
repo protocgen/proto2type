@@ -36,7 +36,7 @@ func GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) (ret
 			}
 		}
 	}()
-	if len(file.Messages) == 0 {
+	if len(file.Messages) == 0 && len(file.Enums) == 0 {
 		return nil
 	}
 
@@ -55,7 +55,9 @@ func GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) (ret
 		return generateKotlin(gen, file, opts)
 	case "python":
 		return generatePython(gen, file, opts)
+	case "typescript":
+		return generateTypeScript(gen, file, opts)
 	default:
-		return fmt.Errorf("proto2type: unsupported language %q (supported: go, rust, kotlin, python)", opts.Lang)
+		return fmt.Errorf("proto2type: unsupported language %q (supported: go, rust, kotlin, python, typescript)", opts.Lang)
 	}
 }

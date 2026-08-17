@@ -27,7 +27,8 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 	}
 
 	vc := &ValidateConstraints{
-		Required: rules.GetRequired(),
+		Required:    rules.GetRequired(),
+		IgnoreEmpty: rules.GetIgnore() == validate.Ignore_IGNORE_IF_ZERO_VALUE,
 	}
 
 	// String rules.
@@ -40,7 +41,14 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 			v := sr.GetMaxLen()
 			vc.MaxLength = &v
 		}
+		if sr.Len != nil {
+			v := sr.GetLen()
+			vc.Len = &v
+		}
 		vc.Pattern = sr.GetPattern()
+		vc.Prefix = sr.GetPrefix()
+		vc.Suffix = sr.GetSuffix()
+		vc.Contains = sr.GetContains()
 
 		// Well-known string types are a oneof — use type assertions.
 		switch sr.GetWellKnown().(type) {
@@ -50,6 +58,10 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 			vc.UUID = true
 		case *validate.StringRules_Uri:
 			vc.URI = true
+		case *validate.StringRules_Hostname:
+			vc.Hostname = true
+		case *validate.StringRules_Ip:
+			vc.IP = true
 		}
 	}
 
@@ -62,6 +74,10 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 		if br.MaxLen != nil {
 			v := br.GetMaxLen()
 			vc.MaxLength = &v
+		}
+		if br.Len != nil {
+			v := br.GetLen()
+			vc.Len = &v
 		}
 	}
 
@@ -127,6 +143,7 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 
 	// Repeated rules.
 	if rr := rules.GetRepeated(); rr != nil {
+		vc.Unique = rr.GetUnique()
 		if rr.MinItems != nil {
 			v := rr.GetMinItems()
 			vc.MinItems = &v
@@ -149,6 +166,17 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 		}
 	}
 
+	// Enum rules.
+	if er := rules.GetEnum(); er != nil {
+		vc.DefinedOnly = er.GetDefinedOnly()
+		for _, v := range er.GetIn() {
+			vc.In = append(vc.In, fmt.Sprintf("%d", v))
+		}
+		for _, v := range er.GetNotIn() {
+			vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+		}
+	}
+
 	if !vc.HasConstraints() {
 		return nil
 	}
@@ -157,6 +185,16 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 
 // extractInt32Bounds reads GreaterThan/LessThan oneof from Int32Rules.
 func extractInt32Bounds(r *validate.Int32Rules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%d", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%d", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.Int32Rules_Gt:
 		s := fmt.Sprintf("%d", gt.Gt)
@@ -177,6 +215,16 @@ func extractInt32Bounds(r *validate.Int32Rules, vc *ValidateConstraints) {
 
 // extractInt64Bounds reads GreaterThan/LessThan oneof from Int64Rules.
 func extractInt64Bounds(r *validate.Int64Rules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%d", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%d", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.Int64Rules_Gt:
 		s := fmt.Sprintf("%d", gt.Gt)
@@ -197,6 +245,16 @@ func extractInt64Bounds(r *validate.Int64Rules, vc *ValidateConstraints) {
 
 // extractUInt32Bounds reads GreaterThan/LessThan oneof from UInt32Rules.
 func extractUInt32Bounds(r *validate.UInt32Rules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%d", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%d", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.UInt32Rules_Gt:
 		s := fmt.Sprintf("%d", gt.Gt)
@@ -217,6 +275,16 @@ func extractUInt32Bounds(r *validate.UInt32Rules, vc *ValidateConstraints) {
 
 // extractFloatBounds reads GreaterThan/LessThan oneof from FloatRules.
 func extractFloatBounds(r *validate.FloatRules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%g", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%g", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%g", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.FloatRules_Gt:
 		s := fmt.Sprintf("%g", gt.Gt)
@@ -237,6 +305,16 @@ func extractFloatBounds(r *validate.FloatRules, vc *ValidateConstraints) {
 
 // extractDoubleBounds reads GreaterThan/LessThan oneof from DoubleRules.
 func extractDoubleBounds(r *validate.DoubleRules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%g", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%g", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%g", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.DoubleRules_Gt:
 		s := fmt.Sprintf("%g", gt.Gt)
@@ -257,6 +335,16 @@ func extractDoubleBounds(r *validate.DoubleRules, vc *ValidateConstraints) {
 
 // extractUInt64Bounds reads GreaterThan/LessThan oneof from UInt64Rules.
 func extractUInt64Bounds(r *validate.UInt64Rules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%d", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%d", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.UInt64Rules_Gt:
 		s := fmt.Sprintf("%d", gt.Gt)
@@ -277,6 +365,16 @@ func extractUInt64Bounds(r *validate.UInt64Rules, vc *ValidateConstraints) {
 
 // extractSInt32Bounds reads GreaterThan/LessThan oneof from SInt32Rules.
 func extractSInt32Bounds(r *validate.SInt32Rules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%d", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%d", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.SInt32Rules_Gt:
 		s := fmt.Sprintf("%d", gt.Gt)
@@ -297,6 +395,16 @@ func extractSInt32Bounds(r *validate.SInt32Rules, vc *ValidateConstraints) {
 
 // extractSInt64Bounds reads GreaterThan/LessThan oneof from SInt64Rules.
 func extractSInt64Bounds(r *validate.SInt64Rules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%d", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%d", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.SInt64Rules_Gt:
 		s := fmt.Sprintf("%d", gt.Gt)
@@ -317,6 +425,16 @@ func extractSInt64Bounds(r *validate.SInt64Rules, vc *ValidateConstraints) {
 
 // extractFixed32Bounds reads GreaterThan/LessThan oneof from Fixed32Rules.
 func extractFixed32Bounds(r *validate.Fixed32Rules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%d", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%d", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.Fixed32Rules_Gt:
 		s := fmt.Sprintf("%d", gt.Gt)
@@ -337,6 +455,16 @@ func extractFixed32Bounds(r *validate.Fixed32Rules, vc *ValidateConstraints) {
 
 // extractFixed64Bounds reads GreaterThan/LessThan oneof from Fixed64Rules.
 func extractFixed64Bounds(r *validate.Fixed64Rules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%d", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%d", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.Fixed64Rules_Gt:
 		s := fmt.Sprintf("%d", gt.Gt)
@@ -357,6 +485,16 @@ func extractFixed64Bounds(r *validate.Fixed64Rules, vc *ValidateConstraints) {
 
 // extractSFixed32Bounds reads GreaterThan/LessThan oneof from SFixed32Rules.
 func extractSFixed32Bounds(r *validate.SFixed32Rules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%d", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%d", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.SFixed32Rules_Gt:
 		s := fmt.Sprintf("%d", gt.Gt)
@@ -377,6 +515,16 @@ func extractSFixed32Bounds(r *validate.SFixed32Rules, vc *ValidateConstraints) {
 
 // extractSFixed64Bounds reads GreaterThan/LessThan oneof from SFixed64Rules.
 func extractSFixed64Bounds(r *validate.SFixed64Rules, vc *ValidateConstraints) {
+	if r.Const != nil {
+		s := fmt.Sprintf("%d", r.GetConst())
+		vc.Const = &s
+	}
+	for _, v := range r.GetIn() {
+		vc.In = append(vc.In, fmt.Sprintf("%d", v))
+	}
+	for _, v := range r.GetNotIn() {
+		vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+	}
 	switch gt := r.GetGreaterThan().(type) {
 	case *validate.SFixed64Rules_Gt:
 		s := fmt.Sprintf("%d", gt.Gt)
