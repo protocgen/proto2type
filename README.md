@@ -168,6 +168,8 @@ plugins:
       - validate=true
 ```
 
+Generates `@Serializable` data classes with proper WKT mappings, sealed class oneofs, and — when `validate=true` — native `validate()` / `validateOrThrow()` extension functions from `buf.validate` constraints.
+
 ### TypeScript
 
 **Zod schemas + inferred types** (runtime validation out of the box):
@@ -250,8 +252,6 @@ export const UserSchema: z.ZodType<User> = z.object({
 | **Config** | `ts_types_only=true` | _(default)_ or `validate=true` |
 
 > **Migration**: switching from types-only to full Zod is a zero-diff upgrade — all `interface` and `type` definitions are structurally identical to `z.infer<typeof Schema>`.
-
-Generates `@Serializable` data classes with proper WKT mappings, sealed class oneofs, and — when `validate=true` — native `validate()` / `validateOrThrow()` extension functions from `buf.validate` constraints.
 
 ### Validation
 
@@ -537,8 +537,10 @@ message User {
 | `bool` | `z.boolean()` | `boolean` |
 | `int32`, `sint32`, `sfixed32` | `z.number().int()` | `number` |
 | `uint32`, `fixed32` | `z.number().int().nonnegative()` | `number` |
-| `int64`, `sint64` (string mode) | `z.string()` | `string` |
-| `int64`, `sint64` (bigint mode) | `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())` | `bigint` |
+| `int64`, `sint64`, `sfixed64` (string mode) | `z.string()` | `string` |
+| `uint64`, `fixed64` (string mode) | `z.string()` | `string` |
+| `int64`, `sint64`, `sfixed64` (bigint mode) | `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())` | `bigint` |
+| `uint64`, `fixed64` (bigint mode) | `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())` | `bigint` (nonnegative) |
 | `float`, `double` | `z.number()` | `number` |
 | `string` | `z.string()` | `string` |
 | `bytes` | `z.string()` | `string` (base64) |
@@ -547,8 +549,15 @@ message User {
 | `google.protobuf.Timestamp` | `z.string().datetime({ offset: true })` | `string` (ISO 8601) |
 | `google.protobuf.Duration` | `z.string()` | `string` |
 | `google.protobuf.FieldMask` | `z.string()` | `string` |
-| `google.protobuf.*Value` | `z.T().nullable()` | `T \| null` |
-| Nested message | `T.optional()` | `T \| undefined` |
+| `google.protobuf.StringValue` | `z.string().nullable()` | `string \| null` |
+| `google.protobuf.BoolValue` | `z.boolean().nullable()` | `boolean \| null` |
+| `google.protobuf.Int32Value` | `z.number().int().nullable()` | `number \| null` |
+| `google.protobuf.UInt32Value` | `z.number().int().nonnegative().nullable()` | `number \| null` |
+| `google.protobuf.Int64Value` | `z.string().nullable()` | `string \| null` (or `bigint \| null`) |
+| `google.protobuf.UInt64Value` | `z.string().nullable()` | `string \| null` (or `bigint \| null`) |
+| `google.protobuf.FloatValue` / `DoubleValue` | `z.number().nullable()` | `number \| null` |
+| `google.protobuf.BytesValue` | `z.string().nullable()` | `string \| null` |
+| Nested message | `MessageSchema.optional()` | `Message \| undefined` |
 | Enum | `z.enum([...]).or(z.string())` | `string` (open) |
 | Oneof | `z.object({}).superRefine()` | mutual exclusion via refinement |
 

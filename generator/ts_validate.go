@@ -22,14 +22,14 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 	if vc.MinLength != nil {
 		if isBytesField {
 			// buf.validate byte length refers to decoded bytes, not base64 string length.
-			parts = append(parts, fmt.Sprintf(`.refine(v => { const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= %d; }, { message: "bytes must be at least %d bytes" })`, *vc.MinLength, *vc.MinLength))
+			parts = append(parts, fmt.Sprintf(`.refine(v => { if (!/^[A-Za-z0-9+/\-_]*={0,2}$/.test(v) || v.length %% 4 !== 0) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= %d; }, { message: "bytes must be valid base64 and at least %d bytes" })`, *vc.MinLength, *vc.MinLength))
 		} else {
 			parts = append(parts, fmt.Sprintf(".min(%d)", *vc.MinLength))
 		}
 	}
 	if vc.MaxLength != nil {
 		if isBytesField {
-			parts = append(parts, fmt.Sprintf(`.refine(v => { const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= %d; }, { message: "bytes must be at most %d bytes" })`, *vc.MaxLength, *vc.MaxLength))
+			parts = append(parts, fmt.Sprintf(`.refine(v => { if (!/^[A-Za-z0-9+/\-_]*={0,2}$/.test(v) || v.length %% 4 !== 0) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= %d; }, { message: "bytes must be valid base64 and at most %d bytes" })`, *vc.MaxLength, *vc.MaxLength))
 		} else {
 			parts = append(parts, fmt.Sprintf(".max(%d)", *vc.MaxLength))
 		}

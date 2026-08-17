@@ -327,6 +327,9 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 		default:
 			mi.Kind = FieldKindMessage
 			mi.MessageTypeName = irMessageNameFromDesc(valDesc.Message())
+			if valDesc.Message().ParentFile() != field.Desc.ParentFile() {
+				mi.SourcePath = string(valDesc.Message().ParentFile().Path())
+			}
 			// Store the GoIdent so Go converters can produce qualified refs (e.g. pb.Settings).
 			// field.Message is the map entry; its Fields[1] is the value field.
 			if len(field.Message.Fields) > 1 && field.Message.Fields[1].Message != nil {
@@ -339,6 +342,9 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 	if valDesc.Kind() == protoreflect.EnumKind {
 		mi.Kind = FieldKindEnum
 		mi.EnumTypeName = irEnumNameFromDesc(valDesc.Enum())
+		if valDesc.Enum().ParentFile() != field.Desc.ParentFile() {
+			mi.SourcePath = string(valDesc.Enum().ParentFile().Path())
+		}
 		return mi
 	}
 

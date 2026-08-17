@@ -266,6 +266,7 @@ type MapTypeInfo struct {
 	ScalarKind      protoreflect.Kind
 	MessageTypeName string
 	EnumTypeName    string
+	SourcePath      string // ADD THIS: proto file path for cross-file import resolution
 
 	// ProtoGoIdent is the protogen.GoIdent for the map value message type.
 	// Used by Go backend converters for QualifiedGoIdent (e.g. pb.Settings).

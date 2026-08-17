@@ -27,10 +27,6 @@ func generateTypeScript(gen *protogen.Plugin, file *protogen.File, opts *Options
 
 // generateTypeScriptDomain generates TypeScript/Zod output for a proto file.
 func generateTypeScriptDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	// NOTE: Cross-file imports are not yet supported. This is an existing
-	// architectural limitation shared with Python and Kotlin backends. External
-	// types referenced in message fields or oneof variants will compile only
-	// when all generated files are in the same module scope.
 	ir := BuildDomainFile(file, opts)
 	ir.Messages = flattenMessages(ir.Messages)
 	ir.Messages = topologicalSortMessages(ir.Messages)
@@ -48,15 +44,7 @@ func writeTSFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options) {
 	g.P("/* eslint-disable */")
 
 	if !opts.TSTypesOnly {
-		hasRegex := false
-		for _, m := range ir.Messages {
-			for _, f := range m.Fields {
-				if f.ValidateConstraints != nil && f.ValidateConstraints.Pattern != "" {
-					hasRegex = true
-					break
-				}
-			}
-		}
+		hasRegex := irHasRegexConstraint(ir)
 
 		if opts.TSInt64Style == "bigint" {
 			g.P("// ⚠️  NOTE: BigInt values cannot be serialized with JSON.stringify() without a custom replacer.")
@@ -104,6 +92,26 @@ func writeTSFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options) {
 		writeTSMessage(g, m, opts)
 		g.P()
 	}
+}
+
+// irHasRegexConstraint returns true if any field or oneof variant in the IR
+// has a buf.validate pattern constraint (which generates a JS RegExp).
+func irHasRegexConstraint(ir *DomainFile) bool {
+	for _, m := range ir.Messages {
+		for _, f := range m.Fields {
+			if f.ValidateConstraints != nil && f.ValidateConstraints.Pattern != "" {
+				return true
+			}
+		}
+		for _, o := range m.Oneofs {
+			for _, v := range o.Variants {
+				if v.ValidateConstraints != nil && v.ValidateConstraints.Pattern != "" {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func writeTSEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
@@ -191,7 +199,7 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 		// For recursive types: emit a manual type alias first, then use z.lazy().
 		g.P("export type ", m.Name, " = {")
 		for _, f := range m.Fields {
-			if f.FieldSkip {
+			if f.FieldSkip || f.IsOneof {
 				continue
 			}
 			optMark := ""
@@ -675,6 +683,11 @@ func collectTSImports(ir *DomainFile, opts *Options) []tsImportEntry {
 			}
 			if f.EnumSourcePath != "" {
 				addRef(f.EnumSourcePath, f.EnumTypeName)
+			}
+			// Check map value types for cross-file references.
+			if f.IsMap && f.MapValue != nil && f.MapValue.SourcePath != "" {
+				addRef(f.MapValue.SourcePath, f.MapValue.MessageTypeName)
+				addRef(f.MapValue.SourcePath, f.MapValue.EnumTypeName)
 			}
 		}
 		for _, o := range m.Oneofs {
