@@ -261,7 +261,6 @@ func escapePythonKeyword(name string) (string, string) {
 	return name, ""
 }
 
-
 // topologicalSortMessages orders messages so that referenced types are defined
 // before the messages that reference them. This is needed for Python and TypeScript
 // where class definitions must precede usage.
