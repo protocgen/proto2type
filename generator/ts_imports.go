@@ -69,7 +69,7 @@ func collectTSImports(ir *DomainFile, opts *Options) []tsImportEntry {
 	var entries []tsImportEntry
 	for protoPath, nameSet := range needed {
 		// Map proto path to relative .type.js import path.
-		relPath := tsImportPath(ir.SourcePath, protoPath)
+		relPath := tsImportPath(ir.SourcePath, protoPath, opts)
 		var names []string
 		for n := range nameSet {
 			names = append(names, n)
@@ -84,11 +84,20 @@ func collectTSImports(ir *DomainFile, opts *Options) []tsImportEntry {
 }
 
 // tsImportPath computes the relative ESM import path from the current proto
-// file to the referenced proto file, using .type.js extension.
-func tsImportPath(fromProto, toProto string) string {
+// file to the referenced proto file, using the configured extension.
+func tsImportPath(fromProto, toProto string, opts *Options) string {
 	fromDir := path.Dir(fromProto)
-	// Strip .proto extension, add .type.js.
-	toBase := strings.TrimSuffix(toProto, ".proto") + ".type.js"
+
+	// Default to .type.ts if suffix is not configured
+	suffix := opts.TSOutputSuffix
+	if suffix == "" {
+		suffix = ".type.ts"
+	}
+	// For ESM imports, .ts becomes .js
+	importSuffix := strings.TrimSuffix(suffix, ".ts") + ".js"
+
+	// Strip .proto extension, add import suffix.
+	toBase := strings.TrimSuffix(toProto, ".proto") + importSuffix
 
 	// Compute relative path using POSIX conventions (proto paths are always forward-slash).
 	// Split both into components and find common prefix.

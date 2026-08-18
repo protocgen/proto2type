@@ -77,6 +77,9 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 		"value_map":        FieldKindMessage,   // map fields outer Kind=Message
 		"labels":           FieldKindMessage,   // map fields outer Kind=Message (wrapper map values)
 		"scores":           FieldKindMessage,   // map fields outer Kind=Message (wrapper map values)
+		"old_field":        FieldKindScalar,    // deprecated string
+		"optional_name":    FieldKindScalar,    // string with ignore_empty validation
+		"big_number":       FieldKindScalar,    // int64
 	}
 
 	for _, f := range user.Fields {

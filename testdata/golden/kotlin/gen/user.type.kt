@@ -79,7 +79,10 @@ data class User(
     val values: List<JsonElement> = emptyList(),
     @SerialName("value_map") val valueMap: Map<String, JsonElement> = emptyMap(),
     val labels: Map<String, String?> = emptyMap(),
-    val scores: Map<String, Long?> = emptyMap()
+    val scores: Map<String, Long?> = emptyMap(),
+    @SerialName("old_field") val oldField: String = "",
+    @SerialName("optional_name") val optionalName: String = "",
+    @SerialName("big_number") val bigNumber: Long = 0L
 )
 
 /** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */

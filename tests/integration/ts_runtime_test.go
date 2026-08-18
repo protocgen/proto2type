@@ -36,7 +36,7 @@ func TestTypeScriptRuntimeIntegration(t *testing.T) {
 
 	// Step 1: Type-check with tsc --noEmit
 	t.Run("tsc_typecheck", func(t *testing.T) {
-		cmd := exec.Command("npx", "tsc", "--noEmit")
+		cmd := exec.Command("npx", "tsc", "--noEmit", "--project", "tsconfig.json")
 		cmd.Dir = tmpDir
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("tsc type-check failed:\n%s", out)

@@ -95,6 +95,9 @@ impl TryFrom<&User> for __buffa_mod::User {
         b.value_map = d.value_map.clone();
         b.labels = d.labels.clone();
         b.scores = d.scores.clone();
+        b.old_field = d.old_field.clone().into();
+        b.optional_name = d.optional_name.clone().into();
+        b.big_number = d.big_number;
         Ok(b)
     }
 }
@@ -145,6 +148,9 @@ impl TryFrom<&__buffa_mod::User> for User {
         d.value_map = b.value_map.clone();
         d.labels = b.labels.clone();
         d.scores = b.scores.clone();
+        d.old_field = b.old_field.to_string();
+        d.optional_name = b.optional_name.to_string();
+        d.big_number = b.big_number;
         Ok(d)
     }
 }

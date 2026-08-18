@@ -17,7 +17,7 @@ func tsZodType(f *DomainField, opts *Options) string {
 	}
 	// Enum
 	if f.Kind == FieldKindEnum {
-		if f.EnumTypeName == "NullValue" || f.EnumTypeName == "google.protobuf.NullValue" {
+		if f.EnumFullName == "google.protobuf.NullValue" {
 			return "z.null()"
 		}
 		return f.EnumTypeName + "Schema"
@@ -40,19 +40,20 @@ func tsScalarZodType(k protoreflect.Kind, opts *Options) string {
 		return "z.number().int().nonnegative()"
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return "z.union([z.string().max(100).regex(/^-?\\d+$/), z.bigint()]).pipe(z.coerce.bigint())"
+			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint())`
 		}
-		return "z.union([z.string(), z.number()]).pipe(z.coerce.string())"
+		return `z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string())`
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
+			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
 		}
-		return "z.union([z.string(), z.number()]).pipe(z.coerce.string())"
+		return `z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string())`
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
-		return "z.number()"
-	case protoreflect.StringKind, protoreflect.BytesKind:
-		// bytes base64 encoded as string
+		return `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])])`
+	case protoreflect.StringKind:
 		return "z.string()"
+	case protoreflect.BytesKind:
+		return "z.string().base64()"
 	default:
 		return "z.unknown()"
 	}
@@ -73,18 +74,20 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 		return "z.number().int().nonnegative().nullable()", true
 	case FieldKindWrapperInt64:
 		if opts.TSInt64Style == "bigint" {
-			return "z.union([z.string().max(100).regex(/^-?\\d+$/), z.bigint()]).pipe(z.coerce.bigint()).nullable()", true
+			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).nullable()`, true
 		}
-		return "z.union([z.string(), z.number()]).pipe(z.coerce.string()).nullable()", true
+		return `z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).nullable()`, true
 	case FieldKindWrapperUInt64:
 		if opts.TSInt64Style == "bigint" {
-			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`, true
+			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`, true
 		}
-		return "z.union([z.string(), z.number()]).pipe(z.coerce.string()).nullable()", true
+		return `z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string()).nullable()`, true
 	case FieldKindWrapperFloat, FieldKindWrapperDouble:
 		return "z.number().nullable()", true
-	case FieldKindWrapperString, FieldKindWrapperBytes:
+	case FieldKindWrapperString:
 		return "z.string().nullable()", true
+	case FieldKindWrapperBytes:
+		return "z.string().base64().nullable()", true
 	case FieldKindStruct:
 		return "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())", true
 	case FieldKindValue:
@@ -123,7 +126,7 @@ func tsMapValueZodType(info *MapTypeInfo, opts *Options) string {
 }
 
 // tsOutputFilename determines the output .ts filename safely.
-func tsOutputFilename(protoPath string, opts *Options) string {
+func tsOutputFilename(protoPath string, opts *Options) (string, error) {
 	if opts.OutputFile != "" {
 		return outputFilename(opts.OutputFile, "")
 	}

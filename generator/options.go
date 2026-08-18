@@ -111,6 +111,9 @@ type Options struct {
 	// TSPreset applies preset configurations for TypeScript.
 	TSPreset string
 
+	// TSOutputSuffix overrides the default TypeScript output file extension.
+	TSOutputSuffix string
+
 	// Debug emits IR debug information to stderr when set.
 	Debug bool
 }
