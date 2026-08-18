@@ -81,6 +81,9 @@ pub struct UserRow {
     pub value_map: String,
     pub labels: String,
     pub scores: String,
+    pub old_field: String,
+    pub optional_name: String,
+    pub big_number: i64,
 }
 
 impl UserRow {
@@ -119,6 +122,9 @@ impl UserRow {
             value_map: row.get("value_map")?,
             labels: row.get("labels")?,
             scores: row.get("scores")?,
+            old_field: row.get("old_field")?,
+            optional_name: row.get("optional_name")?,
+            big_number: row.get("big_number")?,
         })
     }
 
@@ -157,6 +163,9 @@ impl UserRow {
             value_map: serde_json::from_str(&self.value_map)?,
             labels: serde_json::from_str(&self.labels)?,
             scores: serde_json::from_str(&self.scores)?,
+            old_field: self.old_field.clone(),
+            optional_name: self.optional_name.clone(),
+            big_number: self.big_number,
         })
     }
 
@@ -195,6 +204,9 @@ impl UserRow {
             value_map: serde_json::from_str(&self.value_map)?,
             labels: serde_json::from_str(&self.labels)?,
             scores: serde_json::from_str(&self.scores)?,
+            old_field: self.old_field,
+            optional_name: self.optional_name,
+            big_number: self.big_number,
         })
     }
 
@@ -233,6 +245,9 @@ impl UserRow {
             value_map: serde_json::to_string(&d.value_map)?,
             labels: serde_json::to_string(&d.labels)?,
             scores: serde_json::to_string(&d.scores)?,
+            old_field: d.old_field.clone(),
+            optional_name: d.optional_name.clone(),
+            big_number: d.big_number,
         })
     }
 }

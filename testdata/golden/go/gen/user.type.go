@@ -56,6 +56,9 @@ type User struct {
 	ValueMap        map[string]any            `json:"value_map,omitempty"`
 	Labels          map[string]*string        `json:"labels,omitempty"`
 	Scores          map[string]*int64         `json:"scores,omitempty"`
+	OldField        string                    `json:"old_field,omitempty"`
+	OptionalName    string                    `json:"optional_name,omitempty"`
+	BigNumber       int64                     `json:"big_number,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
@@ -64,14 +67,17 @@ func (u *User) ToProto() *pb.User {
 		return nil
 	}
 	out := &pb.User{
-		Id:          u.ID,
-		Email:       u.Email,
-		DisplayName: u.DisplayName,
-		Active:      u.Active,
-		Age:         u.Age,
-		Roles:       u.Roles,
-		Metadata:    u.Metadata,
-		Status:      pb.UserStatus(u.Status),
+		Id:           u.ID,
+		Email:        u.Email,
+		DisplayName:  u.DisplayName,
+		Active:       u.Active,
+		Age:          u.Age,
+		Roles:        u.Roles,
+		Metadata:     u.Metadata,
+		Status:       pb.UserStatus(u.Status),
+		OldField:     u.OldField,
+		OptionalName: u.OptionalName,
+		BigNumber:    u.BigNumber,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -241,14 +247,17 @@ func (u *User) TryToProto() (*pb.User, error) {
 		return nil, nil
 	}
 	out := &pb.User{
-		Id:          u.ID,
-		Email:       u.Email,
-		DisplayName: u.DisplayName,
-		Active:      u.Active,
-		Age:         u.Age,
-		Roles:       u.Roles,
-		Metadata:    u.Metadata,
-		Status:      pb.UserStatus(u.Status),
+		Id:           u.ID,
+		Email:        u.Email,
+		DisplayName:  u.DisplayName,
+		Active:       u.Active,
+		Age:          u.Age,
+		Roles:        u.Roles,
+		Metadata:     u.Metadata,
+		Status:       pb.UserStatus(u.Status),
+		OldField:     u.OldField,
+		OptionalName: u.OptionalName,
+		BigNumber:    u.BigNumber,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -585,6 +594,9 @@ func (u *User) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.OldField = msg.OldField
+	u.OptionalName = msg.OptionalName
+	u.BigNumber = msg.BigNumber
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
@@ -738,6 +750,12 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			dst.Labels = src.Labels
 		case "scores":
 			dst.Scores = src.Scores
+		case "old_field":
+			dst.OldField = src.OldField
+		case "optional_name":
+			dst.OptionalName = src.OptionalName
+		case "big_number":
+			dst.BigNumber = src.BigNumber
 		}
 	}
 }
@@ -756,6 +774,9 @@ func (u *User) Clone() *User {
 		CreatedAt:      u.CreatedAt,
 		SessionTimeout: u.SessionTimeout,
 		Status:         u.Status,
+		OldField:       u.OldField,
+		OptionalName:   u.OptionalName,
+		BigNumber:      u.BigNumber,
 	}
 	if u.Phone != nil {
 		val := *u.Phone
@@ -1128,6 +1149,15 @@ func (u *User) Equal(other *User) bool {
 		if v != nil && *v != *ov {
 			return false
 		}
+	}
+	if u.OldField != other.OldField {
+		return false
+	}
+	if u.OptionalName != other.OptionalName {
+		return false
+	}
+	if u.BigNumber != other.BigNumber {
+		return false
 	}
 	if (u.ContactEmail == nil) != (other.ContactEmail == nil) {
 		return false

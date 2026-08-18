@@ -206,13 +206,8 @@ func TestTsZodConstraints_InNotIn(t *testing.T) {
 }
 
 func TestTsZodConstraints_Unique(t *testing.T) {
-	f := &DomainField{
-		Kind:                FieldKindScalar,
-		ScalarKind:          protoreflect.StringKind,
-		ValidateConstraints: &ValidateConstraints{Unique: true},
-	}
-	opts := &Options{}
-	got := tsZodConstraints(f, opts)
+	vc := &ValidateConstraints{Unique: true}
+	got := tsRepeatedConstraints(vc)
 	if !strings.Contains(got, "new Set(v).size === v.length") {
 		t.Errorf("missing unique check: %s", got)
 	}

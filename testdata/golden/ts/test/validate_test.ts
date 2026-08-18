@@ -1,5 +1,7 @@
-import { UserSchema } from '../gen/user.type.js';
+import { UserSchema, CategorySchema } from '../gen/user.type.js';
 import { UserSchema as UserValidateSchema } from '../gen/user_validate.type.js';
+import { UserSchema as UserBigIntSchema } from '../gen/user_bigint.type.js';
+// Note: Requires zod ^3.23.0 for .base64() support
 
 // Helper to count pass/fail
 let passed = 0;
@@ -69,6 +71,66 @@ assert('enum has default value', () => {
   if (!result.success) return false;
   // Status should have a default string value, not be undefined
   return result.data.status !== undefined;
+});
+
+// Test: Oneof mutual exclusion runtime test
+assert('oneof mutual exclusion', () => {
+  const result = UserSchema.safeParse({
+    contactEmail: 'a@a.com',
+    contactPhone: '1234567890',
+  });
+  return !result.success; // should fail
+});
+
+// Age boundary: -1 (fail), 0 (pass), 150 (pass), 151 (fail)
+assert('age boundary', () => {
+  const base = { roles: ['user'] };  // roles has min(1) constraint
+  const r1 = UserValidateSchema.safeParse({ ...base, age: -1 });
+  const r2 = UserValidateSchema.safeParse({ ...base, age: 0 });
+  const r3 = UserValidateSchema.safeParse({ ...base, age: 150 });
+  const r4 = UserValidateSchema.safeParse({ ...base, age: 151 });
+  if (r1.success) console.error('  FAIL: age=-1 should fail but passed');
+  if (!r2.success) console.error('  FAIL: age=0 should pass but failed:', JSON.stringify(r2.error.issues.map(i => ({p: i.path, m: i.message}))));
+  if (!r3.success) console.error('  FAIL: age=150 should pass but failed:', JSON.stringify(r3.error.issues.map(i => ({p: i.path, m: i.message}))));
+  if (r4.success) console.error('  FAIL: age=151 should fail but passed');
+  return !r1.success && r2.success && r3.success && !r4.success;
+});
+
+// Empty string for required fields (should fail if min_len=1)
+assert('empty string for required field', () => {
+  const result = UserValidateSchema.safeParse({
+    displayName: '',
+  });
+  return !result.success;
+});
+
+// Prototype pollution: test a map field with key __proto__
+assert('prototype pollution rejected', () => {
+  const result = UserSchema.safeParse({
+    metadata: {
+      __proto__: { hacked: true }
+    }
+  });
+  return !result.success;
+});
+
+// BigInt boundary: test with string "123", number 123, and unsafe integer "9007199254740993"
+assert('bigint boundary', () => {
+  const r1 = UserBigIntSchema.safeParse({ bigNumber: "123" });
+  const r2 = UserBigIntSchema.safeParse({ bigNumber: 123 });
+  const r3 = UserBigIntSchema.safeParse({ bigNumber: "9007199254740993" });
+  return r1.success && r2.success && r3.success;
+});
+
+// Recursive type: parse a nested Category with children
+assert('recursive type parse', () => {
+  const result = CategorySchema.safeParse({
+    name: 'root',
+    children: [
+      { name: 'child', children: [] }
+    ]
+  });
+  return result.success;
 });
 
 console.log(`\n1..${total}`);

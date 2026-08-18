@@ -49,7 +49,10 @@ func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opt
 
 // generateGoDomain generates a Go domain type file for a proto file.
 func (gg *goGenerator) generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	filename := outputFilename(file.GeneratedFilenamePrefix, ".type.go")
+	filename, err := outputFilename(file.GeneratedFilenamePrefix, ".type.go")
+	if err != nil {
+		return err
+	}
 
 	// Determine the Go import path and package name for generated types.
 	goImportPath := file.GoImportPath

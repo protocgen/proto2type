@@ -53,6 +53,9 @@ type UserFirestore struct {
 	ValueMap        map[string]any            `firestore:"value_map,omitempty"`
 	Labels          map[string]*string        `firestore:"labels,omitempty"`
 	Scores          map[string]*int64         `firestore:"scores,omitempty"`
+	OldField        string                    `firestore:"old_field,omitempty"`
+	OptionalName    string                    `firestore:"optional_name,omitempty"`
+	BigNumber       int64                     `firestore:"big_number,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
@@ -61,14 +64,17 @@ func (u *UserFirestore) ToProto() *pb.User {
 		return nil
 	}
 	out := &pb.User{
-		Id:          u.ID,
-		Email:       u.Email,
-		DisplayName: u.DisplayName,
-		Active:      u.Active,
-		Age:         u.Age,
-		Roles:       u.Roles,
-		Metadata:    u.Metadata,
-		Status:      pb.UserStatus(u.Status),
+		Id:           u.ID,
+		Email:        u.Email,
+		DisplayName:  u.DisplayName,
+		Active:       u.Active,
+		Age:          u.Age,
+		Roles:        u.Roles,
+		Metadata:     u.Metadata,
+		Status:       pb.UserStatus(u.Status),
+		OldField:     u.OldField,
+		OptionalName: u.OptionalName,
+		BigNumber:    u.BigNumber,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -238,14 +244,17 @@ func (u *UserFirestore) TryToProto() (*pb.User, error) {
 		return nil, nil
 	}
 	out := &pb.User{
-		Id:          u.ID,
-		Email:       u.Email,
-		DisplayName: u.DisplayName,
-		Active:      u.Active,
-		Age:         u.Age,
-		Roles:       u.Roles,
-		Metadata:    u.Metadata,
-		Status:      pb.UserStatus(u.Status),
+		Id:           u.ID,
+		Email:        u.Email,
+		DisplayName:  u.DisplayName,
+		Active:       u.Active,
+		Age:          u.Age,
+		Roles:        u.Roles,
+		Metadata:     u.Metadata,
+		Status:       pb.UserStatus(u.Status),
+		OldField:     u.OldField,
+		OptionalName: u.OptionalName,
+		BigNumber:    u.BigNumber,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -580,6 +589,9 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 			}
 		}
 	}
+	u.OldField = msg.OldField
+	u.OptionalName = msg.OptionalName
+	u.BigNumber = msg.BigNumber
 }
 
 // ToDomain converts to the domain type.
@@ -615,6 +627,9 @@ func (u *UserFirestore) ToDomain() *User {
 		ValueMap:       u.ValueMap,
 		Labels:         u.Labels,
 		Scores:         u.Scores,
+		OldField:       u.OldField,
+		OptionalName:   u.OptionalName,
+		BigNumber:      u.BigNumber,
 	}
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
@@ -704,6 +719,9 @@ func (u *UserFirestore) FromDomain(d *User) {
 	u.ValueMap = d.ValueMap
 	u.Labels = d.Labels
 	u.Scores = d.Scores
+	u.OldField = d.OldField
+	u.OptionalName = d.OptionalName
+	u.BigNumber = d.BigNumber
 }
 
 // AddressFirestore is the Firestore storage representation of test.v1.Address.

@@ -121,6 +121,9 @@ pub struct User {
     pub labels: HashMap<String, Option<String>>,
     #[serde(default)]
     pub scores: HashMap<String, Option<i64>>,
+    pub old_field: String,
+    pub optional_name: String,
+    pub big_number: i64,
 }
 
 lazy_static! {

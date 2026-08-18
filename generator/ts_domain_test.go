@@ -347,3 +347,32 @@ func TestTsPlainType(t *testing.T) {
 		})
 	}
 }
+
+func TestGenerateTypeScript_Negative(t *testing.T) {
+	t.Run("ts_types_only with validate", func(t *testing.T) {
+		opts := &Options{
+			TSTypesOnly: true,
+			Validate:    "true",
+		}
+		err := generateTypeScript(nil, nil, opts)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "cannot be used with ts_types_only") {
+			t.Errorf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("unsupported backend", func(t *testing.T) {
+		opts := &Options{
+			Backend: "firestore",
+		}
+		err := generateTypeScript(nil, nil, opts)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "does not support backend") {
+			t.Errorf("unexpected error message: %v", err)
+		}
+	})
+}

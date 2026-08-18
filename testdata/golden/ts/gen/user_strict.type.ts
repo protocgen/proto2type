@@ -6,9 +6,9 @@
 import { z } from "zod";
 
 /** UserStatus represents the user's account status. */
-export type UserStatus = "Unspecified" | "Active" | "Suspended" | "Deleted" | (string & {});
+export type UserStatus = "USER_STATUS_UNSPECIFIED" | "USER_STATUS_ACTIVE" | "USER_STATUS_SUSPENDED" | "USER_STATUS_DELETED" | (string & {});
 // Note: Numeric enum values should be converted to strings before passing to this schema.
-export const UserStatusSchema = /* @__PURE__ */ z.enum(["Unspecified", "Active", "Suspended", "Deleted"]).or(z.string());
+export const UserStatusSchema = /* @__PURE__ */ z.enum(["USER_STATUS_UNSPECIFIED", "USER_STATUS_ACTIVE", "USER_STATUS_SUSPENDED", "USER_STATUS_DELETED"]).or(z.string());
 
 /** Address is a nested message. */
 export interface Address {
@@ -18,7 +18,7 @@ export interface Address {
   zip: string;
   country: string;
 }
-export const AddressSchema: z.ZodType<Address> = /* @__PURE__ */ z.object({
+export const AddressSchema = /* @__PURE__ */ z.object({
   street: z.string().default(""),
   city: z.string().default(""),
   state: z.string().default(""),
@@ -31,7 +31,7 @@ export interface Tag {
   key: string;
   value: string;
 }
-export const TagSchema: z.ZodType<Tag> = /* @__PURE__ */ z.object({
+export const TagSchema = /* @__PURE__ */ z.object({
   key: z.string().default(""),
   value: z.string().default(""),
 }).strict();
@@ -75,11 +75,14 @@ export interface User {
   /** Wrapper map values (Issue #116) */
   labels: Record<string, string | null>;
   scores: Record<string, string | null>;
+  oldField: string;
+  optionalName: string;
+  bigNumber: string;
   /** @oneof contact_method — at most one of: contactEmail, contactPhone */
   contactEmail?: string;
   contactPhone?: string;
 }
-export const UserSchema: z.ZodType<User> = /* @__PURE__ */ z.object({
+export const UserSchema = /* @__PURE__ */ z.object({
   id: z.string().default(""),
   email: z.string().default(""),
   displayName: z.string().default(""),
@@ -91,8 +94,8 @@ export const UserSchema: z.ZodType<User> = /* @__PURE__ */ z.object({
   createdAt: z.string().datetime({ offset: true }).optional(),
   sessionTimeout: z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration (e.g. '1.5s')" }).optional(),
   phone: z.string().optional(),
-  avatar: z.string().default(""),
-  nickname: z.string().nullable().optional(),
+  avatar: z.string().base64().default(""),
+  nickname: z.string().nullish(),
   status: UserStatusSchema.default("USER_STATUS_UNSPECIFIED"),
   tags: z.array(TagSchema).default(() => []),
   deletedAt: z.string().datetime({ offset: true }).optional(),
@@ -102,7 +105,7 @@ export const UserSchema: z.ZodType<User> = /* @__PURE__ */ z.object({
   extraMetadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown()).optional(),
   preferences: z.array(z.unknown()).optional(),
   /** Optional bytes */
-  avatarThumbnail: z.string().optional(),
+  avatarThumbnail: z.string().base64().optional(),
   /** Repeated WKT reference types (Issue #52) */
   fieldMasks: z.array(z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" })).default(() => []),
   structs: z.array(z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())).default(() => []),
@@ -116,7 +119,11 @@ export const UserSchema: z.ZodType<User> = /* @__PURE__ */ z.object({
   valueMap: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown()).default(() => ({})),
   /** Wrapper map values (Issue #116) */
   labels: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.string().nullable()).default(() => ({})),
-  scores: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.union([z.string(), z.number()]).pipe(z.coerce.string()).nullable()).default(() => ({})),
+  scores: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).nullable()).default(() => ({})),
+  /** @deprecated */
+  oldField: z.string().default(""),
+  optionalName: z.string().default(""),
+  bigNumber: z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).default("0"),
   contactEmail: z.string().optional(),
   contactPhone: z.string().optional(),
 }).strict().superRefine((data, ctx) => {
@@ -136,11 +143,11 @@ export const UserSchema: z.ZodType<User> = /* @__PURE__ */ z.object({
 
 /** Category is a recursive tree structure for testing z.lazy() generation. */
 export type Category = {
-  name: string;
+  name?: string;
   parent?: Category;
-  children: Category[];
+  children?: Category[];
 };
-export const CategorySchema: z.ZodType<Category, z.ZodTypeDef, any> = /* @__PURE__ */ z.lazy(() => z.object({
+export const CategorySchema: z.ZodType<Category> = /* @__PURE__ */ z.lazy(() => z.object({
   name: z.string().default(""),
   parent: CategorySchema.optional(),
   children: z.array(CategorySchema).default(() => []),
