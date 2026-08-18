@@ -118,7 +118,9 @@ func tsNumericConstraints(f *DomainField, opts *Options, vc *ValidateConstraints
 	isNumericWrapper := f.Kind == FieldKindWrapperInt32 || f.Kind == FieldKindWrapperUInt32 || f.Kind == FieldKindWrapperFloat || f.Kind == FieldKindWrapperDouble || f.Kind == FieldKindWrapperInt64 || f.Kind == FieldKindWrapperUInt64
 
 	isNumeric := isNumericScalar || isNumericWrapper
-	isWktTime := f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration
+	isTimestamp := f.Kind == FieldKindTimestamp
+	isDuration := f.Kind == FieldKindDuration
+	isWktTime := isTimestamp || isDuration
 
 	if !isNumeric && !isWktTime {
 		return ""
@@ -134,7 +136,9 @@ func tsNumericConstraints(f *DomainField, opts *Options, vc *ValidateConstraints
 		if val == nil {
 			return
 		}
-		if isWktTime {
+		if isDuration {
+			parts = append(parts, fmt.Sprintf(`.refine(v => { const m = v.match(/^(-?[0-9]+(?:\.[0-9]+)?)s$/); if (!m) return false; return parseFloat(m[1]) %s parseFloat(%q.replace("s", "")); }, { message: "must be %s %s" })`, op, *val, opName, *val))
+		} else if isTimestamp {
 			parts = append(parts, fmt.Sprintf(`.refine(v => new Date(v).getTime() %s new Date(%s).getTime(), { message: "must be %s %s" })`, op, *val, opName, *val))
 		} else if isInt64String {
 			parts = append(parts, fmt.Sprintf(`.refine(v => { try { return BigInt(v) %s %sn; } catch { return false; } }, { message: "must be %s %s" })`, op, *val, opName, *val))

@@ -83,7 +83,7 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 		}
 		return `z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string()).nullable()`, true
 	case FieldKindWrapperFloat, FieldKindWrapperDouble:
-		return "z.number().nullable()", true
+		return `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])]).nullable()`, true
 	case FieldKindWrapperString:
 		return "z.string().nullable()", true
 	case FieldKindWrapperBytes:

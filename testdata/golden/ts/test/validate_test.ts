@@ -104,12 +104,12 @@ assert('empty string for required field', () => {
   return !result.success;
 });
 
-// Prototype pollution: test a map field with key __proto__
+// Prototype pollution: test a map field with own-enumerable __proto__ key
 assert('prototype pollution rejected', () => {
+  const poisoned = Object.create(null);
+  poisoned['__proto__'] = { hacked: true };
   const result = UserSchema.safeParse({
-    metadata: {
-      __proto__: { hacked: true }
-    }
+    metadata: poisoned
   });
   return !result.success;
 });

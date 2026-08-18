@@ -318,7 +318,7 @@ jobs:
           node dist/test/validate_test.js
 
       - name: npm audit
-        run: cd testdata/golden/ts && npm audit --omit=dev || true
+        run: cd testdata/golden/ts && npm audit --omit=dev
 
   python-check:
     name: Python Check
