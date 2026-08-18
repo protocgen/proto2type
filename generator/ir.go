@@ -187,6 +187,8 @@ type DomainField struct {
 	// EnumTypeName is the PascalCase IR enum type name for enum-typed fields.
 	// Empty for non-enum fields.
 	EnumTypeName string
+	// EnumFullName is the fully qualified proto enum name.
+	EnumFullName string
 	// EnumSourcePath is the proto file path of the referenced enum type.
 	// Empty when the enum is in the same file.
 	EnumSourcePath string

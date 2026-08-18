@@ -31,7 +31,7 @@ func BuildDomainFile(file *protogen.File, opts *Options) (*DomainFile, error) {
 
 	// Top-level enums.
 	for _, enum := range file.Enums {
-		df.Enums = append(df.Enums, buildDomainEnum(enum, ""))
+		df.Enums = append(df.Enums, buildDomainEnum(enum, "", opts))
 	}
 
 	// Top-level messages.
@@ -95,7 +95,7 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options,
 
 	// Nested enums (before fields, so enum type names are available).
 	for _, enum := range msg.Enums {
-		dm.NestedEnums = append(dm.NestedEnums, buildDomainEnum(enum, name))
+		dm.NestedEnums = append(dm.NestedEnums, buildDomainEnum(enum, name, opts))
 	}
 
 	// Track oneofs we've already processed.
@@ -221,6 +221,7 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 	}
 	if kind == FieldKindEnum {
 		df.EnumTypeName = irEnumNameFromDesc(field.Desc.Enum())
+		df.EnumFullName = string(field.Desc.Enum().FullName())
 		if field.Desc.Enum().ParentFile() != field.Desc.ParentFile() {
 			df.EnumSourcePath = string(field.Desc.Enum().ParentFile().Path())
 		}
@@ -376,7 +377,7 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 }
 
 // buildDomainEnum builds the IR for a proto enum.
-func buildDomainEnum(enum *protogen.Enum, parentName string) *DomainEnum {
+func buildDomainEnum(enum *protogen.Enum, parentName string, opts *Options) *DomainEnum {
 	enumName := toPascalCase(string(enum.Desc.Name()))
 	if parentName != "" {
 		enumName = parentName + enumName
@@ -390,8 +391,12 @@ func buildDomainEnum(enum *protogen.Enum, parentName string) *DomainEnum {
 
 	for i, val := range enum.Values {
 		num := val.Desc.Number()
+		valName := stripEnumPrefix(enumName, string(val.Desc.Name()))
+		if opts.Lang == "typescript" {
+			valName = string(val.Desc.Name())
+		}
 		de.Values = append(de.Values, &DomainEnumValue{
-			Name:      stripEnumPrefix(enumName, string(val.Desc.Name())),
+			Name:      valName,
 			ProtoName: string(val.Desc.Name()),
 			Number:    int32(num),
 			IsDefault: i == 0 && num == 0,

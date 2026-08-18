@@ -25,7 +25,10 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 		return err
 	}
 
-	filename := outputFilename(file.GeneratedFilenamePrefix, ".type.kt")
+	filename, err := outputFilename(file.GeneratedFilenamePrefix, ".type.kt")
+	if err != nil {
+		return err
+	}
 	g := gen.NewGeneratedFile(filename, "")
 
 	// --- Header ---

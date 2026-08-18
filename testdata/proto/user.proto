@@ -75,6 +75,10 @@ message User {
   // Wrapper map values (Issue #116)
   map<string, google.protobuf.StringValue> labels = 32;
   map<string, google.protobuf.Int64Value> scores = 33;
+
+  string old_field = 34 [deprecated = true];
+  string optional_name = 35;
+  int64 big_number = 36;
 }
 
 // Address is a nested message.

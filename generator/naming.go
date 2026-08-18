@@ -87,7 +87,7 @@ func receiverName(typeName string) string {
 
 // outputFilename returns the output filename for a given proto file.
 // It validates that the resulting path contains no path traversal components.
-func outputFilename(protoPath, suffix string) string {
+func outputFilename(protoPath, suffix string) (string, error) {
 	// Strip .proto extension
 	base := strings.TrimSuffix(protoPath, ".proto")
 	result := base + suffix
@@ -105,10 +105,10 @@ func outputFilename(protoPath, suffix string) string {
 		((cleaned[0] >= 'A' && cleaned[0] <= 'Z') || (cleaned[0] >= 'a' && cleaned[0] <= 'z')) &&
 		cleaned[1] == ':' && cleaned[2] == '/'
 	if path.IsAbs(cleaned) || isWindowsAbs || strings.HasPrefix(cleaned, "../") || cleaned == ".." {
-		panic(fmt.Sprintf("proto2type: path traversal detected in output filename: %q", result))
+		return "", fmt.Errorf("proto2type: path traversal detected in output filename: %q", result)
 	}
 
-	return cleaned
+	return cleaned, nil
 }
 
 // parseGoPackage parses a go_package string in the format "import/path;package_name"
@@ -260,6 +260,7 @@ func escapePythonKeyword(name string) (string, string) {
 	}
 	return name, ""
 }
+
 
 // topologicalSortMessages orders messages so that referenced types are defined
 // before the messages that reference them. This is needed for Python and TypeScript

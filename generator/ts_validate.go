@@ -7,23 +7,26 @@ import (
 	"strings"
 )
 
-// tsZodConstraints returns additional Zod method chain segments for a field's
-// buf.validate constraints. Returns empty string if no constraints.
 func tsZodConstraints(f *DomainField, opts *Options) string {
 	vc := f.ValidateConstraints
 	if vc == nil || !vc.HasConstraints() {
 		return ""
 	}
 
-	// TODO: IgnoreEmpty is extracted but not yet used in TS constraint emission.
+	var parts []string
+	parts = append(parts, tsStringConstraints(f, vc))
+	parts = append(parts, tsNumericConstraints(f, opts, vc))
+	// Repeated and Map constraints are applied at the collection level in ts_domain.go
 
+	return strings.Join(parts, "")
+}
+
+func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 	var parts []string
 
-	// String/bytes length constraints.
-	isBytesField := f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind
+	isBytesField := f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind || f.Kind == FieldKindWrapperBytes
 	if vc.MinLength != nil {
 		if isBytesField {
-			// buf.validate byte length refers to decoded bytes, not base64 string length.
 			parts = append(parts, fmt.Sprintf(`.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= %d; }, { message: "bytes must be valid base64 and at least %d bytes" })`, *vc.MinLength, *vc.MinLength))
 		} else {
 			parts = append(parts, fmt.Sprintf(".min(%d)", *vc.MinLength))
@@ -78,7 +81,6 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 		parts = append(parts, fmt.Sprintf(".includes(%s)", strconv.Quote(vc.Contains)))
 	}
 	if vc.Hostname {
-		// Zod doesn't have .hostname(), use regex
 		if vc.IgnoreEmpty {
 			parts = append(parts, `.refine(((re) => (v) => v === "" || re.test(v))(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/), { message: "must be a valid hostname" })`)
 		} else {
@@ -92,57 +94,6 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 			parts = append(parts, `.ip()`)
 		}
 	}
-
-	// Numeric constraints
-	isInt64Kind := f.ScalarKind == protoreflect.Int64Kind || f.ScalarKind == protoreflect.Uint64Kind || f.ScalarKind == protoreflect.Sint64Kind || f.ScalarKind == protoreflect.Sfixed64Kind || f.ScalarKind == protoreflect.Fixed64Kind
-	isBigInt := opts.TSInt64Style == "bigint" && isInt64Kind
-	isInt64String := opts.TSInt64Style != "bigint" && isInt64Kind
-
-	if vc.Gt != nil {
-		if isInt64String {
-			parts = append(parts, fmt.Sprintf(`.refine(v => { try { return BigInt(v) > %sn; } catch { return false; } }, { message: "must be > %s" })`, *vc.Gt, *vc.Gt))
-		} else if isBigInt {
-			parts = append(parts, fmt.Sprintf(`.refine(v => v > %sn, { message: "must be > %s" })`, *vc.Gt, *vc.Gt))
-		} else {
-			parts = append(parts, fmt.Sprintf(".gt(%s)", *vc.Gt))
-		}
-	}
-	if vc.Gte != nil {
-		if isInt64String {
-			parts = append(parts, fmt.Sprintf(`.refine(v => { try { return BigInt(v) >= %sn; } catch { return false; } }, { message: "must be >= %s" })`, *vc.Gte, *vc.Gte))
-		} else if isBigInt {
-			parts = append(parts, fmt.Sprintf(`.refine(v => v >= %sn, { message: "must be >= %s" })`, *vc.Gte, *vc.Gte))
-		} else {
-			parts = append(parts, fmt.Sprintf(".gte(%s)", *vc.Gte))
-		}
-	}
-	if vc.Lt != nil {
-		if isInt64String {
-			parts = append(parts, fmt.Sprintf(`.refine(v => { try { return BigInt(v) < %sn; } catch { return false; } }, { message: "must be < %s" })`, *vc.Lt, *vc.Lt))
-		} else if isBigInt {
-			parts = append(parts, fmt.Sprintf(`.refine(v => v < %sn, { message: "must be < %s" })`, *vc.Lt, *vc.Lt))
-		} else {
-			parts = append(parts, fmt.Sprintf(".lt(%s)", *vc.Lt))
-		}
-	}
-	if vc.Lte != nil {
-		if isInt64String {
-			parts = append(parts, fmt.Sprintf(`.refine(v => { try { return BigInt(v) <= %sn; } catch { return false; } }, { message: "must be <= %s" })`, *vc.Lte, *vc.Lte))
-		} else if isBigInt {
-			parts = append(parts, fmt.Sprintf(`.refine(v => v <= %sn, { message: "must be <= %s" })`, *vc.Lte, *vc.Lte))
-		} else {
-			parts = append(parts, fmt.Sprintf(".lte(%s)", *vc.Lte))
-		}
-	}
-	if vc.Const != nil {
-		if isInt64String {
-			parts = append(parts, fmt.Sprintf(`.refine(v => { try { return BigInt(v) === %sn; } catch { return false; } }, { message: "must equal %s" })`, *vc.Const, *vc.Const))
-		} else if isBigInt {
-			parts = append(parts, fmt.Sprintf(`.refine(v => v === %sn, { message: "must equal %s" })`, *vc.Const, *vc.Const))
-		} else {
-			parts = append(parts, fmt.Sprintf(`.refine(v => v === %s, { message: "must equal %s" })`, *vc.Const, *vc.Const))
-		}
-	}
 	if len(vc.In) > 0 {
 		vals := strings.Join(vc.In, ", ")
 		parts = append(parts, fmt.Sprintf(`.refine(v => [%s].includes(v), { message: "must be one of [%s]" })`, vals, vals))
@@ -151,10 +102,103 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 		vals := strings.Join(vc.NotIn, ", ")
 		parts = append(parts, fmt.Sprintf(`.refine(v => ![%s].includes(v), { message: "must not be one of [%s]" })`, vals, vals))
 	}
-	if vc.Unique {
-		parts = append(parts, `.refine(v => new Set(v).size === v.length, { message: "items must be unique" })`)
+
+	return strings.Join(parts, "")
+}
+
+func tsNumericConstraints(f *DomainField, opts *Options, vc *ValidateConstraints) string {
+	var parts []string
+
+	isNumericScalar := f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.Int32Kind || f.ScalarKind == protoreflect.Sint32Kind || f.ScalarKind == protoreflect.Sfixed32Kind ||
+		f.ScalarKind == protoreflect.Uint32Kind || f.ScalarKind == protoreflect.Fixed32Kind ||
+		f.ScalarKind == protoreflect.FloatKind || f.ScalarKind == protoreflect.DoubleKind ||
+		f.ScalarKind == protoreflect.Int64Kind || f.ScalarKind == protoreflect.Sint64Kind || f.ScalarKind == protoreflect.Sfixed64Kind ||
+		f.ScalarKind == protoreflect.Uint64Kind || f.ScalarKind == protoreflect.Fixed64Kind)
+
+	isNumericWrapper := f.Kind == FieldKindWrapperInt32 || f.Kind == FieldKindWrapperUInt32 || f.Kind == FieldKindWrapperFloat || f.Kind == FieldKindWrapperDouble || f.Kind == FieldKindWrapperInt64 || f.Kind == FieldKindWrapperUInt64
+
+	isNumeric := isNumericScalar || isNumericWrapper
+	isWktTime := f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration
+
+	if !isNumeric && !isWktTime {
+		return ""
 	}
 
+	isInt64Kind := f.ScalarKind == protoreflect.Int64Kind || f.ScalarKind == protoreflect.Uint64Kind || f.ScalarKind == protoreflect.Sint64Kind || f.ScalarKind == protoreflect.Sfixed64Kind || f.ScalarKind == protoreflect.Fixed64Kind
+	isWrapperInt64Kind := f.Kind == FieldKindWrapperInt64 || f.Kind == FieldKindWrapperUInt64
+
+	isBigInt := opts.TSInt64Style == "bigint" && (isInt64Kind || isWrapperInt64Kind)
+	isInt64String := opts.TSInt64Style != "bigint" && (isInt64Kind || isWrapperInt64Kind)
+
+	numConstraint := func(op string, val *string, opName string) {
+		if val == nil {
+			return
+		}
+		if isWktTime {
+			parts = append(parts, fmt.Sprintf(`.refine(v => new Date(v).getTime() %s new Date(%s).getTime(), { message: "must be %s %s" })`, op, *val, opName, *val))
+		} else if isInt64String {
+			parts = append(parts, fmt.Sprintf(`.refine(v => { try { return BigInt(v) %s %sn; } catch { return false; } }, { message: "must be %s %s" })`, op, *val, opName, *val))
+		} else if isBigInt {
+			parts = append(parts, fmt.Sprintf(`.refine(v => v %s %sn, { message: "must be %s %s" })`, op, *val, opName, *val))
+		} else {
+			if op == "===" {
+				parts = append(parts, fmt.Sprintf(`.refine(v => v === %s, { message: "must be %s %s" })`, *val, opName, *val))
+			} else {
+				// use zod native gt/gte/lt/lte for normal numbers
+				zodOp := ""
+				switch op {
+				case ">":
+					zodOp = "gt"
+				case ">=":
+					zodOp = "gte"
+				case "<":
+					zodOp = "lt"
+				case "<=":
+					zodOp = "lte"
+				}
+				parts = append(parts, fmt.Sprintf(".%s(%s)", zodOp, *val))
+			}
+		}
+	}
+
+	numConstraint(">", vc.Gt, ">")
+	numConstraint(">=", vc.Gte, ">=")
+	numConstraint("<", vc.Lt, "<")
+	numConstraint("<=", vc.Lte, "<=")
+	numConstraint("===", vc.Const, "equal to")
+
+	return strings.Join(parts, "")
+}
+
+func tsRepeatedConstraints(vc *ValidateConstraints) string {
+	if vc == nil || !vc.HasConstraints() {
+		return ""
+	}
+	var parts []string
+	if vc.MinItems != nil {
+		parts = append(parts, fmt.Sprintf(".min(%d)", *vc.MinItems))
+	}
+	if vc.MaxItems != nil {
+		parts = append(parts, fmt.Sprintf(".max(%d)", *vc.MaxItems))
+	}
+	if vc.Unique {
+		// Document that unique constraint uses reference equality
+		parts = append(parts, `.refine(v => new Set(v).size === v.length, { message: "items must be unique (checked by reference equality)" })`)
+	}
+	return strings.Join(parts, "")
+}
+
+func tsMapConstraints(vc *ValidateConstraints) string {
+	if vc == nil || !vc.HasConstraints() {
+		return ""
+	}
+	var parts []string
+	if vc.MinItems != nil {
+		parts = append(parts, fmt.Sprintf(".refine(v => Object.keys(v).length >= %d, { message: 'Map must have at least %d entries' })", *vc.MinItems, *vc.MinItems))
+	}
+	if vc.MaxItems != nil {
+		parts = append(parts, fmt.Sprintf(".refine(v => Object.keys(v).length <= %d, { message: 'Map must have at most %d entries' })", *vc.MaxItems, *vc.MaxItems))
+	}
 	return strings.Join(parts, "")
 }
 

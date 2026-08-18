@@ -13,7 +13,10 @@ func generateRustBuffa(gen *protogen.Plugin, file *protogen.File, opts *Options)
 		return fmt.Errorf("proto2type: buffa backend requires buffa_module option (e.g. buffa_module=crate::proto::my::package::v1)")
 	}
 
-	filename := outputFilename(file.GeneratedFilenamePrefix, "_buffa.type.rs")
+	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_buffa.type.rs")
+	if err != nil {
+		return err
+	}
 
 	g := gen.NewGeneratedFile(filename, "")
 
