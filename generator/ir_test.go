@@ -14,9 +14,13 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 	gen := newPlugin(t, fds, []string{"user.proto"})
 
 	var file *DomainFile
+	var err error
 	for _, f := range gen.Files {
 		if f.Generate {
-			file = BuildDomainFile(f, &Options{Domain: true})
+			file, err = BuildDomainFile(f, &Options{Domain: true})
+			if err != nil {
+				t.Fatal(err)
+			}
 			break
 		}
 	}
@@ -104,7 +108,10 @@ func TestBuildDomainFile_FieldFlags(t *testing.T) {
 		if !f.Generate {
 			continue
 		}
-		df := BuildDomainFile(f, &Options{Domain: true})
+		df, err := BuildDomainFile(f, &Options{Domain: true})
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, m := range df.Messages {
 			if m.Name == "User" {
 				user = m
@@ -164,9 +171,13 @@ func TestBuildDomainFile_EnumValues(t *testing.T) {
 	gen := newPlugin(t, fds, []string{"user.proto"})
 
 	var file *DomainFile
+	var err error
 	for _, f := range gen.Files {
 		if f.Generate {
-			file = BuildDomainFile(f, &Options{Domain: true})
+			file, err = BuildDomainFile(f, &Options{Domain: true})
+			if err != nil {
+				t.Fatal(err)
+			}
 			break
 		}
 	}
@@ -231,7 +242,10 @@ func TestBuildDomainFile_OneofDetection(t *testing.T) {
 		if !f.Generate {
 			continue
 		}
-		df := BuildDomainFile(f, &Options{Domain: true})
+		df, err := BuildDomainFile(f, &Options{Domain: true})
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, m := range df.Messages {
 			if m.Name == "User" {
 				user = m
@@ -282,7 +296,10 @@ func TestBuildDomainFile_CatalogAnnotations(t *testing.T) {
 		if !f.Generate {
 			continue
 		}
-		df := BuildDomainFile(f, &Options{Domain: true})
+		df, err := BuildDomainFile(f, &Options{Domain: true})
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, m := range df.Messages {
 			if m.Name == "ModelCatalogEntry" {
 				catalog = m
@@ -338,9 +355,13 @@ func TestBuildDomainFile_NestedMessages(t *testing.T) {
 	gen := newPlugin(t, fds, []string{"user.proto"})
 
 	var file *DomainFile
+	var err error
 	for _, f := range gen.Files {
 		if f.Generate {
-			file = BuildDomainFile(f, &Options{Domain: true})
+			file, err = BuildDomainFile(f, &Options{Domain: true})
+			if err != nil {
+				t.Fatal(err)
+			}
 			break
 		}
 	}
@@ -370,7 +391,10 @@ func TestBuildDomainFile_PascalAndCamelNames(t *testing.T) {
 		if !f.Generate {
 			continue
 		}
-		df := BuildDomainFile(f, &Options{Domain: true})
+		df, err := BuildDomainFile(f, &Options{Domain: true})
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, m := range df.Messages {
 			if m.Name == "User" {
 				user = m
@@ -415,7 +439,10 @@ func TestBuildDomainFile_EnumAsString(t *testing.T) {
 		}
 
 		// Without EnumAsString.
-		dfNo := BuildDomainFile(f, &Options{Domain: true})
+		dfNo, err := BuildDomainFile(f, &Options{Domain: true})
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, m := range dfNo.Messages {
 			if m.Name != "User" {
 				continue
@@ -430,7 +457,10 @@ func TestBuildDomainFile_EnumAsString(t *testing.T) {
 		}
 
 		// With EnumAsString.
-		dfYes := BuildDomainFile(f, &Options{Domain: true, EnumAsString: true})
+		dfYes, err := BuildDomainFile(f, &Options{Domain: true, EnumAsString: true})
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, m := range dfYes.Messages {
 			if m.Name != "User" {
 				continue

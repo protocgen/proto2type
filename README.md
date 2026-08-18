@@ -222,14 +222,17 @@ export interface User {
   createdAt?: string;
 }
 
-export const UserSchema: z.ZodType<User> = z.object({
-  id: z.string().default(""),
-  email: z.string().default(""),
-  displayName: z.string().default(""),
-  active: z.boolean().default(false),
+export const UserSchema = z.object({
+  id: z.string().catch(""),
+  email: z.string().catch(""),
+  displayName: z.string().catch(""),
+  active: z.boolean().catch(false),
   address: AddressSchema.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),
 });
+
+export type User = z.infer<typeof UserSchema>;
+// { id: string; email: string; displayName: string; active: boolean; ... }
 ```
 
 #### TypeScript Options
@@ -237,10 +240,13 @@ export const UserSchema: z.ZodType<User> = z.object({
 | Option | Default | Description |
 |---|---|---|
 | `ts_types_only` | `false` | Emit plain TypeScript types without Zod (zero dependencies) |
-| `ts_int64` | `string` | Int64 representation: `string` (safe) or `bigint` (native) |
-| `ts_enum_style` | `enum` | Enum style: `enum` (open `z.enum().or(z.string())`) or `native` (`z.nativeEnum()`) |
+| `ts_int64` | `string` | Int64 representation: `string` (safe) or `bigint` (native, with DoS-safe max length) |
+| `ts_enum_style` | `enum` | Enum style: `enum` (open `z.enum().or(z.string()).or(z.number().int())`) or `native` (`z.nativeEnum()`) |
 | `ts_explicit_types` | `true` | Emit explicit `interface` types alongside Zod schemas |
+| `ts_strict` | `false` | Append `.strict()` to reject unknown fields per ProtoJSON spec |
 | `ts_zod_import` | `zod` | Zod import path (e.g. `zod/v4` or `@scope/zod`) |
+| `ts_preset` | _(none)_ | Apply a preset: `zod-strict` (strict+validate+explicit) or `types-only` |
+| `debug` | `false` | Dump IR to stderr for debugging |
 
 #### Choose Your TS Mode
 
@@ -539,13 +545,13 @@ message User {
 | `uint32`, `fixed32` | `z.number().int().nonnegative()` | `number` |
 | `int64`, `sint64`, `sfixed64` (string mode) | `z.string()` | `string` |
 | `uint64`, `fixed64` (string mode) | `z.string()` | `string` |
-| `int64`, `sint64`, `sfixed64` (bigint mode) | `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())` | `bigint` |
-| `uint64`, `fixed64` (bigint mode) | `z.union([z.string(), z.number(), z.bigint()]).pipe(z.coerce.bigint())` | `bigint` (nonnegative) |
+| `int64`, `sint64`, `sfixed64` (bigint mode) | `z.union([z.string().max(100).regex(/^-?\d+$/), z.number(), z.bigint()]).pipe(z.coerce.bigint())` | `bigint` |
+| `uint64`, `fixed64` (bigint mode) | `z.union([z.string().max(100).regex(/^-?\d+$/), z.number(), z.bigint()]).pipe(z.coerce.bigint())` | `bigint` (nonnegative) |
 | `float`, `double` | `z.number()` | `number` |
 | `string` | `z.string()` | `string` |
 | `bytes` | `z.string()` | `string` (base64) |
 | `repeated T` | `z.array(T)` | `T[]` |
-| `map<K, V>` | `z.record(z.string(), V)` | `Record<string, V>` |
+| `map<K, V>` | `z.record(z.string().refine(k => !['__proto__','constructor','prototype'].includes(k)), V)` | `Record<string, V>` |
 | `google.protobuf.Timestamp` | `z.string().datetime({ offset: true })` | `string` (ISO 8601) |
 | `google.protobuf.Duration` | `z.string()` | `string` |
 | `google.protobuf.FieldMask` | `z.string()` | `string` |
@@ -558,8 +564,23 @@ message User {
 | `google.protobuf.FloatValue` / `DoubleValue` | `z.number().nullable()` | `number \| null` |
 | `google.protobuf.BytesValue` | `z.string().nullable()` | `string \| null` |
 | Nested message | `MessageSchema.optional()` | `Message \| undefined` |
-| Enum | `z.enum([...]).or(z.string())` | `string` (open) |
+| Enum | `z.enum([...]).or(z.string()).or(z.number().int())` | `string` (open, accepts numeric) |
 | Oneof | `z.object({}).superRefine()` | mutual exclusion via refinement |
+
+## Security
+
+The TypeScript/Zod backend includes several hardening measures:
+
+| Protection | Mechanism |
+|---|---|
+| **Prototype pollution** | Map keys reject `__proto__`, `constructor`, `prototype` |
+| **BigInt DoS** | String-to-BigInt coercion limited to 100 chars with strict decimal regex |
+| **IgnoreEmpty** | Format constraints (email, url, uuid) bypass validation on proto3 zero-values |
+| **Pattern injection** | `buf.validate` regex patterns are escaped via `strconv.Quote()` — raw patterns never appear in error messages |
+| **Base64** | Accepts both padded and unpadded base64/base64url encoding |
+| **ESLint** | Generated files only suppress specific TypeScript rules, not security linters |
+
+> **Note**: User-defined `buf.validate` regex patterns run via standard JS `RegExp` (backtracking). Consider the `ts_re2=true` flag (planned) for ReDoS-safe evaluation in untrusted contexts.
 
 ## Roadmap
 

@@ -7,35 +7,20 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-// irValidationError is a typed panic value used by IR validation checks
-// (nesting depth, name collisions) so that GenerateFile can recover them
-// cleanly without masking unrelated panics (nil deref, index OOB).
-type irValidationError struct {
-	msg string
+// Runner holds per-invocation state for the code generator.
+type Runner struct {
+	goGen *goGenerator
 }
 
-func (e irValidationError) Error() string { return e.msg }
-
-// irPanic raises an irValidationError panic that GenerateFile will recover
-// and convert to a proper protoc error.
-func irPanic(format string, args ...any) {
-	panic(irValidationError{msg: fmt.Sprintf(format, args...)})
+// NewRunner creates a new Runner.
+func NewRunner() *Runner {
+	return &Runner{
+		goGen: newGoGenerator(),
+	}
 }
 
 // GenerateFile generates output files for a single proto file.
-func GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) (retErr error) {
-	// Recover IR validation panics and convert them to errors so protoc
-	// displays a clean message. Unrelated panics (real bugs) re-panic
-	// with their original value and stack trace.
-	defer func() {
-		if r := recover(); r != nil {
-			if ve, ok := r.(irValidationError); ok {
-				retErr = ve
-			} else {
-				panic(r) // re-panic: not an IR validation error
-			}
-		}
-	}()
+func (r *Runner) GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	if len(file.Messages) == 0 && len(file.Enums) == 0 {
 		return nil
 	}
@@ -48,7 +33,7 @@ func GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) (ret
 
 	switch opts.Lang {
 	case "go", "":
-		return generateGo(gen, file, opts)
+		return r.goGen.generateGo(gen, file, opts)
 	case "rust":
 		return generateRust(gen, file, opts)
 	case "kotlin":

@@ -158,3 +158,18 @@ pub struct Tag {
     pub value: String,
 }
 
+/// Domain representation of test.v1.Category.
+///
+/// Category is a recursive tree structure for testing z.lazy() generation.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Validate)]
+#[non_exhaustive]
+pub struct Category {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
+    pub parent: Option<Box<Category>>,
+    #[serde(default)]
+    #[validate(nested)]
+    pub children: Vec<Category>,
+}
+

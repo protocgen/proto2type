@@ -91,3 +91,10 @@ message Tag {
   string key = 1;
   string value = 2;
 }
+
+// Category is a recursive tree structure for testing z.lazy() generation.
+message Category {
+  string name = 1;
+  Category parent = 2;           // singular self-ref → z.lazy()
+  repeated Category children = 3; // repeated self-ref → z.array(z.lazy())
+}

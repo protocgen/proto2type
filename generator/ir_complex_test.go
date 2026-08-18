@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -379,25 +378,24 @@ func TestDetectNameCollisions_MessageMessage(t *testing.T) {
 		},
 	}
 
-	// No collision yet — should not panic.
-	detectNameCollisions(df)
+	// No collision yet — should not error.
+	if err := detectNameCollisions(df); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Now add a collision.
 	df.Messages = append(df.Messages, &DomainMessage{
 		Name: "FooBar", FullName: "test.v1.Foo.Bar",
 	})
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for message name collision, got none")
-		}
-		msg := fmt.Sprintf("%v", r)
-		if !strings.Contains(msg, "FooBar") || !strings.Contains(msg, "collision") {
-			t.Errorf("panic message should mention 'FooBar' and 'collision', got: %s", msg)
-		}
-	}()
-	detectNameCollisions(df)
+	err := detectNameCollisions(df)
+	if err == nil {
+		t.Fatal("expected error for message name collision, got none")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "FooBar") || !strings.Contains(msg, "collision") {
+		t.Errorf("error message should mention 'FooBar' and 'collision', got: %s", msg)
+	}
 }
 
 func TestDetectNameCollisions_EnumMessage(t *testing.T) {
@@ -412,13 +410,9 @@ func TestDetectNameCollisions_EnumMessage(t *testing.T) {
 		},
 	}
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for enum-message name collision, got none")
-		}
-	}()
-	detectNameCollisions(df)
+	if err := detectNameCollisions(df); err == nil {
+		t.Fatal("expected error for enum-message name collision, got none")
+	}
 }
 
 func TestDetectNameCollisions_NoCollision(t *testing.T) {
@@ -443,17 +437,14 @@ func TestDetectNameCollisions_NestedMessage(t *testing.T) {
 		},
 	}
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for nested message name collision, got none")
-		}
-		msg := fmt.Sprintf("%v", r)
-		if !strings.Contains(msg, "FooBar") {
-			t.Errorf("panic should mention 'FooBar', got: %s", msg)
-		}
-	}()
-	detectNameCollisions(df)
+	err := detectNameCollisions(df)
+	if err == nil {
+		t.Fatal("expected error for nested message name collision, got none")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "FooBar") {
+		t.Errorf("error should mention 'FooBar', got: %s", msg)
+	}
 }
 
 func TestDetectNameCollisions_NestedEnum(t *testing.T) {
@@ -467,11 +458,7 @@ func TestDetectNameCollisions_NestedEnum(t *testing.T) {
 		},
 	}
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for nested enum name collision, got none")
-		}
-	}()
-	detectNameCollisions(df)
+	if err := detectNameCollisions(df); err == nil {
+		t.Fatal("expected error for nested enum name collision, got none")
+	}
 }

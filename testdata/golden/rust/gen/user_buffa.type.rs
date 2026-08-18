@@ -203,3 +203,29 @@ impl TryFrom<&__buffa_mod::Tag> for Tag {
     }
 }
 
+#[allow(clippy::field_reassign_with_default)]
+impl TryFrom<&Category> for __buffa_mod::Category {
+    type Error = ConversionError;
+
+    fn try_from(d: &Category) -> Result<Self, Self::Error> {
+        let mut b = Self::default();
+        b.name = d.name.clone().into();
+        b.parent = buffa::MessageField::some((&*d.parent).try_into()?);
+        b.children = d.children.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?;
+        Ok(b)
+    }
+}
+
+#[allow(clippy::field_reassign_with_default)]
+impl TryFrom<&__buffa_mod::Category> for Category {
+    type Error = ConversionError;
+
+    fn try_from(b: &__buffa_mod::Category) -> Result<Self, Self::Error> {
+        let mut d = Self::default();
+        d.name = b.name.to_string();
+        d.parent = Box::new(b.parent.as_option().ok_or(ConversionError::MissingRequiredField("parent"))?.try_into()?);
+        d.children = b.children.iter().map(|v| v.try_into()).collect::<Result<Vec<_>, _>>()?;
+        Ok(d)
+    }
+}
+

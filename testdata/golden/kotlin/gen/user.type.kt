@@ -160,3 +160,27 @@ fun Tag.validateOrThrow() {
     }
 }
 
+/** Category is a recursive tree structure for testing z.lazy() generation. */
+@Serializable
+data class Category(
+    val name: String = "",
+    val parent: Category? = null,
+    val children: List<Category> = emptyList()
+)
+
+/** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
+fun Category.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    parent?.validate()?.let { errors.addAll(it.map { e -> "parent.$e" }) }
+    children.forEachIndexed { i, v -> v.validate().forEach { e -> errors.add("children[$i].$e") } }
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun Category.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("Category: validation failed: " + errors.joinToString("; "))
+    }
+}
+
