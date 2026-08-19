@@ -13,7 +13,10 @@ import (
 // JSON-RPC bridge code by producing enums that serialize directly to the
 // flat wire format expected by JSON-RPC clients.
 func generateRustJsonrpc(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	filename := outputFilename(file.GeneratedFilenamePrefix, "_jsonrpc.type.rs")
+	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_jsonrpc.type.rs")
+	if err != nil {
+		return err
+	}
 
 	g := gen.NewGeneratedFile(filename, "")
 

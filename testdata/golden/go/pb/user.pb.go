@@ -124,8 +124,12 @@ type User struct {
 	Values      []*structpb.Value          `protobuf:"bytes,30,rep,name=values,proto3" json:"values,omitempty"`
 	ValueMap    map[string]*structpb.Value `protobuf:"bytes,31,rep,name=value_map,json=valueMap,proto3" json:"value_map,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Wrapper map values (Issue #116)
-	Labels        map[string]*wrapperspb.StringValue `protobuf:"bytes,32,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Scores        map[string]*wrapperspb.Int64Value  `protobuf:"bytes,33,rep,name=scores,proto3" json:"scores,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Labels map[string]*wrapperspb.StringValue `protobuf:"bytes,32,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Scores map[string]*wrapperspb.Int64Value  `protobuf:"bytes,33,rep,name=scores,proto3" json:"scores,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Deprecated: Marked as deprecated in user.proto.
+	OldField      string `protobuf:"bytes,34,opt,name=old_field,json=oldField,proto3" json:"old_field,omitempty"`
+	OptionalName  string `protobuf:"bytes,35,opt,name=optional_name,json=optionalName,proto3" json:"optional_name,omitempty"`
+	BigNumber     int64  `protobuf:"varint,36,opt,name=big_number,json=bigNumber,proto3" json:"big_number,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -402,6 +406,28 @@ func (x *User) GetScores() map[string]*wrapperspb.Int64Value {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in user.proto.
+func (x *User) GetOldField() string {
+	if x != nil {
+		return x.OldField
+	}
+	return ""
+}
+
+func (x *User) GetOptionalName() string {
+	if x != nil {
+		return x.OptionalName
+	}
+	return ""
+}
+
+func (x *User) GetBigNumber() int64 {
+	if x != nil {
+		return x.BigNumber
+	}
+	return 0
+}
+
 type isUser_ContactMethod interface {
 	isUser_ContactMethod()
 }
@@ -614,7 +640,7 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\xb3\x11\n" +
+	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\x98\x12\n" +
 	"\x04User\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x03R\x02id\x12 \n" +
 	"\x05email\x18\x02 \x01(\tB\n" +
@@ -658,7 +684,11 @@ const file_user_proto_rawDesc = "" +
 	"\x06values\x18\x1e \x03(\v2\x16.google.protobuf.ValueR\x06values\x128\n" +
 	"\tvalue_map\x18\x1f \x03(\v2\x1b.test.v1.User.ValueMapEntryR\bvalueMap\x121\n" +
 	"\x06labels\x18  \x03(\v2\x19.test.v1.User.LabelsEntryR\x06labels\x121\n" +
-	"\x06scores\x18! \x03(\v2\x19.test.v1.User.ScoresEntryR\x06scores\x1a;\n" +
+	"\x06scores\x18! \x03(\v2\x19.test.v1.User.ScoresEntryR\x06scores\x12\x1f\n" +
+	"\told_field\x18\" \x01(\tB\x02\x18\x01R\boldField\x12#\n" +
+	"\roptional_name\x18# \x01(\tR\foptionalName\x12\x1d\n" +
+	"\n" +
+	"big_number\x18$ \x01(\x03R\tbigNumber\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aY\n" +

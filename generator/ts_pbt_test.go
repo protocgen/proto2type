@@ -95,7 +95,7 @@ func FuzzTsImportPath(f *testing.F) {
 		if curr == "" || target == "" {
 			return
 		}
-		out := tsImportPath(curr, target)
+		out := tsImportPath(curr, target, &Options{})
 		if len(out) > 0 {
 			if !strings.HasPrefix(out, ".") {
 				t.Errorf("tsImportPath(%q, %q) = %q, should start with .", curr, target, out)

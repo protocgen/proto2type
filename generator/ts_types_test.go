@@ -18,12 +18,12 @@ func TestTSScalarZodType(t *testing.T) {
 		{protoreflect.Sfixed32Kind, "z.number().int()"},
 		{protoreflect.Uint32Kind, "z.number().int().nonnegative()"},
 		{protoreflect.Fixed32Kind, "z.number().int().nonnegative()"},
-		{protoreflect.Int64Kind, "z.union([z.string(), z.number()]).pipe(z.coerce.string())"},
-		{protoreflect.Uint64Kind, "z.union([z.string(), z.number()]).pipe(z.coerce.string())"},
-		{protoreflect.FloatKind, "z.number()"},
-		{protoreflect.DoubleKind, "z.number()"},
+		{protoreflect.Int64Kind, `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string())`},
+		{protoreflect.Uint64Kind, `z.union([z.string().max(100).regex(/^\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string())`},
+		{protoreflect.FloatKind, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])])`},
+		{protoreflect.DoubleKind, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])])`},
 		{protoreflect.StringKind, "z.string()"},
-		{protoreflect.BytesKind, "z.string()"},
+		{protoreflect.BytesKind, "z.string().base64()"},
 	}
 
 	opts := &Options{TSInt64Style: "string"}
@@ -46,13 +46,13 @@ func TestTSWKTZodType(t *testing.T) {
 		{FieldKindDuration, `z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration (e.g. '1.5s')" })`},
 		{FieldKindWrapperBool, "z.boolean().nullable()"},
 		{FieldKindWrapperInt32, "z.number().int().nullable()"},
-		{FieldKindWrapperInt64, "z.union([z.string(), z.number()]).pipe(z.coerce.string()).nullable()"},
+		{FieldKindWrapperInt64, `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).nullable()`},
 		{FieldKindWrapperUInt32, "z.number().int().nonnegative().nullable()"},
-		{FieldKindWrapperUInt64, "z.union([z.string(), z.number()]).pipe(z.coerce.string()).nullable()"},
-		{FieldKindWrapperFloat, "z.number().nullable()"},
-		{FieldKindWrapperDouble, "z.number().nullable()"},
+		{FieldKindWrapperUInt64, `z.union([z.string().max(100).regex(/^\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string()).nullable()`},
+		{FieldKindWrapperFloat, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])]).nullable()`},
+		{FieldKindWrapperDouble, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])]).nullable()`},
 		{FieldKindWrapperString, "z.string().nullable()"},
-		{FieldKindWrapperBytes, "z.string().nullable()"},
+		{FieldKindWrapperBytes, "z.string().base64().nullable()"},
 		{FieldKindStruct, "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())"},
 		{FieldKindValue, "z.unknown()"},
 		{FieldKindListValue, "z.array(z.unknown())"},
@@ -78,10 +78,10 @@ func TestTSWKTZodType(t *testing.T) {
 func TestTSScalarZodType_BigInt(t *testing.T) {
 	opts := &Options{TSInt64Style: "bigint"}
 
-	expBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint())`
-	expBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
-	expWrapBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint()).nullable()`
-	expWrapBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`
+	expBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint())`
+	expBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
+	expWrapBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).nullable()`
+	expWrapBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`
 
 	if got := tsScalarZodType(protoreflect.Int64Kind, opts); got != expBigInt {
 		t.Errorf("Int64 = %q, want %s", got, expBigInt)
@@ -102,12 +102,12 @@ func TestTSScalarZodType_BigInt(t *testing.T) {
 
 func TestTSOutputFilename(t *testing.T) {
 	opts := &Options{}
-	if got := tsOutputFilename("path/to/my_file.proto", opts); got != "path/to/my_file.type.ts" {
+	if got, _ := tsOutputFilename("path/to/my_file.proto", opts); got != "path/to/my_file.type.ts" {
 		t.Errorf("got %q, want path/to/my_file.type.ts", got)
 	}
 
 	opts.OutputFile = "custom.ts"
-	if got := tsOutputFilename("path/to/my_file.proto", opts); got != "custom.ts" {
+	if got, _ := tsOutputFilename("path/to/my_file.proto", opts); got != "custom.ts" {
 		t.Errorf("got %q, want custom.ts", got)
 	}
 }

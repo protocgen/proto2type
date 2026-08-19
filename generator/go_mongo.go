@@ -8,7 +8,10 @@ import (
 
 // generateGoMongo generates a Go MongoDB storage type file.
 func generateGoMongo(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	filename := outputFilename(file.GeneratedFilenamePrefix, "_mongo.type.go")
+	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_mongo.type.go")
+	if err != nil {
+		return err
+	}
 
 	goImportPath := file.GoImportPath
 	goPackageName := file.GoPackageName

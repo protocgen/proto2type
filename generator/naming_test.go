@@ -72,7 +72,10 @@ func TestOutputFilename(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got := outputFilename(tt.path, tt.suffix)
+			got, err := outputFilename(tt.path, tt.suffix)
+			if err != nil {
+				t.Fatalf("outputFilename() unexpected error: %v", err)
+			}
 			if got != tt.want {
 				t.Errorf("outputFilename(%q, %q) = %q, want %q", tt.path, tt.suffix, got, tt.want)
 			}
@@ -95,12 +98,10 @@ func TestOutputFilename_PathTraversal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Errorf("outputFilename(%q, ...) should panic on path traversal", tt.path)
-				}
-			}()
-			outputFilename(tt.path, ".type.go")
+			_, err := outputFilename(tt.path, ".type.go")
+			if err == nil {
+				t.Errorf("outputFilename(%q, ...) should error on path traversal", tt.path)
+			}
 		})
 	}
 }

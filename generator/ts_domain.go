@@ -32,13 +32,18 @@ func generateTypeScriptDomain(gen *protogen.Plugin, file *protogen.File, opts *O
 		return err
 	}
 	if opts.Debug {
-		irJSON, _ := json.MarshalIndent(ir, "", "  ")
-		_, _ = fmt.Fprintf(os.Stderr, "--- proto2type IR for %s ---\n%s\n", file.Desc.Path(), irJSON)
+		irJSON, err := json.MarshalIndent(ir, "", "  ")
+		if err == nil {
+			_, _ = fmt.Fprintf(os.Stderr, "--- proto2type IR for %s ---\n%s\n", file.Desc.Path(), irJSON)
+		}
 	}
 	ir.Messages = flattenMessages(ir.Messages)
 	ir.Messages = topologicalSortMessages(ir.Messages)
 
-	outFile := tsOutputFilename(file.Desc.Path(), opts)
+	outFile, err := tsOutputFilename(file.Desc.Path(), opts)
+	if err != nil {
+		return err
+	}
 	g := gen.NewGeneratedFile(outFile, "")
 
 	writeTSFile(g, ir, opts)
@@ -171,7 +176,7 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 				g.P("  /** ", sanitizeJSDoc(f.Comment), " */")
 			}
 			optMark := ""
-			if tsFieldNeedsOptional(f, opts) {
+			if tsFieldNeedsOptional(f, opts) || (recursive && !f.IsOneof && !tsFieldIsRequired(f, opts)) {
 				optMark = "?"
 			}
 			g.P(fmt.Sprintf("  %s%s: %s;", f.CamelName, optMark, tsPlainType(f, opts)))
@@ -184,11 +189,12 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 			}
 		}
 		g.P("};")
-		g.P("export const ", m.Name, "Schema: z.ZodType<", m.Name, ", z.ZodTypeDef, any> = /* @__PURE__ */ z.lazy(() => z.object({")
+		// Note: z.lazy in Zod 3.x caches the schema after the first call, so no manual caching wrapper is needed here.
+		g.P("export const ", m.Name, "Schema: z.ZodType<", m.Name, "> = /* @__PURE__ */ z.lazy(() => z.object({")
 	} else {
 		if opts.TSExplicitTypes {
 			writeTSExplicitInterface(g, m, opts)
-			g.P("export const ", m.Name, "Schema: z.ZodType<", m.Name, "> = /* @__PURE__ */ z.object({")
+			g.P("export const ", m.Name, "Schema = /* @__PURE__ */ z.object({")
 		} else {
 			g.P("export const ", m.Name, "Schema = /* @__PURE__ */ z.object({")
 		}
@@ -211,7 +217,7 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 			g.P("  /** ", comment, " */")
 		}
 		zodExpr := tsFieldZodExpr(f, opts)
-		g.P(fmt.Sprintf("  %s: %s,", tsSafeKey(f.CamelName), zodExpr))
+		g.P("  ", tsSafeKey(f.CamelName), ": ", zodExpr, ",")
 	}
 
 	// Oneof variants: emit each as an optional field.
@@ -222,7 +228,7 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 				baseType += tsOneofVariantZodConstraints(v, opts)
 			}
 			zodExpr := baseType + ".optional()"
-			g.P(fmt.Sprintf("  %s: %s,", toCamelCase(v.ProtoName), zodExpr))
+			g.P("  ", toCamelCase(v.ProtoName), ": ", zodExpr, ",")
 		}
 	}
 
@@ -304,45 +310,35 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 		// Map field: z.record(key, value).default({})
 		valType := tsMapValueZodType(f.MapValue, opts)
 		zodExpr = fmt.Sprintf("z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), %s)", valType)
-		// Map size constraints
-		if opts.ValidateEnabled() && f.ValidateConstraints != nil {
-			if f.ValidateConstraints.MinItems != nil {
-				zodExpr += fmt.Sprintf(".refine(v => Object.keys(v).length >= %d, { message: 'Map must have at least %d entries' })", *f.ValidateConstraints.MinItems, *f.ValidateConstraints.MinItems)
-			}
-			if f.ValidateConstraints.MaxItems != nil {
-				zodExpr += fmt.Sprintf(".refine(v => Object.keys(v).length <= %d, { message: 'Map must have at most %d entries' })", *f.ValidateConstraints.MaxItems, *f.ValidateConstraints.MaxItems)
-			}
+		if opts.ValidateEnabled() {
+			zodExpr += tsMapConstraints(f.ValidateConstraints)
 		}
 		zodExpr += ".default(() => ({}))"
 	} else if f.Repeated {
 		// Repeated field: z.array(base).default([])
 		zodExpr = fmt.Sprintf("z.array(%s)", baseType)
-		// Apply array-level constraints (min/max items).
-		if opts.ValidateEnabled() && f.ValidateConstraints != nil {
-			if f.ValidateConstraints.MinItems != nil {
-				zodExpr += fmt.Sprintf(".min(%d)", *f.ValidateConstraints.MinItems)
-			}
-			if f.ValidateConstraints.MaxItems != nil {
-				zodExpr += fmt.Sprintf(".max(%d)", *f.ValidateConstraints.MaxItems)
-			}
+		if opts.ValidateEnabled() {
+			zodExpr += tsRepeatedConstraints(f.ValidateConstraints)
 		}
 		zodExpr += ".default(() => [])"
 	} else {
-		// Singular field: add .optional() if needed.
+		// Singular field: add .optional() or .nullish() if needed.
 		if f.IsOneof || tsFieldIsRequired(f, opts) {
 			// required or oneof — no default
+		} else if f.Kind.IsWrapper() {
+			// M3: Wrapper types should use .nullish() instead of .nullable() or .optional()
+			// Since we might have already added .nullable() if baseType had it, we should handle that.
+			// Actually tsZodType for wrappers might return `.nullable()`.
+			// Let's replace `.nullable()` with `.nullish()` if it's there, or just add it.
+			if strings.HasSuffix(zodExpr, ".nullable()") {
+				zodExpr = strings.TrimSuffix(zodExpr, ".nullable()") + ".nullish()"
+			} else {
+				zodExpr += ".nullish()"
+			}
 		} else if tsFieldNeedsOptional(f, opts) {
 			zodExpr += ".optional()"
-		} else if f.Kind == FieldKindEnum && !tsFieldIsRequired(f, opts) {
-			if f.EnumDefaultName != "" {
-				zodExpr += fmt.Sprintf(".default(%s)", strconv.Quote(f.EnumDefaultName))
-			} else {
-				zodExpr += ".optional()"
-			}
-		} else if opts.ValidateEnabled() && f.ValidateConstraints != nil && hasActiveConstraints(f.ValidateConstraints) {
-			// Has validation constraints — do NOT add .default(), let errors propagate
-			// But field is still proto3 implicit presence, so make it optional
-			zodExpr += ".optional()"
+		} else if f.Kind == FieldKindEnum && f.EnumDefaultName != "" {
+			zodExpr += fmt.Sprintf(".default(%s)", strconv.Quote(f.EnumDefaultName))
 		} else {
 			zodExpr += ".default(" + tsScalarDefault(f.ScalarKind, opts) + ")"
 		}
@@ -367,26 +363,18 @@ func tsFieldNeedsOptional(f *DomainField, opts *Options) bool {
 		f.Kind == FieldKindValue || f.Kind == FieldKindListValue ||
 		f.Kind == FieldKindFieldMask || f.Kind == FieldKindEmpty ||
 		f.Kind == FieldKindAny || f.Kind.IsWrapper()
-	return isMessageLike || f.Optional || f.IsOneof
+	if isMessageLike || f.Optional || f.IsOneof {
+		return true
+	}
+	if f.Kind == FieldKindEnum && f.EnumDefaultName == "" {
+		return true
+	}
+	return false
 }
 
 func tsFieldIsRequired(f *DomainField, opts *Options) bool {
 	return opts.ValidateEnabled() && f.ValidateConstraints != nil && f.ValidateConstraints.Required
 }
-
-func hasActiveConstraints(vc *ValidateConstraints) bool {
-	if vc == nil {
-		return false
-	}
-	return vc.HasConstraints()
-}
-
-// writeTSExplicitInterface emits a plain TypeScript interface alongside the Zod schema.
-// This can improve IDE performance compared to z.infer in large codebases.
-
-// tsPlainType returns the plain TypeScript type for a field (used in explicit interfaces).
-
-// tsPlainBaseType returns the plain TS type for a field's base type.
 
 // sanitizeJSDoc escapes JSDoc closing tags in comments.
 func sanitizeJSDoc(s string) string {

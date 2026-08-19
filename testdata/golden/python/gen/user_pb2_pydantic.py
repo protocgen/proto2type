@@ -72,6 +72,9 @@ class User(BaseModel):
     value_map: dict[str, Any] = Field(default_factory=dict)
     labels: dict[str, str | None] = Field(default_factory=dict, description='Wrapper map values (Issue #116)')
     scores: dict[str, int | None] = Field(default_factory=dict)
+    old_field: str = ''
+    optional_name: str = ''
+    big_number: int = 0
     contact_method: str | None = None
 
     @field_serializer('created_at', 'deleted_at')

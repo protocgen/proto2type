@@ -56,6 +56,9 @@ export interface User {
   /** Wrapper map values (Issue #116) */
   labels: Record<string, string | null>;
   scores: Record<string, string | null>;
+  oldField: string;
+  optionalName: string;
+  bigNumber: string;
   /** @oneof contact_method — at most one of: contactEmail, contactPhone */
   contactEmail?: string;
   contactPhone?: string;

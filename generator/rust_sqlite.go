@@ -9,7 +9,10 @@ import (
 
 // generateRustSqlite generates a Rust SQLite storage type file for a proto file.
 func generateRustSqlite(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	filename := outputFilename(file.GeneratedFilenamePrefix, "_sqlite.type.rs")
+	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_sqlite.type.rs")
+	if err != nil {
+		return err
+	}
 
 	g := gen.NewGeneratedFile(filename, "")
 
