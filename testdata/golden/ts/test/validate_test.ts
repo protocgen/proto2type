@@ -84,7 +84,7 @@ assert('oneof mutual exclusion', () => {
 
 // Age boundary: -1 (fail), 0 (pass), 150 (pass), 151 (fail)
 assert('age boundary', () => {
-  const base = { roles: ['user'] };  // roles has min(1) constraint
+  const base = { email: 'test@example.com', displayName: 'Test', roles: ['user'] };
   const r1 = UserValidateSchema.safeParse({ ...base, age: -1 });
   const r2 = UserValidateSchema.safeParse({ ...base, age: 0 });
   const r3 = UserValidateSchema.safeParse({ ...base, age: 150 });

@@ -369,21 +369,11 @@ func tsFieldNeedsOptional(f *DomainField, opts *Options) bool {
 	if f.Kind == FieldKindEnum && f.EnumDefaultName == "" {
 		return true
 	}
-	if opts.ValidateEnabled() && f.ValidateConstraints != nil && hasActiveConstraints(f.ValidateConstraints) {
-		return true
-	}
 	return false
 }
 
 func tsFieldIsRequired(f *DomainField, opts *Options) bool {
 	return opts.ValidateEnabled() && f.ValidateConstraints != nil && f.ValidateConstraints.Required
-}
-
-func hasActiveConstraints(vc *ValidateConstraints) bool {
-	if vc == nil {
-		return false
-	}
-	return vc.HasConstraints()
 }
 
 // sanitizeJSDoc escapes JSDoc closing tags in comments.

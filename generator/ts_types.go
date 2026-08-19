@@ -42,12 +42,12 @@ func tsScalarZodType(k protoreflect.Kind, opts *Options) string {
 		if opts.TSInt64Style == "bigint" {
 			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint())`
 		}
-		return `z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string())`
+		return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string())`
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		if opts.TSInt64Style == "bigint" {
 			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
 		}
-		return `z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string())`
+		return `z.union([z.string().max(100).regex(/^\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string())`
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
 		return `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])])`
 	case protoreflect.StringKind:
@@ -76,12 +76,12 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 		if opts.TSInt64Style == "bigint" {
 			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).nullable()`, true
 		}
-		return `z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).nullable()`, true
+		return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).nullable()`, true
 	case FieldKindWrapperUInt64:
 		if opts.TSInt64Style == "bigint" {
 			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`, true
 		}
-		return `z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string()).nullable()`, true
+		return `z.union([z.string().max(100).regex(/^\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string()).nullable()`, true
 	case FieldKindWrapperFloat, FieldKindWrapperDouble:
 		return `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])]).nullable()`, true
 	case FieldKindWrapperString:

@@ -12,10 +12,10 @@ export const UserStatusSchema = /* @__PURE__ */ z.enum(["Unspecified", "Active",
 
 /** Address is a nested message. */
 export const AddressSchema = /* @__PURE__ */ z.object({
-  street: z.string().min(1).optional(),
-  city: z.string().min(1).optional(),
-  state: z.string().min(2).max(2).optional(),
-  zip: z.string().regex(new RegExp("^[0-9]{5}(-[0-9]{4})?$"), { message: "must match pattern" }).optional(),
+  street: z.string().min(1).default(""),
+  city: z.string().min(1).default(""),
+  state: z.string().min(2).max(2).default(""),
+  zip: z.string().regex(new RegExp("^[0-9]{5}(-[0-9]{4})?$"), { message: "must match pattern" }).default(""),
   country: z.string().default(""),
 });
 export type Address = z.infer<typeof AddressSchema>;
@@ -30,10 +30,10 @@ export type Tag = z.infer<typeof TagSchema>;
 /** User represents a user account. */
 export const UserSchema = /* @__PURE__ */ z.object({
   id: z.string().default(""),
-  email: z.string().email().optional(),
-  displayName: z.string().min(1).max(255).optional(),
+  email: z.string().email().default(""),
+  displayName: z.string().min(1).max(255).default(""),
   active: z.boolean().default(false),
-  age: z.number().int().gte(0).lte(150).optional(),
+  age: z.number().int().gte(0).lte(150).default(0),
   roles: z.array(z.string()).min(1).max(10).default(() => []),
   metadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.string()).default(() => ({})),
   address: AddressSchema.optional(),
@@ -65,11 +65,11 @@ export const UserSchema = /* @__PURE__ */ z.object({
   valueMap: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown()).default(() => ({})),
   /** Wrapper map values (Issue #116) */
   labels: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.string().nullable()).default(() => ({})),
-  scores: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).nullable()).default(() => ({})),
+  scores: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).nullable()).default(() => ({})),
   /** @deprecated */
   oldField: z.string().default(""),
   optionalName: z.string().default(""),
-  bigNumber: z.union([z.string(), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).default("0"),
+  bigNumber: z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).default("0"),
   contactEmail: z.string().optional(),
   contactPhone: z.string().optional(),
 }).superRefine((data, ctx) => {
