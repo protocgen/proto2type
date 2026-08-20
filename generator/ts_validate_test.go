@@ -441,3 +441,75 @@ func TestTsRepeatedConstraints_MinMax(t *testing.T) {
 		t.Errorf("missing max check: %s", got)
 	}
 }
+
+func TestHasNestedQuantifiers(t *testing.T) {
+	tests := []struct {
+		pattern string
+		want    bool
+	}{
+		// Dangerous: nested quantifiers cause ReDoS in JS.
+		{`(a+)+`, true},
+		{`(a*)*`, true},
+		{`(a+)*`, true},
+		{`(a*)+`, true},
+		{`(a+b+)+`, true},
+		{`([a-z]+)+`, true},
+		{`(a{2,})+`, true},
+		{`((a+))+`, true},
+		{`(?:a+)+`, true}, // Non-capturing group — Simplify() would hide this.
+
+		// Safe: single-level quantifiers.
+		{`a+`, false},
+		{`[a-z]+`, false},
+		{`(abc)+`, false}, // No inner quantifier.
+		{`a+b+c+`, false}, // Siblings, not nested.
+		{`^[a-z]+$`, false},
+		{`\d{3}-\d{4}`, false},
+		{`(a|b)+`, false},                    // Alternation under quantifier, no nested quantifier.
+		{`^[a-zA-Z0-9+/\-_]*={0,2}$`, false}, // base64 regex.
+		{`(a{2})+`, false},                   // Fixed repeat inside quantifier — not dangerous.
+		{`(a{2,3})+`, false},                 // Bounded repeat — finite expansion, safe.
+	}
+	for _, tt := range tests {
+		got := hasNestedQuantifiers(tt.pattern)
+		if got != tt.want {
+			t.Errorf("hasNestedQuantifiers(%q) = %v, want %v", tt.pattern, got, tt.want)
+		}
+	}
+}
+
+func TestTsZodConstraints_PatternNestedQuantifier(t *testing.T) {
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{
+			Pattern: "(a+)+",
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, "WARN") || !strings.Contains(got, "nested quantifiers") {
+		t.Errorf("nested quantifier pattern should emit WARN, got: %s", got)
+	}
+	if strings.Contains(got, "new RegExp") {
+		t.Error("nested quantifier pattern should NOT emit RegExp")
+	}
+}
+
+func TestTsZodConstraints_PatternSafeQuantifier(t *testing.T) {
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{
+			Pattern: `^[a-z]+$`,
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, "new RegExp") {
+		t.Errorf("safe pattern should emit RegExp, got: %s", got)
+	}
+	if strings.Contains(got, "WARN") {
+		t.Error("safe pattern should NOT emit WARN")
+	}
+}
