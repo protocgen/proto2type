@@ -23,7 +23,7 @@ func TestTSScalarZodType(t *testing.T) {
 		{protoreflect.FloatKind, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])])`},
 		{protoreflect.DoubleKind, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])])`},
 		{protoreflect.StringKind, "z.string()"},
-		{protoreflect.BytesKind, "z.string().base64()"},
+		{protoreflect.BytesKind, `z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" })`},
 	}
 
 	opts := &Options{TSInt64Style: "string"}
@@ -52,7 +52,7 @@ func TestTSWKTZodType(t *testing.T) {
 		{FieldKindWrapperFloat, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])]).nullable()`},
 		{FieldKindWrapperDouble, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])]).nullable()`},
 		{FieldKindWrapperString, "z.string().nullable()"},
-		{FieldKindWrapperBytes, "z.string().base64().nullable()"},
+		{FieldKindWrapperBytes, `z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" }).nullable()`},
 		{FieldKindStruct, "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())"},
 		{FieldKindValue, "z.unknown()"},
 		{FieldKindListValue, "z.array(z.unknown())"},

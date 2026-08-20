@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+// reHasNamedGroup detects RE2-style named capture groups (?P<name>...)
+// which are not supported by JavaScript's RegExp engine.
+var reHasNamedGroup = regexp.MustCompile(`\(\?P<`)
+
 func tsZodConstraints(f *DomainField, opts *Options) string {
 	vc := f.ValidateConstraints
 	if vc == nil || !vc.HasConstraints() {
@@ -68,7 +72,13 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		// Validate pattern with Go's RE2 engine (linear-time guarantee) to prevent ReDoS.
 		// buf.validate specifies RE2 syntax, so valid patterns always pass this check.
 		if _, err := regexp.Compile(vc.Pattern); err != nil {
-			parts = append(parts, fmt.Sprintf(` /* WARN: pattern %s is not RE2-safe, skipped */`, strconv.Quote(vc.Pattern)))
+			// Sanitize pattern to prevent comment injection (closing */ in pattern).
+			safe := strings.ReplaceAll(vc.Pattern, "*/", "* /")
+			parts = append(parts, fmt.Sprintf(` /* WARN: pattern %q is not RE2-safe, skipped */`, safe))
+		} else if reHasNamedGroup.MatchString(vc.Pattern) {
+			// RE2 named groups (?P<name>...) are not valid in JS RegExp.
+			safe := strings.ReplaceAll(vc.Pattern, "*/", "* /")
+			parts = append(parts, fmt.Sprintf(` /* WARN: pattern %q uses RE2 named groups unsupported by JS, skipped */`, safe))
 		} else {
 			escaped := strconv.Quote(vc.Pattern)
 			if vc.IgnoreEmpty {

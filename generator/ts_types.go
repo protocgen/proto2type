@@ -53,7 +53,8 @@ func tsScalarZodType(k protoreflect.Kind, opts *Options) string {
 	case protoreflect.StringKind:
 		return "z.string()"
 	case protoreflect.BytesKind:
-		return "z.string().base64()"
+		// ProtoJSON accepts standard base64 (+/) and base64url (-_), with or without padding.
+		return `z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" })`
 	default:
 		return "z.unknown()"
 	}
@@ -87,7 +88,7 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 	case FieldKindWrapperString:
 		return "z.string().nullable()", true
 	case FieldKindWrapperBytes:
-		return "z.string().base64().nullable()", true
+		return `z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" }).nullable()`, true
 	case FieldKindStruct:
 		return "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())", true
 	case FieldKindValue:
