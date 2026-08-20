@@ -40,12 +40,12 @@ func tsScalarZodType(k protoreflect.Kind, opts *Options) string {
 		return "z.number().int().nonnegative()"
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint())`
+			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" })`
 		}
 		return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string())`
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		if opts.TSInt64Style == "bigint" {
-			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
+			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n && v <= 18446744073709551615n, { message: "uint64 out of range" })`
 		}
 		return `z.union([z.string().max(100).regex(/^\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string())`
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
@@ -74,12 +74,12 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 		return "z.number().int().nonnegative().nullable()", true
 	case FieldKindWrapperInt64:
 		if opts.TSInt64Style == "bigint" {
-			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).nullable()`, true
+			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" }).nullable()`, true
 		}
 		return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).nullable()`, true
 	case FieldKindWrapperUInt64:
 		if opts.TSInt64Style == "bigint" {
-			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`, true
+			return `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n && v <= 18446744073709551615n, { message: "uint64 out of range" }).nullable()`, true
 		}
 		return `z.union([z.string().max(100).regex(/^\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }).refine(n => n >= 0, { message: "must be non-negative" })]).pipe(z.coerce.string()).nullable()`, true
 	case FieldKindWrapperFloat, FieldKindWrapperDouble:

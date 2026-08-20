@@ -188,6 +188,11 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 		Comment:             cleanFieldComment(field),
 	}
 
+	// Populate proto2 custom default value (if present).
+	if field.Desc.HasDefault() {
+		df.Proto2DefaultValue = field.Desc.Default().String()
+	}
+
 	df.ProtoGoName = field.GoName
 	if field.Enum != nil {
 		df.ProtoEnumGoIdent = field.Enum.GoIdent

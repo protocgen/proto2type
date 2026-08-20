@@ -67,11 +67,11 @@ export const UserSchema = /* @__PURE__ */ z.object({
   valueMap: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown()).default(() => ({})),
   /** Wrapper map values (Issue #116) */
   labels: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.string().nullable()).default(() => ({})),
-  scores: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).nullable()).default(() => ({})),
+  scores: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" }).nullable()).default(() => ({})),
   /** @deprecated */
   oldField: z.string().default(""),
   optionalName: z.string().default(""),
-  bigNumber: z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).default(0n),
+  bigNumber: z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" }).default(0n),
   contactEmail: z.string().optional(),
   contactPhone: z.string().optional(),
 }).superRefine((data, ctx) => {

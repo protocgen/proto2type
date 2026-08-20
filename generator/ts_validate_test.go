@@ -97,7 +97,7 @@ func TestTsZodConstraints_BytesLength(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	expected := `.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= 5; }, { message: "bytes must be valid base64 and at least 5 bytes" }).refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= 10; }, { message: "bytes must be valid base64 and at most 10 bytes" })`
+	expected := `.refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && Math.floor(v.replace(/=+$/, "").length * 3 / 4) >= 5, { message: "bytes must be at least 5 bytes" }).refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && Math.floor(v.replace(/=+$/, "").length * 3 / 4) <= 10, { message: "bytes must be at most 10 bytes" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}

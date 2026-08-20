@@ -227,6 +227,10 @@ type DomainField struct {
 	Omitempty bool
 	// Deprecated is true when the field has the deprecated option set.
 	Deprecated bool
+	// Proto2DefaultValue is the string representation of a proto2 custom default.
+	// Empty for proto3 fields (which always use zero-value defaults).
+	// Backends can use this to emit non-zero defaults for proto2 messages.
+	Proto2DefaultValue string
 
 	// FieldBehaviors from google.api.field_behavior annotations.
 	// nil means no annotation present.

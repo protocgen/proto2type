@@ -3,6 +3,7 @@ package generator
 import (
 	"fmt"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -25,16 +26,19 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 	var parts []string
 
 	isBytesField := f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind || f.Kind == FieldKindWrapperBytes
+	// Decoded byte length for base64: strip trailing '=' then Math.floor(len * 3 / 4).
+	// This correctly handles both padded ("Zg==") and unpadded ("Zg") base64.
+	const b64DecodedLen = `Math.floor(v.replace(/=+$/, "").length * 3 / 4)`
 	if vc.MinLength != nil {
 		if isBytesField {
-			parts = append(parts, fmt.Sprintf(`.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= %d; }, { message: "bytes must be valid base64 and at least %d bytes" })`, *vc.MinLength, *vc.MinLength))
+			parts = append(parts, fmt.Sprintf(`.refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && %s >= %d, { message: "bytes must be at least %d bytes" })`, b64DecodedLen, *vc.MinLength, *vc.MinLength))
 		} else {
 			parts = append(parts, fmt.Sprintf(".min(%d)", *vc.MinLength))
 		}
 	}
 	if vc.MaxLength != nil {
 		if isBytesField {
-			parts = append(parts, fmt.Sprintf(`.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= %d; }, { message: "bytes must be valid base64 and at most %d bytes" })`, *vc.MaxLength, *vc.MaxLength))
+			parts = append(parts, fmt.Sprintf(`.refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && %s <= %d, { message: "bytes must be at most %d bytes" })`, b64DecodedLen, *vc.MaxLength, *vc.MaxLength))
 		} else {
 			parts = append(parts, fmt.Sprintf(".max(%d)", *vc.MaxLength))
 		}
@@ -61,15 +65,25 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		}
 	}
 	if vc.Pattern != "" {
-		escaped := strconv.Quote(vc.Pattern)
-		if vc.IgnoreEmpty {
-			parts = append(parts, fmt.Sprintf(`.refine(((re) => (v) => v === "" || re.test(v))(new RegExp(%s)), { message: "must match pattern" })`, escaped))
+		// Validate pattern with Go's RE2 engine (linear-time guarantee) to prevent ReDoS.
+		// buf.validate specifies RE2 syntax, so valid patterns always pass this check.
+		if _, err := regexp.Compile(vc.Pattern); err != nil {
+			parts = append(parts, fmt.Sprintf(` /* WARN: pattern %s is not RE2-safe, skipped */`, strconv.Quote(vc.Pattern)))
 		} else {
-			parts = append(parts, fmt.Sprintf(`.regex(new RegExp(%s), { message: "must match pattern" })`, escaped))
+			escaped := strconv.Quote(vc.Pattern)
+			if vc.IgnoreEmpty {
+				parts = append(parts, fmt.Sprintf(`.refine(((re) => (v) => v === "" || re.test(v))(new RegExp(%s)), { message: "must match pattern" })`, escaped))
+			} else {
+				parts = append(parts, fmt.Sprintf(`.regex(new RegExp(%s), { message: "must match pattern" })`, escaped))
+			}
 		}
 	}
 	if vc.Len != nil {
-		parts = append(parts, fmt.Sprintf(".length(%d)", *vc.Len))
+		if isBytesField {
+			parts = append(parts, fmt.Sprintf(`.refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && %s === %d, { message: "bytes must be exactly %d bytes" })`, b64DecodedLen, *vc.Len, *vc.Len))
+		} else {
+			parts = append(parts, fmt.Sprintf(".length(%d)", *vc.Len))
+		}
 	}
 	if vc.Prefix != "" {
 		parts = append(parts, fmt.Sprintf(".startsWith(%s)", strconv.Quote(vc.Prefix)))

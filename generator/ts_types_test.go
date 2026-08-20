@@ -78,10 +78,10 @@ func TestTSWKTZodType(t *testing.T) {
 func TestTSScalarZodType_BigInt(t *testing.T) {
 	opts := &Options{TSInt64Style: "bigint"}
 
-	expBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint())`
-	expBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
-	expWrapBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).nullable()`
-	expWrapBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`
+	expBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" })`
+	expBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n && v <= 18446744073709551615n, { message: "uint64 out of range" })`
+	expWrapBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" }).nullable()`
+	expWrapBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n && v <= 18446744073709551615n, { message: "uint64 out of range" }).nullable()`
 
 	if got := tsScalarZodType(protoreflect.Int64Kind, opts); got != expBigInt {
 		t.Errorf("Int64 = %q, want %s", got, expBigInt)

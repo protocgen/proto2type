@@ -177,6 +177,48 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 		}
 	}
 
+	// Timestamp rules (gt/lt/gte/lte → RFC3339 strings).
+	if tr := rules.GetTimestamp(); tr != nil {
+		if ts := tr.GetGt(); ts != nil {
+			s := ts.AsTime().Format("2006-01-02T15:04:05Z")
+			vc.Gt = &s
+		} else if ts := tr.GetGte(); ts != nil {
+			s := ts.AsTime().Format("2006-01-02T15:04:05Z")
+			vc.Gte = &s
+		}
+		if ts := tr.GetLt(); ts != nil {
+			s := ts.AsTime().Format("2006-01-02T15:04:05Z")
+			vc.Lt = &s
+		} else if ts := tr.GetLte(); ts != nil {
+			s := ts.AsTime().Format("2006-01-02T15:04:05Z")
+			vc.Lte = &s
+		}
+	}
+
+	// Duration rules (gt/lt/gte/lte → "{seconds}.{nanos}s" strings).
+	if dr := rules.GetDuration(); dr != nil {
+		fmtDuration := func(secs int64, nanos int32) string {
+			if nanos == 0 {
+				return fmt.Sprintf("%ds", secs)
+			}
+			return fmt.Sprintf("%d.%09ds", secs, nanos)
+		}
+		if d := dr.GetGt(); d != nil {
+			s := fmtDuration(d.Seconds, d.Nanos)
+			vc.Gt = &s
+		} else if d := dr.GetGte(); d != nil {
+			s := fmtDuration(d.Seconds, d.Nanos)
+			vc.Gte = &s
+		}
+		if d := dr.GetLt(); d != nil {
+			s := fmtDuration(d.Seconds, d.Nanos)
+			vc.Lt = &s
+		} else if d := dr.GetLte(); d != nil {
+			s := fmtDuration(d.Seconds, d.Nanos)
+			vc.Lte = &s
+		}
+	}
+
 	if !vc.HasConstraints() {
 		return nil
 	}
