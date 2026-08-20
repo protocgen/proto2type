@@ -102,13 +102,28 @@ func TestTSScalarZodType_BigInt(t *testing.T) {
 
 func TestTSOutputFilename(t *testing.T) {
 	opts := &Options{}
-	if got, _ := tsOutputFilename("path/to/my_file.proto", opts); got != "path/to/my_file.type.ts" {
+	got, err := tsOutputFilename("path/to/my_file.proto", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "path/to/my_file.type.ts" {
 		t.Errorf("got %q, want path/to/my_file.type.ts", got)
 	}
 
 	opts.OutputFile = "custom.ts"
-	if got, _ := tsOutputFilename("path/to/my_file.proto", opts); got != "custom.ts" {
+	got, err = tsOutputFilename("path/to/my_file.proto", opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "custom.ts" {
 		t.Errorf("got %q, want custom.ts", got)
+	}
+
+	// Error case: path traversal should be rejected.
+	opts.OutputFile = ""
+	_, err = tsOutputFilename("../../etc/passwd.proto", opts)
+	if err == nil {
+		t.Error("expected error for path traversal, got nil")
 	}
 }
 
