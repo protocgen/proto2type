@@ -55,10 +55,11 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		}
 	}
 	if vc.URI {
+		// Restrict to http/https schemes to prevent XSS (javascript:) and SSRF (file:, data:).
 		if vc.IgnoreEmpty {
-			parts = append(parts, `.refine(v => v === "" || z.string().url().safeParse(v).success, { message: "must be a valid url" })`)
+			parts = append(parts, `.refine(v => v === "" || (z.string().url().safeParse(v).success && /^https?:\/\//i.test(v)), { message: "must be a valid http(s) URL" })`)
 		} else {
-			parts = append(parts, ".url()")
+			parts = append(parts, `.url().refine(v => /^https?:\/\//i.test(v), { message: "must use http or https scheme" })`)
 		}
 	}
 	if vc.UUID {
@@ -94,6 +95,9 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		} else {
 			parts = append(parts, fmt.Sprintf(".length(%d)", *vc.Len))
 		}
+	}
+	if vc.Const != nil && !isBytesField {
+		parts = append(parts, fmt.Sprintf(`.refine(v => v === %s, { message: "must be exactly %s" })`, *vc.Const, *vc.Const))
 	}
 	if vc.Prefix != "" {
 		parts = append(parts, fmt.Sprintf(".startsWith(%s)", strconv.Quote(vc.Prefix)))

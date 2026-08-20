@@ -77,7 +77,8 @@ func collectTSImports(ir *DomainFile, opts *Options) []tsImportEntry {
 		sort.Strings(names)
 		entries = append(entries, tsImportEntry{path: relPath, names: names})
 	}
-	sort.Slice(entries, func(i, j int) bool {
+	// Use SliceStable for deterministic output across builds (reproducible generation).
+	sort.SliceStable(entries, func(i, j int) bool {
 		return entries[i].path < entries[j].path
 	})
 	return entries
@@ -97,7 +98,9 @@ func tsImportPath(fromProto, toProto string, opts *Options) string {
 	importSuffix := strings.TrimSuffix(suffix, ".ts") + ".js"
 
 	// Strip .proto extension, add import suffix.
-	toBase := strings.TrimSuffix(toProto, ".proto") + importSuffix
+	// Clean the path first to normalize away embedded ".." components
+	// that could bypass the traversal check below.
+	toBase := path.Clean(strings.TrimSuffix(toProto, ".proto")) + importSuffix
 
 	// Compute relative path using POSIX conventions (proto paths are always forward-slash).
 	// Split both into components and find common prefix.

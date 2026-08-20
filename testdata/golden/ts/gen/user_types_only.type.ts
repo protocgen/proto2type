@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-interface */
 
 /** UserStatus represents the user's account status. */
-export type UserStatus = "Unspecified" | "Active" | "Suspended" | "Deleted" | (string & {});
+export type UserStatus = "USER_STATUS_UNSPECIFIED" | "USER_STATUS_ACTIVE" | "USER_STATUS_SUSPENDED" | "USER_STATUS_DELETED" | (string & {});
 
 export interface Address {
   street: string;

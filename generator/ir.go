@@ -275,6 +275,7 @@ type MapTypeInfo struct {
 	ScalarKind      protoreflect.Kind
 	MessageTypeName string
 	EnumTypeName    string
+	EnumFullName    string // Fully qualified proto enum name, for WKT detection (e.g. "google.protobuf.NullValue").
 	SourcePath      string // ADD THIS: proto file path for cross-file import resolution
 
 	// ProtoGoIdent is the protogen.GoIdent for the map value message type.
@@ -338,6 +339,8 @@ type OneofVariant struct {
 	SourcePath string
 	// EnumAsString is true when the enum should be serialised as its string name.
 	EnumAsString bool
+	// EnumFullName is the fully qualified proto enum name, for WKT detection (e.g. "google.protobuf.NullValue").
+	EnumFullName string
 	// NeedsBox is true when a message-typed variant requires heap allocation
 	// because the type is part of a recursive cycle.
 	NeedsBox bool

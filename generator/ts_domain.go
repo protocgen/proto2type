@@ -433,6 +433,9 @@ func tsOneofVariantZodType(v *OneofVariant, opts *Options) string {
 		}
 		return fmt.Sprintf("%sSchema", v.TypeName)
 	case FieldKindEnum:
+		if v.EnumFullName == "google.protobuf.NullValue" {
+			return "z.null()"
+		}
 		if opts.TSEnumStyle == "native" {
 			return fmt.Sprintf("z.nativeEnum(%s)", v.TypeName)
 		}

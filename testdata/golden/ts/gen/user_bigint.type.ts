@@ -8,9 +8,9 @@
 import { z } from "zod";
 
 /** UserStatus represents the user's account status. */
-export type UserStatus = "Unspecified" | "Active" | "Suspended" | "Deleted" | (string & {});
+export type UserStatus = "USER_STATUS_UNSPECIFIED" | "USER_STATUS_ACTIVE" | "USER_STATUS_SUSPENDED" | "USER_STATUS_DELETED" | (string & {});
 // Note: Numeric enum values should be converted to strings before passing to this schema.
-export const UserStatusSchema = /* @__PURE__ */ z.enum(["Unspecified", "Active", "Suspended", "Deleted"]).or(z.string());
+export const UserStatusSchema = /* @__PURE__ */ z.enum(["USER_STATUS_UNSPECIFIED", "USER_STATUS_ACTIVE", "USER_STATUS_SUSPENDED", "USER_STATUS_DELETED"]).or(z.string());
 
 /** Address is a nested message. */
 export const AddressSchema = /* @__PURE__ */ z.object({
