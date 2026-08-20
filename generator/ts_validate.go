@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"regexp"
+	"regexp/syntax"
 	"strconv"
 	"strings"
 )
@@ -11,6 +12,55 @@ import (
 // reHasNamedGroup detects RE2-style named capture groups (?P<name>...)
 // which are not supported by JavaScript's RegExp engine.
 var reHasNamedGroup = regexp.MustCompile(`\(\?P<`)
+
+// hasNestedQuantifiers detects patterns with quantifiers nested inside other
+// quantifiers (e.g. (a+)+, (a*){2,}, (x+y+)*). These are safe in RE2 (which
+// guarantees linear time) but cause catastrophic backtracking in JavaScript's
+// NFA-based RegExp engine. Returns true if the pattern contains nested
+// quantifiers that could cause ReDoS.
+func hasNestedQuantifiers(pattern string) bool {
+	re, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return false // Can't parse — let the regexp.Compile check handle it.
+	}
+	// Do NOT call re.Simplify() — it collapses (?:a+)+ to a+,
+	// hiding dangerous nested quantifiers from detection.
+	return walkForNestedQuantifiers(re, false)
+}
+
+// isUnboundedQuantifier returns true for quantifiers that can match
+// a variable number of repetitions (Star, Plus, unbounded Repeat).
+// Fixed repeats like a{2} or a{2,3} are not dangerous because they
+// expand to a fixed number of alternatives and cannot cause backtracking.
+func isUnboundedQuantifier(re *syntax.Regexp) bool {
+	switch re.Op {
+	case syntax.OpStar, syntax.OpPlus:
+		return true
+	case syntax.OpRepeat:
+		// re.Max == -1 means unbounded (e.g. a{2,}). Fixed bounds
+		// like a{2} or a{2,3} are safe.
+		return re.Max == -1
+	}
+	return false
+}
+
+// walkForNestedQuantifiers recursively walks the regex AST. The inQuantifier
+// flag tracks whether we're already inside a quantified sub-expression.
+func walkForNestedQuantifiers(re *syntax.Regexp, inQuantifier bool) bool {
+	unbounded := isUnboundedQuantifier(re)
+	if unbounded && inQuantifier {
+		return true
+	}
+	// Recurse into sub-expressions. If this node is an unbounded quantifier,
+	// mark children as being inside a quantifier.
+	childInQ := inQuantifier || unbounded
+	for _, sub := range re.Sub {
+		if walkForNestedQuantifiers(sub, childInQ) {
+			return true
+		}
+	}
+	return false
+}
 
 func tsZodConstraints(f *DomainField, opts *Options) string {
 	vc := f.ValidateConstraints
@@ -80,6 +130,11 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 			// RE2 named groups (?P<name>...) are not valid in JS RegExp.
 			safe := strings.ReplaceAll(vc.Pattern, "*/", "* /")
 			parts = append(parts, fmt.Sprintf(` /* WARN: pattern %q uses RE2 named groups unsupported by JS, skipped */`, safe))
+		} else if hasNestedQuantifiers(vc.Pattern) {
+			// Nested quantifiers (e.g. (a+)+) are safe in RE2 but cause catastrophic
+			// backtracking (ReDoS) in JavaScript's NFA-based RegExp engine.
+			safe := strings.ReplaceAll(vc.Pattern, "*/", "* /")
+			parts = append(parts, fmt.Sprintf(` /* WARN: pattern %q has nested quantifiers (potential ReDoS in JS), skipped */`, safe))
 		} else {
 			escaped := strconv.Quote(vc.Pattern)
 			if vc.IgnoreEmpty {
