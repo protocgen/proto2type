@@ -12,10 +12,11 @@ func writeTSEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
 		g.P("/** ", sanitizeJSDoc(e.Comment), " */")
 	}
 
-	// Build quoted value list for reuse.
+	// Build quoted value list using proto names (e.g. "USER_STATUS_ACTIVE")
+	// to match protojson serialization format.
 	vals := make([]string, 0, len(e.Values))
 	for _, v := range e.Values {
-		vals = append(vals, fmt.Sprintf(`"%s"`, v.Name))
+		vals = append(vals, fmt.Sprintf(`"%s"`, v.ProtoName))
 	}
 
 	if opts.TSTypesOnly {
@@ -23,7 +24,7 @@ func writeTSEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
 		if opts.TSEnumStyle == "native" {
 			g.P("export const ", e.Name, " = {")
 			for _, v := range e.Values {
-				g.P(fmt.Sprintf("  %s: %q,", tsSafeKey(v.Name), v.Name))
+				g.P(fmt.Sprintf("  %s: %q,", tsSafeKey(v.Name), v.ProtoName))
 			}
 			g.P("} as const;")
 			g.P("export type ", e.Name, " = (typeof ", e.Name, ")[keyof typeof ", e.Name, "];")
@@ -35,9 +36,10 @@ func writeTSEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
 
 	if opts.TSEnumStyle == "native" {
 		// Native enum: const object + z.nativeEnum.
+		// Keys use stripped PascalCase names, values use proto names for JSON interop.
 		g.P("export const ", e.Name, " = {")
 		for _, v := range e.Values {
-			g.P(fmt.Sprintf("  %s: %q,", tsSafeKey(v.Name), v.Name))
+			g.P(fmt.Sprintf("  %s: %q,", tsSafeKey(v.Name), v.ProtoName))
 		}
 		g.P("} as const;")
 		g.P("export const ", e.Name, "Schema = /* @__PURE__ */ z.nativeEnum(", e.Name, ");")

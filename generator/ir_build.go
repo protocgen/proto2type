@@ -370,6 +370,7 @@ func classifyMapValue(field *protogen.Field, opts *Options) *MapTypeInfo {
 	if valDesc.Kind() == protoreflect.EnumKind {
 		mi.Kind = FieldKindEnum
 		mi.EnumTypeName = irEnumNameFromDesc(valDesc.Enum())
+		mi.EnumFullName = string(valDesc.Enum().FullName())
 		if valDesc.Enum().ParentFile() != field.Desc.ParentFile() {
 			mi.SourcePath = string(valDesc.Enum().ParentFile().Path())
 		}
@@ -442,6 +443,7 @@ func buildDomainOneof(msg *protogen.Message, oneof *protogen.Oneof, msgIRName st
 			}
 		case FieldKindEnum:
 			variant.ProtoEnumGoIdent = field.Enum.GoIdent
+			variant.EnumFullName = string(field.Desc.Enum().FullName())
 			if isEnumAsString(field, opts) {
 				variant.EnumAsString = true
 			} else {

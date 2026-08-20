@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -50,6 +51,18 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 		vc.Prefix = sr.GetPrefix()
 		vc.Suffix = sr.GetSuffix()
 		vc.Contains = sr.GetContains()
+
+		// String const/in/not_in: quote values for JS string literal emission.
+		if sr.Const != nil {
+			s := strconv.Quote(sr.GetConst())
+			vc.Const = &s
+		}
+		for _, v := range sr.GetIn() {
+			vc.In = append(vc.In, strconv.Quote(v))
+		}
+		for _, v := range sr.GetNotIn() {
+			vc.NotIn = append(vc.NotIn, strconv.Quote(v))
+		}
 
 		// Well-known string types are a oneof — use type assertions.
 		switch sr.GetWellKnown().(type) {

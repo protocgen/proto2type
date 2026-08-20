@@ -118,6 +118,9 @@ func tsMapValueZodType(info *MapTypeInfo, opts *Options) string {
 	case FieldKindScalar:
 		return tsScalarZodType(info.ScalarKind, opts)
 	case FieldKindEnum:
+		if info.EnumFullName == "google.protobuf.NullValue" {
+			return "z.null()"
+		}
 		return info.EnumTypeName + "Schema"
 	case FieldKindMessage:
 		return info.MessageTypeName + "Schema"

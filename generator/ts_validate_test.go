@@ -25,7 +25,7 @@ func TestTsZodConstraints_StringField(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	expected := `.min(3).max(100).email().url().uuid().regex(new RegExp("^[a-z]+$"), { message: "must match pattern" })`
+	expected := `.min(3).max(100).email().url().refine(v => /^https?:\/\//i.test(v), { message: "must use http or https scheme" }).uuid().regex(new RegExp("^[a-z]+$"), { message: "must match pattern" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}
@@ -296,5 +296,148 @@ func TestTsZodConstraints_PatternValid(t *testing.T) {
 	got := tsZodConstraints(f, opts)
 	if !strings.Contains(got, "new RegExp") {
 		t.Errorf("should emit RegExp for valid pattern: %s", got)
+	}
+}
+
+func TestTsMapConstraints_MinMax(t *testing.T) {
+	min := uint64(2)
+	max := uint64(10)
+	vc := &ValidateConstraints{MinItems: &min, MaxItems: &max}
+	got := tsMapConstraints(vc)
+	if !strings.Contains(got, "Object.keys(v).length >= 2") {
+		t.Errorf("missing MinItems check: %s", got)
+	}
+	if !strings.Contains(got, "Object.keys(v).length <= 10") {
+		t.Errorf("missing MaxItems check: %s", got)
+	}
+}
+
+func TestTsMapConstraints_Empty(t *testing.T) {
+	got := tsMapConstraints(nil)
+	if got != "" {
+		t.Errorf("expected empty for nil vc, got %q", got)
+	}
+	got = tsMapConstraints(&ValidateConstraints{})
+	if got != "" {
+		t.Errorf("expected empty for empty vc, got %q", got)
+	}
+}
+
+func TestTsScalarDefault(t *testing.T) {
+	tests := []struct {
+		kind    protoreflect.Kind
+		int64   string
+		want    string
+		wantBig string
+	}{
+		{protoreflect.BoolKind, "string", "false", "false"},
+		{protoreflect.Int32Kind, "string", "0", "0"},
+		{protoreflect.StringKind, "string", `""`, `""`},
+		{protoreflect.BytesKind, "string", `""`, `""`},
+		{protoreflect.Int64Kind, "string", `"0"`, "0n"},
+		{protoreflect.Uint64Kind, "string", `"0"`, "0n"},
+	}
+	for _, tt := range tests {
+		opts := &Options{TSInt64Style: "string"}
+		got := tsScalarDefault(tt.kind, opts)
+		if got != tt.want {
+			t.Errorf("tsScalarDefault(%v, string) = %q, want %q", tt.kind, got, tt.want)
+		}
+		if tt.kind == protoreflect.Int64Kind || tt.kind == protoreflect.Uint64Kind {
+			opts.TSInt64Style = "bigint"
+			got = tsScalarDefault(tt.kind, opts)
+			if got != tt.wantBig {
+				t.Errorf("tsScalarDefault(%v, bigint) = %q, want %q", tt.kind, got, tt.wantBig)
+			}
+		}
+	}
+}
+
+func TestTsZodConstraints_StringConst(t *testing.T) {
+	c := `"hello"`
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{
+			Const: &c,
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, `v === "hello"`) {
+		t.Errorf("missing const check: %s", got)
+	}
+}
+
+func TestTsZodConstraints_StringInNotIn(t *testing.T) {
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{
+			In:    []string{`"A"`, `"B"`},
+			NotIn: []string{`"X"`},
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, `"A"`) {
+		t.Errorf("missing In check: %s", got)
+	}
+	if !strings.Contains(got, `"X"`) {
+		t.Errorf("missing NotIn check: %s", got)
+	}
+}
+
+func TestTsZodConstraints_URI_SchemeRestriction(t *testing.T) {
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{
+			URI: true,
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, "https?") {
+		t.Errorf("URI validation should restrict to http(s) scheme: %s", got)
+	}
+}
+
+func TestTsMapValueZodType_NullValue(t *testing.T) {
+	info := &MapTypeInfo{
+		Kind:         FieldKindEnum,
+		EnumTypeName: "NullValue",
+		EnumFullName: "google.protobuf.NullValue",
+	}
+	opts := &Options{}
+	got := tsMapValueZodType(info, opts)
+	if got != "z.null()" {
+		t.Errorf("NullValue map value should be z.null(), got %q", got)
+	}
+}
+
+func TestTsOneofVariantZodType_NullValue(t *testing.T) {
+	v := &OneofVariant{
+		Kind:         FieldKindEnum,
+		TypeName:     "NullValue",
+		EnumFullName: "google.protobuf.NullValue",
+	}
+	opts := &Options{}
+	got := tsOneofVariantZodType(v, opts)
+	if got != "z.null()" {
+		t.Errorf("NullValue oneof variant should be z.null(), got %q", got)
+	}
+}
+
+func TestTsRepeatedConstraints_MinMax(t *testing.T) {
+	min := uint64(1)
+	max := uint64(5)
+	vc := &ValidateConstraints{MinItems: &min, MaxItems: &max}
+	got := tsRepeatedConstraints(vc)
+	if !strings.Contains(got, ".min(1)") {
+		t.Errorf("missing min check: %s", got)
+	}
+	if !strings.Contains(got, ".max(5)") {
+		t.Errorf("missing max check: %s", got)
 	}
 }
