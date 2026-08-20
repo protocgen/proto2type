@@ -97,7 +97,7 @@ func TestTsZodConstraints_BytesLength(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	expected := `.refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p >= 5; }, { message: "bytes must be valid base64 and at least 5 bytes" }).refine(v => { if (!/^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v)) return false; const p = v.endsWith("==") ? 2 : v.endsWith("=") ? 1 : 0; return (v.length * 3 / 4) - p <= 10; }, { message: "bytes must be valid base64 and at most 10 bytes" })`
+	expected := `.refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && Math.floor(v.replace(/=+$/, "").length * 3 / 4) >= 5, { message: "bytes must be at least 5 bytes" }).refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && Math.floor(v.replace(/=+$/, "").length * 3 / 4) <= 10, { message: "bytes must be at most 10 bytes" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}
@@ -210,5 +210,91 @@ func TestTsZodConstraints_Unique(t *testing.T) {
 	got := tsRepeatedConstraints(vc)
 	if !strings.Contains(got, "new Set(v).size === v.length") {
 		t.Errorf("missing unique check: %s", got)
+	}
+}
+
+func TestTsZodConstraints_BytesExactLen(t *testing.T) {
+	v := uint64(3)
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.BytesKind,
+		ValidateConstraints: &ValidateConstraints{
+			Len: &v,
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, "=== 3") {
+		t.Errorf("missing exact length check: %s", got)
+	}
+	if !strings.Contains(got, "Math.floor") {
+		t.Errorf("should use decoded byte length: %s", got)
+	}
+}
+
+func TestTsZodConstraints_PatternInvalidRE2(t *testing.T) {
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{
+			Pattern: "(?!lookahead)", // negative lookahead: not RE2-safe
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, "WARN") {
+		t.Errorf("should emit WARN for non-RE2 pattern: %s", got)
+	}
+	if strings.Contains(got, "new RegExp") {
+		t.Errorf("should not emit RegExp for non-RE2 pattern: %s", got)
+	}
+}
+
+func TestTsZodConstraints_PatternNamedGroupRejected(t *testing.T) {
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{
+			Pattern: `(?P<name>[a-z]+)`, // RE2 named group, invalid JS
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, "WARN") {
+		t.Errorf("should emit WARN for RE2 named group: %s", got)
+	}
+	if !strings.Contains(got, "named groups") {
+		t.Errorf("should mention named groups: %s", got)
+	}
+}
+
+func TestTsZodConstraints_PatternCommentInjection(t *testing.T) {
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{
+			Pattern: "(?!evil*/inject)", // contains */ to break comment
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	// Must not contain raw */ that would close the block comment
+	if strings.Contains(got, "*/inject") {
+		t.Errorf("comment injection not sanitized: %s", got)
+	}
+}
+
+func TestTsZodConstraints_PatternValid(t *testing.T) {
+	f := &DomainField{
+		Kind:       FieldKindScalar,
+		ScalarKind: protoreflect.StringKind,
+		ValidateConstraints: &ValidateConstraints{
+			Pattern: `^[a-z0-9]+$`,
+		},
+	}
+	opts := &Options{}
+	got := tsZodConstraints(f, opts)
+	if !strings.Contains(got, "new RegExp") {
+		t.Errorf("should emit RegExp for valid pattern: %s", got)
 	}
 }

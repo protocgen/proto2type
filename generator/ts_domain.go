@@ -326,10 +326,9 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 		if f.IsOneof || tsFieldIsRequired(f, opts) {
 			// required or oneof — no default
 		} else if f.Kind.IsWrapper() {
-			// M3: Wrapper types should use .nullish() instead of .nullable() or .optional()
-			// Since we might have already added .nullable() if baseType had it, we should handle that.
-			// Actually tsZodType for wrappers might return `.nullable()`.
-			// Let's replace `.nullable()` with `.nullish()` if it's there, or just add it.
+			// Wrapper types use .nullish() (undefined | null) instead of .nullable() or .optional().
+			// At this point, .nullable() was stripped from the base type (line 293-295), constraints
+			// were applied, then .nullable() was reattached (line 303-305). So HasSuffix is reliable.
 			if strings.HasSuffix(zodExpr, ".nullable()") {
 				zodExpr = strings.TrimSuffix(zodExpr, ".nullable()") + ".nullish()"
 			} else {

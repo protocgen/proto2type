@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
@@ -174,6 +175,61 @@ func extractValidateConstraints(field *protogen.Field) *ValidateConstraints {
 		}
 		for _, v := range er.GetNotIn() {
 			vc.NotIn = append(vc.NotIn, fmt.Sprintf("%d", v))
+		}
+	}
+
+	// Timestamp rules (gt/lt/gte/lte → RFC3339Nano strings to preserve fractional seconds).
+	if tr := rules.GetTimestamp(); tr != nil {
+		if ts := tr.GetGt(); ts != nil {
+			s := ts.AsTime().Format(time.RFC3339Nano)
+			vc.Gt = &s
+		} else if ts := tr.GetGte(); ts != nil {
+			s := ts.AsTime().Format(time.RFC3339Nano)
+			vc.Gte = &s
+		}
+		if ts := tr.GetLt(); ts != nil {
+			s := ts.AsTime().Format(time.RFC3339Nano)
+			vc.Lt = &s
+		} else if ts := tr.GetLte(); ts != nil {
+			s := ts.AsTime().Format(time.RFC3339Nano)
+			vc.Lte = &s
+		}
+	}
+
+	// Duration rules (gt/lt/gte/lte → "{seconds}.{nanos}s" strings).
+	if dr := rules.GetDuration(); dr != nil {
+		fmtDuration := func(secs int64, nanos int32) string {
+			// Proto Duration: negative durations have both secs and nanos negative.
+			// Normalize to single leading minus sign with absolute values.
+			neg := secs < 0 || nanos < 0
+			if secs < 0 {
+				secs = -secs
+			}
+			if nanos < 0 {
+				nanos = -nanos
+			}
+			prefix := ""
+			if neg {
+				prefix = "-"
+			}
+			if nanos == 0 {
+				return fmt.Sprintf("%s%ds", prefix, secs)
+			}
+			return fmt.Sprintf("%s%d.%09ds", prefix, secs, nanos)
+		}
+		if d := dr.GetGt(); d != nil {
+			s := fmtDuration(d.Seconds, d.Nanos)
+			vc.Gt = &s
+		} else if d := dr.GetGte(); d != nil {
+			s := fmtDuration(d.Seconds, d.Nanos)
+			vc.Gte = &s
+		}
+		if d := dr.GetLt(); d != nil {
+			s := fmtDuration(d.Seconds, d.Nanos)
+			vc.Lt = &s
+		} else if d := dr.GetLte(); d != nil {
+			s := fmtDuration(d.Seconds, d.Nanos)
+			vc.Lte = &s
 		}
 	}
 

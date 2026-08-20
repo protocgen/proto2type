@@ -23,7 +23,7 @@ func TestTSScalarZodType(t *testing.T) {
 		{protoreflect.FloatKind, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])])`},
 		{protoreflect.DoubleKind, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])])`},
 		{protoreflect.StringKind, "z.string()"},
-		{protoreflect.BytesKind, "z.string().base64()"},
+		{protoreflect.BytesKind, `z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" })`},
 	}
 
 	opts := &Options{TSInt64Style: "string"}
@@ -52,7 +52,7 @@ func TestTSWKTZodType(t *testing.T) {
 		{FieldKindWrapperFloat, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])]).nullable()`},
 		{FieldKindWrapperDouble, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])]).nullable()`},
 		{FieldKindWrapperString, "z.string().nullable()"},
-		{FieldKindWrapperBytes, "z.string().base64().nullable()"},
+		{FieldKindWrapperBytes, `z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" }).nullable()`},
 		{FieldKindStruct, "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())"},
 		{FieldKindValue, "z.unknown()"},
 		{FieldKindListValue, "z.array(z.unknown())"},
@@ -78,10 +78,10 @@ func TestTSWKTZodType(t *testing.T) {
 func TestTSScalarZodType_BigInt(t *testing.T) {
 	opts := &Options{TSInt64Style: "bigint"}
 
-	expBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint())`
-	expBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" })`
-	expWrapBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).nullable()`
-	expWrapBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n, { message: "must be non-negative" }).nullable()`
+	expBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" })`
+	expBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n && v <= 18446744073709551615n, { message: "uint64 out of range" })`
+	expWrapBigInt := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" }).nullable()`
+	expWrapBigIntNN := `z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= 0n && v <= 18446744073709551615n, { message: "uint64 out of range" }).nullable()`
 
 	if got := tsScalarZodType(protoreflect.Int64Kind, opts); got != expBigInt {
 		t.Errorf("Int64 = %q, want %s", got, expBigInt)
