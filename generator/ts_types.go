@@ -90,7 +90,7 @@ func tsWKTZodType(k FieldKind, opts *Options) (string, bool) {
 	case FieldKindWrapperBytes:
 		return `z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" }).nullable()`, true
 	case FieldKindStruct:
-		return "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())", true
+		return "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())", true
 	case FieldKindValue:
 		return "z.unknown()", true
 	case FieldKindListValue:

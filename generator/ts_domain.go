@@ -309,7 +309,7 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 	if f.IsMap {
 		// Map field: z.record(key, value).default({})
 		valType := tsMapValueZodType(f.MapValue, opts)
-		zodExpr = fmt.Sprintf("z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), %s)", valType)
+		zodExpr = fmt.Sprintf("z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), %s)", valType)
 		if opts.ValidateEnabled() {
 			zodExpr += tsMapConstraints(f.ValidateConstraints)
 		}
@@ -445,7 +445,7 @@ func tsOneofVariantZodType(v *OneofVariant, opts *Options) string {
 	case FieldKindDuration:
 		return `z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration" })`
 	case FieldKindStruct:
-		return "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())"
+		return "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())"
 	case FieldKindValue:
 		return "z.unknown()"
 	case FieldKindListValue:

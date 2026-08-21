@@ -53,7 +53,7 @@ func TestTSWKTZodType(t *testing.T) {
 		{FieldKindWrapperDouble, `z.union([z.number(), z.enum(["NaN", "Infinity", "-Infinity"])]).nullable()`},
 		{FieldKindWrapperString, "z.string().nullable()"},
 		{FieldKindWrapperBytes, `z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" }).nullable()`},
-		{FieldKindStruct, "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())"},
+		{FieldKindStruct, "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())"},
 		{FieldKindValue, "z.unknown()"},
 		{FieldKindListValue, "z.array(z.unknown())"},
 		{FieldKindFieldMask, `z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" })`},
@@ -140,7 +140,7 @@ func TestTsMapValueZodType(t *testing.T) {
 		{"FieldKindTimestamp", &MapTypeInfo{Kind: FieldKindTimestamp}, "z.string().datetime({ offset: true })"},
 		{"FieldKindMessage Foo", &MapTypeInfo{Kind: FieldKindMessage, MessageTypeName: "Foo"}, "FooSchema"},
 		{"FieldKindEnum Bar", &MapTypeInfo{Kind: FieldKindEnum, EnumTypeName: "Bar"}, "BarSchema"},
-		{"FieldKindStruct", &MapTypeInfo{Kind: FieldKindStruct}, "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())"},
+		{"FieldKindStruct", &MapTypeInfo{Kind: FieldKindStruct}, "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())"},
 	}
 
 	for _, tt := range tests {

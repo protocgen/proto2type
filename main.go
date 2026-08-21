@@ -72,6 +72,7 @@ func main() {
 	flags.StringVar(&opts.TSZodImport, "ts_zod_import", "zod", "TypeScript: Zod import path")
 	flags.BoolVar(&opts.TSTypesOnly, "ts_types_only", false, "TypeScript: emit plain types without Zod")
 	flags.BoolVar(&opts.TSStrict, "ts_strict", false, "TypeScript: append .strict() to reject unknown fields")
+	flags.StringVar(&opts.TSOutputSuffix, "ts_output_suffix", ".type", "TypeScript: output file suffix (default .type)")
 	flags.Var(presetFlag{opts: opts}, "ts_preset", "TypeScript: preset (zod-strict, types-only)")
 	flags.BoolVar(&opts.Debug, "debug", false, "emit IR debug information to stderr")
 

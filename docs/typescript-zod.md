@@ -27,10 +27,11 @@ Then run `buf generate`.
 | `ts_types_only` | `false` | Emit plain TypeScript types without Zod (zero dependencies). Incompatible with `validate=true`. |
 | `ts_int64` | `string` | Int64 representation: `string` (safe) or `bigint` (native). |
 | `ts_enum_style` | `enum` | Enum style: `enum` (open `z.enum().or(...)`) or `native` (`z.nativeEnum()`). |
-| `ts_explicit_types` | `false` | Emit explicit `interface` types alongside Zod schemas (improves IDE performance for large types). |
+| `ts_explicit_types` | `true` | Emit explicit `interface` types alongside Zod schemas (improves IDE performance for large types). |
 | `ts_strict` | `false` | Append `.strict()` to reject unknown fields per ProtoJSON spec. |
 | `ts_zod_import` | `zod` | Zod import path (e.g. `zod/v4` or `@scope/zod`). |
 | `ts_preset` | _none_ | Apply a preset configuration (e.g. `zod-strict` or `types-only`). |
+| `ts_output_suffix` | `.type` | Output file suffix before `.ts` (e.g. `.schema` → `user.schema.ts`). |
 
 ## Generated Code Walkthrough
 

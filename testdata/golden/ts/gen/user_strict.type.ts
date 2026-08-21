@@ -89,7 +89,7 @@ export const UserSchema = /* @__PURE__ */ z.object({
   active: z.boolean().default(false),
   age: z.number().int().default(0),
   roles: z.array(z.string()).default(() => []),
-  metadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.string()).default(() => ({})),
+  metadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.string()).default(() => ({})),
   address: AddressSchema.optional(),
   createdAt: z.string().datetime({ offset: true }).optional(),
   sessionTimeout: z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration (e.g. '1.5s')" }).optional(),
@@ -102,24 +102,24 @@ export const UserSchema = /* @__PURE__ */ z.object({
   previousStatus: UserStatusSchema.optional(),
   /** WKT reference types */
   updateMask: z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" }).optional(),
-  extraMetadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown()).optional(),
+  extraMetadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown()).optional(),
   preferences: z.array(z.unknown()).optional(),
   /** Optional bytes */
   avatarThumbnail: z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" }).optional(),
   /** Repeated WKT reference types (Issue #52) */
   fieldMasks: z.array(z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" })).default(() => []),
-  structs: z.array(z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())).default(() => []),
+  structs: z.array(z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())).default(() => []),
   lists: z.array(z.array(z.unknown())).default(() => []),
   /** WKT map values (Issue #53) */
-  eventTimes: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.string().datetime({ offset: true })).default(() => ({})),
-  configs: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown())).default(() => ({})),
+  eventTimes: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.string().datetime({ offset: true })).default(() => ({})),
+  configs: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())).default(() => ({})),
   /** Value type coverage (Issue #116) */
   singleValue: z.unknown().optional(),
   values: z.array(z.unknown()).default(() => []),
-  valueMap: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.unknown()).default(() => ({})),
+  valueMap: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown()).default(() => ({})),
   /** Wrapper map values (Issue #116) */
-  labels: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.string().nullable()).default(() => ({})),
-  scores: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'), z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).nullable()).default(() => ({})),
+  labels: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.string().nullable()).default(() => ({})),
+  scores: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).nullable()).default(() => ({})),
   /** @deprecated */
   oldField: z.string().default(""),
   optionalName: z.string().default(""),
