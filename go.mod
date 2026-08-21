@@ -1,6 +1,8 @@
 module github.com/protocgen/proto2type
 
-go 1.25.13
+go 1.26.0
+
+toolchain go1.26.4
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260709200747-435963d16310.1
@@ -9,6 +11,7 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7
 	google.golang.org/protobuf v1.36.12
+	hegel.dev/go/hegel v0.6.31
 )
 
 require (
@@ -20,6 +23,7 @@ require (
 	cloud.google.com/go/longrunning v1.2.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
