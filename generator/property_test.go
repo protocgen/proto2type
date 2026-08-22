@@ -9,21 +9,21 @@ import (
 	"hegel.dev/go/hegel"
 )
 
-// Property: hasNestedQuantifiers never panics on arbitrary strings.
+// Property: hasDangerousPattern never panics on arbitrary strings.
 func TestProperty_HasNestedQuantifiers_NeverPanics(t *testing.T) {
 	hegel.Test(t, func(ht *hegel.T) {
 		pattern := hegel.Draw(ht, hegel.Text().MaxSize(200))
 		// Must not panic — result is irrelevant.
-		_ = hasNestedQuantifiers(pattern)
+		_ = hasDangerousPattern(pattern)
 	})
 }
 
-// Property: hasNestedQuantifiers is deterministic (same input → same output).
+// Property: hasDangerousPattern is deterministic (same input → same output).
 func TestProperty_HasNestedQuantifiers_Deterministic(t *testing.T) {
 	hegel.Test(t, func(ht *hegel.T) {
 		pattern := hegel.Draw(ht, hegel.Text().MaxSize(100))
-		a := hasNestedQuantifiers(pattern)
-		b := hasNestedQuantifiers(pattern)
+		a := hasDangerousPattern(pattern)
+		b := hasDangerousPattern(pattern)
 		if a != b {
 			ht.Fatalf("non-deterministic: %q returned %v then %v", pattern, a, b)
 		}

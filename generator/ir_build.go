@@ -640,33 +640,110 @@ func canReachSelf(target, current string, adj map[string][]string, visited map[s
 
 // markFieldsInMessages sets NeedsBox on singular message fields where the
 // field's type can reach back to the containing message via the type graph.
-// This uses actual reachability (not global recursive membership) to avoid
-// false positives when independent recursive cycles exist.
+//
+// Optimization: precompute the set of all message names that participate in
+// any cycle (O(V+E)), then for each field just check if both the containing
+// message and the field's type are in the recursive set and connected.
 func markFieldsInMessages(msgs []*DomainMessage, adj map[string][]string) {
+	// Precompute: which messages are in any cycle?
+	recursive := findRecursiveMessages(adj)
+
+	markFieldsWithRecursiveSet(msgs, adj, recursive)
+}
+
+// findRecursiveMessages returns the set of message names that are part of
+// at least one cycle in the type graph. Uses iterative DFS with coloring:
+// WHITE (unvisited), GRAY (in progress), BLACK (done).
+func findRecursiveMessages(adj map[string][]string) map[string]bool {
+	const (
+		white = 0
+		gray  = 1
+		black = 2
+	)
+	color := make(map[string]int)
+	recursive := make(map[string]bool)
+
+	// Stack entry for iterative DFS
+	type frame struct {
+		node string
+		idx  int // index into adj[node]
+	}
+
+	for startNode := range adj {
+		if color[startNode] != white {
+			continue
+		}
+
+		stack := []frame{{node: startNode, idx: 0}}
+		color[startNode] = gray
+
+		for len(stack) > 0 {
+			top := &stack[len(stack)-1]
+			neighbors := adj[top.node]
+
+			if top.idx >= len(neighbors) {
+				color[top.node] = black
+				stack = stack[:len(stack)-1]
+				continue
+			}
+
+			next := neighbors[top.idx]
+			top.idx++
+
+			switch color[next] {
+			case white:
+				color[next] = gray
+				stack = append(stack, frame{node: next, idx: 0})
+			case gray:
+				// Found a cycle — mark all nodes on the stack from 'next' onward.
+				marking := false
+				for _, f := range stack {
+					if f.node == next {
+						marking = true
+					}
+					if marking {
+						recursive[f.node] = true
+					}
+				}
+			}
+		}
+	}
+
+	return recursive
+}
+
+// markFieldsWithRecursiveSet marks NeedsBox on fields using the precomputed
+// recursive set. A field needs Box if both the containing message and the
+// field's target type are in the recursive set AND the target can reach back.
+func markFieldsWithRecursiveSet(msgs []*DomainMessage, adj map[string][]string, recursive map[string]bool) {
 	visited := make(map[string]bool)
 	for _, msg := range msgs {
 		if msg.Skip {
 			continue
 		}
-		for _, f := range msg.Fields {
-			if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
-				// Check if the field's type can reach back to the containing message.
-				clear(visited)
-				if canReachSelf(msg.Name, f.MessageTypeName, adj, visited) {
-					f.NeedsBox = true
+		// Only run expensive reachability if this message is in a cycle.
+		if recursive[msg.Name] {
+			for _, f := range msg.Fields {
+				if f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
+					if recursive[f.MessageTypeName] {
+						clear(visited)
+						if canReachSelf(msg.Name, f.MessageTypeName, adj, visited) {
+							f.NeedsBox = true
+						}
+					}
 				}
 			}
-		}
-		for _, o := range msg.Oneofs {
-			for _, v := range o.Variants {
-				if v.Kind == FieldKindMessage {
-					clear(visited)
-					if canReachSelf(msg.Name, v.TypeName, adj, visited) {
-						v.NeedsBox = true
+			for _, o := range msg.Oneofs {
+				for _, v := range o.Variants {
+					if v.Kind == FieldKindMessage && recursive[v.TypeName] {
+						clear(visited)
+						if canReachSelf(msg.Name, v.TypeName, adj, visited) {
+							v.NeedsBox = true
+						}
 					}
 				}
 			}
 		}
-		markFieldsInMessages(msg.NestedMessages, adj)
+		markFieldsWithRecursiveSet(msg.NestedMessages, adj, recursive)
 	}
 }

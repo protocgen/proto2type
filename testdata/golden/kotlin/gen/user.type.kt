@@ -85,20 +85,22 @@ data class User(
     @SerialName("big_number") val bigNumber: Long = 0L
 )
 
+private val RE_USER_EMAIL_EMAIL = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
+private val RE_USER_PHONE_PATTERN = Regex("^\\+?[0-9\\-\\s]+\$")
 /** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
 fun User.validate(): List<String> {
     val errors = mutableListOf<String>()
-    if (email.isNotEmpty() && !email.matches(Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"))) errors.add("email must be a valid email")
-    if (displayName.length < 1) errors.add("display_name must be at least 1 characters")
-    if (displayName.length > 255) errors.add("display_name must be at most 255 characters")
+    if (email.isNotEmpty() && !email.matches(RE_USER_EMAIL_EMAIL)) errors.add("email must be a valid email")
+    if (displayName.codePointCount(0, displayName.length) < 1) errors.add("display_name must be at least 1 characters")
+    if (displayName.codePointCount(0, displayName.length) > 255) errors.add("display_name must be at most 255 characters")
     if (age < 0) errors.add("age must be >= 0")
     if (age > 150) errors.add("age must be <= 150")
     if (roles.size < 1) errors.add("roles must have at least 1 items")
     if (roles.size > 10) errors.add("roles must have at most 10 items")
     phone?.let { phone ->
-        if (!phone.matches(Regex("^\\+?[0-9\\-\\s]+\$"))) errors.add("phone must match pattern: ^\\+?[0-9\\-\\s]+\$")
-        if (phone.length < 7) errors.add("phone must be at least 7 characters")
-        if (phone.length > 20) errors.add("phone must be at most 20 characters")
+        if (!phone.matches(RE_USER_PHONE_PATTERN)) errors.add("phone must match pattern: ^\\+?[0-9\\-\\s]+\$")
+        if (phone.codePointCount(0, phone.length) < 7) errors.add("phone must be at least 7 characters")
+        if (phone.codePointCount(0, phone.length) > 20) errors.add("phone must be at most 20 characters")
     }
     address?.validate()?.let { errors.addAll(it.map { e -> "address.$e" }) }
     tags.forEachIndexed { i, v -> v.validate().forEach { e -> errors.add("tags[$i].$e") } }
@@ -141,14 +143,15 @@ data class Address(
     val country: String = ""
 )
 
+private val RE_ADDRESS_ZIP_PATTERN = Regex("^[0-9]{5}(-[0-9]{4})?\$")
 /** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
 fun Address.validate(): List<String> {
     val errors = mutableListOf<String>()
-    if (street.length < 1) errors.add("street must be at least 1 characters")
-    if (city.length < 1) errors.add("city must be at least 1 characters")
-    if (state.length < 2) errors.add("state must be at least 2 characters")
-    if (state.length > 2) errors.add("state must be at most 2 characters")
-    if (!zip.matches(Regex("^[0-9]{5}(-[0-9]{4})?\$"))) errors.add("zip must match pattern: ^[0-9]{5}(-[0-9]{4})?\$")
+    if (street.codePointCount(0, street.length) < 1) errors.add("street must be at least 1 characters")
+    if (city.codePointCount(0, city.length) < 1) errors.add("city must be at least 1 characters")
+    if (state.codePointCount(0, state.length) < 2) errors.add("state must be at least 2 characters")
+    if (state.codePointCount(0, state.length) > 2) errors.add("state must be at most 2 characters")
+    if (!zip.matches(RE_ADDRESS_ZIP_PATTERN)) errors.add("zip must match pattern: ^[0-9]{5}(-[0-9]{4})?\$")
     return errors
 }
 
