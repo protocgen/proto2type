@@ -102,6 +102,7 @@ fun User.validate(): List<String> {
     }
     address?.validate()?.let { errors.addAll(it.map { e -> "address.$e" }) }
     tags.forEachIndexed { i, v -> v.validate().forEach { e -> errors.add("tags[$i].$e") } }
+    contactMethod?.validate()?.let { errors.addAll(it) }
     return errors
 }
 
@@ -110,6 +111,23 @@ fun User.validateOrThrow() {
     val errors = validate()
     if (errors.isNotEmpty()) {
         throw IllegalStateException("User: validation failed: " + errors.joinToString("; "))
+    }
+}
+
+/** Validates constraints on [UserContactMethod] variants. Returns a list of error messages (empty = valid). */
+fun UserContactMethod.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    when (this) {
+        else -> {}
+    }
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun UserContactMethod.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("UserContactMethod: validation failed: " + errors.joinToString("; "))
     }
 }
 

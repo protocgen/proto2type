@@ -172,6 +172,8 @@ data class Notification(
 /** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
 fun Notification.validate(): List<String> {
     val errors = mutableListOf<String>()
+    channel?.validate()?.let { errors.addAll(it) }
+    content?.validate()?.let { errors.addAll(it) }
     return errors
 }
 
@@ -180,6 +182,40 @@ fun Notification.validateOrThrow() {
     val errors = validate()
     if (errors.isNotEmpty()) {
         throw IllegalStateException("Notification: validation failed: " + errors.joinToString("; "))
+    }
+}
+
+/** Validates constraints on [NotificationChannel] variants. Returns a list of error messages (empty = valid). */
+fun NotificationChannel.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    when (this) {
+        else -> {}
+    }
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun NotificationChannel.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("NotificationChannel: validation failed: " + errors.joinToString("; "))
+    }
+}
+
+/** Validates constraints on [NotificationContent] variants. Returns a list of error messages (empty = valid). */
+fun NotificationContent.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    when (this) {
+        else -> {}
+    }
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun NotificationContent.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("NotificationContent: validation failed: " + errors.joinToString("; "))
     }
 }
 
@@ -284,6 +320,7 @@ data class Event(
 /** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
 fun Event.validate(): List<String> {
     val errors = mutableListOf<String>()
+    payload?.validate()?.let { errors.addAll(it) }
     return errors
 }
 
@@ -292,6 +329,26 @@ fun Event.validateOrThrow() {
     val errors = validate()
     if (errors.isNotEmpty()) {
         throw IllegalStateException("Event: validation failed: " + errors.joinToString("; "))
+    }
+}
+
+/** Validates constraints on [EventPayload] variants. Returns a list of error messages (empty = valid). */
+fun EventPayload.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    when (this) {
+        is EventPayload.SettingsUpdate -> {
+            value.validate().let { errors.addAll(it.map { e -> "settings_update.$e" }) }
+        }
+        else -> {}
+    }
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun EventPayload.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("EventPayload: validation failed: " + errors.joinToString("; "))
     }
 }
 
@@ -333,6 +390,7 @@ data class WktPayload(
 /** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
 fun WktPayload.validate(): List<String> {
     val errors = mutableListOf<String>()
+    content?.validate()?.let { errors.addAll(it) }
     return errors
 }
 
@@ -341,6 +399,23 @@ fun WktPayload.validateOrThrow() {
     val errors = validate()
     if (errors.isNotEmpty()) {
         throw IllegalStateException("WktPayload: validation failed: " + errors.joinToString("; "))
+    }
+}
+
+/** Validates constraints on [WktPayloadContent] variants. Returns a list of error messages (empty = valid). */
+fun WktPayloadContent.validate(): List<String> {
+    val errors = mutableListOf<String>()
+    when (this) {
+        else -> {}
+    }
+    return errors
+}
+
+/** Validates constraints and throws [IllegalStateException] if any fail. */
+fun WktPayloadContent.validateOrThrow() {
+    val errors = validate()
+    if (errors.isNotEmpty()) {
+        throw IllegalStateException("WktPayloadContent: validation failed: " + errors.joinToString("; "))
     }
 }
 
