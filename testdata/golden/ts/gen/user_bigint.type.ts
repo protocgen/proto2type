@@ -92,9 +92,9 @@ export type User = z.infer<typeof UserSchema>;
 
 /** Category is a recursive tree structure for testing z.lazy() generation. */
 export type Category = {
-  name?: string;
-  parent?: Category;
-  children?: Category[];
+  name?: string | null;
+  parent?: Category | null;
+  children?: Category[] | null;
 };
 export const CategorySchema: z.ZodType<Category> = /* @__PURE__ */ z.lazy(() => z.object({
   name: z.string().default(""),

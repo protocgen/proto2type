@@ -135,6 +135,11 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 			g.P("    ", fieldName, "?.validate()?.let { errors.addAll(it.map { e -> \"", f.Name, ".$e\" }) }")
 		}
 	}
+	// Oneof validation delegation — propagate validate() to oneof sealed classes.
+	for _, o := range msg.Oneofs {
+		fieldName := escapeKotlinKeyword(toCamelCase(o.FieldName))
+		g.P("    ", fieldName, "?.validate()?.let { errors.addAll(it) }")
+	}
 
 	g.P("    return errors")
 	g.P("}")
@@ -155,6 +160,75 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 		if !nested.Skip {
 			generateKotlinValidate(g, nested, opts)
 		}
+	}
+
+	// Generate validation for oneof sealed classes.
+	for _, o := range msg.Oneofs {
+		generateKotlinOneofValidate(g, o, opts)
+	}
+}
+
+// generateKotlinOneofValidate generates validate() and validateOrThrow() extension
+// functions for a oneof sealed class. For message variants, it propagates validation
+// to the inner message. For scalar variants with constraints, it emits constraint checks.
+func generateKotlinOneofValidate(g *protogen.GeneratedFile, o *DomainOneof, opts *Options) {
+	g.P("/** Validates constraints on [", o.Name, "] variants. Returns a list of error messages (empty = valid). */")
+	g.P("fun ", o.Name, ".validate(): List<String> {")
+	g.P("    val errors = mutableListOf<String>()")
+	g.P("    when (this) {")
+
+	for _, v := range o.Variants {
+		hasConstraints := v.ValidateConstraints != nil && v.ValidateConstraints.HasConstraints()
+		if v.Kind == FieldKindMessage {
+			g.P("        is ", o.Name, ".", v.Name, " -> {")
+			g.P("            value.validate().let { errors.addAll(it.map { e -> \"", v.ProtoName, ".$e\" }) }")
+			g.P("        }")
+		} else if hasConstraints {
+			g.P("        is ", o.Name, ".", v.Name, " -> {")
+			emitKotlinOneofVariantConstraints(g, v)
+			g.P("        }")
+		}
+	}
+
+	g.P("    }")
+	g.P("    return errors")
+	g.P("}")
+	g.P()
+
+	g.P("/** Validates constraints and throws [IllegalStateException] if any fail. */")
+	g.P("fun ", o.Name, ".validateOrThrow() {")
+	g.P("    val errors = validate()")
+	g.P("    if (errors.isNotEmpty()) {")
+	g.P(fmt.Sprintf("        throw IllegalStateException(%q + errors.joinToString(\"; \"))", o.Name+": validation failed: "))
+	g.P("    }")
+	g.P("}")
+	g.P()
+}
+
+// emitKotlinOneofVariantConstraints emits constraint checks for a scalar oneof variant.
+func emitKotlinOneofVariantConstraints(g *protogen.GeneratedFile, v *OneofVariant) {
+	vc := v.ValidateConstraints
+	if vc == nil {
+		return
+	}
+	if vc.Email {
+		g.P("            if (value.isNotEmpty() && !value.matches(Regex(\"^[^@\\\\s]+@[^@\\\\s]+\\\\.[^@\\\\s]+$\"))) errors.add(\"", v.ProtoName, " must be a valid email\")")
+	}
+	if vc.URI {
+		g.P("            if (value.isNotEmpty() && !value.matches(Regex(\"^https?://.*\"))) errors.add(\"", v.ProtoName, " must be a valid URI\")")
+	}
+	if vc.UUID {
+		g.P("            if (value.isNotEmpty() && !value.matches(Regex(\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\"))) errors.add(\"", v.ProtoName, " must be a valid UUID\")")
+	}
+	if vc.Pattern != "" {
+		escaped := escapeKotlinStringLiteral(vc.Pattern)
+		g.P("            if (!value.matches(Regex(\"", escaped, "\"))) errors.add(\"", v.ProtoName, " must match pattern: ", escaped, "\")")
+	}
+	if vc.MinLength != nil {
+		g.P("            if (value.length < ", *vc.MinLength, ") errors.add(\"", v.ProtoName, " must be at least ", *vc.MinLength, " characters\")")
+	}
+	if vc.MaxLength != nil {
+		g.P("            if (value.length > ", *vc.MaxLength, ") errors.add(\"", v.ProtoName, " must be at most ", *vc.MaxLength, " characters\")")
 	}
 }
 
