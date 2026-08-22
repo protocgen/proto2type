@@ -36,22 +36,22 @@ export const UserSchema = /* @__PURE__ */ z.object({
   age: z.number().int().gte(0).lte(150).default(0),
   roles: z.array(z.string()).min(1).max(10).default(() => []),
   metadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.string()).default(() => ({})),
-  address: AddressSchema.optional(),
-  createdAt: z.string().datetime({ offset: true }).optional(),
-  sessionTimeout: z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration (e.g. '1.5s')" }).optional(),
-  phone: z.string().min(7).max(20).regex(new RegExp("^\\+?[0-9\\-\\s]+$"), { message: "must match pattern" }).optional(),
+  address: AddressSchema.nullish(),
+  createdAt: z.string().datetime({ offset: true }).nullish(),
+  sessionTimeout: z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration (e.g. '1.5s')" }).nullish(),
+  phone: z.string().min(7).max(20).regex(new RegExp("^\\+?[0-9\\-\\s]+$"), { message: "must match pattern" }).nullish(),
   avatar: z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" }).default(""),
   nickname: z.string().nullish(),
   status: UserStatusSchema.default("USER_STATUS_UNSPECIFIED"),
   tags: z.array(TagSchema).default(() => []),
-  deletedAt: z.string().datetime({ offset: true }).optional(),
-  previousStatus: UserStatusSchema.optional(),
+  deletedAt: z.string().datetime({ offset: true }).nullish(),
+  previousStatus: UserStatusSchema.nullish(),
   /** WKT reference types */
-  updateMask: z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" }).optional(),
-  extraMetadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown()).optional(),
-  preferences: z.array(z.unknown()).optional(),
+  updateMask: z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" }).nullish(),
+  extraMetadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown()).nullish(),
+  preferences: z.array(z.unknown()).nullish(),
   /** Optional bytes */
-  avatarThumbnail: z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" }).optional(),
+  avatarThumbnail: z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" }).nullish(),
   /** Repeated WKT reference types (Issue #52) */
   fieldMasks: z.array(z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" })).default(() => []),
   structs: z.array(z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())).default(() => []),
@@ -60,7 +60,7 @@ export const UserSchema = /* @__PURE__ */ z.object({
   eventTimes: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.string().datetime({ offset: true })).default(() => ({})),
   configs: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())).default(() => ({})),
   /** Value type coverage (Issue #116) */
-  singleValue: z.unknown().optional(),
+  singleValue: z.unknown().nullish(),
   values: z.array(z.unknown()).default(() => []),
   valueMap: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown()).default(() => ({})),
   /** Wrapper map values (Issue #116) */
@@ -70,19 +70,19 @@ export const UserSchema = /* @__PURE__ */ z.object({
   oldField: z.string().default(""),
   optionalName: z.string().default(""),
   bigNumber: z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).default("0"),
-  contactEmail: z.string().optional(),
-  contactPhone: z.string().optional(),
+  contactEmail: z.string().nullish(),
+  contactPhone: z.string().nullish(),
 }).superRefine((data, ctx) => {
   const contactMethodKeys = ["contactEmail", "contactPhone"] as const;
   let contactMethodCount = 0;
   for (const k of contactMethodKeys) {
-    if ((data as Record<string, unknown>)[k] !== undefined) contactMethodCount++;
+    if ((data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== null) contactMethodCount++;
   }
   if (contactMethodCount > 1) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "at most one of " + contactMethodKeys.join(", ") + " may be set",
-      path: [contactMethodKeys.find(k => (data as Record<string, unknown>)[k] !== undefined) || contactMethodKeys[0]],
+      path: [contactMethodKeys.find(k => (data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== null) || contactMethodKeys[0]],
     });
   }
 });
@@ -96,7 +96,7 @@ export type Category = {
 };
 export const CategorySchema: z.ZodType<Category> = /* @__PURE__ */ z.lazy(() => z.object({
   name: z.string().default(""),
-  parent: CategorySchema.optional(),
+  parent: CategorySchema.nullish(),
   children: z.array(CategorySchema).default(() => []),
 }));
 

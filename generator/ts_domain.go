@@ -227,7 +227,7 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 			if opts.ValidateEnabled() {
 				baseType += tsOneofVariantZodConstraints(v, opts)
 			}
-			zodExpr := baseType + ".optional()"
+			zodExpr := baseType + ".nullish()"
 			g.P("  ", toCamelCase(v.ProtoName), ": ", zodExpr, ",")
 		}
 	}
@@ -271,14 +271,14 @@ func emitOneofExclusivity(g *protogen.GeneratedFile, exclusiveOneofs []*DomainOn
 			localVar, tsJoinQuoted(varKeys)))
 		g.P(fmt.Sprintf("  let %sCount = 0;", localVar))
 		g.P(fmt.Sprintf("  for (const k of %sKeys) {", localVar))
-		g.P(fmt.Sprintf("    if ((data as Record<string, unknown>)[k] !== undefined) %sCount++;", localVar))
+		g.P(fmt.Sprintf("    if ((data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== null) %sCount++;", localVar))
 		g.P("  }")
 		g.P(fmt.Sprintf("  if (%sCount > 1) {", localVar))
 		g.P("    ctx.addIssue({")
 		g.P("      code: z.ZodIssueCode.custom,")
 		g.P(fmt.Sprintf(`      message: "at most one of " + %sKeys.join(", ") + " may be set",`,
 			localVar))
-		g.P(fmt.Sprintf("      path: [%sKeys.find(k => (data as Record<string, unknown>)[k] !== undefined) || %sKeys[0]],", localVar, localVar))
+		g.P(fmt.Sprintf("      path: [%sKeys.find(k => (data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== null) || %sKeys[0]],", localVar, localVar))
 		g.P("    });")
 		g.P("  }")
 	}
@@ -325,17 +325,14 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 		// Singular field: add .optional() or .nullish() if needed.
 		if f.IsOneof || tsFieldIsRequired(f, opts) {
 			// required or oneof — no default
-		} else if f.Kind.IsWrapper() {
-			// Wrapper types use .nullish() (undefined | null) instead of .nullable() or .optional().
-			// At this point, .nullable() was stripped from the base type (line 293-295), constraints
-			// were applied, then .nullable() was reattached (line 303-305). So HasSuffix is reliable.
+		} else if f.Kind.IsWrapper() || tsFieldNeedsOptional(f, opts) {
+			// Wrappers and optional fields use .nullish() (undefined | null) for ProtoJSON compat.
+			// Serializers (Go, Java, C#) send null for absent optional/message fields.
 			if strings.HasSuffix(zodExpr, ".nullable()") {
 				zodExpr = strings.TrimSuffix(zodExpr, ".nullable()") + ".nullish()"
 			} else {
 				zodExpr += ".nullish()"
 			}
-		} else if tsFieldNeedsOptional(f, opts) {
-			zodExpr += ".optional()"
 		} else if f.Kind == FieldKindEnum && f.EnumDefaultName != "" {
 			zodExpr += fmt.Sprintf(".default(%s)", strconv.Quote(f.EnumDefaultName))
 		} else {
