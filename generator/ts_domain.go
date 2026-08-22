@@ -179,13 +179,19 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 			if tsFieldNeedsOptional(f, opts) || (recursive && !f.IsOneof && !tsFieldIsRequired(f, opts)) {
 				optMark = "?"
 			}
-			g.P(fmt.Sprintf("  %s%s: %s;", f.CamelName, optMark, tsPlainType(f, opts)))
+			tsType := tsPlainType(f, opts)
+			// Optional fields use .nullish() in the Zod schema, so the type alias
+			// must include | null to match z.infer<> (T | null | undefined).
+			if optMark == "?" && !f.Kind.IsWrapper() {
+				tsType += " | null"
+			}
+			g.P(fmt.Sprintf("  %s%s: %s;", f.CamelName, optMark, tsType))
 		}
 		// Oneof variants in the type alias.
 		for _, o := range m.Oneofs {
 			for _, v := range o.Variants {
 				tsType := tsPlainOneofVariantType(v, opts)
-				g.P(fmt.Sprintf("  %s?: %s;", toCamelCase(v.ProtoName), tsType))
+				g.P(fmt.Sprintf("  %s?: %s | null;", toCamelCase(v.ProtoName), tsType))
 			}
 		}
 		g.P("};")

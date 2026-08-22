@@ -230,7 +230,7 @@ func generateRustEnumFromIR(g *protogen.GeneratedFile, de *DomainEnum) {
 }
 
 // generateRustOneofEnumFromIR generates a Rust enum for a oneof group from DomainOneof.
-func generateRustOneofEnumFromIR(g *protogen.GeneratedFile, do *DomainOneof) {
+func generateRustOneofEnumFromIR(g *protogen.GeneratedFile, do *DomainOneof, opts *Options) {
 	g.P("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]")
 	g.P(`#[serde(tag = "kind", content = "value")]`)
 	g.P("pub enum ", do.Name, " {")
@@ -243,6 +243,31 @@ func generateRustOneofEnumFromIR(g *protogen.GeneratedFile, do *DomainOneof) {
 
 	g.P("}")
 	g.P()
+
+	// When validation is enabled, implement the Validate trait manually
+	// (validator crate doesn't support #[derive(Validate)] on enums).
+	if opts.ValidateEnabled() {
+		g.P("impl Validate for ", do.Name, " {")
+		g.P("    fn validate(&self) -> Result<(), validator::ValidationErrors> {")
+		g.P("        match self {")
+		hasMessageVariant := false
+		for _, v := range do.Variants {
+			if v.Kind == FieldKindMessage {
+				hasMessageVariant = true
+				g.P("            Self::", v.Name, "(v) => v.validate(),")
+			}
+		}
+		if hasMessageVariant {
+			g.P("            _ => Ok(()),")
+		} else {
+			// All scalar variants — always valid
+			g.P("            _ => Ok(()),")
+		}
+		g.P("        }")
+		g.P("    }")
+		g.P("}")
+		g.P()
+	}
 }
 
 // rustOneofVariantTypeFromIR returns the Rust type for a oneof variant.
@@ -299,7 +324,7 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 
 	// Generate oneof enums before the struct
 	for _, do := range dm.Oneofs {
-		generateRustOneofEnumFromIR(g, do)
+		generateRustOneofEnumFromIR(g, do, opts)
 	}
 
 	// Doc comment
@@ -327,6 +352,9 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 		if f.IsOneof {
 			rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
 			g.P("    #[serde(default, skip_serializing_if = \"Option::is_none\")]")
+			if opts.ValidateEnabled() {
+				g.P("    #[validate(nested)]")
+			}
 			g.P("    pub ", rustFieldName, ": Option<", f.OneofTypeName, ">,")
 			continue
 		}

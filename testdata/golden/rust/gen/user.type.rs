@@ -52,6 +52,14 @@ pub enum UserContactMethod {
     ContactPhone(String),
 }
 
+impl Validate for UserContactMethod {
+    fn validate(&self) -> Result<(), validator::ValidationErrors> {
+        match self {
+            _ => Ok(()),
+        }
+    }
+}
+
 /// Domain representation of test.v1.User.
 ///
 /// User represents a user account.
@@ -85,6 +93,7 @@ pub struct User {
     pub nickname: Option<String>,
     pub status: UserStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(nested)]
     pub contact_method: Option<UserContactMethod>,
     #[serde(default)]
     #[validate(nested)]

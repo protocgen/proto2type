@@ -45,22 +45,22 @@ export interface User {
   age: number;
   roles: string[];
   metadata: Record<string, string>;
-  address?: Address;
-  createdAt?: string;
-  sessionTimeout?: string;
-  phone?: string;
+  address?: Address | null;
+  createdAt?: string | null;
+  sessionTimeout?: string | null;
+  phone?: string | null;
   avatar: string;
   nickname?: string | null;
   status: UserStatus;
   tags: Tag[];
-  deletedAt?: string;
-  previousStatus?: UserStatus;
+  deletedAt?: string | null;
+  previousStatus?: UserStatus | null;
   /** WKT reference types */
-  updateMask?: string;
-  extraMetadata?: Record<string, unknown>;
-  preferences?: unknown[];
+  updateMask?: string | null;
+  extraMetadata?: Record<string, unknown> | null;
+  preferences?: unknown[] | null;
   /** Optional bytes */
-  avatarThumbnail?: string;
+  avatarThumbnail?: string | null;
   /** Repeated WKT reference types (Issue #52) */
   fieldMasks: string[];
   structs: Record<string, unknown>[];
@@ -69,7 +69,7 @@ export interface User {
   eventTimes: Record<string, string>;
   configs: Record<string, Record<string, unknown>>;
   /** Value type coverage (Issue #116) */
-  singleValue?: unknown;
+  singleValue?: unknown | null;
   values: unknown[];
   valueMap: Record<string, unknown>;
   /** Wrapper map values (Issue #116) */
@@ -79,8 +79,8 @@ export interface User {
   optionalName: string;
   bigNumber: string;
   /** @oneof contact_method — at most one of: contactEmail, contactPhone */
-  contactEmail?: string;
-  contactPhone?: string;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
 }
 export const UserSchema = /* @__PURE__ */ z.object({
   id: z.string().default(""),
@@ -143,9 +143,9 @@ export const UserSchema = /* @__PURE__ */ z.object({
 
 /** Category is a recursive tree structure for testing z.lazy() generation. */
 export type Category = {
-  name?: string;
-  parent?: Category;
-  children?: Category[];
+  name?: string | null;
+  parent?: Category | null;
+  children?: Category[] | null;
 };
 export const CategorySchema: z.ZodType<Category> = /* @__PURE__ */ z.lazy(() => z.object({
   name: z.string().default(""),
