@@ -93,7 +93,7 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 		g.P("use serde::{Deserialize, Serialize};")
 	}
 	if needsValidator {
-		g.P("use validator::Validate;")
+		g.P("use validator::{Validate, ValidateEmail};")
 	}
 	if needsLazyStatic {
 		g.P("use lazy_static::lazy_static;")
@@ -250,19 +250,44 @@ func generateRustOneofEnumFromIR(g *protogen.GeneratedFile, do *DomainOneof, opt
 		g.P("impl Validate for ", do.Name, " {")
 		g.P("    fn validate(&self) -> Result<(), validator::ValidationErrors> {")
 		g.P("        match self {")
-		hasMessageVariant := false
 		for _, v := range do.Variants {
 			if v.Kind == FieldKindMessage {
-				hasMessageVariant = true
 				g.P("            Self::", v.Name, "(v) => v.validate(),")
+			} else if v.ValidateConstraints != nil && v.ValidateConstraints.HasConstraints() {
+				g.P("            Self::", v.Name, "(v) => {")
+				g.P("                let mut errors = validator::ValidationErrors::new();")
+				if v.ValidateConstraints.Email {
+					g.P("                if !v.validate_email() {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("email"));`)
+					g.P("                }")
+				}
+				if v.ValidateConstraints.MinLength != nil {
+					g.P("                if v.chars().count() < ", *v.ValidateConstraints.MinLength, " {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("length"));`)
+					g.P("                }")
+				}
+				if v.ValidateConstraints.MaxLength != nil {
+					g.P("                if v.chars().count() > ", *v.ValidateConstraints.MaxLength, " {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("length"));`)
+					g.P("                }")
+				}
+				if v.ValidateConstraints.Pattern != "" {
+					constName := fmt.Sprintf("RE_%s_%s_%s", strings.ToUpper(toSnakeCase(do.Name)), strings.ToUpper(toSnakeCase(v.ProtoName)), "PATTERN")
+					g.P("                if !", constName, ".is_match(v) {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("pattern"));`)
+					g.P("                }")
+				}
+				if v.ValidateConstraints.UUID {
+					constName := fmt.Sprintf("RE_%s_%s_%s", strings.ToUpper(toSnakeCase(do.Name)), strings.ToUpper(toSnakeCase(v.ProtoName)), "UUID")
+					g.P("                if !", constName, ".is_match(v) {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("uuid"));`)
+					g.P("                }")
+				}
+				g.P("                if errors.is_empty() { Ok(()) } else { Err(errors) }")
+				g.P("            }")
 			}
 		}
-		if hasMessageVariant {
-			g.P("            _ => Ok(()),")
-		} else {
-			// All scalar variants — always valid
-			g.P("            _ => Ok(()),")
-		}
+		g.P("            _ => Ok(()),")
 		g.P("        }")
 		g.P("    }")
 		g.P("}")
@@ -393,6 +418,9 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 
 		// Validator attributes from IR constraints
 		if opts.ValidateEnabled() {
+			if f.Kind == FieldKindTimestamp && f.ValidateConstraints != nil && (f.ValidateConstraints.Gt != nil || f.ValidateConstraints.Gte != nil || f.ValidateConstraints.Lt != nil || f.ValidateConstraints.Lte != nil) {
+				g.P("    // TODO: timestamp range constraints not yet supported in Rust")
+			}
 			if vattrs := rustValidateAttrs(f); len(vattrs) > 0 {
 				g.P("    #[validate(", strings.Join(vattrs, ", "), ")]")
 			}

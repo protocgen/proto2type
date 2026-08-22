@@ -3,7 +3,7 @@
 // source: keywords.proto
 
 use serde::{Deserialize, Serialize};
-use validator::Validate;
+use validator::{Validate, ValidateEmail};
 
 /// Domain representation of proto2type.test.keywords.KeywordFields.
 ///

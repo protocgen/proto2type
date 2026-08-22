@@ -3,7 +3,7 @@
 // source: catalog.proto
 
 use serde::{Deserialize, Serialize};
-use validator::Validate;
+use validator::{Validate, ValidateEmail};
 use chrono::{DateTime, Utc};
 
 /// Domain representation of test.v1.ModelCatalogEntry.

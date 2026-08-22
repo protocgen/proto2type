@@ -85,6 +85,11 @@ func writeTSFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options) {
 	}
 	g.P()
 
+	if !opts.TSTypesOnly && irNeedsSafeKey(ir) {
+		g.P(`const _safeKey = z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' });`)
+		g.P()
+	}
+
 	// Enums.
 	for _, e := range ir.Enums {
 		writeTSEnum(g, e, opts)
@@ -163,6 +168,15 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 		if len(o.Variants) >= 2 {
 			exclusiveOneofs = append(exclusiveOneofs, o)
 		}
+	}
+
+	for _, o := range exclusiveOneofs {
+		varKeys := make([]string, 0, len(o.Variants))
+		for _, v := range o.Variants {
+			varKeys = append(varKeys, toCamelCase(v.ProtoName))
+		}
+		g.P(fmt.Sprintf("const _%s_%sKeys = [%s] as const;",
+			m.Name, toCamelCase(o.FieldName), tsJoinQuoted(varKeys)))
 	}
 
 	if recursive {
@@ -247,7 +261,7 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 		if len(exclusiveOneofs) > 0 {
 			// Chain .superRefine() inside the z.lazy() thunk.
 			g.P("})" + strict + ".superRefine((data, ctx) => {")
-			emitOneofExclusivity(g, exclusiveOneofs)
+			emitOneofExclusivity(g, m.Name, exclusiveOneofs)
 			g.P("}));")
 		} else {
 			g.P("})" + strict + ");")
@@ -255,7 +269,7 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 	} else if len(exclusiveOneofs) > 0 {
 		// Chain .superRefine() to enforce mutual exclusion of oneof variants.
 		g.P("})" + strict + ".superRefine((data, ctx) => {")
-		emitOneofExclusivity(g, exclusiveOneofs)
+		emitOneofExclusivity(g, m.Name, exclusiveOneofs)
 		g.P("});")
 	} else {
 		g.P("})" + strict + ";")
@@ -266,25 +280,20 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 	}
 }
 
-func emitOneofExclusivity(g *protogen.GeneratedFile, exclusiveOneofs []*DomainOneof) {
+func emitOneofExclusivity(g *protogen.GeneratedFile, mName string, exclusiveOneofs []*DomainOneof) {
 	for _, o := range exclusiveOneofs {
-		varKeys := make([]string, 0, len(o.Variants))
-		for _, v := range o.Variants {
-			varKeys = append(varKeys, toCamelCase(v.ProtoName))
-		}
 		localVar := toCamelCase(o.FieldName)
-		g.P(fmt.Sprintf("  const %sKeys = [%s] as const;",
-			localVar, tsJoinQuoted(varKeys)))
+		keysVar := fmt.Sprintf("_%s_%sKeys", mName, localVar)
 		g.P(fmt.Sprintf("  let %sCount = 0;", localVar))
-		g.P(fmt.Sprintf("  for (const k of %sKeys) {", localVar))
+		g.P(fmt.Sprintf("  for (const k of %s) {", keysVar))
 		g.P(fmt.Sprintf("    if ((data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== null) %sCount++;", localVar))
 		g.P("  }")
 		g.P(fmt.Sprintf("  if (%sCount > 1) {", localVar))
 		g.P("    ctx.addIssue({")
 		g.P("      code: z.ZodIssueCode.custom,")
-		g.P(fmt.Sprintf(`      message: "at most one of " + %sKeys.join(", ") + " may be set",`,
-			localVar))
-		g.P(fmt.Sprintf("      path: [%sKeys.find(k => (data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== null) || %sKeys[0]],", localVar, localVar))
+		g.P(fmt.Sprintf(`      message: "at most one of " + %s.join(", ") + " may be set",`,
+			keysVar))
+		g.P(fmt.Sprintf("      path: [%s.find(k => (data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== null) || %s[0]],", keysVar, keysVar))
 		g.P("    });")
 		g.P("  }")
 	}
@@ -315,7 +324,7 @@ func tsFieldZodExpr(f *DomainField, opts *Options) string {
 	if f.IsMap {
 		// Map field: z.record(key, value).default({})
 		valType := tsMapValueZodType(f.MapValue, opts)
-		zodExpr = fmt.Sprintf("z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), %s)", valType)
+		zodExpr = fmt.Sprintf("z.record(_safeKey, %s)", valType)
 		if opts.ValidateEnabled() {
 			zodExpr += tsMapConstraints(f.ValidateConstraints)
 		}
@@ -448,7 +457,7 @@ func tsOneofVariantZodType(v *OneofVariant, opts *Options) string {
 	case FieldKindDuration:
 		return `z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration" })`
 	case FieldKindStruct:
-		return "z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())"
+		return "z.record(_safeKey, z.unknown())"
 	case FieldKindValue:
 		return "z.unknown()"
 	case FieldKindListValue:
@@ -466,4 +475,17 @@ func tsOneofVariantZodType(v *OneofVariant, opts *Options) string {
 		}
 		return "z.unknown()"
 	}
+}
+
+// irNeedsSafeKey returns true if any message in the IR has a map field
+// or a Struct-typed WKT field that would use the _safeKey constant.
+func irNeedsSafeKey(ir *DomainFile) bool {
+	for _, msg := range ir.Messages {
+		for _, f := range msg.Fields {
+			if f.IsMap || f.Kind == FieldKindStruct {
+				return true
+			}
+		}
+	}
+	return false
 }

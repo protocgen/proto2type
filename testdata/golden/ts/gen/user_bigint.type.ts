@@ -7,6 +7,8 @@
 // This generated code uses JavaScript's RegExp (backtracking). Review patterns for ReDoS.
 import { z } from "zod";
 
+const _safeKey = z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' });
+
 /** UserStatus represents the user's account status. */
 export type UserStatus = "USER_STATUS_UNSPECIFIED" | "USER_STATUS_ACTIVE" | "USER_STATUS_SUSPENDED" | "USER_STATUS_DELETED" | (string & {});
 // Note: Numeric enum values should be converted to strings before passing to this schema.
@@ -30,6 +32,7 @@ export const TagSchema = /* @__PURE__ */ z.object({
 export type Tag = z.infer<typeof TagSchema>;
 
 /** User represents a user account. */
+const _User_contactMethodKeys = ["contactEmail", "contactPhone"] as const;
 export const UserSchema = /* @__PURE__ */ z.object({
   id: z.string().default(""),
   email: z.string().default(""),
@@ -37,7 +40,7 @@ export const UserSchema = /* @__PURE__ */ z.object({
   active: z.boolean().default(false),
   age: z.number().int().default(0),
   roles: z.array(z.string()).default(() => []),
-  metadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.string()).default(() => ({})),
+  metadata: z.record(_safeKey, z.string()).default(() => ({})),
   address: AddressSchema.nullish(),
   createdAt: z.string().datetime({ offset: true }).nullish(),
   sessionTimeout: z.string().regex(new RegExp("^-?[0-9]+(\\.[0-9]+)?s$"), { message: "must be a valid Duration (e.g. '1.5s')" }).nullish(),
@@ -50,24 +53,24 @@ export const UserSchema = /* @__PURE__ */ z.object({
   previousStatus: UserStatusSchema.nullish(),
   /** WKT reference types */
   updateMask: z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" }).nullish(),
-  extraMetadata: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown()).nullish(),
+  extraMetadata: z.record(_safeKey, z.unknown()).nullish(),
   preferences: z.array(z.unknown()).nullish(),
   /** Optional bytes */
   avatarThumbnail: z.string().regex(/^[A-Za-z0-9+\/\-_]*={0,2}$/, { message: "must be valid base64" }).nullish(),
   /** Repeated WKT reference types (Issue #52) */
   fieldMasks: z.array(z.string().regex(new RegExp("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*(,[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*)*$"), { message: "must be a valid FieldMask (comma-separated field paths)" })).default(() => []),
-  structs: z.array(z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())).default(() => []),
+  structs: z.array(z.record(_safeKey, z.unknown())).default(() => []),
   lists: z.array(z.array(z.unknown())).default(() => []),
   /** WKT map values (Issue #53) */
-  eventTimes: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.string().datetime({ offset: true })).default(() => ({})),
-  configs: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown())).default(() => ({})),
+  eventTimes: z.record(_safeKey, z.string().datetime({ offset: true })).default(() => ({})),
+  configs: z.record(_safeKey, z.record(_safeKey, z.unknown())).default(() => ({})),
   /** Value type coverage (Issue #116) */
   singleValue: z.unknown().nullish(),
   values: z.array(z.unknown()).default(() => []),
-  valueMap: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.unknown()).default(() => ({})),
+  valueMap: z.record(_safeKey, z.unknown()).default(() => ({})),
   /** Wrapper map values (Issue #116) */
-  labels: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.string().nullable()).default(() => ({})),
-  scores: z.record(z.string().refine(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', { message: 'reserved key name' }), z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" }).nullable()).default(() => ({})),
+  labels: z.record(_safeKey, z.string().nullable()).default(() => ({})),
+  scores: z.record(_safeKey, z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" }).nullable()).default(() => ({})),
   /** @deprecated */
   oldField: z.string().default(""),
   optionalName: z.string().default(""),
@@ -75,16 +78,15 @@ export const UserSchema = /* @__PURE__ */ z.object({
   contactEmail: z.string().nullish(),
   contactPhone: z.string().nullish(),
 }).superRefine((data, ctx) => {
-  const contactMethodKeys = ["contactEmail", "contactPhone"] as const;
   let contactMethodCount = 0;
-  for (const k of contactMethodKeys) {
+  for (const k of _User_contactMethodKeys) {
     if ((data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== null) contactMethodCount++;
   }
   if (contactMethodCount > 1) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "at most one of " + contactMethodKeys.join(", ") + " may be set",
-      path: [contactMethodKeys.find(k => (data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== null) || contactMethodKeys[0]],
+      message: "at most one of " + _User_contactMethodKeys.join(", ") + " may be set",
+      path: [_User_contactMethodKeys.find(k => (data as Record<string, unknown>)[k] !== undefined && (data as Record<string, unknown>)[k] !== null) || _User_contactMethodKeys[0]],
     });
   }
 });

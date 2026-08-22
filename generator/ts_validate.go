@@ -13,19 +13,19 @@ import (
 // which are not supported by JavaScript's RegExp engine.
 var reHasNamedGroup = regexp.MustCompile(`\(\?P<`)
 
-// hasNestedQuantifiers detects patterns with quantifiers nested inside other
-// quantifiers (e.g. (a+)+, (a*){2,}, (x+y+)*). These are safe in RE2 (which
+// hasDangerousPattern detects patterns with quantifiers nested inside other
+// quantifiers (e.g. (a+)+, (a*){2,}, (x+y+)*) or overlapping alternations. These are safe in RE2 (which
 // guarantees linear time) but cause catastrophic backtracking in JavaScript's
-// NFA-based RegExp engine. Returns true if the pattern contains nested
-// quantifiers that could cause ReDoS.
-func hasNestedQuantifiers(pattern string) bool {
+// NFA-based RegExp engine. Returns true if the pattern contains dangerous
+// constructs that could cause ReDoS.
+func hasDangerousPattern(pattern string) bool {
 	re, err := syntax.Parse(pattern, syntax.Perl)
 	if err != nil {
 		return false // Can't parse — let the regexp.Compile check handle it.
 	}
 	// Do NOT call re.Simplify() — it collapses (?:a+)+ to a+,
 	// hiding dangerous nested quantifiers from detection.
-	return walkForNestedQuantifiers(re, false)
+	return walkForDangerousPattern(re, false)
 }
 
 // isUnboundedQuantifier returns true for quantifiers that can match
@@ -44,18 +44,59 @@ func isUnboundedQuantifier(re *syntax.Regexp) bool {
 	return false
 }
 
-// walkForNestedQuantifiers recursively walks the regex AST. The inQuantifier
+// canMatchAnyChar returns true if a quantified regex sub-expression can match
+// arbitrary characters (dot, character class, negated class). Simple literals
+// like 'a' or 'b' return false — adjacent quantifiers on distinct literals
+// (e.g. a+b+) are safe because they can't overlap.
+func canMatchAnyChar(re *syntax.Regexp) bool {
+	// Unwrap the quantifier to get the inner expression.
+	inner := re
+	if isUnboundedQuantifier(re) && len(re.Sub) > 0 {
+		inner = re.Sub[0]
+	}
+	switch inner.Op {
+	case syntax.OpAnyChar, syntax.OpAnyCharNotNL:
+		return true // . or (?s:.)
+	case syntax.OpCharClass:
+		return true // [a-z], \w, \d, etc.
+	case syntax.OpAlternate, syntax.OpCapture, syntax.OpConcat:
+		return true // complex sub-expressions may overlap
+	}
+	return false
+}
+
+// walkForDangerousPattern recursively walks the regex AST. The inQuantifier
 // flag tracks whether we're already inside a quantified sub-expression.
-func walkForNestedQuantifiers(re *syntax.Regexp, inQuantifier bool) bool {
+func walkForDangerousPattern(re *syntax.Regexp, inQuantifier bool) bool {
 	unbounded := isUnboundedQuantifier(re)
 	if unbounded && inQuantifier {
 		return true
 	}
+	// Alternation under a quantifier is only dangerous when branches share
+	// overlapping character sets (e.g. (a|a)* causes backtracking). Single-char
+	// alternations are folded to OpCharClass by the parser, so multi-char
+	// alternations like (ab|cd)+ are safe. We skip this check to avoid
+	// false positives — the nested quantifier and adjacent checks catch
+	// the truly dangerous patterns.
+
+	// Check for adjacent unbounded quantifiers with overlapping character classes.
+	// a+b+ is safe (different literals), but .*\d+ or \w+\d+ are dangerous.
+	if re.Op == syntax.OpConcat {
+		for i := 0; i < len(re.Sub)-1; i++ {
+			if isUnboundedQuantifier(re.Sub[i]) && isUnboundedQuantifier(re.Sub[i+1]) {
+				// Only dangerous if at least one can match arbitrary characters.
+				if canMatchAnyChar(re.Sub[i]) || canMatchAnyChar(re.Sub[i+1]) {
+					return true
+				}
+			}
+		}
+	}
+
 	// Recurse into sub-expressions. If this node is an unbounded quantifier,
 	// mark children as being inside a quantifier.
 	childInQ := inQuantifier || unbounded
 	for _, sub := range re.Sub {
-		if walkForNestedQuantifiers(sub, childInQ) {
+		if walkForDangerousPattern(sub, childInQ) {
 			return true
 		}
 	}
@@ -77,7 +118,10 @@ func tsZodConstraints(f *DomainField, opts *Options) string {
 }
 
 func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
-	var parts []string
+	// Split into two groups: ZodString-native methods (which must come first
+	// since they return ZodString), then .refine() methods (which return ZodEffects).
+	var nativeParts []string // .email(), .uuid(), .regex(), .startsWith(), etc.
+	var parts []string       // .refine(...) calls — accumulated as before
 
 	isBytesField := f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind || f.Kind == FieldKindWrapperBytes
 	// Decoded byte length for base64: strip trailing '=' then Math.floor(len * 3 / 4).
@@ -87,21 +131,21 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		if isBytesField {
 			parts = append(parts, fmt.Sprintf(`.refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && %s >= %d, { message: "bytes must be at least %d bytes" })`, b64DecodedLen, *vc.MinLength, *vc.MinLength))
 		} else {
-			parts = append(parts, fmt.Sprintf(".min(%d)", *vc.MinLength))
+			parts = append(parts, fmt.Sprintf(`.refine(v => [...v].length >= %d, { message: "must be at least %d characters" })`, *vc.MinLength, *vc.MinLength))
 		}
 	}
 	if vc.MaxLength != nil {
 		if isBytesField {
 			parts = append(parts, fmt.Sprintf(`.refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && %s <= %d, { message: "bytes must be at most %d bytes" })`, b64DecodedLen, *vc.MaxLength, *vc.MaxLength))
 		} else {
-			parts = append(parts, fmt.Sprintf(".max(%d)", *vc.MaxLength))
+			parts = append(parts, fmt.Sprintf(`.refine(v => [...v].length <= %d, { message: "must be at most %d characters" })`, *vc.MaxLength, *vc.MaxLength))
 		}
 	}
 	if vc.Email {
 		if vc.IgnoreEmpty {
 			parts = append(parts, `.refine(v => v === "" || z.string().email().safeParse(v).success, { message: "must be a valid email" })`)
 		} else {
-			parts = append(parts, ".email()")
+			nativeParts = append(nativeParts, ".email()")
 		}
 	}
 	if vc.URI {
@@ -109,14 +153,15 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		if vc.IgnoreEmpty {
 			parts = append(parts, `.refine(v => v === "" || (z.string().url().safeParse(v).success && /^https?:\/\//i.test(v)), { message: "must be a valid http(s) URL" })`)
 		} else {
-			parts = append(parts, `.url().refine(v => /^https?:\/\//i.test(v), { message: "must use http or https scheme" })`)
+			nativeParts = append(nativeParts, `.url()`)
+			parts = append(parts, `.refine(v => /^https?:\/\//i.test(v), { message: "must use http or https scheme" })`)
 		}
 	}
 	if vc.UUID {
 		if vc.IgnoreEmpty {
 			parts = append(parts, `.refine(v => v === "" || z.string().uuid().safeParse(v).success, { message: "must be a valid uuid" })`)
 		} else {
-			parts = append(parts, ".uuid()")
+			nativeParts = append(nativeParts, ".uuid()")
 		}
 	}
 	if vc.Pattern != "" {
@@ -130,17 +175,17 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 			// RE2 named groups (?P<name>...) are not valid in JS RegExp.
 			safe := strings.ReplaceAll(vc.Pattern, "*/", "* /")
 			parts = append(parts, fmt.Sprintf(` /* WARN: pattern %q uses RE2 named groups unsupported by JS, skipped */`, safe))
-		} else if hasNestedQuantifiers(vc.Pattern) {
+		} else if hasDangerousPattern(vc.Pattern) {
 			// Nested quantifiers (e.g. (a+)+) are safe in RE2 but cause catastrophic
 			// backtracking (ReDoS) in JavaScript's NFA-based RegExp engine.
 			safe := strings.ReplaceAll(vc.Pattern, "*/", "* /")
-			parts = append(parts, fmt.Sprintf(` /* WARN: pattern %q has nested quantifiers (potential ReDoS in JS), skipped */`, safe))
+			parts = append(parts, fmt.Sprintf(` /* WARN: pattern %q has dangerous quantifiers (potential ReDoS in JS), skipped */`, safe))
 		} else {
 			escaped := strconv.Quote(vc.Pattern)
 			if vc.IgnoreEmpty {
-				parts = append(parts, fmt.Sprintf(`.refine(((re) => (v) => v === "" || re.test(v))(new RegExp(%s)), { message: "must match pattern" })`, escaped))
+				parts = append(parts, fmt.Sprintf(`.refine(((re) => (v) => v === "" || re.test(v))(new RegExp(%s, "u")), { message: "must match pattern" })`, escaped))
 			} else {
-				parts = append(parts, fmt.Sprintf(`.regex(new RegExp(%s), { message: "must match pattern" })`, escaped))
+				nativeParts = append(nativeParts, fmt.Sprintf(`.regex(new RegExp(%s, "u"), { message: "must match pattern" })`, escaped))
 			}
 		}
 	}
@@ -148,33 +193,33 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		if isBytesField {
 			parts = append(parts, fmt.Sprintf(`.refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && %s === %d, { message: "bytes must be exactly %d bytes" })`, b64DecodedLen, *vc.Len, *vc.Len))
 		} else {
-			parts = append(parts, fmt.Sprintf(".length(%d)", *vc.Len))
+			parts = append(parts, fmt.Sprintf(`.refine(v => [...v].length === %d, { message: "must be exactly %d characters" })`, *vc.Len, *vc.Len))
 		}
 	}
 	if vc.Const != nil && !isBytesField {
 		parts = append(parts, fmt.Sprintf(`.refine(v => v === %s, { message: "must be exactly %s" })`, *vc.Const, *vc.Const))
 	}
 	if vc.Prefix != "" {
-		parts = append(parts, fmt.Sprintf(".startsWith(%s)", strconv.Quote(vc.Prefix)))
+		nativeParts = append(nativeParts, fmt.Sprintf(".startsWith(%s)", strconv.Quote(vc.Prefix)))
 	}
 	if vc.Suffix != "" {
-		parts = append(parts, fmt.Sprintf(".endsWith(%s)", strconv.Quote(vc.Suffix)))
+		nativeParts = append(nativeParts, fmt.Sprintf(".endsWith(%s)", strconv.Quote(vc.Suffix)))
 	}
 	if vc.Contains != "" {
-		parts = append(parts, fmt.Sprintf(".includes(%s)", strconv.Quote(vc.Contains)))
+		nativeParts = append(nativeParts, fmt.Sprintf(".includes(%s)", strconv.Quote(vc.Contains)))
 	}
 	if vc.Hostname {
 		if vc.IgnoreEmpty {
 			parts = append(parts, `.refine(((re) => (v) => v === "" || re.test(v))(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/), { message: "must be a valid hostname" })`)
 		} else {
-			parts = append(parts, `.regex(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/, { message: "must be a valid hostname" })`)
+			nativeParts = append(nativeParts, `.regex(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/, { message: "must be a valid hostname" })`)
 		}
 	}
 	if vc.IP {
 		if vc.IgnoreEmpty {
 			parts = append(parts, `.refine(v => v === "" || z.string().ip().safeParse(v).success, { message: "must be a valid ip" })`)
 		} else {
-			parts = append(parts, `.ip()`)
+			nativeParts = append(nativeParts, `.ip()`)
 		}
 	}
 	if len(vc.In) > 0 {
@@ -186,7 +231,8 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		parts = append(parts, fmt.Sprintf(`.refine(v => ![%s].includes(v), { message: "must not be one of [%s]" })`, vals, vals))
 	}
 
-	return strings.Join(parts, "")
+	// Emit native ZodString methods first, then .refine() methods.
+	return strings.Join(nativeParts, "") + strings.Join(parts, "")
 }
 
 func tsNumericConstraints(f *DomainField, opts *Options, vc *ValidateConstraints) string {
@@ -220,9 +266,9 @@ func tsNumericConstraints(f *DomainField, opts *Options, vc *ValidateConstraints
 			return
 		}
 		if isDuration {
-			parts = append(parts, fmt.Sprintf(`.refine(v => { const m = v.match(/^(-?[0-9]+(?:\.[0-9]+)?)s$/); if (!m) return false; return parseFloat(m[1]) %s parseFloat(%q.replace("s", "")); }, { message: "must be %s %s" })`, op, *val, opName, *val))
+			parts = append(parts, fmt.Sprintf(`.refine(((limit) => (v) => { const m = v.match(/^(-?[0-9]+(?:\.[0-9]+)?)s$/); if (!m) return false; return parseFloat(m[1]) %s limit; })(parseFloat(%q.replace("s", ""))), { message: "must be %s %s" })`, op, *val, opName, *val))
 		} else if isTimestamp {
-			parts = append(parts, fmt.Sprintf(`.refine(v => new Date(v).getTime() %s new Date(%q).getTime(), { message: "must be %s %s" })`, op, *val, opName, *val))
+			parts = append(parts, fmt.Sprintf(`.refine(((limit) => (v) => new Date(v).getTime() %s limit)(new Date(%q).getTime()), { message: "must be %s %s" })`, op, *val, opName, *val))
 		} else if isInt64String {
 			parts = append(parts, fmt.Sprintf(`.refine(v => { try { return BigInt(v) %s %sn; } catch { return false; } }, { message: "must be %s %s" })`, op, *val, opName, *val))
 		} else if isBigInt {

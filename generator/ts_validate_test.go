@@ -25,7 +25,7 @@ func TestTsZodConstraints_StringField(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	expected := `.min(3).max(100).email().url().refine(v => /^https?:\/\//i.test(v), { message: "must use http or https scheme" }).uuid().regex(new RegExp("^[a-z]+$"), { message: "must match pattern" })`
+	expected := `.email().url().uuid().regex(new RegExp("^[a-z]+$", "u"), { message: "must match pattern" }).refine(v => [...v].length >= 3, { message: "must be at least 3 characters" }).refine(v => [...v].length <= 100, { message: "must be at most 100 characters" }).refine(v => /^https?:\/\//i.test(v), { message: "must use http or https scheme" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}
@@ -132,7 +132,7 @@ func TestTsOneofVariantZodConstraints(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsOneofVariantZodConstraints(v, opts)
-	expected := `.min(3)`
+	expected := `.refine(v => [...v].length >= 3, { message: "must be at least 3 characters" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}
@@ -152,7 +152,7 @@ func TestTsZodConstraints_NewStringConstraints(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	for _, want := range []string{".length(10)", `.startsWith("hello")`, `.endsWith("world")`, `.includes("foo")`, `hostname`} {
+	for _, want := range []string{`[...v].length === 10`, `.startsWith("hello")`, `.endsWith("world")`, `.includes("foo")`, `hostname`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in output: %s", want, got)
 		}
@@ -469,11 +469,18 @@ func TestHasNestedQuantifiers(t *testing.T) {
 		{`^[a-zA-Z0-9+/\-_]*={0,2}$`, false}, // base64 regex.
 		{`(a{2})+`, false},                   // Fixed repeat inside quantifier — not dangerous.
 		{`(a{2,3})+`, false},                 // Bounded repeat — finite expansion, safe.
+		// Adjacent unbounded quantifiers.
+		{`.*.+`, true},    // Dot-star + dot-plus — overlapping.
+		{`\w+\d+`, true},  // Overlapping char classes.
+		{`a+b+`, false},   // Distinct literals — safe.
+		{`a+b+c+`, false}, // Multiple distinct literals — safe.
+		// Alternation under quantifier.
+		{`(ab|cd)+`, false}, // Disjoint multi-char branches — safe.
 	}
 	for _, tt := range tests {
-		got := hasNestedQuantifiers(tt.pattern)
+		got := hasDangerousPattern(tt.pattern)
 		if got != tt.want {
-			t.Errorf("hasNestedQuantifiers(%q) = %v, want %v", tt.pattern, got, tt.want)
+			t.Errorf("hasDangerousPattern(%q) = %v, want %v", tt.pattern, got, tt.want)
 		}
 	}
 }
@@ -488,8 +495,8 @@ func TestTsZodConstraints_PatternNestedQuantifier(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	if !strings.Contains(got, "WARN") || !strings.Contains(got, "nested quantifiers") {
-		t.Errorf("nested quantifier pattern should emit WARN, got: %s", got)
+	if !strings.Contains(got, "WARN") || !strings.Contains(got, "dangerous quantifiers") {
+		t.Errorf("dangerous pattern should emit WARN, got: %s", got)
 	}
 	if strings.Contains(got, "new RegExp") {
 		t.Error("nested quantifier pattern should NOT emit RegExp")

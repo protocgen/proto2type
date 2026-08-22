@@ -564,12 +564,12 @@ func TestKotlinGoldenFiles(t *testing.T) {
 				// Validation: generated extension functions
 				"fun User.validate(): List<String>",
 				"fun User.validateOrThrow()",
-				// Validation: email check
-				`email.matches(Regex(`,
+				// Validation: email check (hoisted regex constant)
+				`email.matches(RE_USER_EMAIL_EMAIL)`,
 				`errors.add("email must be a valid email")`,
-				// Validation: display_name length
-				"displayName.length < 1",
-				"displayName.length > 255",
+				// Validation: display_name length (codePointCount for Unicode)
+				"displayName.codePointCount(0, displayName.length) < 1",
+				"displayName.codePointCount(0, displayName.length) > 255",
 				// Validation: age range
 				"age < 0",
 				"age > 150",
@@ -578,19 +578,19 @@ func TestKotlinGoldenFiles(t *testing.T) {
 				"roles.size > 10",
 				// Validation: optional phone with ?.let null safety
 				"phone?.let { phone ->",
-				"phone.length < 7",
-				"phone.length > 20",
-				// Validation: pattern regex
-				`phone.matches(Regex(`,
+				"phone.codePointCount(0, phone.length) < 7",
+				"phone.codePointCount(0, phone.length) > 20",
+				// Validation: pattern regex (hoisted constant)
+				`phone.matches(RE_USER_PHONE_PATTERN)`,
 				// Validation: nested message propagation
 				`address?.validate()?.let {`,
 				`errors.addAll(it.map { e -> "address.$e" })`,
 				// Validation: Address gets its own validate
 				"fun Address.validate(): List<String>",
-				"street.length < 1",
-				"state.length < 2",
-				"state.length > 2",
-				`zip.matches(Regex(`,
+				"street.codePointCount(0, street.length) < 1",
+				"state.codePointCount(0, state.length) < 2",
+				"state.codePointCount(0, state.length) > 2",
+				`zip.matches(RE_ADDRESS_ZIP_PATTERN)`,
 				// Validation: Tag gets empty validate (always generated)
 				"fun Tag.validate(): List<String>",
 			},

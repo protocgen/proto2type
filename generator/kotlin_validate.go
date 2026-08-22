@@ -23,6 +23,8 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 		return
 	}
 
+	kotlinEmitRegexConstants(g, msg)
+
 	// Always generate validate() when opts.Validate is true, even if this
 	// message has no direct constraints. This ensures nested validate() calls
 	// (from parent messages) always resolve. Messages without constraints will
@@ -62,46 +64,78 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 
 		// Email
 		if vc.Email {
-			g.P(indent, "if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(Regex(\"^[^@\\\\s]+@[^@\\\\s]+\\\\.[^@\\\\s]+$\"))) errors.add(\"", f.Name, " must be a valid email\")")
+			g.P(indent, "if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(RE_", strings.ToUpper(msg.Name), "_", strings.ToUpper(f.Name), "_EMAIL)) errors.add(\"", f.Name, " must be a valid email\")")
 		}
 
 		// URI
 		if vc.URI {
-			g.P(indent, "if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(Regex(\"^https?://.*\"))) errors.add(\"", f.Name, " must be a valid URI\")")
+			g.P(indent, "if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(RE_", strings.ToUpper(msg.Name), "_", strings.ToUpper(f.Name), "_URI)) errors.add(\"", f.Name, " must be a valid URI\")")
 		}
 
 		// UUID
 		if vc.UUID {
-			g.P(indent, "if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(Regex(\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\"))) errors.add(\"", f.Name, " must be a valid UUID\")")
+			g.P(indent, "if (", fieldName, ".isNotEmpty() && !", fieldName, ".matches(RE_", strings.ToUpper(msg.Name), "_", strings.ToUpper(f.Name), "_UUID)) errors.add(\"", f.Name, " must be a valid UUID\")")
 		}
 
 		// Pattern
 		if vc.Pattern != "" {
 			escaped := escapeKotlinStringLiteral(vc.Pattern)
-			g.P(indent, "if (!", fieldName, ".matches(Regex(\"", escaped, "\"))) errors.add(\"", f.Name, " must match pattern: ", escaped, "\")")
+			g.P(indent, "if (!", fieldName, ".matches(RE_", strings.ToUpper(msg.Name), "_", strings.ToUpper(f.Name), "_PATTERN)) errors.add(\"", f.Name, " must match pattern: ", escaped, "\")")
 		}
 
 		// String length (min_len / max_len)
 		// NOTE: counts characters, not bytes.
 		if vc.MinLength != nil {
-			g.P(indent, "if (", fieldName, ".length < ", *vc.MinLength, ") errors.add(\"", f.Name, " must be at least ", *vc.MinLength, " characters\")")
+			g.P(indent, "if (", fieldName, ".codePointCount(0, ", fieldName, ".length) < ", *vc.MinLength, ") errors.add(\"", f.Name, " must be at least ", *vc.MinLength, " characters\")")
 		}
 		if vc.MaxLength != nil {
-			g.P(indent, "if (", fieldName, ".length > ", *vc.MaxLength, ") errors.add(\"", f.Name, " must be at most ", *vc.MaxLength, " characters\")")
+			g.P(indent, "if (", fieldName, ".codePointCount(0, ", fieldName, ".length) > ", *vc.MaxLength, ") errors.add(\"", f.Name, " must be at most ", *vc.MaxLength, " characters\")")
 		}
 
 		// Numeric range
 		if vc.Gte != nil {
-			g.P(indent, "if (", fieldName, " < ", *vc.Gte, ") errors.add(\"", f.Name, " must be >= ", *vc.Gte, "\")")
+			if f.Kind == FieldKindTimestamp {
+				g.P(indent, "// TODO: Timestamp range check for Gte")
+			} else {
+				val := *vc.Gte
+				if f.Kind == FieldKindDuration {
+					val = strings.TrimSuffix(val, "s")
+				}
+				g.P(indent, "if (", fieldName, " < ", val, ") errors.add(\"", f.Name, " must be >= ", *vc.Gte, "\")")
+			}
 		}
 		if vc.Gt != nil {
-			g.P(indent, "if (", fieldName, " <= ", *vc.Gt, ") errors.add(\"", f.Name, " must be > ", *vc.Gt, "\")")
+			if f.Kind == FieldKindTimestamp {
+				g.P(indent, "// TODO: Timestamp range check for Gt")
+			} else {
+				val := *vc.Gt
+				if f.Kind == FieldKindDuration {
+					val = strings.TrimSuffix(val, "s")
+				}
+				g.P(indent, "if (", fieldName, " <= ", val, ") errors.add(\"", f.Name, " must be > ", *vc.Gt, "\")")
+			}
 		}
 		if vc.Lte != nil {
-			g.P(indent, "if (", fieldName, " > ", *vc.Lte, ") errors.add(\"", f.Name, " must be <= ", *vc.Lte, "\")")
+			if f.Kind == FieldKindTimestamp {
+				g.P(indent, "// TODO: Timestamp range check for Lte")
+			} else {
+				val := *vc.Lte
+				if f.Kind == FieldKindDuration {
+					val = strings.TrimSuffix(val, "s")
+				}
+				g.P(indent, "if (", fieldName, " > ", val, ") errors.add(\"", f.Name, " must be <= ", *vc.Lte, "\")")
+			}
 		}
 		if vc.Lt != nil {
-			g.P(indent, "if (", fieldName, " >= ", *vc.Lt, ") errors.add(\"", f.Name, " must be < ", *vc.Lt, "\")")
+			if f.Kind == FieldKindTimestamp {
+				g.P(indent, "// TODO: Timestamp range check for Lt")
+			} else {
+				val := *vc.Lt
+				if f.Kind == FieldKindDuration {
+					val = strings.TrimSuffix(val, "s")
+				}
+				g.P(indent, "if (", fieldName, " >= ", val, ") errors.add(\"", f.Name, " must be < ", *vc.Lt, "\")")
+			}
 		}
 
 		// Repeated min/max items
@@ -185,7 +219,7 @@ func generateKotlinOneofValidate(g *protogen.GeneratedFile, o *DomainOneof, opts
 			g.P("        }")
 		} else if hasConstraints {
 			g.P("        is ", o.Name, ".", v.Name, " -> {")
-			emitKotlinOneofVariantConstraints(g, v)
+			emitKotlinOneofVariantConstraints(g, o, v)
 			g.P("        }")
 		}
 	}
@@ -207,29 +241,29 @@ func generateKotlinOneofValidate(g *protogen.GeneratedFile, o *DomainOneof, opts
 }
 
 // emitKotlinOneofVariantConstraints emits constraint checks for a scalar oneof variant.
-func emitKotlinOneofVariantConstraints(g *protogen.GeneratedFile, v *OneofVariant) {
+func emitKotlinOneofVariantConstraints(g *protogen.GeneratedFile, o *DomainOneof, v *OneofVariant) {
 	vc := v.ValidateConstraints
 	if vc == nil {
 		return
 	}
 	if vc.Email {
-		g.P("            if (value.isNotEmpty() && !value.matches(Regex(\"^[^@\\\\s]+@[^@\\\\s]+\\\\.[^@\\\\s]+$\"))) errors.add(\"", v.ProtoName, " must be a valid email\")")
+		g.P("            if (value.isNotEmpty() && !value.matches(RE_", strings.ToUpper(o.Name), "_", strings.ToUpper(v.Name), "_EMAIL)) errors.add(\"", v.ProtoName, " must be a valid email\")")
 	}
 	if vc.URI {
-		g.P("            if (value.isNotEmpty() && !value.matches(Regex(\"^https?://.*\"))) errors.add(\"", v.ProtoName, " must be a valid URI\")")
+		g.P("            if (value.isNotEmpty() && !value.matches(RE_", strings.ToUpper(o.Name), "_", strings.ToUpper(v.Name), "_URI)) errors.add(\"", v.ProtoName, " must be a valid URI\")")
 	}
 	if vc.UUID {
-		g.P("            if (value.isNotEmpty() && !value.matches(Regex(\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\"))) errors.add(\"", v.ProtoName, " must be a valid UUID\")")
+		g.P("            if (value.isNotEmpty() && !value.matches(RE_", strings.ToUpper(o.Name), "_", strings.ToUpper(v.Name), "_UUID)) errors.add(\"", v.ProtoName, " must be a valid UUID\")")
 	}
 	if vc.Pattern != "" {
 		escaped := escapeKotlinStringLiteral(vc.Pattern)
-		g.P("            if (!value.matches(Regex(\"", escaped, "\"))) errors.add(\"", v.ProtoName, " must match pattern: ", escaped, "\")")
+		g.P("            if (!value.matches(RE_", strings.ToUpper(o.Name), "_", strings.ToUpper(v.Name), "_PATTERN)) errors.add(\"", v.ProtoName, " must match pattern: ", escaped, "\")")
 	}
 	if vc.MinLength != nil {
-		g.P("            if (value.length < ", *vc.MinLength, ") errors.add(\"", v.ProtoName, " must be at least ", *vc.MinLength, " characters\")")
+		g.P("            if (value.codePointCount(0, value.length) < ", *vc.MinLength, ") errors.add(\"", v.ProtoName, " must be at least ", *vc.MinLength, " characters\")")
 	}
 	if vc.MaxLength != nil {
-		g.P("            if (value.length > ", *vc.MaxLength, ") errors.add(\"", v.ProtoName, " must be at most ", *vc.MaxLength, " characters\")")
+		g.P("            if (value.codePointCount(0, value.length) > ", *vc.MaxLength, ") errors.add(\"", v.ProtoName, " must be at most ", *vc.MaxLength, " characters\")")
 	}
 }
 
@@ -241,4 +275,47 @@ func escapeKotlinStringLiteral(s string) string {
 	s = strings.ReplaceAll(s, "\"", "\\\"")
 	s = strings.ReplaceAll(s, "$", "\\$")
 	return s
+}
+
+func kotlinEmitRegexConstants(g *protogen.GeneratedFile, msg *DomainMessage) {
+	for _, f := range msg.Fields {
+		vc := f.ValidateConstraints
+		if vc == nil || !vc.HasConstraints() {
+			continue
+		}
+		if vc.Email {
+			g.P("private val RE_", strings.ToUpper(msg.Name), "_", strings.ToUpper(f.Name), "_EMAIL = Regex(\"^[^@\\\\s]+@[^@\\\\s]+\\\\.[^@\\\\s]+$\")")
+		}
+		if vc.URI {
+			g.P("private val RE_", strings.ToUpper(msg.Name), "_", strings.ToUpper(f.Name), "_URI = Regex(\"^https?://.*\")")
+		}
+		if vc.UUID {
+			g.P("private val RE_", strings.ToUpper(msg.Name), "_", strings.ToUpper(f.Name), "_UUID = Regex(\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\")")
+		}
+		if vc.Pattern != "" {
+			escaped := escapeKotlinStringLiteral(vc.Pattern)
+			g.P("private val RE_", strings.ToUpper(msg.Name), "_", strings.ToUpper(f.Name), "_PATTERN = Regex(\"", escaped, "\")")
+		}
+	}
+	for _, o := range msg.Oneofs {
+		for _, v := range o.Variants {
+			vc := v.ValidateConstraints
+			if vc == nil || !vc.HasConstraints() {
+				continue
+			}
+			if vc.Email {
+				g.P("private val RE_", strings.ToUpper(o.Name), "_", strings.ToUpper(v.Name), "_EMAIL = Regex(\"^[^@\\\\s]+@[^@\\\\s]+\\\\.[^@\\\\s]+$\")")
+			}
+			if vc.URI {
+				g.P("private val RE_", strings.ToUpper(o.Name), "_", strings.ToUpper(v.Name), "_URI = Regex(\"^https?://.*\")")
+			}
+			if vc.UUID {
+				g.P("private val RE_", strings.ToUpper(o.Name), "_", strings.ToUpper(v.Name), "_UUID = Regex(\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\")")
+			}
+			if vc.Pattern != "" {
+				escaped := escapeKotlinStringLiteral(vc.Pattern)
+				g.P("private val RE_", strings.ToUpper(o.Name), "_", strings.ToUpper(v.Name), "_PATTERN = Regex(\"", escaped, "\")")
+			}
+		}
+	}
 }

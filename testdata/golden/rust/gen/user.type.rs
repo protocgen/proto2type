@@ -3,7 +3,7 @@
 // source: user.proto
 
 use serde::{Deserialize, Serialize};
-use validator::Validate;
+use validator::{Validate, ValidateEmail};
 use lazy_static::lazy_static;
 use regex::Regex;
 use chrono::{DateTime, Utc};
@@ -136,7 +136,7 @@ pub struct User {
 }
 
 lazy_static! {
-    static ref RE_PHONE_PATTERN: Regex = Regex::new(r"^\+?[0-9\-\s]+$").unwrap();
+    static ref RE_PHONE_PATTERN: Regex = Regex::new(r#"^\+?[0-9\-\s]+$"#).unwrap();
 }
 
 /// Domain representation of test.v1.Address.
@@ -157,7 +157,7 @@ pub struct Address {
 }
 
 lazy_static! {
-    static ref RE_ZIP_PATTERN: Regex = Regex::new(r"^[0-9]{5}(-[0-9]{4})?$").unwrap();
+    static ref RE_ZIP_PATTERN: Regex = Regex::new(r#"^[0-9]{5}(-[0-9]{4})?$"#).unwrap();
 }
 
 /// Domain representation of test.v1.Tag.
