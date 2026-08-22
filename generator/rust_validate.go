@@ -83,6 +83,8 @@ func rustValidateAttrs(f *DomainField) []string {
 		attrs = append(attrs, fmt.Sprintf("regex(path = *%s)", constName))
 	}
 
+	// TODO: prefix/suffix/contains/const/in/not_in constraints not yet emittable via validator derive
+
 	// Numeric bounds: gt/gte/lt/lte
 	if vc.Gt != nil || vc.Gte != nil || vc.Lt != nil || vc.Lte != nil {
 		if f.Kind == FieldKindTimestamp {

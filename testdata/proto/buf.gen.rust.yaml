@@ -30,5 +30,5 @@ plugins:
       - paths=source_relative
       - lang=rust
       - backend=buffa
-      - buffa_module=crate::proto
+      - rust_buffa_module=crate::proto
       - domain=false

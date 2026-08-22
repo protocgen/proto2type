@@ -283,6 +283,36 @@ func generateRustOneofEnumFromIR(g *protogen.GeneratedFile, do *DomainOneof, opt
 					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("uuid"));`)
 					g.P("                }")
 				}
+				if v.ValidateConstraints.Prefix != "" {
+					g.P("                if !v.starts_with(\"", v.ValidateConstraints.Prefix, "\") {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("prefix"));`)
+					g.P("                }")
+				}
+				if v.ValidateConstraints.Suffix != "" {
+					g.P("                if !v.ends_with(\"", v.ValidateConstraints.Suffix, "\") {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("suffix"));`)
+					g.P("                }")
+				}
+				if v.ValidateConstraints.Contains != "" {
+					g.P("                if !v.contains(\"", v.ValidateConstraints.Contains, "\") {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("contains"));`)
+					g.P("                }")
+				}
+				if v.ValidateConstraints.Const != nil {
+					g.P("                if v != ", *v.ValidateConstraints.Const, " {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("const"));`)
+					g.P("                }")
+				}
+				if len(v.ValidateConstraints.In) > 0 {
+					g.P("                if ![", strings.Join(v.ValidateConstraints.In, ", "), "].contains(&v.as_str()) {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("in"));`)
+					g.P("                }")
+				}
+				if len(v.ValidateConstraints.NotIn) > 0 {
+					g.P("                if [", strings.Join(v.ValidateConstraints.NotIn, ", "), "].contains(&v.as_str()) {")
+					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("not_in"));`)
+					g.P("                }")
+				}
 				g.P("                if errors.is_empty() { Ok(()) } else { Err(errors) }")
 				g.P("            }")
 			}
