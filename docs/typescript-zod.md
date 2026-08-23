@@ -51,6 +51,8 @@ export const UserSchema = /* @__PURE__ */ z.object({
 export type User = z.infer<typeof UserSchema>;
 ```
 
+> **Note**: While the above shows `z.infer`, `proto2type` defaults to `ts_explicit_types=true`, which generates explicit `export interface User { ... }` types instead. This significantly improves IDE performance for large types.
+
 ### Enums
 
 By default, enums are emitted as an open string literal union coupled with a Zod enum that falls back to `z.string()`. This allows safe parsing of string representations while preserving type hints.
@@ -130,7 +132,7 @@ By default, `int64`, `uint64`, `sint64`, etc. are emitted as `string` in TypeScr
 ```typescript
 // Default (string mode)
 export const UserSchema = z.object({
-  bigNumber: z.union([z.string(), z.number().refine(Number.isSafeInteger)]).pipe(z.coerce.string()).default("0"),
+  bigNumber: z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).default("0"),
 });
 ```
 
@@ -169,12 +171,12 @@ Recursive types are supported via `z.lazy()`. When a recursive type is detected,
 ```typescript
 export type Category = {
   name?: string;
-  parent?: Category;
+  parent?: Category | null;
   children?: Category[];
 };
 export const CategorySchema: z.ZodType<Category> = /* @__PURE__ */ z.lazy(() => z.object({
   name: z.string().default(""),
-  parent: CategorySchema.optional(),
+  parent: CategorySchema.nullish(),
   children: z.array(CategorySchema).default(() => []),
 }));
 ```
@@ -185,27 +187,45 @@ When `validate=true` is set, `proto2type` converts `buf.validate` proto annotati
 
 | buf.validate constraint | Zod equivalent |
 |---|---|
-| `string.min_len: 1` | `.min(1)` |
-| `string.max_len: 255` | `.max(255)` |
-| `string.pattern: "^[0-9]{5}$"` | `.regex(new RegExp("^[0-9]{5}$"))` |
+| `string.len: 5` | `.refine(v => [...v].length === 5, ...)` |
+| `string.min_len: 1` | `.refine(v => [...v].length >= 1, ...)` |
+| `string.max_len: 255` | `.refine(v => [...v].length <= 255, ...)` |
+| `string.pattern: "^[0-9]{5}$"` | `.regex(new RegExp("^[0-9]{5}$", "u"))` |
 | `string.email: true` | `.email()` |
+| `string.hostname: true` | `.refine(v => re.test(v), { message: "must be a valid hostname" })` |
+| `string.ip: true` | `.refine(v => v === "" || z.string().ip().safeParse(v).success, ...)` |
 | `string.prefix: "usr_"` | `.startsWith("usr_")` |
 | `string.suffix: ".com"` | `.endsWith(".com")` |
 | `string.contains: "@"` | `.includes("@")` |
 | `string.const: "active"` | `.refine(v => v === "active", ...)` |
 | `string.in: ["a", "b"]` | `.refine(v => ["a", "b"].includes(v), ...)` |
 | `string.not_in: ["x"]` | `.refine(v => !["x"].includes(v), ...)` |
+| `bytes.min_len: 2` | `.refine(v => ...test(v) && len >= 2, ...)` |
+| `bytes.max_len: 255` | `.refine(v => ...test(v) && len <= 255, ...)` |
+| `int32.const: 1` | `.refine(v => v === 1, ...)` |
+| `int32.gt: 0` | `.gt(0)` |
 | `int32.gte: 0` | `.gte(0)` |
 | `int32.lt: 100` | `.lt(100)` |
+| `int32.lte: 100` | `.lte(100)` |
+| `int32.in: [1, 2]` | `.refine(v => [1, 2].includes(v), ...)` |
+| `int32.not_in: [3]` | `.refine(v => ![3].includes(v), ...)` |
 | `timestamp.gte: {...}` | `.refine(v => new Date(v).getTime() >= ...)` |
+| `duration.gte: {...}` | `.refine(v => ... parseFloat(...) >= ...)` |
 | `repeated.min_items: 1` | `.min(1)` |
+| `repeated.max_items: 10` | `.max(10)` |
+| `repeated.unique: true` | `.refine(v => new Set(v).size === v.length, ...)` |
+| `map.min_pairs: 1` | `.refine(v => Object.keys(v).length >= 1, ...)` |
+| `map.max_pairs: 10` | `.refine(v => Object.keys(v).length <= 10, ...)` |
 
 Example generated code with constraints:
 
 ```typescript
 export const AddressSchema = /* @__PURE__ */ z.object({
-  street: z.string().min(1).optional(),
-  zip: z.string().regex(new RegExp("^[0-9]{5}(-[0-9]{4})?$"), { message: "must match pattern" }).optional(),
+  street: z.string().refine(v => [...v].length >= 1, { message: "must be at least 1 characters" }).default(""),
+  city: z.string().refine(v => [...v].length >= 1, { message: "must be at least 1 characters" }).default(""),
+  state: z.string().refine(v => [...v].length >= 2, { message: "must be at least 2 characters" }).refine(v => [...v].length <= 2, { message: "must be at most 2 characters" }).default(""),
+  zip: z.string().regex(new RegExp("^[0-9]{5}(-[0-9]{4})?$", "u"), { message: "must match pattern" }).default(""),
+  country: z.string().default(""),
 });
 ```
 

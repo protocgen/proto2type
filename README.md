@@ -148,7 +148,7 @@ plugins:
     out: gen/python
     opt:
       - lang=python
-      - preset=a2a
+      - python_preset=a2a
 ```
 
 > **Note:** The standalone `proto2pydantic` tool has been absorbed into `proto2type`. Use `lang=python` going forward.
@@ -218,21 +218,18 @@ export interface User {
   email: string;
   displayName: string;
   active: boolean;
-  address?: Address;
-  createdAt?: string;
+  address?: Address | null;
+  createdAt?: string | null;
 }
 
 export const UserSchema = z.object({
-  id: z.string().catch(""),
-  email: z.string().catch(""),
-  displayName: z.string().catch(""),
-  active: z.boolean().catch(false),
-  address: AddressSchema.optional(),
-  createdAt: z.string().datetime({ offset: true }).optional(),
+  id: z.string().default(""),
+  email: z.string().default(""),
+  displayName: z.string().default(""),
+  active: z.boolean().default(false),
+  address: AddressSchema.nullish(),
+  createdAt: z.string().datetime({ offset: true }).nullish(),
 });
-
-export type User = z.infer<typeof UserSchema>;
-// { id: string; email: string; displayName: string; active: boolean; ... }
 ```
 
 #### TypeScript Options
@@ -246,7 +243,6 @@ export type User = z.infer<typeof UserSchema>;
 | `ts_strict` | `false` | Append `.strict()` to reject unknown fields per ProtoJSON spec |
 | `ts_zod_import` | `zod` | Zod import path (e.g. `zod/v4` or `@scope/zod`) |
 | `ts_preset` | _(none)_ | Apply a preset: `zod-strict` (strict+validate+explicit) or `types-only` |
-| `debug` | `false` | Dump IR to stderr for debugging |
 
 #### Choose Your TS Mode
 
