@@ -170,9 +170,9 @@ Recursive types are supported via `z.lazy()`. When a recursive type is detected,
 
 ```typescript
 export type Category = {
-  name?: string;
+  name?: string | null;
   parent?: Category | null;
-  children?: Category[];
+  children?: Category[] | null;
 };
 export const CategorySchema: z.ZodType<Category> = /* @__PURE__ */ z.lazy(() => z.object({
   name: z.string().default(""),
@@ -237,10 +237,19 @@ Well-Known Types (WKTs) are natively mapped to idiomatic Zod constructs with app
 |---|---|
 | `google.protobuf.Timestamp` | `z.string().datetime({ offset: true })` |
 | `google.protobuf.Duration` | `z.string().regex(/^-?[0-9]+(\.[0-9]+)?s$/)` |
-| `google.protobuf.Struct` | `z.record(...)` (with prototype pollution guards) |
+| `google.protobuf.Struct` | `z.record(_safeKey, z.unknown())` |
 | `google.protobuf.Value` | `z.unknown()` |
-| `google.protobuf.FieldMask` | `z.string().regex(...)` |
-| `google.protobuf.Int32Value`| `z.number().int().nullable()` |
+| `google.protobuf.ListValue` | `z.array(z.unknown())` |
+| `google.protobuf.Empty` | `z.record(z.string(), z.never())` |
+| `google.protobuf.Any` | `z.object({ "@type": z.string() }).passthrough()` |
+| `google.protobuf.FieldMask` | `z.string().regex(...)` (comma-separated field paths) |
+| `google.protobuf.BoolValue` | `z.boolean().nullable()` |
+| `google.protobuf.Int32Value` | `z.number().int().nullable()` |
+| `google.protobuf.Int64Value` | `z.string().nullable()` (or `z.bigint()` with `ts_int64=bigint`) |
+| `google.protobuf.StringValue` | `z.string().nullable()` |
+| `google.protobuf.DoubleValue` | `z.number().nullable()` |
+| `google.protobuf.FloatValue` | `z.number().nullable()` |
+| `google.protobuf.BytesValue` | `z.string().nullable()` |
 
 ## Known Limitations
 
