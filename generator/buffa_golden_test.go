@@ -175,7 +175,7 @@ func TestBuffaOneofPrefix_Integration(t *testing.T) {
 func TestBuffaDomainModule_Integration(t *testing.T) {
 	fds := buildFileDescriptorSet(t)
 
-	t.Run("with_domain_module", func(t *testing.T) {
+	t.Run("with_rust_domain_module", func(t *testing.T) {
 		gen := newPlugin(t, fds, []string{"user.proto"})
 		opts := &Options{
 			Lang:         "rust",
@@ -199,11 +199,11 @@ func TestBuffaDomainModule_Integration(t *testing.T) {
 			t.Error("expected 'use my_crate::domain::*;' in output")
 		}
 		if strings.Contains(src, "use super::*;") {
-			t.Error("should NOT contain 'use super::*;' when domain_module is set")
+			t.Error("should NOT contain 'use super::*;' when rust_domain_module is set")
 		}
 	})
 
-	t.Run("without_domain_module", func(t *testing.T) {
+	t.Run("without_rust_domain_module", func(t *testing.T) {
 		gen := newPlugin(t, fds, []string{"user.proto"})
 		opts := &Options{
 			Lang:      "rust",

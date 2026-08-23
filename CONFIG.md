@@ -14,7 +14,7 @@ Target language for code generation.
 |---|---|
 | Values | `go`, `rust`, `python`, `kotlin`, `typescript` |
 
-> **Note:** `go`, `rust`, `python`, and `kotlin` are currently supported. Other languages are on the [roadmap](README.md#roadmap).
+> **Note:** `go`, `rust`, `python`, `kotlin`, and `typescript` are currently supported. Other languages are on the [roadmap](README.md#roadmap).
 
 #### Rust-specific behaviour
 
@@ -27,6 +27,15 @@ When `lang=rust`:
 - `repeated` / `map` → `Vec<T>` / `HashMap<K, V>` with `#[serde(default)]`
 - Optional fields → `Option<T>` with `#[serde(skip_serializing_if = "Option::is_none")]`
 - File suffix: `{proto_name}.type.rs` (domain), `{proto_name}_{backend}.type.rs` (storage)
+
+##### Rust Plugin Options
+
+| Option | Default | Description |
+|---|---|---|
+| `rust_exhaustive` | `false` | generate exhaustive Rust structs (omit #[non_exhaustive]) |
+| `rust_buffa_module` | _(none)_ | Rust module path for buffa proto types (required for backend=buffa) |
+| `rust_buffa_oneof_prefix` | _(none)_ | module prefix before oneof submodule (e.g. __buffa for connectrpc-build) |
+| `rust_domain_module` | _(none)_ | Rust module path for domain type imports in buffa output (default: use super::*) |
 
 #### Python-specific behaviour
 
@@ -42,7 +51,7 @@ When `lang=python`:
 - Enums → `str` (Literal) or `IntEnum` (configurable via `enum_style`)
 - `google.api.field_behavior` annotations → `Field(...)` (REQUIRED) / `Field(exclude=True)` (OUTPUT_ONLY)
 - `buf/validate` constraints → `Field()` kwargs (`min_length`, `max_length`, `ge`, `le`, `gt`, `lt`, `pattern`)
-- File suffix: `{proto_name}_pb2.py`
+- File suffix: `{proto_name}_pb2_pydantic.py`
 
 #### Kotlin-specific behaviour
 
@@ -58,16 +67,35 @@ When `lang=kotlin`:
 - Oneofs → `@Serializable sealed class` with data class variants
 - File suffix: `{proto_name}.type.kt`
 
+#### TypeScript-specific behaviour
+
+When `lang=typescript`:
+
+- File suffix: `{proto_name}.type.ts` (configurable via `ts_output_suffix`)
+
+##### TypeScript Plugin Options
+
+| Option | Default | Description |
+|---|---|---|
+| `ts_int64` | `string` | TypeScript: int64 representation (string, bigint) |
+| `ts_enum_style` | `enum` | TypeScript: enum style (enum, native) |
+| `ts_explicit_types` | `true` | TypeScript: emit explicit interface types |
+| `ts_zod_import` | `zod` | TypeScript: Zod import path |
+| `ts_types_only` | `false` | TypeScript: emit plain types without Zod |
+| `ts_strict` | `false` | TypeScript: append .strict() to reject unknown fields |
+| `ts_output_suffix` | `.type` | TypeScript: output file suffix (default .type) |
+| `ts_preset` | _(none)_ | TypeScript: preset (zod-strict, types-only) |
+
 ##### Python Plugin Options
 
 | Option | Default | Description |
 |---|---|---|
-| `base_class` | `pydantic.BaseModel` | Base class for generated models |
-| `alias_generator` | _(none)_ | Alias generator function (e.g. `to_camel` for camelCase JSON keys) |
-| `enum_style` | `literal` | Enum representation: `literal` (string Literal) or `int` (IntEnum) |
-| `preset` | _(none)_ | Preset configuration: `a2a` (sets camelCase aliases + raw enum names) |
-| `description` | _(none)_ | Model-level description for generated classes |
-| `strip_proto_suffix` | `false` | Strip common proto suffixes (e.g. `Request`, `Response`) from class names |
+| `python_base_class` | `BaseModel` | Python: custom Pydantic base class |
+| `python_alias_generator` | _(none)_ | Python: alias generator (camel) |
+| `python_enum_style` | _(none)_ | Python: enum style (raw) |
+| `python_preset` | _(none)_ | Python: preset (a2a) |
+| `python_description` | _(none)_ | Python: module-level docstring |
+| `python_strip_proto_suffix` | `false` | Python: use base.py instead of base_pb2_pydantic.py |
 
 ### `backend`
 
@@ -75,7 +103,7 @@ Storage backend to generate structs for.
 
 | Default | _(none)_ — no storage types generated |
 |---|---|
-| Values | `firestore`, `mongo`, `sqlite`, `dynamodb`, `datastore`, `spanner` |
+| Values | `firestore`, `mongo`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc` |
 
 When set, generates a `<Name><Backend>` struct (e.g. `UserFirestore`, `UserMongo`) with backend-specific struct tags and `ToProto()` / `FromProto()` converters.
 
@@ -120,6 +148,20 @@ Controls the default `omitempty` behavior for optional and zero-value fields.
 | When `true` | `optional`, `repeated`, `map`, and message fields get `omitempty` |
 | When `false` | Only fields with explicit `(proto2type.field).omitempty = OPTIONAL_BOOL_TRUE` get `omitempty` |
 
+### `go_package`
+
+Override Go package for generated types (import path;package_name).
+
+| Default | _(none)_ |
+|---|---|
+
+### `debug`
+
+Emit IR debug information to stderr.
+
+| Default | `false` |
+|---|---|
+
 ### `validate`
 
 Selects the validation strategy for code generation from `buf.validate` constraints.
@@ -136,6 +178,7 @@ Behavior per language:
 | Rust | `true` or `validator` | `#[derive(Validate)]` + `#[validate(...)]` attributes (validator crate) |
 | Kotlin | `true` or `native` | Extension functions `fun T.validate(): List<String>` + `fun T.validateOrThrow()` |
 | Python | _(always)_ | Constraints mapped to Pydantic `Field()` kwargs (no `validate` flag needed) |
+| TypeScript | `true` | Constraints mapped to Zod schemas |
 
 > **Note:** Length validation counts characters, not bytes.
 
@@ -143,13 +186,33 @@ Behavior per language:
 
 | Option | Default | Description |
 |---|---|---|
-| `lang` | `go` | Target language |
-| `backend` | _(none)_ | Storage backend |
-| `domain` | `true` | Generate domain types + proto converters |
-| `output_file` | _(auto)_ | Override output filename |
-| `enum_as_string` | `false` | Enums as `string` instead of `int32` |
-| `omitempty_default` | `true` | Default `omitempty` for optional/zero-value fields |
-| `validate` | `""` | Validation strategy from `buf.validate` constraints |
+| `lang` | `go` | target language: go, python, kotlin, typescript |
+| `backend` | _(none)_ | storage backend: firestore, mongo, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc |
+| `domain` | `true` | generate domain types + proto converters |
+| `output_file` | _(none)_ | override output filename |
+| `enum_as_string` | `false` | store enums as string names |
+| `omitempty_default` | `true` | default omitempty for optional fields |
+| `go_package` | _(none)_ | override Go package for generated types (import path;package_name) |
+| `rust_exhaustive` | `false` | generate exhaustive Rust structs (omit #[non_exhaustive]) |
+| `rust_buffa_module` | _(none)_ | Rust module path for buffa proto types (required for backend=buffa) |
+| `validate` | _(none)_ | validation strategy: true (default per lang), validator (Rust), native (Kotlin) |
+| `rust_buffa_oneof_prefix` | _(none)_ | module prefix before oneof submodule (e.g. __buffa for connectrpc-build) |
+| `rust_domain_module` | _(none)_ | Rust module path for domain type imports in buffa output (default: use super::*) |
+| `python_base_class` | `BaseModel` | Python: custom Pydantic base class |
+| `python_alias_generator` | _(none)_ | Python: alias generator (camel) |
+| `python_enum_style` | _(none)_ | Python: enum style (raw) |
+| `python_preset` | _(none)_ | Python: preset (a2a) |
+| `python_description` | _(none)_ | Python: module-level docstring |
+| `python_strip_proto_suffix` | `false` | Python: use base.py instead of base_pb2_pydantic.py |
+| `ts_int64` | `string` | TypeScript: int64 representation (string, bigint) |
+| `ts_enum_style` | `enum` | TypeScript: enum style (enum, native) |
+| `ts_explicit_types` | `true` | TypeScript: emit explicit interface types |
+| `ts_zod_import` | `zod` | TypeScript: Zod import path |
+| `ts_types_only` | `false` | TypeScript: emit plain types without Zod |
+| `ts_strict` | `false` | TypeScript: append .strict() to reject unknown fields |
+| `ts_output_suffix` | `.type` | TypeScript: output file suffix (default .type) |
+| `ts_preset` | _(none)_ | TypeScript: preset (zod-strict, types-only) |
+| `debug` | `false` | emit IR debug information to stderr |
 
 ## Proto Options
 

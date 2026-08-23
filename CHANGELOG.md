@@ -11,11 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Timestamp range constraints** (Kotlin + Rust): `Gte`/`Gt`/`Lte`/`Lt` on `google.protobuf.Timestamp` fields now emit runtime validation checks. Kotlin uses `Instant.parse().compareTo()`, Rust uses `DateTime::parse_from_rfc3339()` for oneof variants. TypeScript already supported these.
 - **Examples guide** (`examples/GUIDE.md`): Frontend-focused walkthrough for TypeScript + Zod validation with React Hook Form, Next.js API routes, and tRPC integration. Includes multi-language comparison and validation rules reference.
 - **Rust import scanner**: `irScanRustImports` now scans oneof variants and map values for `Timestamp` kind, ensuring `chrono` imports are emitted correctly.
+- **Rust struct-level custom validation**: Non-derive constraints (prefix, suffix, contains, const, in, not_in, timestamp range) now emit `#[validate(custom(function = "..."))]` attributes and standalone validation functions. Type-specific validators for string, numeric, and timestamp fields.
+- **TS cross-file import filtering**: `collectTSImports` checks `generatedPaths` to skip imports for ungenerated proto files during partial `buf generate`.
 
 ### Fixed
 - **CI: Language compile checks no longer skip**: Removed `needs: golden-test` dependency from Rust, Kotlin, TypeScript, Python, and Rust Integration checks. All 10 CI jobs now run in parallel.
 - **TS: Const/In/NotIn error message quoting**: Pre-quoted string values (e.g. `"hello"`) no longer produce broken TypeScript syntax in `.refine()` error messages. Empty string constants render as `<empty string>`.
 - **Security: `output_file` path traversal**: Added validation rejecting `..`, absolute Unix paths, and Windows absolute paths (`C:\`, UNC `\\`) in the `output_file` option.
+- **Rust SQLite optional WKT conversions**: Explicit generic types for `row.get` with optional Timestamp/Duration fields.
+- **Documentation sync**: Fixed React Hook Form example (`useForm<FormInput, unknown, User>`), expanded validation constraints table, updated Known Limitations.
 
 ## [0.7.0] - 2026-08-22
 
@@ -61,7 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **IR: `buf/validate` constraints**: `buf/validate` field rules are now extracted to the shared IR. Python backend maps them to Pydantic `Field()` kwargs.
 - **Complete `buf/validate` rule coverage**: Added extraction for `uint64`, `sint32`, `sint64`, `fixed32`, `fixed64`, `sfixed32`, `sfixed64` bounds and `map` `min_pairs`/`max_pairs`.
 - Python options: `base_class`, `alias_generator`, `enum_style`, `preset`, `description`, `strip_proto_suffix`.
-- A2A preset (`preset=a2a`): Configures camelCase aliases and raw enum names for A2A/ProtoJSON compatibility.
+- A2A preset (`python_preset=a2a`): Configures camelCase aliases and raw enum names for A2A/ProtoJSON compatibility.
 - **Python runtime integration tests**: 17 tests validating generated Pydantic models at runtime via `uv run` — imports, serialization, constraints, enums, oneofs, datetime, bytes, keyword escaping.
 
 ### Fixed
@@ -85,7 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.1] - 2026-07-02
 
 ### Added
-- **Buffa `domain_module` option**: Configurable Rust module path for domain type imports. When set, generates `use <domain_module>::*;` instead of `use super::*;`, allowing generated buffa converters to be placed in any module without manual import patching.
+- **Buffa `rust_domain_module` option**: Configurable Rust module path for domain type imports. When set, generates `use <rust_domain_module>::*;` instead of `use super::*;`, allowing generated buffa converters to be placed in any module without manual import patching.
 
 ## [0.4.0] - 2026-07-02
 
