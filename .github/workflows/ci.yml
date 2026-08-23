@@ -137,7 +137,6 @@ jobs:
   rust-compile-check:
     name: Rust Compile Check
     runs-on: ubuntu-latest
-    needs: golden-test
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -207,7 +206,6 @@ jobs:
   kotlin-compile-check:
     name: Kotlin Compile Check
     runs-on: ubuntu-latest
-    needs: golden-test
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -296,7 +294,6 @@ jobs:
   rust-integration-test:
     name: Rust Integration Test
     runs-on: ubuntu-latest
-    needs: golden-test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -310,7 +307,6 @@ jobs:
   typescript-check:
     name: TypeScript Check
     runs-on: ubuntu-latest
-    needs: golden-test
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -340,7 +336,6 @@ jobs:
   python-check:
     name: Python Check
     runs-on: ubuntu-latest
-    needs: golden-test
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
