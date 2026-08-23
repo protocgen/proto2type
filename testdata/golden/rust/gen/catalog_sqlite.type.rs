@@ -69,20 +69,20 @@ impl ModelCatalogEntryRow {
     /// Constructs a ModelCatalogEntryRow from a rusqlite::Row using named column access.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
-            provider: row.get("provider")?,
-            display_name: row.get("display_name")?,
-            input_per_million: row.get("input_per_million")?,
-            output_per_million: row.get("output_per_million")?,
-            enabled: row.get("enabled")?,
-            category: row.get("category")?,
-            context_window: row.get("context_window")?,
-            discount_percent: row.get("discount_percent")?,
-            aliases: row.get("aliases")?,
-            provider_model_id: row.get("provider_model_id")?,
-            created_at: row.get("created_at")?,
-            updated_at: row.get("updated_at")?,
-            notes: row.get("notes")?,
-            region: row.get("region")?,
+            provider: row.get::<_, String>("provider")?,
+            display_name: row.get::<_, String>("display_name")?,
+            input_per_million: row.get::<_, f64>("input_per_million")?,
+            output_per_million: row.get::<_, f64>("output_per_million")?,
+            enabled: row.get::<_, bool>("enabled")?,
+            category: row.get::<_, String>("category")?,
+            context_window: row.get::<_, i64>("context_window")?,
+            discount_percent: row.get::<_, f64>("discount_percent")?,
+            aliases: row.get::<_, String>("aliases")?,
+            provider_model_id: row.get::<_, String>("provider_model_id")?,
+            created_at: row.get::<_, i64>("created_at")?,
+            updated_at: row.get::<_, i64>("updated_at")?,
+            notes: row.get::<_, String>("notes")?,
+            region: row.get::<_, String>("region")?,
         })
     }
 

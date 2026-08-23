@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // rustRawStringDelimiter returns the appropriate number of # characters for a Rust raw string.
@@ -31,7 +32,7 @@ func rustRawStringDelimiter(pattern string) string {
 // NOTE: length validation counts characters (Unicode scalar values), not bytes.
 // This differs from proto's min_len/max_len which count bytes, but matches
 // user expectations and is consistent with Python/Pydantic.
-func rustValidateAttrs(f *DomainField) []string {
+func rustValidateAttrs(messageName string, f *DomainField) []string {
 	var attrs []string
 
 	// Nested message validation (recursive)
@@ -83,12 +84,16 @@ func rustValidateAttrs(f *DomainField) []string {
 		attrs = append(attrs, fmt.Sprintf("regex(path = *%s)", constName))
 	}
 
-	// TODO: prefix/suffix/contains/const/in/not_in constraints not yet emittable via validator derive
+	// Prefix/suffix/contains/const/in/not_in and timestamp range → custom validation function
+	if rustFieldHasCustomConstraints(f) {
+		funcName := rustCustomValidateFuncName(messageName, f)
+		attrs = append(attrs, fmt.Sprintf(`custom(function = "%s")`, funcName))
+	}
 
 	// Numeric bounds: gt/gte/lt/lte
 	if vc.Gt != nil || vc.Gte != nil || vc.Lt != nil || vc.Lte != nil {
 		if f.Kind == FieldKindTimestamp {
-			// Skip for now, comment emitted in rust_domain.go
+			// Handled by custom validation function above
 		} else {
 			var parts []string
 			// formatBound converts proto duration/timestamp bound values to Rust numeric literals.
@@ -130,6 +135,146 @@ func rustValidateAttrs(f *DomainField) []string {
 	}
 
 	return attrs
+}
+
+// rustFieldHasCustomConstraints returns true if the field has constraints that
+// can't be expressed via validator derive attributes (prefix/suffix/contains/
+// const/in/not_in, or timestamp range bounds).
+func rustFieldHasCustomConstraints(f *DomainField) bool {
+	vc := f.ValidateConstraints
+	if vc == nil {
+		return false
+	}
+	if vc.Prefix != "" || vc.Suffix != "" || vc.Contains != "" {
+		return true
+	}
+	if vc.Const != nil || len(vc.In) > 0 || len(vc.NotIn) > 0 {
+		return true
+	}
+	if f.Kind == FieldKindTimestamp && (vc.Gt != nil || vc.Gte != nil || vc.Lt != nil || vc.Lte != nil) {
+		return true
+	}
+	return false
+}
+
+// rustCustomValidateFuncName returns the function name for a field's custom validator.
+// Includes the message name to prevent collisions across messages.
+func rustCustomValidateFuncName(messageName string, f *DomainField) string {
+	return fmt.Sprintf("validate_%s_%s", toSnakeCase(messageName), toSnakeCase(f.Name))
+}
+
+// rustEmitCustomValidateFuncs emits custom validation functions for fields in a
+// DomainMessage that have non-derive constraints. These functions are referenced
+// by #[validate(custom(function = "..."))] attributes.
+func rustEmitCustomValidateFuncs(g *protogen.GeneratedFile, dm *DomainMessage) {
+	for _, f := range dm.Fields {
+		if f.IsOneof || !rustFieldHasCustomConstraints(f) {
+			continue
+		}
+		vc := f.ValidateConstraints
+		funcName := rustCustomValidateFuncName(dm.Name, f)
+
+		// Determine the Rust type for the parameter
+		isString := f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.StringKind || f.ScalarKind == protoreflect.BytesKind)
+		paramType := "String"
+		if f.Kind == FieldKindTimestamp {
+			paramType = "chrono::DateTime<chrono::Utc>"
+		} else if !isString {
+			paramType = rustType(f.ScalarKind)
+		}
+
+		g.P("fn ", funcName, "(value: &", paramType, ") -> Result<(), validator::ValidationError> {")
+
+		// String constraints (only valid for string fields)
+		if isString {
+			if vc.Prefix != "" {
+				g.P(`    if !value.starts_with("`, rustEscapeString(vc.Prefix), `") {`)
+				g.P(`        return Err(validator::ValidationError::new("prefix"));`)
+				g.P("    }")
+			}
+			if vc.Suffix != "" {
+				g.P(`    if !value.ends_with("`, rustEscapeString(vc.Suffix), `") {`)
+				g.P(`        return Err(validator::ValidationError::new("suffix"));`)
+				g.P("    }")
+			}
+			if vc.Contains != "" {
+				g.P(`    if !value.contains("`, rustEscapeString(vc.Contains), `") {`)
+				g.P(`        return Err(validator::ValidationError::new("contains"));`)
+				g.P("    }")
+			}
+		}
+
+		// Const — works for both string and numeric
+		if vc.Const != nil {
+			if isString {
+				g.P("    if value != ", *vc.Const, " {")
+			} else {
+				g.P("    if *value != ", *vc.Const, " {")
+			}
+			g.P(`        return Err(validator::ValidationError::new("const"));`)
+			g.P("    }")
+		}
+
+		// In/NotIn — type-specific matching
+		if len(vc.In) > 0 {
+			if isString {
+				g.P("    if ![", strings.Join(vc.In, ", "), "].contains(&value.as_str()) {")
+			} else {
+				g.P("    if ![", strings.Join(vc.In, ", "), "].contains(value) {")
+			}
+			g.P(`        return Err(validator::ValidationError::new("in"));`)
+			g.P("    }")
+		}
+		if len(vc.NotIn) > 0 {
+			if isString {
+				g.P("    if [", strings.Join(vc.NotIn, ", "), "].contains(&value.as_str()) {")
+			} else {
+				g.P("    if [", strings.Join(vc.NotIn, ", "), "].contains(value) {")
+			}
+			g.P(`        return Err(validator::ValidationError::new("not_in"));`)
+			g.P("    }")
+		}
+
+		// Timestamp range constraints
+		if f.Kind == FieldKindTimestamp {
+			if vc.Gte != nil {
+				g.P(`    if *value < chrono::DateTime::parse_from_rfc3339("`, *vc.Gte, `").unwrap().with_timezone(&chrono::Utc) {`)
+				g.P(`        return Err(validator::ValidationError::new("timestamp_range"));`)
+				g.P("    }")
+			}
+			if vc.Gt != nil {
+				g.P(`    if *value <= chrono::DateTime::parse_from_rfc3339("`, *vc.Gt, `").unwrap().with_timezone(&chrono::Utc) {`)
+				g.P(`        return Err(validator::ValidationError::new("timestamp_range"));`)
+				g.P("    }")
+			}
+			if vc.Lte != nil {
+				g.P(`    if *value > chrono::DateTime::parse_from_rfc3339("`, *vc.Lte, `").unwrap().with_timezone(&chrono::Utc) {`)
+				g.P(`        return Err(validator::ValidationError::new("timestamp_range"));`)
+				g.P("    }")
+			}
+			if vc.Lt != nil {
+				g.P(`    if *value >= chrono::DateTime::parse_from_rfc3339("`, *vc.Lt, `").unwrap().with_timezone(&chrono::Utc) {`)
+				g.P(`        return Err(validator::ValidationError::new("timestamp_range"));`)
+				g.P("    }")
+			}
+		}
+
+		g.P("    Ok(())")
+		g.P("}")
+		g.P()
+	}
+}
+
+// rustEscapeString escapes special characters for embedding in Rust string literals.
+func rustEscapeString(s string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		`"`, `\"`,
+		"\n", `\n`,
+		"\r", `\r`,
+		"\t", `\t`,
+	)
+	return r.Replace(s)
 }
 
 // rustRegexConstName generates a unique constant name for a regex pattern.
