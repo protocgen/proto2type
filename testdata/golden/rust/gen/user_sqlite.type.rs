@@ -90,41 +90,41 @@ impl UserRow {
     /// Constructs a UserRow from a rusqlite::Row using named column access.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
-            id: row.get("id")?,
-            email: row.get("email")?,
-            display_name: row.get("display_name")?,
-            active: row.get("active")?,
-            age: row.get("age")?,
-            roles: row.get("roles")?,
-            metadata: row.get("metadata")?,
-            address: row.get("address")?,
-            created_at: row.get("created_at")?,
-            session_timeout: row.get("session_timeout")?,
-            phone: row.get("phone")?,
-            avatar: row.get("avatar")?,
-            nickname: row.get("nickname")?,
-            status: row.get("status")?,
+            id: row.get::<_, String>("id")?,
+            email: row.get::<_, String>("email")?,
+            display_name: row.get::<_, String>("display_name")?,
+            active: row.get::<_, bool>("active")?,
+            age: row.get::<_, i32>("age")?,
+            roles: row.get::<_, String>("roles")?,
+            metadata: row.get::<_, String>("metadata")?,
+            address: row.get::<_, Option<String>>("address")?,
+            created_at: row.get::<_, i64>("created_at")?,
+            session_timeout: row.get::<_, i64>("session_timeout")?,
+            phone: row.get::<_, Option<String>>("phone")?,
+            avatar: row.get::<_, Vec<u8>>("avatar")?,
+            nickname: row.get::<_, Option<String>>("nickname")?,
+            status: row.get::<_, i32>("status")?,
             contact_method: row.get("contact_method")?,
-            tags: row.get("tags")?,
-            deleted_at: row.get("deleted_at")?,
-            previous_status: row.get("previous_status")?,
-            update_mask: row.get("update_mask")?,
-            extra_metadata: row.get("extra_metadata")?,
-            preferences: row.get("preferences")?,
-            avatar_thumbnail: row.get("avatar_thumbnail")?,
-            field_masks: row.get("field_masks")?,
-            structs: row.get("structs")?,
-            lists: row.get("lists")?,
-            event_times: row.get("event_times")?,
-            configs: row.get("configs")?,
-            single_value: row.get("single_value")?,
-            values: row.get("values")?,
-            value_map: row.get("value_map")?,
-            labels: row.get("labels")?,
-            scores: row.get("scores")?,
-            old_field: row.get("old_field")?,
-            optional_name: row.get("optional_name")?,
-            big_number: row.get("big_number")?,
+            tags: row.get::<_, String>("tags")?,
+            deleted_at: row.get::<_, Option<i64>>("deleted_at")?,
+            previous_status: row.get::<_, Option<i32>>("previous_status")?,
+            update_mask: row.get::<_, String>("update_mask")?,
+            extra_metadata: row.get::<_, String>("extra_metadata")?,
+            preferences: row.get::<_, String>("preferences")?,
+            avatar_thumbnail: row.get::<_, Option<Vec<u8>>>("avatar_thumbnail")?,
+            field_masks: row.get::<_, String>("field_masks")?,
+            structs: row.get::<_, String>("structs")?,
+            lists: row.get::<_, String>("lists")?,
+            event_times: row.get::<_, String>("event_times")?,
+            configs: row.get::<_, String>("configs")?,
+            single_value: row.get::<_, String>("single_value")?,
+            values: row.get::<_, String>("values")?,
+            value_map: row.get::<_, String>("value_map")?,
+            labels: row.get::<_, String>("labels")?,
+            scores: row.get::<_, String>("scores")?,
+            old_field: row.get::<_, String>("old_field")?,
+            optional_name: row.get::<_, String>("optional_name")?,
+            big_number: row.get::<_, i64>("big_number")?,
         })
     }
 
@@ -280,11 +280,11 @@ impl AddressRow {
     /// Constructs a AddressRow from a rusqlite::Row using named column access.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
-            street: row.get("street")?,
-            city: row.get("city")?,
-            state: row.get("state")?,
-            zip: row.get("zip")?,
-            country: row.get("country")?,
+            street: row.get::<_, String>("street")?,
+            city: row.get::<_, String>("city")?,
+            state: row.get::<_, String>("state")?,
+            zip: row.get::<_, String>("zip")?,
+            country: row.get::<_, String>("country")?,
         })
     }
 
@@ -347,8 +347,8 @@ impl TagRow {
     /// Constructs a TagRow from a rusqlite::Row using named column access.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
-            key: row.get("key")?,
-            value: row.get("value")?,
+            key: row.get::<_, String>("key")?,
+            value: row.get::<_, String>("value")?,
         })
     }
 
@@ -403,9 +403,9 @@ impl CategoryRow {
     /// Constructs a CategoryRow from a rusqlite::Row using named column access.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
-            name: row.get("name")?,
-            parent: row.get("parent")?,
-            children: row.get("children")?,
+            name: row.get::<_, String>("name")?,
+            parent: row.get::<_, Option<String>>("parent")?,
+            children: row.get::<_, String>("children")?,
         })
     }
 

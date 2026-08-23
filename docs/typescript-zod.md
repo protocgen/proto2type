@@ -73,16 +73,23 @@ Because the output uses standard Zod schemas, it integrates beautifully with the
 ```typescript
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { UserSchema, type User } from "./gen/user.type";
 
+// z.input = what the form collects (defaults are optional)
+// z.output = what you get after parsing (defaults filled in)
+type FormInput = z.input<typeof UserSchema>;
+
 function UserProfile() {
-  const { register, handleSubmit } = useForm<User>({
+  const { register, handleSubmit } = useForm<FormInput, unknown, User>({
     resolver: zodResolver(UserSchema)
   });
   
   // ...
 }
 ```
+
+> See [`examples/GUIDE.md`](../examples/GUIDE.md) for a complete walkthrough with React Hook Form, Next.js API routes, and tRPC.
 
 ### tRPC / API Routes
 
@@ -182,8 +189,15 @@ When `validate=true` is set, `proto2type` converts `buf.validate` proto annotati
 | `string.max_len: 255` | `.max(255)` |
 | `string.pattern: "^[0-9]{5}$"` | `.regex(new RegExp("^[0-9]{5}$"))` |
 | `string.email: true` | `.email()` |
+| `string.prefix: "usr_"` | `.startsWith("usr_")` |
+| `string.suffix: ".com"` | `.endsWith(".com")` |
+| `string.contains: "@"` | `.includes("@")` |
+| `string.const: "active"` | `.refine(v => v === "active", ...)` |
+| `string.in: ["a", "b"]` | `.refine(v => ["a", "b"].includes(v), ...)` |
+| `string.not_in: ["x"]` | `.refine(v => !["x"].includes(v), ...)` |
 | `int32.gte: 0` | `.gte(0)` |
 | `int32.lt: 100` | `.lt(100)` |
+| `timestamp.gte: {...}` | `.refine(v => new Date(v).getTime() >= ...)` |
 | `repeated.min_items: 1` | `.min(1)` |
 
 Example generated code with constraints:
@@ -210,7 +224,8 @@ Well-Known Types (WKTs) are natively mapped to idiomatic Zod constructs with app
 
 ## Known Limitations
 
-- **ReDoS (Regular Expression Denial of Service)**: The JavaScript `RegExp` engine uses backtracking. Regex patterns defined via `buf.validate` are compiled natively in JS. You must review your proto regex patterns for ReDoS vulnerabilities, as they are not evaluated with the safe `RE2` engine in the browser or Node.js by default.
+- **ReDoS (Regular Expression Denial of Service)**: The JavaScript `RegExp` engine uses backtracking. `proto2type` detects and rejects common ReDoS patterns (adjacent unbounded quantifiers, overlapping character classes), but exotic patterns may still slip through. Review your proto regex patterns for ReDoS vulnerabilities.
 - **NullValue**: The `google.protobuf.NullValue` enum is mapped directly to `z.null()`.
 - **Proto2**: `proto2` syntax is not fully supported (no explicit required/optional distinction beyond standard proto3 rules).
-- **Enum Type Widening**: Because enums accept `string` (or `number` in some configurations) to be robust against unknown values gracefully, they may accept values at runtime that are not explicit members of the string literal union.
+- **Enum Type Widening**: By design, enums accept `string` (or `number` in some configurations) to be robust against unknown future enum values. They may accept values at runtime that are not explicit members of the string literal union.
+- **`google.protobuf.Any`**: Mapped to `z.object({ "@type": z.string() }).passthrough()` — requires the `@type` URL but passes through all other fields unvalidated.

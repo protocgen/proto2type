@@ -250,7 +250,7 @@ func TestCollectTSImports(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := collectTSImports(tt.ir, &Options{})
+			got := collectTSImports(tt.ir, &Options{}, nil)
 			if len(got) != len(tt.want) {
 				t.Fatalf("got %d imports, want %d", len(got), len(tt.want))
 			}
@@ -269,6 +269,41 @@ func TestCollectTSImports(t *testing.T) {
 			}
 		})
 	}
+
+	// F5: Test generatedPaths filtering — non-generated files should be excluded
+	t.Run("Filtered by generatedPaths", func(t *testing.T) {
+		ir := &DomainFile{
+			SourcePath: "a/user.proto",
+			Messages: []*DomainMessage{
+				{
+					Fields: []*DomainField{
+						{
+							Kind:              FieldKindMessage,
+							MessageTypeName:   "Address",
+							MessageSourcePath: "b/address.proto",
+						},
+						{
+							Kind:              FieldKindMessage,
+							MessageTypeName:   "Role",
+							MessageSourcePath: "c/role.proto",
+						},
+					},
+				},
+			},
+		}
+		// Only b/address.proto is being generated
+		generatedPaths := map[string]bool{
+			"a/user.proto":    true,
+			"b/address.proto": true,
+		}
+		got := collectTSImports(ir, &Options{}, generatedPaths)
+		if len(got) != 1 {
+			t.Fatalf("expected 1 import (address only), got %d: %v", len(got), got)
+		}
+		if got[0].path != "../b/address.type.js" {
+			t.Errorf("expected address import, got %q", got[0].path)
+		}
+	})
 }
 
 func TestTsFieldIsRequired(t *testing.T) {

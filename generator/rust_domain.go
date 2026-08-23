@@ -413,6 +413,10 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 	for _, do := range dm.Oneofs {
 		generateRustOneofEnumFromIR(g, do, opts)
 	}
+	// Emit custom validation functions for non-derive constraints
+	if opts.ValidateEnabled() {
+		rustEmitCustomValidateFuncs(g, dm)
+	}
 
 	// Doc comment
 	g.P("/// Domain representation of ", dm.FullName, ".")
@@ -480,10 +484,7 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 
 		// Validator attributes from IR constraints
 		if opts.ValidateEnabled() {
-			if f.Kind == FieldKindTimestamp && f.ValidateConstraints != nil && (f.ValidateConstraints.Gt != nil || f.ValidateConstraints.Gte != nil || f.ValidateConstraints.Lt != nil || f.ValidateConstraints.Lte != nil) {
-				g.P("    // TODO: timestamp range constraints not yet supported in Rust validator crate")
-			}
-			if vattrs := rustValidateAttrs(f); len(vattrs) > 0 {
+			if vattrs := rustValidateAttrs(name, f); len(vattrs) > 0 {
 				g.P("    #[validate(", strings.Join(vattrs, ", "), ")]")
 			}
 		}

@@ -14,13 +14,7 @@ type tsImportEntry struct {
 
 // collectTSImports scans the IR for cross-file type references and returns
 // grouped, deduplicated import entries sorted by path.
-//
-// TODO(H6): Cross-File Broken Imports limitation.
-// Currently this blindly generates imports for ALL referenced types regardless of
-// whether those files are being generated. In the future, this should take a set
-// of GeneratedFiles to skip imports for files not in the generate list.
-// Note: This limitation is documented here per H6 findings.
-func collectTSImports(ir *DomainFile, opts *Options) []tsImportEntry {
+func collectTSImports(ir *DomainFile, opts *Options, generatedPaths map[string]bool) []tsImportEntry {
 	// Map from proto source path → set of type names needed.
 	needed := make(map[string]map[string]bool)
 
@@ -57,6 +51,15 @@ func collectTSImports(ir *DomainFile, opts *Options) []tsImportEntry {
 				if v.SourcePath != "" {
 					addRef(v.SourcePath, v.TypeName)
 				}
+			}
+		}
+	}
+
+	// Filter out imports for files that are not being generated.
+	if generatedPaths != nil {
+		for sourcePath := range needed {
+			if !generatedPaths[sourcePath] {
+				delete(needed, sourcePath)
 			}
 		}
 	}

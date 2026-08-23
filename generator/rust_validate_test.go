@@ -65,7 +65,7 @@ func TestRustValidateAttrs_StringConstraints(t *testing.T) {
 				Name:                "test_field",
 				ValidateConstraints: tt.vc,
 			}
-			attrs := rustValidateAttrs(f)
+			attrs := rustValidateAttrs("TestMessage", f)
 
 			if len(attrs) != len(tt.expected) {
 				t.Fatalf("expected %d attrs, got %d: %v", len(tt.expected), len(attrs), attrs)
@@ -111,7 +111,7 @@ func TestRustValidateAttrs_NumericConstraints(t *testing.T) {
 				ScalarKind:          protoreflect.Int32Kind,
 				ValidateConstraints: tt.vc,
 			}
-			attrs := rustValidateAttrs(f)
+			attrs := rustValidateAttrs("TestMessage", f)
 
 			if len(attrs) != len(tt.expected) {
 				t.Fatalf("expected %d attrs, got %d: %v", len(tt.expected), len(attrs), attrs)
@@ -134,7 +134,7 @@ func TestRustValidateAttrs_RepeatedConstraints(t *testing.T) {
 			MaxItems: uint64Ptr(5),
 		},
 	}
-	attrs := rustValidateAttrs(f)
+	attrs := rustValidateAttrs("TestMessage", f)
 
 	if len(attrs) != 1 {
 		t.Fatalf("expected 1 attr, got %d: %v", len(attrs), attrs)
