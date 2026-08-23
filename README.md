@@ -347,12 +347,57 @@ See [CONFIG.md](CONFIG.md) for the full reference, including proto-level annotat
 | Option | Default | Description |
 |---|---|---|
 | `lang` | `go` | Target language (`go`, `rust`, `python`, `kotlin`, `typescript`) |
-| `backend` | _(none)_ | Storage backend (`firestore`, `mongo`, `sqlite`, `dynamodb`, `datastore`, `spanner`) |
+| `backend` | _(none)_ | Storage backend (`firestore`, `mongo`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc`) |
 | `domain` | `true` | Generate domain types + proto converters |
 | `output_file` | _(auto)_ | Override output filename |
 | `enum_as_string` | `false` | Store enums as string names instead of `int32` |
 | `omitempty_default` | `true` | Default `omitempty` for optional / zero-value fields |
-| `validate` | `""` | Validation strategy from `buf.validate` constraints (`true`, `validator`, `native`) |
+| `validate` | `""` | Validation strategy from `buf.validate` constraints (see below) |
+| `go_package` | _(auto)_ | Override Go package for generated types |
+| `debug` | `false` | Emit IR debug information to stderr |
+
+### Rust Options
+
+| Option | Default | Description |
+|---|---|---|
+| `rust_exhaustive` | `false` | Omit `#[non_exhaustive]` from generated structs. Use when consumers own the types. |
+| `rust_buffa_module` | _(required for buffa)_ | Rust module path for buffa proto types (e.g. `crate::proto::my::package::v1`) |
+| `rust_buffa_oneof_prefix` | `""` | Module prefix before oneof submodule (e.g. `__buffa` for `connectrpc-build`) |
+| `rust_domain_module` | _(none)_ | Rust module path for domain type imports in buffa output. Default: `use super::*;` |
+
+### TypeScript Options
+
+| Option | Default | Description |
+|---|---|---|
+| `ts_int64` | `string` | int64/uint64 representation: `string` (JSON-safe) or `bigint` |
+| `ts_enum_style` | `enum` | Enum representation: `enum` (z.enum) or `native` (z.nativeEnum) |
+| `ts_explicit_types` | `true` | Emit explicit `export interface` alongside `z.infer` |
+| `ts_zod_import` | `zod` | Zod import path |
+| `ts_types_only` | `false` | Emit plain TypeScript interfaces without Zod schemas |
+| `ts_strict` | `false` | Append `.strict()` to reject unknown fields |
+| `ts_output_suffix` | `.type` | Output file suffix |
+| `ts_preset` | _(none)_ | Preset configuration: `zod-strict`, `types-only` |
+
+### Python Options
+
+| Option | Default | Description |
+|---|---|---|
+| `python_base_class` | `BaseModel` | Custom Pydantic base class |
+| `python_alias_generator` | _(none)_ | Alias generator: `camel` |
+| `python_enum_style` | _(default)_ | Enum style: `raw` (original proto names) |
+| `python_preset` | _(none)_ | Preset: `a2a` (sets alias_generator=camel + enum_style=raw) |
+| `python_description` | _(none)_ | Module-level docstring |
+| `python_strip_proto_suffix` | `false` | Use `base.py` instead of `base_pb2_pydantic.py` |
+
+### Validation Strategies
+
+| Language | `validate=` value | Strategy |
+|---|---|---|
+| Go | `true` | Delegates to `protovalidate` via `Validate()` method |
+| Rust | `true` / `validator` | `validator` crate derive macros (`#[derive(Validate)]`) |
+| Kotlin | `true` / `native` | Hand-rolled `validate(): List<String>` + `validateOrThrow()` |
+| Python | _(always on)_ | Pydantic `Field()` args (min_length, pattern, etc.) |
+| TypeScript | `true` | Zod schema chains (`.min()`, `.email()`, `.refine()`, etc.) |
 
 ## Example
 

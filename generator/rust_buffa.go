@@ -10,7 +10,7 @@ import (
 // generateRustBuffa generates a Rust buffa (ConnectRPC proto) conversion file for a proto file.
 func generateRustBuffa(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	if opts.BufModule == "" {
-		return fmt.Errorf("proto2type: buffa backend requires buffa_module option (e.g. buffa_module=crate::proto::my::package::v1)")
+		return fmt.Errorf("proto2type: buffa backend requires rust_buffa_module option (e.g. rust_buffa_module=crate::proto::my::package::v1)")
 	}
 
 	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_buffa.type.rs")

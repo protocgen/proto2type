@@ -92,6 +92,27 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 			g.P(indent, "if (", fieldName, ".codePointCount(0, ", fieldName, ".length) > ", *vc.MaxLength, ") errors.add(\"", f.Name, " must be at most ", *vc.MaxLength, " characters\")")
 		}
 
+		if vc.Prefix != "" {
+			g.P(indent, "if (!", fieldName, ".startsWith(\"", vc.Prefix, "\")) errors.add(\"", f.Name, " must start with ", vc.Prefix, "\")")
+		}
+		if vc.Suffix != "" {
+			g.P(indent, "if (!", fieldName, ".endsWith(\"", vc.Suffix, "\")) errors.add(\"", f.Name, " must end with ", vc.Suffix, "\")")
+		}
+		if vc.Contains != "" {
+			g.P(indent, "if (!", fieldName, ".contains(\"", vc.Contains, "\")) errors.add(\"", f.Name, " must contain ", vc.Contains, "\")")
+		}
+		if vc.Const != nil {
+			g.P(indent, "if (", fieldName, " != ", *vc.Const, ") errors.add(\"", f.Name, " must be exactly ", *vc.Const, "\")")
+		}
+		if len(vc.In) > 0 {
+			vals := strings.Join(vc.In, ", ")
+			g.P(indent, "if (", fieldName, " !in listOf(", vals, ")) errors.add(\"", f.Name, " must be one of [", vals, "]\")")
+		}
+		if len(vc.NotIn) > 0 {
+			vals := strings.Join(vc.NotIn, ", ")
+			g.P(indent, "if (", fieldName, " in listOf(", vals, ")) errors.add(\"", f.Name, " must not be one of [", vals, "]\")")
+		}
+
 		// Numeric range
 		if vc.Gte != nil {
 			if f.Kind == FieldKindTimestamp {
@@ -264,6 +285,27 @@ func emitKotlinOneofVariantConstraints(g *protogen.GeneratedFile, o *DomainOneof
 	}
 	if vc.MaxLength != nil {
 		g.P("            if (value.codePointCount(0, value.length) > ", *vc.MaxLength, ") errors.add(\"", v.ProtoName, " must be at most ", *vc.MaxLength, " characters\")")
+	}
+
+	if vc.Prefix != "" {
+		g.P("            if (!value.startsWith(\"", vc.Prefix, "\")) errors.add(\"", v.ProtoName, " must start with ", vc.Prefix, "\")")
+	}
+	if vc.Suffix != "" {
+		g.P("            if (!value.endsWith(\"", vc.Suffix, "\")) errors.add(\"", v.ProtoName, " must end with ", vc.Suffix, "\")")
+	}
+	if vc.Contains != "" {
+		g.P("            if (!value.contains(\"", vc.Contains, "\")) errors.add(\"", v.ProtoName, " must contain ", vc.Contains, "\")")
+	}
+	if vc.Const != nil {
+		g.P("            if (value != ", *vc.Const, ") errors.add(\"", v.ProtoName, " must be exactly ", *vc.Const, "\")")
+	}
+	if len(vc.In) > 0 {
+		vals := strings.Join(vc.In, ", ")
+		g.P("            if (value !in listOf(", vals, ")) errors.add(\"", v.ProtoName, " must be one of [", vals, "]\")")
+	}
+	if len(vc.NotIn) > 0 {
+		vals := strings.Join(vc.NotIn, ", ")
+		g.P("            if (value in listOf(", vals, ")) errors.add(\"", v.ProtoName, " must not be one of [", vals, "]\")")
 	}
 }
 

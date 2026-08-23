@@ -9,7 +9,7 @@ import (
 )
 
 // TestGenerateBuffaPrefixedGolden regenerates the golden file for user.proto with
-// buffa_oneof_prefix=__buffa. Skipped by default; set UPDATE_GOLDEN=1 to run.
+// rust_buffa_oneof_prefix=__buffa. Skipped by default; set UPDATE_GOLDEN=1 to run.
 func TestGenerateBuffaPrefixedGolden(t *testing.T) {
 	if os.Getenv("UPDATE_GOLDEN") == "" {
 		t.Skip("set UPDATE_GOLDEN=1 to regenerate golden files")
