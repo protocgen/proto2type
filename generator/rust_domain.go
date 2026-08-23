@@ -132,6 +132,16 @@ func irScanRustImports(dm *DomainMessage, needsChrono, needsHashMap *bool) {
 		}
 		if f.IsMap {
 			*needsHashMap = true
+			if f.MapValue != nil && f.MapValue.Kind == FieldKindTimestamp {
+				*needsChrono = true
+			}
+		}
+	}
+	for _, oo := range dm.Oneofs {
+		for _, v := range oo.Variants {
+			if v.Kind == FieldKindTimestamp {
+				*needsChrono = true
+			}
 		}
 	}
 	for _, nested := range dm.NestedMessages {
@@ -313,6 +323,28 @@ func generateRustOneofEnumFromIR(g *protogen.GeneratedFile, do *DomainOneof, opt
 					g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("not_in"));`)
 					g.P("                }")
 				}
+				if v.Kind == FieldKindTimestamp {
+					if v.ValidateConstraints.Gte != nil {
+						g.P("                if *v < chrono::DateTime::parse_from_rfc3339(\"", *v.ValidateConstraints.Gte, "\").unwrap().with_timezone(&Utc) {")
+						g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("timestamp_range"));`)
+						g.P("                }")
+					}
+					if v.ValidateConstraints.Gt != nil {
+						g.P("                if *v <= chrono::DateTime::parse_from_rfc3339(\"", *v.ValidateConstraints.Gt, "\").unwrap().with_timezone(&Utc) {")
+						g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("timestamp_range"));`)
+						g.P("                }")
+					}
+					if v.ValidateConstraints.Lte != nil {
+						g.P("                if *v > chrono::DateTime::parse_from_rfc3339(\"", *v.ValidateConstraints.Lte, "\").unwrap().with_timezone(&Utc) {")
+						g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("timestamp_range"));`)
+						g.P("                }")
+					}
+					if v.ValidateConstraints.Lt != nil {
+						g.P("                if *v >= chrono::DateTime::parse_from_rfc3339(\"", *v.ValidateConstraints.Lt, "\").unwrap().with_timezone(&Utc) {")
+						g.P(`                    errors.add("`, v.ProtoName, `", validator::ValidationError::new("timestamp_range"));`)
+						g.P("                }")
+					}
+				}
 				g.P("                if errors.is_empty() { Ok(()) } else { Err(errors) }")
 				g.P("            }")
 			}
@@ -449,7 +481,7 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 		// Validator attributes from IR constraints
 		if opts.ValidateEnabled() {
 			if f.Kind == FieldKindTimestamp && f.ValidateConstraints != nil && (f.ValidateConstraints.Gt != nil || f.ValidateConstraints.Gte != nil || f.ValidateConstraints.Lt != nil || f.ValidateConstraints.Lte != nil) {
-				g.P("    // TODO: timestamp range constraints not yet supported in Rust")
+				g.P("    // TODO: timestamp range constraints not yet supported in Rust validator crate")
 			}
 			if vattrs := rustValidateAttrs(f); len(vattrs) > 0 {
 				g.P("    #[validate(", strings.Join(vattrs, ", "), ")]")

@@ -197,7 +197,13 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		}
 	}
 	if vc.Const != nil && !isBytesField {
-		parts = append(parts, fmt.Sprintf(`.refine(v => v === %s, { message: "must be exactly %s" })`, *vc.Const, *vc.Const))
+		// *vc.Const is pre-quoted (e.g. "\"hello\""), safe for JS comparison.
+		// For the message string, strip outer quotes to avoid nested double-quote breakage.
+		msgVal := strings.Trim(*vc.Const, `"`)
+		if msgVal == "" {
+			msgVal = "<empty string>"
+		}
+		parts = append(parts, fmt.Sprintf(`.refine(v => v === %s, { message: "must be exactly %s" })`, *vc.Const, msgVal))
 	}
 	if vc.Prefix != "" {
 		nativeParts = append(nativeParts, fmt.Sprintf(".startsWith(%s)", strconv.Quote(vc.Prefix)))
@@ -224,11 +230,22 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 	}
 	if len(vc.In) > 0 {
 		vals := strings.Join(vc.In, ", ")
-		parts = append(parts, fmt.Sprintf(`.refine(v => [%s].includes(v), { message: "must be one of [%s]" })`, vals, vals))
+		// Strip outer quotes from each value for human-readable message
+		var msgVals []string
+		for _, v := range vc.In {
+			msgVals = append(msgVals, strings.Trim(v, `"`))
+		}
+		msgStr := strings.Join(msgVals, ", ")
+		parts = append(parts, fmt.Sprintf(`.refine(v => [%s].includes(v), { message: "must be one of [%s]" })`, vals, msgStr))
 	}
 	if len(vc.NotIn) > 0 {
 		vals := strings.Join(vc.NotIn, ", ")
-		parts = append(parts, fmt.Sprintf(`.refine(v => ![%s].includes(v), { message: "must not be one of [%s]" })`, vals, vals))
+		var msgVals []string
+		for _, v := range vc.NotIn {
+			msgVals = append(msgVals, strings.Trim(v, `"`))
+		}
+		msgStr := strings.Join(msgVals, ", ")
+		parts = append(parts, fmt.Sprintf(`.refine(v => ![%s].includes(v), { message: "must not be one of [%s]" })`, vals, msgStr))
 	}
 
 	// Emit native ZodString methods first, then .refine() methods.

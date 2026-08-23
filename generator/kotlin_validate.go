@@ -116,7 +116,7 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 		// Numeric range
 		if vc.Gte != nil {
 			if f.Kind == FieldKindTimestamp {
-				g.P(indent, "// TODO: Timestamp range check for Gte")
+				g.P(indent, "if (", fieldName, ".compareTo(Instant.parse(\"", *vc.Gte, "\")) < 0) errors.add(\"", f.Name, " must be >= ", *vc.Gte, "\")")
 			} else {
 				val := *vc.Gte
 				if f.Kind == FieldKindDuration {
@@ -127,7 +127,7 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 		}
 		if vc.Gt != nil {
 			if f.Kind == FieldKindTimestamp {
-				g.P(indent, "// TODO: Timestamp range check for Gt")
+				g.P(indent, "if (", fieldName, ".compareTo(Instant.parse(\"", *vc.Gt, "\")) <= 0) errors.add(\"", f.Name, " must be > ", *vc.Gt, "\")")
 			} else {
 				val := *vc.Gt
 				if f.Kind == FieldKindDuration {
@@ -138,7 +138,7 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 		}
 		if vc.Lte != nil {
 			if f.Kind == FieldKindTimestamp {
-				g.P(indent, "// TODO: Timestamp range check for Lte")
+				g.P(indent, "if (", fieldName, ".compareTo(Instant.parse(\"", *vc.Lte, "\")) > 0) errors.add(\"", f.Name, " must be <= ", *vc.Lte, "\")")
 			} else {
 				val := *vc.Lte
 				if f.Kind == FieldKindDuration {
@@ -149,7 +149,7 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 		}
 		if vc.Lt != nil {
 			if f.Kind == FieldKindTimestamp {
-				g.P(indent, "// TODO: Timestamp range check for Lt")
+				g.P(indent, "if (", fieldName, ".compareTo(Instant.parse(\"", *vc.Lt, "\")) >= 0) errors.add(\"", f.Name, " must be < ", *vc.Lt, "\")")
 			} else {
 				val := *vc.Lt
 				if f.Kind == FieldKindDuration {
