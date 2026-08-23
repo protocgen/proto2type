@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-08-23
+
+### Added
+- **Timestamp range constraints** (Kotlin + Rust): `Gte`/`Gt`/`Lte`/`Lt` on `google.protobuf.Timestamp` fields now emit runtime validation checks. Kotlin uses `Instant.parse().compareTo()`, Rust uses `DateTime::parse_from_rfc3339()` for oneof variants. TypeScript already supported these.
+- **Examples guide** (`examples/GUIDE.md`): Frontend-focused walkthrough for TypeScript + Zod validation with React Hook Form, Next.js API routes, and tRPC integration. Includes multi-language comparison and validation rules reference.
+- **Rust import scanner**: `irScanRustImports` now scans oneof variants and map values for `Timestamp` kind, ensuring `chrono` imports are emitted correctly.
+
+### Fixed
+- **CI: Language compile checks no longer skip**: Removed `needs: golden-test` dependency from Rust, Kotlin, TypeScript, Python, and Rust Integration checks. All 10 CI jobs now run in parallel.
+- **TS: Const/In/NotIn error message quoting**: Pre-quoted string values (e.g. `"hello"`) no longer produce broken TypeScript syntax in `.refine()` error messages. Empty string constants render as `<empty string>`.
+- **Security: `output_file` path traversal**: Added validation rejecting `..`, absolute Unix paths, and Windows absolute paths (`C:\`, UNC `\\`) in the `output_file` option.
+
+## [0.7.0] - 2026-08-22
+
+### Added
+- **Option rename** for consistent `rust_*` prefix: `buffa_module` → `rust_buffa_module`, `buffa_oneof_prefix` → `rust_buffa_oneof_prefix`, `domain_module` → `rust_domain_module`.
+- **MIGRATION.md**: Comprehensive migration guide for v0.6.x → v0.7.0 breaking changes.
+- **Rust/Kotlin string constraints**: Prefix, Suffix, Contains, Const, In, NotIn validation for both backends.
+- **Backend validation unit tests**: `rust_validate_test.go` and `kotlin_validate_test.go`.
+- **README options documentation**: Expanded with Rust, TypeScript, Python option tables and validation strategies.
+
+### Fixed
+- **Security: Rust regex injection** — raw string delimiters with dynamic delimiter sizing.
+- **Security: Expanded ReDoS detection** — adjacent unbounded quantifiers and overlapping character classes.
+- **Security: Rust oneof scalar constraints** — previously silently ignored.
+- **Performance: Kotlin regex hoisting** to file-level `private val` constants.
+- **Performance: TS module-level constant deduplication** for oneof keys and prototype pollution checks.
+- **Performance: O(V+E) recursive cycle detection** via precomputed DFS.
+- **Correctness: WKT Duration bounds** — strip `s` suffix for Rust/Kotlin.
+- **Correctness: TS constraint ordering** — native ZodString methods before `.refine()` calls.
+- **Correctness: Unicode string length** — `[...v].length` (TS), `.codePointCount()` (Kotlin).
+- **Correctness: RegExp `"u"` flag** on all generated TS patterns.
+
 ## [0.6.0] - 2026-07-04
 
 ### Added
