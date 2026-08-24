@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-08-24
+
+### Added
+
+- **Go `validate=native`**: Pure Go constraint checks in `Validate() error` with zero external dependencies. Supports string (length, pattern, email, uuid, uri, hostname, ip, prefix, suffix, contains), numeric bounds, temporal bounds via `time.Parse(RFC3339Nano)`, repeated (min/max items, unique), const/in/not_in, nested message recursion, and required field nil checks. Hoists compiled `regexp.Regexp` as package-level vars. (#168)
+- **Go native validation golden files**: `testdata/golden/go/gen_native/` with `buf.gen.go-native.yaml` template. 17 e2e tests covering email, display_name length, age bounds, roles items, phone pattern, nested address, zip regex, oneof exclusion, nil receiver, recursive categories. (#169)
+- **Standalone documentation**: New `docs/go.md` (Go reference), `docs/python-pydantic.md` (Pydantic v2), `docs/kotlin.md` (kotlinx.serialization), `docs/rust.md` (Rust/serde/validator). (#168, #169, #170)
+
+### Fixed
+
+- **Go native: map field recursion**: Skip `IsMap` fields in nested validation — `map[K]V` types don't have `Validate()` methods. (#169)
+- **Go native: pointer dereference**: Parenthesized dereference `(*x)` for correct method calls on optional fields. (#168)
+- **Go native: pattern escaping**: Use `strconv.Quote` instead of raw backtick literals for patterns containing backticks. (#168)
+- **Go native: IP validation**: Added IP regex + validation check (was opening guard block but emitting no check). (#168)
+- **Go native: time.RFC3339Nano**: Qualified via `QualifiedGoIdent` and parse error properly handled. (#168)
+
+### Changed
+
+- Generator version bumped `0.7.1` → `0.8.0`.
+- `lefthook.yml` golden-check now includes `buf.gen.go-native.yaml`.
+
+## [0.7.2] - 2026-08-23
+
+### Fixed
+
+- **TS/Zod docs expansion**: WKT table expanded from 6 to 15 entries (ListValue, Empty, Any, all wrapper types). (#167)
+- **TS/Zod docs**: Category recursive type now shows `| null` matching golden output. Struct WKT shows `_safeKey` usage. (#167)
+- **Kotlin docs**: ProtoJSON compatibility notes for Duration/FieldMask/BytesValue. Ktor dependency block. Unsigned integer overflow bounds. (#168)
+- **Python docs**: Escaped pipe characters in WKT table. Replaced `z.lazy()` reference with `model_rebuild()`. (#168)
+
 ## [0.7.1] - 2026-08-23
 
 ### Added
