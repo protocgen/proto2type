@@ -41,6 +41,7 @@ type Options struct {
 	// Supported values ("true" selects the default strategy per language):
 	//
 	//   Go:     "true" → protovalidate delegation via Validate() method.
+	//           "native" → pure Go checks in Validate(), zero external deps.
 	//   Rust:   "true" | "validator" → validator crate (#[derive(Validate)]).
 	//   Kotlin: "true" | "native"   → hand-rolled validate(): List<String>.
 	//   Python: constraints are always emitted via Pydantic Field() args.
@@ -121,4 +122,9 @@ type Options struct {
 // ValidateEnabled returns true if any validation strategy is configured.
 func (o *Options) ValidateEnabled() bool {
 	return o.Validate != ""
+}
+
+// ValidateNative returns true if the native (zero-dependency) validation strategy is selected.
+func (o *Options) ValidateNative() bool {
+	return o.Validate == "native"
 }
