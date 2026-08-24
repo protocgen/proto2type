@@ -32,6 +32,18 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 - ✅ **Validation** — `buf.validate` constraint checking: Rust via `validator` crate, Kotlin via native `validate()`, Python via Pydantic `Field()`, TypeScript via Zod chains
 - 🌐 **Multi-language** — Go, Rust, Python, Kotlin, and TypeScript supported
 
+## Language Docs
+
+| Language | Guide |
+|----------|-------|
+| Go | [docs/go.md](docs/go.md) — domain types, converters, Clone/Equal, field masks, `validate=native` |
+| TypeScript | [docs/typescript-zod.md](docs/typescript-zod.md) — Zod schemas, React Hook Form, tRPC |
+| Python | [docs/python-pydantic.md](docs/python-pydantic.md) — Pydantic v2 models, FastAPI, presets |
+| Kotlin | [docs/kotlin.md](docs/kotlin.md) — kotlinx.serialization, native validation |
+| Rust | [docs/rust.md](docs/rust.md) — serde, validator crate, buffa, SQLite |
+
+See [CONFIG.md](CONFIG.md) for the full list of all 27+ plugin options.
+
 ## Install
 
 ```bash
