@@ -360,8 +360,9 @@ func goEmitNativeNestedChecks(g *protogen.GeneratedFile, dm *DomainMessage, recv
 		if f.IsOneof {
 			continue
 		}
-		// Only recurse into actual message fields (not WKTs like Timestamp → time.Time).
-		if f.Kind != FieldKindMessage {
+		// Only recurse into actual domain message fields.
+		// Skip: non-messages, maps (map[K]V has no Validate), WKTs mapped to Go scalars.
+		if f.Kind != FieldKindMessage || f.IsMap {
 			continue
 		}
 

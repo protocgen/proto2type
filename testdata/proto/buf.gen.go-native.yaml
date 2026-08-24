@@ -1,0 +1,13 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - user.proto
+plugins:
+  # Go domain types with validate=native (zero-dependency validation)
+  - local: protoc-gen-proto2type
+    out: ../golden/go/gen_native
+    opt:
+      - paths=source_relative
+      - go_package=github.com/protocgen/proto2type/testdata/golden/go/gen_native;gen_native
+      - validate=native
