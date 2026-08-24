@@ -105,7 +105,7 @@ func (gg *goGenerator) generateGoDomain(gen *protogen.Plugin, file *protogen.Fil
 	}
 
 	for _, dm := range df.Messages {
-		if err := generateGoDomainMessage(g, dm, opts); err != nil {
+		if err := generateGoDomainMessage(g, df, dm, opts); err != nil {
 			return err
 		}
 	}
@@ -121,7 +121,7 @@ func (gg *goGenerator) generateGoDomain(gen *protogen.Plugin, file *protogen.Fil
 }
 
 // generateGoDomainMessage generates a Go domain struct and converters for a single message.
-func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, opts *Options) error {
+func generateGoDomainMessage(g *protogen.GeneratedFile, df *DomainFile, dm *DomainMessage, opts *Options) error {
 	if dm.Skip {
 		return nil
 	}
@@ -180,11 +180,11 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, dm *DomainMessage, opts 
 	generateGoActiveField(g, dm)
 
 	// Generate Validate() method (oneof mutual exclusion + optional protovalidate)
-	generateGoValidate(g, dm, opts)
+	generateGoValidate(g, df, dm, opts)
 
 	// Generate nested messages
 	for _, nestedDM := range dm.NestedMessages {
-		if err := generateGoDomainMessage(g, nestedDM, opts); err != nil {
+		if err := generateGoDomainMessage(g, df, nestedDM, opts); err != nil {
 			return err
 		}
 	}
