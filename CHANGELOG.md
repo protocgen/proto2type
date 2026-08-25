@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-08-24
+
+### Added
+
+- **Go native: `DefinedOnly` enum validation**: Fields with `(buf.validate.field).enum.defined_only = true` now emit a `switch` on valid enum numbers (or string names for `enum_as_string`), rejecting unknown values. De-duplicates values for `allow_alias` enums. (#171)
+- **Go native: `IgnoreEmpty` support**: Fields with `ignore = IGNORE_IF_ZERO_VALUE` skip constraint checks when the field has its zero value (`""`, `0`, `nil`, empty slice/map). Handles `EnumAsString` fields correctly. (#171)
+- **Go native: oneof variant constraints**: Constrained oneof variant fields (email, min/max length, pattern, prefix/suffix, etc.) are now validated when the variant is set. Message-valued variants always call `.Validate()` for nested validation. (#171)
+- **Rust docs**: Standalone `docs/rust.md` reference covering serde, validator, buffa, and SQLite backends. (#170)
+- **CHANGELOG**: Added for v0.8.0 and v0.7.2. (#170)
+- **README cross-links**: Language Docs table linking all 5 standalone guides. (#170)
+- **Rust integration tests**: 13 tests in `tests/rust-integration/tests/validate.rs`. (#170)
+
+### Fixed
+
+- **Go native: imported enum DefinedOnly**: Emits a generated comment instead of silently skipping when the enum definition is in an imported file. (#171)
+
 ## [0.8.0] - 2026-08-24
 
 ### Added
