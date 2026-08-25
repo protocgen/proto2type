@@ -1192,6 +1192,7 @@ func (u *User) ActiveContactMethod() string {
 
 var _reUserEmailEmail = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 var _reUserPhonePattern = regexp.MustCompile("^\\+?[0-9\\-\\s]+$")
+var _reUserContactEmailEmail = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 // Validate checks domain invariants on User.
 // It ensures at most one variant is set per oneof group.
@@ -1242,6 +1243,33 @@ func (u *User) Validate() error {
 		}
 		if !_reUserPhonePattern.MatchString((*u.Phone)) {
 			return fmt.Errorf("phone: must match pattern %s", "^\\+?[0-9\\-\\s]+$")
+		}
+	}
+	switch u.Status {
+	case 0, 1, 2, 3:
+		// valid
+	default:
+		return fmt.Errorf("status: unknown enum value %d", u.Status)
+	}
+	if u.PreviousStatus != nil {
+		switch *u.PreviousStatus {
+		case 0, 1, 2, 3:
+			// valid
+		default:
+			return fmt.Errorf("previous_status: unknown enum value %d", *u.PreviousStatus)
+		}
+	}
+	if u.ContactEmail != nil {
+		if (*u.ContactEmail) != "" && !_reUserContactEmailEmail.MatchString((*u.ContactEmail)) {
+			return fmt.Errorf("contact_email: must be a valid email address")
+		}
+	}
+	if u.ContactPhone != nil {
+		if utf8.RuneCountInString((*u.ContactPhone)) < 7 {
+			return fmt.Errorf("contact_phone: must be at least %d characters", 7)
+		}
+		if utf8.RuneCountInString((*u.ContactPhone)) > 20 {
+			return fmt.Errorf("contact_phone: must be at most %d characters", 20)
 		}
 	}
 	if u.Address != nil {

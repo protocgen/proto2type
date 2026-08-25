@@ -55,6 +55,23 @@ pub enum UserContactMethod {
 impl Validate for UserContactMethod {
     fn validate(&self) -> Result<(), validator::ValidationErrors> {
         match self {
+            Self::ContactEmail(v) => {
+                let mut errors = validator::ValidationErrors::new();
+                if !v.validate_email() {
+                    errors.add("contact_email", validator::ValidationError::new("email"));
+                }
+                if errors.is_empty() { Ok(()) } else { Err(errors) }
+            }
+            Self::ContactPhone(v) => {
+                let mut errors = validator::ValidationErrors::new();
+                if v.chars().count() < 7 {
+                    errors.add("contact_phone", validator::ValidationError::new("length"));
+                }
+                if v.chars().count() > 20 {
+                    errors.add("contact_phone", validator::ValidationError::new("length"));
+                }
+                if errors.is_empty() { Ok(()) } else { Err(errors) }
+            }
             _ => Ok(()),
         }
     }

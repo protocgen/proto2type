@@ -54,10 +54,10 @@ class User(BaseModel):
     phone: str | None = Field(default=None, min_length=7, max_length=20, pattern='^\\+?[0-9\\-\\s]+$')
     avatar: bytes = b''
     nickname: str | None = None
-    status: UserStatus | None = None
+    status: UserStatus | None = Field(default=None)
     tags: list[Tag] = Field(default_factory=list)
     deleted_at: datetime | None = Field(default=None, exclude=True)
-    previous_status: UserStatus | None = None
+    previous_status: UserStatus | None = Field(default=None)
     update_mask: list[str] | None = Field(default=None, description='WKT reference types')
     extra_metadata: dict[str, Any] | None = None
     preferences: list[Any] | None = None

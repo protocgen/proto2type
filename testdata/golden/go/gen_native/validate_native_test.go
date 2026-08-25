@@ -257,3 +257,150 @@ func TestNativeValidateRecursiveCategory(t *testing.T) {
 		t.Errorf("unexpected error for valid category tree: %v", err)
 	}
 }
+
+// DefinedOnly tests
+
+func TestNativeValidateDefinedOnlyStatus(t *testing.T) {
+	u := &User{
+		Email:       "a@b.com",
+		DisplayName: "Alice",
+		Age:         25,
+		Roles:       []string{"admin"},
+		Status:      999, // not a valid UserStatus
+	}
+	err := u.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for unknown enum value, got nil")
+	}
+	if !strings.Contains(err.Error(), "status") || !strings.Contains(err.Error(), "unknown enum value") {
+		t.Errorf("error should mention status and unknown enum, got: %v", err)
+	}
+}
+
+func TestNativeValidateDefinedOnlyValidStatus(t *testing.T) {
+	u := &User{
+		Email:       "a@b.com",
+		DisplayName: "Alice",
+		Age:         25,
+		Roles:       []string{"admin"},
+		Status:      1, // Active
+	}
+	err := u.Validate()
+	if err != nil {
+		t.Errorf("unexpected error for valid status: %v", err)
+	}
+}
+
+func TestNativeValidateDefinedOnlyOptionalStatus(t *testing.T) {
+	bad := int32(777)
+	u := &User{
+		Email:          "a@b.com",
+		DisplayName:    "Alice",
+		Age:            25,
+		Roles:          []string{"admin"},
+		PreviousStatus: &bad,
+	}
+	err := u.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for unknown optional enum value, got nil")
+	}
+	if !strings.Contains(err.Error(), "previous_status") {
+		t.Errorf("error should mention previous_status, got: %v", err)
+	}
+}
+
+func TestNativeValidateDefinedOnlyOptionalStatusNil(t *testing.T) {
+	u := &User{
+		Email:          "a@b.com",
+		DisplayName:    "Alice",
+		Age:            25,
+		Roles:          []string{"admin"},
+		PreviousStatus: nil, // nil is fine, skip check
+	}
+	err := u.Validate()
+	if err != nil {
+		t.Errorf("unexpected error when optional enum is nil: %v", err)
+	}
+}
+
+// Oneof variant constraint tests
+
+func TestNativeValidateOneofContactEmail(t *testing.T) {
+	badEmail := "not-an-email"
+	u := &User{
+		Email:        "a@b.com",
+		DisplayName:  "Alice",
+		Age:          25,
+		Roles:        []string{"admin"},
+		ContactEmail: &badEmail,
+	}
+	err := u.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for invalid contact_email, got nil")
+	}
+	if !strings.Contains(err.Error(), "contact_email") {
+		t.Errorf("error should mention contact_email, got: %v", err)
+	}
+}
+
+func TestNativeValidateOneofContactEmailValid(t *testing.T) {
+	goodEmail := "alice@example.com"
+	u := &User{
+		Email:        "a@b.com",
+		DisplayName:  "Alice",
+		Age:          25,
+		Roles:        []string{"admin"},
+		ContactEmail: &goodEmail,
+	}
+	err := u.Validate()
+	if err != nil {
+		t.Errorf("unexpected error for valid contact email: %v", err)
+	}
+}
+
+func TestNativeValidateOneofContactPhoneTooShort(t *testing.T) {
+	short := "123"
+	u := &User{
+		Email:        "a@b.com",
+		DisplayName:  "Alice",
+		Age:          25,
+		Roles:        []string{"admin"},
+		ContactPhone: &short,
+	}
+	err := u.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for short contact_phone, got nil")
+	}
+	if !strings.Contains(err.Error(), "contact_phone") {
+		t.Errorf("error should mention contact_phone, got: %v", err)
+	}
+}
+
+func TestNativeValidateOneofContactPhoneValid(t *testing.T) {
+	good := "+1-555-1234"
+	u := &User{
+		Email:        "a@b.com",
+		DisplayName:  "Alice",
+		Age:          25,
+		Roles:        []string{"admin"},
+		ContactPhone: &good,
+	}
+	err := u.Validate()
+	if err != nil {
+		t.Errorf("unexpected error for valid contact phone: %v", err)
+	}
+}
+
+func TestNativeValidateOneofNotSetIsValid(t *testing.T) {
+	u := &User{
+		Email:       "a@b.com",
+		DisplayName: "Alice",
+		Age:         25,
+		Roles:       []string{"admin"},
+		// no contact method set — should be fine
+	}
+	err := u.Validate()
+	if err != nil {
+		t.Errorf("unexpected error when no oneof variant is set: %v", err)
+	}
+}

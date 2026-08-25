@@ -18,7 +18,7 @@ import (
 //     protovalidate.Validate(d.ToProto()) for buf.validate constraint checking.
 //   - native validation: when opts.Validate is "native". Emits pure Go checks
 //     from buf.validate constraints with zero external dependencies.
-func generateGoValidate(g *protogen.GeneratedFile, dm *DomainMessage, opts *Options) {
+func generateGoValidate(g *protogen.GeneratedFile, df *DomainFile, dm *DomainMessage, opts *Options) {
 	recv := receiverName(dm.Name)
 	hasOneofs := dm.HasNonSyntheticOneof
 	useProtovalidate := opts.ValidateEnabled() && !opts.ValidateNative()
@@ -82,7 +82,8 @@ func generateGoValidate(g *protogen.GeneratedFile, dm *DomainMessage, opts *Opti
 
 	// Part 3: Native validation checks.
 	if useNative {
-		goEmitNativeFieldChecks(g, dm, recv)
+		goEmitNativeFieldChecks(g, df, dm, recv)
+		goEmitNativeOneofChecks(g, df, dm, recv)
 		goEmitNativeNestedChecks(g, dm, recv)
 	}
 
@@ -104,31 +105,24 @@ func goEmitRegexVars(g *protogen.GeneratedFile, dm *DomainMessage) {
 			continue
 		}
 		prefix := fmt.Sprintf("_re%s%s", dm.Name, f.PascalName)
+		goEmitRegexVar(g, regexpMustCompile, prefix, vc)
+	}
 
-		if vc.Email {
-			g.P("var ", prefix, "Email = ", regexpMustCompile, "(`^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$`)")
-		}
-		if vc.UUID {
-			g.P("var ", prefix, "UUID = ", regexpMustCompile, "(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)")
-		}
-		if vc.URI {
-			g.P("var ", prefix, "URI = ", regexpMustCompile, "(`^[a-zA-Z][a-zA-Z0-9+.-]*://`)")
-		}
-		if vc.Hostname {
-			g.P("var ", prefix, "Hostname = ", regexpMustCompile, "(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)")
-		}
-		if vc.IP {
-			g.P("var ", prefix, "IP = ", regexpMustCompile, "(`^((25[0-5]|2[0-4]\\d|[01]?\\d\\d?)\\.){3}(25[0-5]|2[0-4]\\d|[01]?\\d\\d?)$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$`)")
-		}
-		// F10: Use strconv.Quote for pattern to handle backticks safely.
-		if vc.Pattern != "" {
-			g.P("var ", prefix, "Pattern = ", regexpMustCompile, "(", strconv.Quote(vc.Pattern), ")")
+	// Oneof variant regex vars.
+	for _, oneof := range dm.Oneofs {
+		for _, v := range oneof.Variants {
+			vc := v.ValidateConstraints
+			if vc == nil {
+				continue
+			}
+			prefix := fmt.Sprintf("_re%s%s", dm.Name, v.Name)
+			goEmitRegexVar(g, regexpMustCompile, prefix, vc)
 		}
 	}
 }
 
 // goEmitNativeFieldChecks emits native Go constraint checks for each field.
-func goEmitNativeFieldChecks(g *protogen.GeneratedFile, dm *DomainMessage, recv string) {
+func goEmitNativeFieldChecks(g *protogen.GeneratedFile, df *DomainFile, dm *DomainMessage, recv string) {
 	fmtErrorf := g.QualifiedGoIdent(protogen.GoIdent{
 		GoImportPath: "fmt",
 		GoName:       "Errorf",
@@ -155,13 +149,46 @@ func goEmitNativeFieldChecks(g *protogen.GeneratedFile, dm *DomainMessage, recv 
 			g.P("\t}")
 		}
 
+		// IgnoreEmpty: skip remaining checks when the field has its zero value.
+		ignoreIndent := "\t"
+		ignoreGuardOpened := false
+		if vc.IgnoreEmpty && hasNonRequiredGoConstraints(vc) {
+			if isPointer {
+				g.P("\tif ", fieldAccess, " != nil {")
+				ignoreGuardOpened = true
+			} else if isString || (f.Kind == FieldKindEnum && f.EnumAsString) {
+				g.P("\tif ", fieldAccess, " != \"\" {")
+				ignoreGuardOpened = true
+			} else if (f.Kind == FieldKindEnum && !f.EnumAsString) || f.ScalarKind == protoreflect.Int32Kind || f.ScalarKind == protoreflect.Int64Kind ||
+				f.ScalarKind == protoreflect.Uint32Kind || f.ScalarKind == protoreflect.Uint64Kind ||
+				f.ScalarKind == protoreflect.Sint32Kind || f.ScalarKind == protoreflect.Sint64Kind ||
+				f.ScalarKind == protoreflect.FloatKind || f.ScalarKind == protoreflect.DoubleKind {
+				g.P("\tif ", fieldAccess, " != 0 {")
+				ignoreGuardOpened = true
+			} else if f.ScalarKind == protoreflect.BoolKind {
+				g.P("\tif ", fieldAccess, " {")
+				ignoreGuardOpened = true
+			} else if f.Repeated || f.IsMap {
+				g.P("\tif len(", fieldAccess, ") > 0 {")
+				ignoreGuardOpened = true
+			}
+			// Fallback: no ignore guard for unknown types — checks run unconditionally.
+			if ignoreGuardOpened {
+				ignoreIndent = "\t\t"
+			}
+		}
+
 		// For pointer fields, dereference into a local and guard with nil check.
-		indent := "\t"
+		indent := ignoreIndent
 		localVar := fieldAccess
-		if isPointer && hasNonRequiredGoConstraints(vc) {
-			g.P("\tif ", fieldAccess, " != nil {")
-			indent = "\t\t"
+		if isPointer && hasNonRequiredGoConstraints(vc) && !vc.IgnoreEmpty {
+			g.P(ignoreIndent, "if ", fieldAccess, " != nil {")
+			indent = ignoreIndent + "\t"
 			// F12: Parenthesize dereference for correct method calls on pointer types.
+			localVar = fmt.Sprintf("(*%s)", fieldAccess)
+		} else if isPointer && hasNonRequiredGoConstraints(vc) && vc.IgnoreEmpty {
+			// IgnoreEmpty already guards with != nil for pointers, just dereference.
+			indent = ignoreIndent
 			localVar = fmt.Sprintf("(*%s)", fieldAccess)
 		}
 
@@ -342,8 +369,72 @@ func goEmitNativeFieldChecks(g *protogen.GeneratedFile, dm *DomainMessage, recv 
 			}
 		}
 
-		// Close pointer nil-guard block.
-		if isPointer && hasNonRequiredGoConstraints(vc) {
+		// DefinedOnly: enum value must match a known enum number.
+		if vc.DefinedOnly && f.Kind == FieldKindEnum {
+			enumDef := findEnumByName(df, f.EnumTypeName)
+			if enumDef != nil {
+				if f.EnumAsString {
+					// EnumAsString: compare against string names.
+					seen := make(map[string]bool)
+					var names []string
+					for _, ev := range enumDef.Values {
+						if !seen[ev.Name] {
+							seen[ev.Name] = true
+							names = append(names, strconv.Quote(ev.Name))
+						}
+					}
+					if isPointer {
+						g.P(indent, "switch *", fieldAccess, " {")
+					} else {
+						g.P(indent, "switch ", fieldAccess, " {")
+					}
+					g.P(indent, "case ", strings.Join(names, ", "), ":")
+					g.P(indent, "\t// valid")
+					g.P(indent, "default:")
+					if isPointer {
+						g.P(indent, "\treturn ", fmtErrorf, "(\"", f.Name, ": unknown enum value %s\", *", fieldAccess, ")")
+					} else {
+						g.P(indent, "\treturn ", fmtErrorf, "(\"", f.Name, ": unknown enum value %s\", ", fieldAccess, ")")
+					}
+					g.P(indent, "}")
+				} else {
+					// Numeric enum: de-duplicate for allow_alias.
+					seen := make(map[int32]bool)
+					var nums []string
+					for _, ev := range enumDef.Values {
+						if !seen[ev.Number] {
+							seen[ev.Number] = true
+							nums = append(nums, fmt.Sprintf("%d", ev.Number))
+						}
+					}
+					if isPointer {
+						g.P(indent, "switch *", fieldAccess, " {")
+					} else {
+						g.P(indent, "switch ", fieldAccess, " {")
+					}
+					g.P(indent, "case ", strings.Join(nums, ", "), ":")
+					g.P(indent, "\t// valid")
+					g.P(indent, "default:")
+					if isPointer {
+						g.P(indent, "\treturn ", fmtErrorf, "(\"", f.Name, ": unknown enum value %d\", *", fieldAccess, ")")
+					} else {
+						g.P(indent, "\treturn ", fmtErrorf, "(\"", f.Name, ": unknown enum value %d\", ", fieldAccess, ")")
+					}
+					g.P(indent, "}")
+				}
+			} else {
+				// Imported enum: definition not in this file, emit a comment.
+				g.P(indent, "// NOTE: defined_only check for ", f.Name, " skipped (enum ", f.EnumTypeName, " not in this file)")
+			}
+		}
+
+		// Close pointer nil-guard block (only when IgnoreEmpty isn't providing the guard).
+		if isPointer && hasNonRequiredGoConstraints(vc) && !ignoreGuardOpened {
+			g.P(ignoreIndent, "}")
+		}
+
+		// Close IgnoreEmpty guard block.
+		if ignoreGuardOpened {
 			g.P("\t}")
 		}
 	}
@@ -444,7 +535,6 @@ func goEmitNotInCheck(g *protogen.GeneratedFile, indent, localVar, fieldName str
 }
 
 // hasNonRequiredGoConstraints returns true if there are non-required constraints that need the value.
-// F16: Removed IP and IgnoreEmpty/DefinedOnly from this check — IP now emits a real check.
 func hasNonRequiredGoConstraints(vc *ValidateConstraints) bool {
 	if vc == nil {
 		return false
@@ -455,5 +545,248 @@ func hasNonRequiredGoConstraints(vc *ValidateConstraints) bool {
 		vc.Prefix != "" || vc.Suffix != "" || vc.Contains != "" ||
 		vc.Const != nil || len(vc.In) > 0 || len(vc.NotIn) > 0 ||
 		vc.Gte != nil || vc.Gt != nil || vc.Lte != nil || vc.Lt != nil ||
-		vc.MinItems != nil || vc.MaxItems != nil || vc.Unique
+		vc.MinItems != nil || vc.MaxItems != nil || vc.Unique ||
+		vc.DefinedOnly
+}
+
+// goEmitRegexVar emits compiled regexp vars for a single set of constraints.
+func goEmitRegexVar(g *protogen.GeneratedFile, regexpMustCompile, prefix string, vc *ValidateConstraints) {
+	if vc.Email {
+		g.P("var ", prefix, "Email = ", regexpMustCompile, "(`^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$`)")
+	}
+	if vc.UUID {
+		g.P("var ", prefix, "UUID = ", regexpMustCompile, "(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)")
+	}
+	if vc.URI {
+		g.P("var ", prefix, "URI = ", regexpMustCompile, "(`^[a-zA-Z][a-zA-Z0-9+.-]*://`)")
+	}
+	if vc.Hostname {
+		g.P("var ", prefix, "Hostname = ", regexpMustCompile, "(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)")
+	}
+	if vc.IP {
+		g.P("var ", prefix, "IP = ", regexpMustCompile, "(`^((25[0-5]|2[0-4]\\d|[01]?\\d\\d?)\\.){3}(25[0-5]|2[0-4]\\d|[01]?\\d\\d?)$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$`)")
+	}
+	if vc.Pattern != "" {
+		g.P("var ", prefix, "Pattern = ", regexpMustCompile, "(", strconv.Quote(vc.Pattern), ")")
+	}
+}
+
+// goEmitNativeOneofChecks emits native constraint checks for oneof variant fields.
+// Oneof variants are flattened to optional pointer fields in Go; this validates
+// the value when the variant is set and has constraints.
+func goEmitNativeOneofChecks(g *protogen.GeneratedFile, df *DomainFile, dm *DomainMessage, recv string) {
+	fmtErrorf := g.QualifiedGoIdent(protogen.GoIdent{
+		GoImportPath: "fmt",
+		GoName:       "Errorf",
+	})
+
+	for _, oneof := range dm.Oneofs {
+		for _, v := range oneof.Variants {
+			vc := v.ValidateConstraints
+			hasConstraints := vc != nil && vc.HasConstraints()
+			// Always process message variants (they need nested Validate()),
+			// and any variant with constraints.
+			if !hasConstraints && v.Kind != FieldKindMessage {
+				continue
+			}
+
+			fieldAccess := recv + "." + v.Name
+			isString := v.ScalarKind == protoreflect.StringKind
+
+			// Oneof variants are always *T in Go. Guard with nil check.
+			g.P("\tif ", fieldAccess, " != nil {")
+			localVar := fmt.Sprintf("(*%s)", fieldAccess)
+			indent := "\t\t"
+
+			// Field constraint checks (only when variant has constraints).
+			if hasConstraints {
+
+				// String length.
+				if isString && vc.MinLength != nil {
+					utf8RuneCountInString := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "unicode/utf8",
+						GoName:       "RuneCountInString",
+					})
+					g.P(indent, "if ", utf8RuneCountInString, "(", localVar, ") < ", *vc.MinLength, " {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must be at least %d characters\", ", *vc.MinLength, ")")
+					g.P(indent, "}")
+				}
+				if isString && vc.MaxLength != nil {
+					utf8RuneCountInString := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "unicode/utf8",
+						GoName:       "RuneCountInString",
+					})
+					g.P(indent, "if ", utf8RuneCountInString, "(", localVar, ") > ", *vc.MaxLength, " {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must be at most %d characters\", ", *vc.MaxLength, ")")
+					g.P(indent, "}")
+				}
+				if isString && vc.Len != nil {
+					utf8RuneCountInString := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "unicode/utf8",
+						GoName:       "RuneCountInString",
+					})
+					g.P(indent, "if ", utf8RuneCountInString, "(", localVar, ") != ", *vc.Len, " {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must be exactly %d characters\", ", *vc.Len, ")")
+					g.P(indent, "}")
+				}
+
+				// Pattern.
+				if vc.Pattern != "" {
+					prefix := fmt.Sprintf("_re%s%s", dm.Name, v.Name)
+					g.P(indent, "if !", prefix, "Pattern.MatchString(", localVar, ") {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must match pattern %s\", ", strconv.Quote(vc.Pattern), ")")
+					g.P(indent, "}")
+				}
+
+				// Email.
+				if vc.Email {
+					prefix := fmt.Sprintf("_re%s%s", dm.Name, v.Name)
+					g.P(indent, "if ", localVar, " != \"\" && !", prefix, "Email.MatchString(", localVar, ") {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must be a valid email address\")")
+					g.P(indent, "}")
+				}
+
+				// UUID.
+				if vc.UUID {
+					prefix := fmt.Sprintf("_re%s%s", dm.Name, v.Name)
+					g.P(indent, "if ", localVar, " != \"\" && !", prefix, "UUID.MatchString(", localVar, ") {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must be a valid UUID\")")
+					g.P(indent, "}")
+				}
+
+				// URI.
+				if vc.URI {
+					prefix := fmt.Sprintf("_re%s%s", dm.Name, v.Name)
+					g.P(indent, "if ", localVar, " != \"\" && !", prefix, "URI.MatchString(", localVar, ") {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must be a valid URI\")")
+					g.P(indent, "}")
+				}
+
+				// Hostname.
+				if vc.Hostname {
+					prefix := fmt.Sprintf("_re%s%s", dm.Name, v.Name)
+					g.P(indent, "if ", localVar, " != \"\" && !", prefix, "Hostname.MatchString(", localVar, ") {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must be a valid hostname\")")
+					g.P(indent, "}")
+				}
+
+				// IP.
+				if vc.IP {
+					prefix := fmt.Sprintf("_re%s%s", dm.Name, v.Name)
+					g.P(indent, "if ", localVar, " != \"\" && !", prefix, "IP.MatchString(", localVar, ") {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must be a valid IP address\")")
+					g.P(indent, "}")
+				}
+
+				// String prefix/suffix/contains.
+				if isString && vc.Prefix != "" {
+					stringsHasPrefix := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "strings",
+						GoName:       "HasPrefix",
+					})
+					g.P(indent, "if !", stringsHasPrefix, "(", localVar, ", ", strconv.Quote(vc.Prefix), ") {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must start with %s\", ", strconv.Quote(vc.Prefix), ")")
+					g.P(indent, "}")
+				}
+				if isString && vc.Suffix != "" {
+					stringsSuffix := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "strings",
+						GoName:       "HasSuffix",
+					})
+					g.P(indent, "if !", stringsSuffix, "(", localVar, ", ", strconv.Quote(vc.Suffix), ") {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must end with %s\", ", strconv.Quote(vc.Suffix), ")")
+					g.P(indent, "}")
+				}
+				if isString && vc.Contains != "" {
+					stringsContains := g.QualifiedGoIdent(protogen.GoIdent{
+						GoImportPath: "strings",
+						GoName:       "Contains",
+					})
+					g.P(indent, "if !", stringsContains, "(", localVar, ", ", strconv.Quote(vc.Contains), ") {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must contain %s\", ", strconv.Quote(vc.Contains), ")")
+					g.P(indent, "}")
+				}
+
+				// Const/In/NotIn.
+				if vc.Const != nil {
+					g.P(indent, "if ", localVar, " != ", *vc.Const, " {")
+					g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": must be exactly %v\", ", *vc.Const, ")")
+					g.P(indent, "}")
+				}
+				if len(vc.In) > 0 {
+					goEmitInCheck(g, indent, localVar, v.ProtoName, vc.In, fmtErrorf)
+				}
+				if len(vc.NotIn) > 0 {
+					goEmitNotInCheck(g, indent, localVar, v.ProtoName, vc.NotIn, fmtErrorf)
+				}
+
+				// Numeric/temporal bounds.
+				if vc.Gte != nil || vc.Gt != nil || vc.Lte != nil || vc.Lt != nil {
+					// Create a transient DomainField for goEmitBound compatibility.
+					transient := &DomainField{
+						Name:       v.ProtoName,
+						PascalName: v.Name,
+						Kind:       v.Kind,
+						ScalarKind: v.ScalarKind,
+					}
+					if vc.Gte != nil {
+						goEmitBound(g, indent, localVar, transient, ">=", "<", *vc.Gte, fmtErrorf)
+					}
+					if vc.Gt != nil {
+						goEmitBound(g, indent, localVar, transient, ">", "<=", *vc.Gt, fmtErrorf)
+					}
+					if vc.Lte != nil {
+						goEmitBound(g, indent, localVar, transient, "<=", ">", *vc.Lte, fmtErrorf)
+					}
+					if vc.Lt != nil {
+						goEmitBound(g, indent, localVar, transient, "<", ">=", *vc.Lt, fmtErrorf)
+					}
+				}
+
+			} // end hasConstraints
+
+			// Nested message variant: always call Validate().
+			if v.Kind == FieldKindMessage {
+				g.P(indent, "if err := ", fieldAccess, ".Validate(); err != nil {")
+				g.P(indent, "\treturn ", fmtErrorf, "(\"", v.ProtoName, ": %w\", err)")
+				g.P(indent, "}")
+			}
+
+			g.P("\t}")
+		}
+	}
+}
+
+// findEnumByName looks up a DomainEnum by its type name in the DomainFile.
+func findEnumByName(df *DomainFile, name string) *DomainEnum {
+	if df == nil {
+		return nil
+	}
+	// Check top-level enums.
+	for _, e := range df.Enums {
+		if e.Name == name {
+			return e
+		}
+	}
+	// Check nested enums in messages.
+	for _, m := range df.Messages {
+		if e := findEnumInMessage(m, name); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+func findEnumInMessage(m *DomainMessage, name string) *DomainEnum {
+	for _, e := range m.NestedEnums {
+		if e.Name == name {
+			return e
+		}
+	}
+	for _, nm := range m.NestedMessages {
+		if e := findEnumInMessage(nm, name); e != nil {
+			return e
+		}
+	}
+	return nil
 }

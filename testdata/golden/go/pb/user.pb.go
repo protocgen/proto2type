@@ -640,7 +640,7 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\x98\x12\n" +
+	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\xc0\x12\n" +
 	"\x04User\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x03R\x02id\x12 \n" +
 	"\x05email\x18\x02 \x01(\tB\n" +
@@ -660,14 +660,14 @@ const file_user_proto_rawDesc = "" +
 	" \x01(\v2\x19.google.protobuf.DurationR\x0esessionTimeout\x125\n" +
 	"\x05phone\x18\v \x01(\tB\x1a\xbaH\x17r\x15\x10\a\x18\x142\x0f^\\+?[0-9\\-\\s]+$H\x01R\x05phone\x88\x01\x01\x12\x16\n" +
 	"\x06avatar\x18\f \x01(\fR\x06avatar\x128\n" +
-	"\bnickname\x18\r \x01(\v2\x1c.google.protobuf.StringValueR\bnickname\x12+\n" +
-	"\x06status\x18\x0e \x01(\x0e2\x13.test.v1.UserStatusR\x06status\x12%\n" +
-	"\rcontact_email\x18\x0f \x01(\tH\x00R\fcontactEmail\x12%\n" +
-	"\rcontact_phone\x18\x10 \x01(\tH\x00R\fcontactPhone\x12 \n" +
+	"\bnickname\x18\r \x01(\v2\x1c.google.protobuf.StringValueR\bnickname\x125\n" +
+	"\x06status\x18\x0e \x01(\x0e2\x13.test.v1.UserStatusB\b\xbaH\x05\x82\x01\x02\x10\x01R\x06status\x12.\n" +
+	"\rcontact_email\x18\x0f \x01(\tB\a\xbaH\x04r\x02`\x01H\x00R\fcontactEmail\x120\n" +
+	"\rcontact_phone\x18\x10 \x01(\tB\t\xbaH\x06r\x04\x10\a\x18\x14H\x00R\fcontactPhone\x12 \n" +
 	"\x04tags\x18\x11 \x03(\v2\f.test.v1.TagR\x04tags\x12C\n" +
 	"\n" +
-	"deleted_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampB\x03\xe0A\x03H\x02R\tdeletedAt\x88\x01\x01\x12A\n" +
-	"\x0fprevious_status\x18\x13 \x01(\x0e2\x13.test.v1.UserStatusH\x03R\x0epreviousStatus\x88\x01\x01\x12;\n" +
+	"deleted_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampB\x03\xe0A\x03H\x02R\tdeletedAt\x88\x01\x01\x12K\n" +
+	"\x0fprevious_status\x18\x13 \x01(\x0e2\x13.test.v1.UserStatusB\b\xbaH\x05\x82\x01\x02\x10\x01H\x03R\x0epreviousStatus\x88\x01\x01\x12;\n" +
 	"\vupdate_mask\x18\x14 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
 	"updateMask\x12>\n" +
 	"\x0eextra_metadata\x18\x15 \x01(\v2\x17.google.protobuf.StructR\rextraMetadata\x12<\n" +

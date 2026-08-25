@@ -40,15 +40,15 @@ message User {
   optional string phone = 11 [(buf.validate.field).string = {min_len: 7, max_len: 20, pattern: "^\\+?[0-9\\-\\s]+$"}];
   bytes avatar = 12;
   google.protobuf.StringValue nickname = 13;
-  UserStatus status = 14;
+  UserStatus status = 14 [(buf.validate.field).enum.defined_only = true];
 
   oneof contact_method {
-    string contact_email = 15;
-    string contact_phone = 16;
+    string contact_email = 15 [(buf.validate.field).string.email = true];
+    string contact_phone = 16 [(buf.validate.field).string = {min_len: 7, max_len: 20}];
   }
   repeated Tag tags = 17;
   optional google.protobuf.Timestamp deleted_at = 18 [(google.api.field_behavior) = OUTPUT_ONLY];
-  optional UserStatus previous_status = 19;
+  optional UserStatus previous_status = 19 [(buf.validate.field).enum.defined_only = true];
 
   // WKT reference types
   google.protobuf.FieldMask update_mask = 20;

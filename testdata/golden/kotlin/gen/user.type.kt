@@ -87,6 +87,7 @@ data class User(
 
 private val RE_USER_EMAIL_EMAIL = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
 private val RE_USER_PHONE_PATTERN = Regex("^\\+?[0-9\\-\\s]+\$")
+private val RE_USERCONTACTMETHOD_CONTACTEMAIL_EMAIL = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
 /** Validates constraints from buf.validate annotations. Returns a list of error messages (empty = valid). */
 fun User.validate(): List<String> {
     val errors = mutableListOf<String>()
@@ -120,6 +121,13 @@ fun User.validateOrThrow() {
 fun UserContactMethod.validate(): List<String> {
     val errors = mutableListOf<String>()
     when (this) {
+        is UserContactMethod.ContactEmail -> {
+            if (value.isNotEmpty() && !value.matches(RE_USERCONTACTMETHOD_CONTACTEMAIL_EMAIL)) errors.add("contact_email must be a valid email")
+        }
+        is UserContactMethod.ContactPhone -> {
+            if (value.codePointCount(0, value.length) < 7) errors.add("contact_phone must be at least 7 characters")
+            if (value.codePointCount(0, value.length) > 20) errors.add("contact_phone must be at most 20 characters")
+        }
         else -> {}
     }
     return errors
