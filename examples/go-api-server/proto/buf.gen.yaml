@@ -1,0 +1,19 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - user/v1/user.proto
+plugins:
+  # Generate Go proto types
+  - local: protoc-gen-go
+    out: ../gen
+    opt:
+      - paths=source_relative
+
+  # Generate proto2type domain types with native validation
+  - local: protoc-gen-proto2type
+    out: ../gen
+    opt:
+      - paths=source_relative
+      - go_package=github.com/protocgen/proto2type/examples/go-api-server/gen/user/v1/domain;domain
+      - validate=native
