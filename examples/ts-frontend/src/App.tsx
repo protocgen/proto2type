@@ -1,12 +1,13 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { UserSchema } from "./gen/user/v1/user.type";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { z } from "zod";
 
-// Use the Zod-inferred type so React Hook Form's resolver is happy.
-// This is the *same* type as the generated User interface.
-type UserForm = z.infer<typeof UserSchema>;
+// Zod-inferred input/output types for React Hook Form.
+// These match the generated User interface.
+type UserFormInput = z.input<typeof UserSchema>;
+type UserFormOutput = z.output<typeof UserSchema>;
 
 // The key insight: UserSchema is generated from your .proto file.
 // Same constraints as the Go backend — email, length, range, enum.
@@ -16,14 +17,14 @@ export function App() {
   const [result, setResult] = useState<{ ok: boolean; body: string } | null>(
     null,
   );
+  const [submitting, setSubmitting] = useState(false);
 
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<UserForm>({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    resolver: zodResolver(UserSchema) as any,
+  } = useForm<UserFormInput, unknown, UserFormOutput>({
+    resolver: zodResolver(UserSchema),
     defaultValues: {
       email: "",
       displayName: "",
@@ -33,22 +34,23 @@ export function App() {
     },
   });
 
-  const onSubmit = async (data: UserForm) => {
-    // Convert role string back to numeric for the Go API
-    const roleMap: Record<string, number> = {
-      USER_ROLE_UNSPECIFIED: 0,
-      USER_ROLE_MEMBER: 1,
-      USER_ROLE_ADMIN: 2,
-    };
-    const body = {
-      email: data.email,
-      display_name: data.displayName,
-      age: data.age,
-      role: roleMap[data.role] ?? 0,
-      bio: data.bio || undefined,
-    };
-
+  const onSubmit = async (data: UserFormOutput) => {
+    setSubmitting(true);
     try {
+      // Convert role string back to numeric for the Go API
+      const roleMap: Record<string, number> = {
+        USER_ROLE_UNSPECIFIED: 0,
+        USER_ROLE_MEMBER: 1,
+        USER_ROLE_ADMIN: 2,
+      };
+      const body = {
+        email: data.email,
+        display_name: data.displayName,
+        age: data.age,
+        role: roleMap[data.role] ?? 0,
+        bio: data.bio ?? undefined,
+      };
+
       const res = await fetch("/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -58,6 +60,8 @@ export function App() {
       setResult({ ok: res.ok, body: JSON.stringify(json, null, 2) });
     } catch (e) {
       setResult({ ok: false, body: String(e) });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -70,48 +74,50 @@ export function App() {
       </p>
 
       <form onSubmit={handleSubmit(onSubmit)}>
-        <Field label="Email" error={errors.email?.message}>
-          <input {...register("email")} type="email" placeholder="alice@example.com" />
+        <Field id="email" label="Email" error={errors.email?.message}>
+          <input id="email" {...register("email")} type="email" placeholder="alice@example.com" />
         </Field>
 
-        <Field label="Display Name" error={errors.displayName?.message}>
-          <input {...register("displayName")} placeholder="Alice" />
+        <Field id="displayName" label="Display Name" error={errors.displayName?.message}>
+          <input id="displayName" {...register("displayName")} placeholder="Alice" />
         </Field>
 
-        <Field label="Age" error={errors.age?.message}>
+        <Field id="age" label="Age" error={errors.age?.message}>
           <input
+            id="age"
             {...register("age", { valueAsNumber: true })}
             type="number"
             placeholder="25"
           />
         </Field>
 
-        <Field label="Role" error={errors.role?.message}>
-          <select {...register("role")}>
+        <Field id="role" label="Role" error={errors.role?.message}>
+          <select id="role" {...register("role")}>
             <option value="USER_ROLE_UNSPECIFIED">Unspecified</option>
             <option value="USER_ROLE_MEMBER">Member</option>
             <option value="USER_ROLE_ADMIN">Admin</option>
           </select>
         </Field>
 
-        <Field label="Bio (optional)" error={errors.bio?.message}>
-          <textarea {...register("bio")} rows={3} placeholder="Tell us about yourself..." />
+        <Field id="bio" label="Bio (optional)" error={errors.bio?.message}>
+          <textarea id="bio" {...register("bio")} rows={3} placeholder="Tell us about yourself..." />
         </Field>
 
         <button
           type="submit"
+          disabled={submitting}
           style={{
             marginTop: 16,
             padding: "8px 24px",
-            background: "#2563eb",
+            background: submitting ? "#93c5fd" : "#2563eb",
             color: "white",
             border: "none",
             borderRadius: 6,
-            cursor: "pointer",
+            cursor: submitting ? "not-allowed" : "pointer",
             fontSize: 14,
           }}
         >
-          Create User
+          {submitting ? "Creating..." : "Create User"}
         </button>
       </form>
 
@@ -136,17 +142,19 @@ export function App() {
 }
 
 function Field({
+  id,
   label,
   error,
   children,
 }: {
+  id: string;
   label: string;
   error?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div style={{ marginBottom: 16 }}>
-      <label style={{ display: "block", marginBottom: 4, fontWeight: 500, fontSize: 14 }}>
+      <label htmlFor={id} style={{ display: "block", marginBottom: 4, fontWeight: 500, fontSize: 14 }}>
         {label}
       </label>
       {children}
