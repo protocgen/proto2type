@@ -142,27 +142,17 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		}
 	}
 	if vc.Email {
-		if vc.IgnoreEmpty {
-			parts = append(parts, `.refine(v => v === "" || z.string().email().safeParse(v).success, { message: "must be a valid email" })`)
-		} else {
-			nativeParts = append(nativeParts, ".email()")
-		}
+		// proto3: skip format check on zero-value (empty string) to match Go/Kotlin behavior.
+		parts = append(parts, `.refine(v => v === "" || z.string().email().safeParse(v).success, { message: "must be a valid email" })`)
 	}
 	if vc.URI {
+		// proto3: skip format check on zero-value (empty string) to match Go/Kotlin behavior.
 		// Restrict to http/https schemes to prevent XSS (javascript:) and SSRF (file:, data:).
-		if vc.IgnoreEmpty {
-			parts = append(parts, `.refine(v => v === "" || (z.string().url().safeParse(v).success && /^https?:\/\//i.test(v)), { message: "must be a valid http(s) URL" })`)
-		} else {
-			nativeParts = append(nativeParts, `.url()`)
-			parts = append(parts, `.refine(v => /^https?:\/\//i.test(v), { message: "must use http or https scheme" })`)
-		}
+		parts = append(parts, `.refine(v => v === "" || (z.string().url().safeParse(v).success && /^https?:\/\//i.test(v)), { message: "must be a valid http(s) URL" })`)
 	}
 	if vc.UUID {
-		if vc.IgnoreEmpty {
-			parts = append(parts, `.refine(v => v === "" || z.string().uuid().safeParse(v).success, { message: "must be a valid uuid" })`)
-		} else {
-			nativeParts = append(nativeParts, ".uuid()")
-		}
+		// proto3: skip format check on zero-value (empty string) to match Go/Kotlin behavior.
+		parts = append(parts, `.refine(v => v === "" || z.string().uuid().safeParse(v).success, { message: "must be a valid uuid" })`)
 	}
 	if vc.Pattern != "" {
 		// Validate pattern with Go's RE2 engine (linear-time guarantee) to prevent ReDoS.
@@ -215,18 +205,12 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 		nativeParts = append(nativeParts, fmt.Sprintf(".includes(%s)", strconv.Quote(vc.Contains)))
 	}
 	if vc.Hostname {
-		if vc.IgnoreEmpty {
-			parts = append(parts, `.refine(((re) => (v) => v === "" || re.test(v))(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/), { message: "must be a valid hostname" })`)
-		} else {
-			nativeParts = append(nativeParts, `.regex(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/, { message: "must be a valid hostname" })`)
-		}
+		// proto3: skip format check on zero-value (empty string) to match Go/Kotlin behavior.
+		parts = append(parts, `.refine(((re) => (v) => v === "" || re.test(v))(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/), { message: "must be a valid hostname" })`)
 	}
 	if vc.IP {
-		if vc.IgnoreEmpty {
-			parts = append(parts, `.refine(v => v === "" || z.string().ip().safeParse(v).success, { message: "must be a valid ip" })`)
-		} else {
-			nativeParts = append(nativeParts, `.ip()`)
-		}
+		// proto3: skip format check on zero-value (empty string) to match Go/Kotlin behavior.
+		parts = append(parts, `.refine(v => v === "" || z.string().ip().safeParse(v).success, { message: "must be a valid ip" })`)
 	}
 	if len(vc.In) > 0 {
 		vals := strings.Join(vc.In, ", ")

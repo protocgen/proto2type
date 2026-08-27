@@ -25,7 +25,7 @@ func TestTsZodConstraints_StringField(t *testing.T) {
 	}
 	opts := &Options{}
 	got := tsZodConstraints(f, opts)
-	expected := `.email().url().uuid().regex(new RegExp("^[a-z]+$", "u"), { message: "must match pattern" }).refine(v => [...v].length >= 3, { message: "must be at least 3 characters" }).refine(v => [...v].length <= 100, { message: "must be at most 100 characters" }).refine(v => /^https?:\/\//i.test(v), { message: "must use http or https scheme" })`
+	expected := `.regex(new RegExp("^[a-z]+$", "u"), { message: "must match pattern" }).refine(v => [...v].length >= 3, { message: "must be at least 3 characters" }).refine(v => [...v].length <= 100, { message: "must be at most 100 characters" }).refine(v => v === "" || z.string().email().safeParse(v).success, { message: "must be a valid email" }).refine(v => v === "" || (z.string().url().safeParse(v).success && /^https?:\/\//i.test(v)), { message: "must be a valid http(s) URL" }).refine(v => v === "" || z.string().uuid().safeParse(v).success, { message: "must be a valid uuid" })`
 	if got != expected {
 		t.Errorf("got %q, want %q", got, expected)
 	}

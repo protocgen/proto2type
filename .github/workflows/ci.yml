@@ -333,6 +333,9 @@ jobs:
       - name: npm audit
         run: cd testdata/golden/ts && npm audit --omit=dev
 
+      - name: Example typecheck
+        run: cd examples/ts-frontend && npm ci && npx tsc --noEmit
+
   python-check:
     name: Python Check
     runs-on: ubuntu-latest

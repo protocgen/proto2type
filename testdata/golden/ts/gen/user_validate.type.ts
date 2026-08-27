@@ -33,7 +33,7 @@ export type Tag = z.infer<typeof TagSchema>;
 const _User_contactMethodKeys = ["contactEmail", "contactPhone"] as const;
 export const UserSchema = /* @__PURE__ */ z.object({
   id: z.string().default(""),
-  email: z.string().email().default(""),
+  email: z.string().refine(v => v === "" || z.string().email().safeParse(v).success, { message: "must be a valid email" }).default(""),
   displayName: z.string().refine(v => [...v].length >= 1, { message: "must be at least 1 characters" }).refine(v => [...v].length <= 255, { message: "must be at most 255 characters" }).default(""),
   active: z.boolean().default(false),
   age: z.number().int().gte(0).lte(150).default(0),
@@ -73,7 +73,7 @@ export const UserSchema = /* @__PURE__ */ z.object({
   oldField: z.string().default(""),
   optionalName: z.string().default(""),
   bigNumber: z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).default("0"),
-  contactEmail: z.string().email().nullish(),
+  contactEmail: z.string().refine(v => v === "" || z.string().email().safeParse(v).success, { message: "must be a valid email" }).nullish(),
   contactPhone: z.string().refine(v => [...v].length >= 7, { message: "must be at least 7 characters" }).refine(v => [...v].length <= 20, { message: "must be at most 20 characters" }).nullish(),
 }).superRefine((data, ctx) => {
   let contactMethodCount = 0;
