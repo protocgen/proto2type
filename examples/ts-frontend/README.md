@@ -87,6 +87,6 @@ Requires `protoc-gen-proto2type` on your `$PATH`:
 
 ```bash
 go install github.com/protocgen/proto2type@latest
-# Ensure $GOPATH/bin (or $GOBIN) is on your PATH:
-export PATH="$(go env GOPATH)/bin:$PATH"
+# Ensure the Go bin directory is on your PATH:
+export PATH="${GOBIN:-$(go env GOPATH)/bin}:$PATH"
 ```
