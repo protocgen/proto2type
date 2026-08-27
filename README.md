@@ -42,6 +42,13 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 | Kotlin | [docs/kotlin.md](docs/kotlin.md) — kotlinx.serialization, native validation |
 | Rust | [docs/rust.md](docs/rust.md) — serde, validator crate, buffa, SQLite |
 
+## Examples
+
+| Example | What it shows |
+|---------|--------------|
+| [**Go API Server**](examples/go-api-server/) | Full workflow: proto → domain types → `Validate()` → HTTP handler → SQLite. `go run .` and curl. |
+| [Examples Guide](examples/GUIDE.md) | Code snippets for TypeScript/Zod + React, Kotlin, Rust, Python |
+
 See [CONFIG.md](CONFIG.md) for the full list of all 27+ plugin options.
 
 ## Install
