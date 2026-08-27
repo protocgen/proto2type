@@ -67,6 +67,7 @@ export function App() {
 
   return (
     <div style={{ maxWidth: 480, margin: "40px auto", fontFamily: "system-ui" }}>
+      <style>{formStyles}</style>
       <h1>Create User</h1>
       <p style={{ color: "#666", fontSize: 14 }}>
         Form validated by a Zod schema generated from{" "}
@@ -141,6 +142,18 @@ export function App() {
   );
 }
 
+// Global form styles — placed once, outside Field to avoid duplicate <style> tags.
+const formStyles = `
+  input, select, textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+`;
+
 function Field({
   id,
   label,
@@ -161,16 +174,6 @@ function Field({
       {error && (
         <p style={{ color: "#dc2626", fontSize: 13, margin: "4px 0 0" }}>{error}</p>
       )}
-      <style>{`
-        input, select, textarea {
-          width: 100%;
-          padding: 8px;
-          border: 1px solid #d1d5db;
-          border-radius: 6px;
-          font-size: 14px;
-          box-sizing: border-box;
-        }
-      `}</style>
     </div>
   );
 }

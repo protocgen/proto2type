@@ -77,6 +77,10 @@ message User {
 
 Go generates `user.Validate()`. TypeScript generates `UserSchema.parse()`. Same rules. Zero drift.
 
+## Known Limitations
+
+The Go `validate=native` backend treats `string.email` with IgnoreEmpty semantics — an empty email passes validation. The TypeScript/Zod backend always runs `z.string().email()`, so an empty email is rejected. This edge case is tracked upstream and does not affect the form UX since the HTML `type="email"` attribute also requires a value.
+
 ## Regenerating
 
 ```bash
@@ -88,5 +92,5 @@ Requires `protoc-gen-proto2type` on your `$PATH`:
 ```bash
 go install github.com/protocgen/proto2type@latest
 # Ensure the Go bin directory is on your PATH:
-export PATH="${GOBIN:-$(go env GOPATH)/bin}:$PATH"
+export PATH="$(go env GOBIN 2>/dev/null | grep . || echo "$(go env GOPATH)/bin"):$PATH"
 ```
