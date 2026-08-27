@@ -47,6 +47,7 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 | Example | What it shows |
 |---------|--------------|
 | [**Go API Server**](examples/go-api-server/) | Full workflow: proto → domain types → `Validate()` → HTTP handler → SQLite. `go run .` and curl. |
+| [**TS Frontend**](examples/ts-frontend/) | React + Zod form sharing the same proto as the Go server. Same constraints, zero drift. |
 | [Examples Guide](examples/GUIDE.md) | Code snippets for TypeScript/Zod + React, Kotlin, Rust, Python |
 
 See [CONFIG.md](CONFIG.md) for the full list of all 27+ plugin options.
