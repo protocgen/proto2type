@@ -11,7 +11,7 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7
 	google.golang.org/protobuf v1.36.12
-	hegel.dev/go/hegel v0.6.31
+	hegel.dev/go/hegel v0.6.32
 )
 
 require (
