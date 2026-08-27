@@ -23,7 +23,7 @@ export interface User {
 }
 export const UserSchema = /* @__PURE__ */ z.object({
   /** Email must be a valid email address. */
-  email: z.string().email().default(""),
+  email: z.string().refine(v => v === "" || z.string().email().safeParse(v).success, { message: "must be a valid email" }).default(""),
   /** Display name: 1–100 characters. */
   displayName: z.string().refine(v => [...v].length >= 1, { message: "must be at least 1 characters" }).refine(v => [...v].length <= 100, { message: "must be at most 100 characters" }).default(""),
   /** Age: 13–120. */
