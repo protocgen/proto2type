@@ -1,0 +1,12 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - user/v1/user.proto
+plugins:
+  # Generate proto2type TypeScript/Zod types with validation
+  - local: protoc-gen-proto2type
+    out: ../src/gen
+    opt:
+      - lang=typescript
+      - validate=true
