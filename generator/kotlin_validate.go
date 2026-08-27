@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // generateKotlinValidate generates a validate() method on the Kotlin data class.
@@ -18,7 +19,7 @@ import (
 // NOTE: length validation counts characters (Unicode scalar values), not bytes.
 // This differs from proto's min_len/max_len which count bytes, but matches
 // user expectations and is consistent with Python/Pydantic and Rust/validator.
-func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts *Options) {
+func generateKotlinValidate(g *protogen.GeneratedFile, df *DomainFile, msg *DomainMessage, opts *Options) {
 	if !opts.ValidateEnabled() {
 		return
 	}
@@ -47,7 +48,8 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 		hasNonRequiredConstraints := vc.Email || vc.URI || vc.UUID || vc.Pattern != "" ||
 			vc.MinLength != nil || vc.MaxLength != nil ||
 			vc.Gte != nil || vc.Gt != nil || vc.Lte != nil || vc.Lt != nil ||
-			vc.MinItems != nil || vc.MaxItems != nil
+			vc.MinItems != nil || vc.MaxItems != nil ||
+			(vc.DefinedOnly && f.Kind == FieldKindEnum && f.EnumAsString)
 
 		indent := "    "
 
@@ -60,6 +62,29 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 		if f.Optional && hasNonRequiredConstraints {
 			g.P("    ", fieldName, "?.let { ", fieldName, " ->")
 			indent = "        "
+		}
+
+		// IgnoreEmpty: skip non-required constraints when field is zero-value.
+		if vc.IgnoreEmpty && hasNonRequiredConstraints && !f.Optional {
+			switch {
+			case f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.StringKind || f.ScalarKind == protoreflect.BytesKind):
+				g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
+			case f.Kind == FieldKindEnum && f.EnumAsString:
+				g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
+			case f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.Int32Kind || f.ScalarKind == protoreflect.Sint32Kind || f.ScalarKind == protoreflect.Sfixed32Kind || f.ScalarKind == protoreflect.Uint32Kind || f.ScalarKind == protoreflect.Fixed32Kind):
+				g.P(indent, "if (", fieldName, " != 0) {")
+			case f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.Int64Kind || f.ScalarKind == protoreflect.Sint64Kind || f.ScalarKind == protoreflect.Sfixed64Kind || f.ScalarKind == protoreflect.Uint64Kind || f.ScalarKind == protoreflect.Fixed64Kind):
+				g.P(indent, "if (", fieldName, " != 0L) {")
+			case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.FloatKind:
+				g.P(indent, "if (", fieldName, " != 0.0f) {")
+			case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.DoubleKind:
+				g.P(indent, "if (", fieldName, " != 0.0) {")
+			case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BoolKind:
+				g.P(indent, "if (", fieldName, ") {")
+			case f.Repeated:
+				g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
+			}
+			indent = indent + "    "
 		}
 
 		// Email
@@ -169,6 +194,34 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 			}
 		}
 
+		// DefinedOnly: enum value must be a defined constant.
+		if vc.DefinedOnly && f.Kind == FieldKindEnum {
+			if f.EnumAsString {
+				enumDef := findEnumByName(df, f.EnumTypeName)
+				if enumDef != nil {
+					seen := make(map[string]bool)
+					var names []string
+					for _, ev := range enumDef.Values {
+						if !seen[ev.Name] {
+							seen[ev.Name] = true
+							names = append(names, `"`+ev.Name+`"`)
+						}
+					}
+					vals := strings.Join(names, ", ")
+					g.P(indent, "if (", fieldName, " !in listOf(", vals, ")) errors.add(\"", f.Name, " must be a defined enum value\")")
+				} else {
+					g.P(indent, "// NOTE: defined_only check for ", f.Name, " skipped (enum ", f.EnumTypeName, " not in this file)")
+				}
+			}
+			// Typed enum classes are guaranteed by Kotlin's type system — no runtime check needed.
+		}
+
+		// Close IgnoreEmpty guard.
+		if vc.IgnoreEmpty && hasNonRequiredConstraints && !f.Optional {
+			// Remove the extra indent added above
+			g.P(strings.TrimSuffix(indent, "    "), "}")
+		}
+
 		// Close ?.let block for optional fields.
 		if f.Optional && hasNonRequiredConstraints {
 			g.P("    }")
@@ -213,20 +266,20 @@ func generateKotlinValidate(g *protogen.GeneratedFile, msg *DomainMessage, opts 
 	// Recursively generate validation for nested messages.
 	for _, nested := range msg.NestedMessages {
 		if !nested.Skip {
-			generateKotlinValidate(g, nested, opts)
+			generateKotlinValidate(g, df, nested, opts)
 		}
 	}
 
 	// Generate validation for oneof sealed classes.
 	for _, o := range msg.Oneofs {
-		generateKotlinOneofValidate(g, o, opts)
+		generateKotlinOneofValidate(g, df, o, opts)
 	}
 }
 
 // generateKotlinOneofValidate generates validate() and validateOrThrow() extension
 // functions for a oneof sealed class. For message variants, it propagates validation
 // to the inner message. For scalar variants with constraints, it emits constraint checks.
-func generateKotlinOneofValidate(g *protogen.GeneratedFile, o *DomainOneof, opts *Options) {
+func generateKotlinOneofValidate(g *protogen.GeneratedFile, df *DomainFile, o *DomainOneof, opts *Options) {
 	g.P("/** Validates constraints on [", o.Name, "] variants. Returns a list of error messages (empty = valid). */")
 	g.P("fun ", o.Name, ".validate(): List<String> {")
 	g.P("    val errors = mutableListOf<String>()")
@@ -240,7 +293,7 @@ func generateKotlinOneofValidate(g *protogen.GeneratedFile, o *DomainOneof, opts
 			g.P("        }")
 		} else if hasConstraints {
 			g.P("        is ", o.Name, ".", v.Name, " -> {")
-			emitKotlinOneofVariantConstraints(g, o, v)
+			emitKotlinOneofVariantConstraints(g, df, o, v)
 			g.P("        }")
 		}
 	}
@@ -262,7 +315,7 @@ func generateKotlinOneofValidate(g *protogen.GeneratedFile, o *DomainOneof, opts
 }
 
 // emitKotlinOneofVariantConstraints emits constraint checks for a scalar oneof variant.
-func emitKotlinOneofVariantConstraints(g *protogen.GeneratedFile, o *DomainOneof, v *OneofVariant) {
+func emitKotlinOneofVariantConstraints(g *protogen.GeneratedFile, df *DomainFile, o *DomainOneof, v *OneofVariant) {
 	vc := v.ValidateConstraints
 	if vc == nil {
 		return
@@ -306,6 +359,22 @@ func emitKotlinOneofVariantConstraints(g *protogen.GeneratedFile, o *DomainOneof
 	if len(vc.NotIn) > 0 {
 		vals := strings.Join(vc.NotIn, ", ")
 		g.P("            if (value in listOf(", vals, ")) errors.add(\"", v.ProtoName, " must not be one of [", vals, "]\")")
+	}
+
+	if vc.DefinedOnly && v.Kind == FieldKindEnum && v.EnumAsString {
+		enumDef := findEnumByName(df, v.TypeName)
+		if enumDef != nil {
+			seen := make(map[string]bool)
+			var names []string
+			for _, ev := range enumDef.Values {
+				if !seen[ev.Name] {
+					seen[ev.Name] = true
+					names = append(names, `"`+ev.Name+`"`)
+				}
+			}
+			vals := strings.Join(names, ", ")
+			g.P("            if (value !in listOf(", vals, ")) errors.add(\"", v.ProtoName, " must be a defined enum value\")")
+		}
 	}
 }
 

@@ -820,7 +820,7 @@ func TestRustExhaustiveOption_GeneratedOutput(t *testing.T) {
 					t.Fatal(err)
 				}
 				for _, dm := range df.Messages {
-					err := generateRustDomainMessageFromIR(g, dm, opts)
+					err := generateRustDomainMessageFromIR(g, dm, df, opts)
 					if err != nil {
 						t.Fatalf("generateRustDomainMessageFromIR: %v", err)
 					}

@@ -50,6 +50,18 @@ func rustValidateAttrs(messageName string, f *DomainField) []string {
 		attrs = append(attrs, "required")
 	}
 
+	// IgnoreEmpty: if set, format and range checks must be routed to custom
+	// validation to add a zero-value guard, since validator derive attributes
+	// don't support skip-on-empty.
+	if vc.IgnoreEmpty {
+		// Route all format/range/length checks to custom function
+		if rustFieldHasIgnoreEmptyConstraints(vc) {
+			funcName := rustCustomValidateFuncName(messageName, f)
+			attrs = append(attrs, fmt.Sprintf(`custom(function = "%s")`, funcName))
+			return attrs
+		}
+	}
+
 	// Email
 	if vc.Email {
 		attrs = append(attrs, "email")
@@ -137,6 +149,16 @@ func rustValidateAttrs(messageName string, f *DomainField) []string {
 	return attrs
 }
 
+// rustFieldHasIgnoreEmptyConstraints returns true if the field has constraints
+// that need to be wrapped in a zero-value guard when IgnoreEmpty is set.
+func rustFieldHasIgnoreEmptyConstraints(vc *ValidateConstraints) bool {
+	return vc.Email || vc.URI || vc.UUID || vc.Hostname || vc.IP ||
+		vc.Pattern != "" || vc.MinLength != nil || vc.MaxLength != nil ||
+		vc.Gte != nil || vc.Gt != nil || vc.Lte != nil || vc.Lt != nil ||
+		vc.MinItems != nil || vc.MaxItems != nil ||
+		vc.DefinedOnly
+}
+
 // rustFieldHasCustomConstraints returns true if the field has constraints that
 // can't be expressed via validator derive attributes (prefix/suffix/contains/
 // const/in/not_in, or timestamp range bounds).
@@ -149,6 +171,12 @@ func rustFieldHasCustomConstraints(f *DomainField) bool {
 		return true
 	}
 	if vc.Const != nil || len(vc.In) > 0 || len(vc.NotIn) > 0 {
+		return true
+	}
+	if vc.DefinedOnly && f.Kind == FieldKindEnum && f.EnumAsString {
+		return true
+	}
+	if vc.IgnoreEmpty && rustFieldHasIgnoreEmptyConstraints(vc) {
 		return true
 	}
 	if f.Kind == FieldKindTimestamp && (vc.Gt != nil || vc.Gte != nil || vc.Lt != nil || vc.Lte != nil) {
@@ -166,7 +194,7 @@ func rustCustomValidateFuncName(messageName string, f *DomainField) string {
 // rustEmitCustomValidateFuncs emits custom validation functions for fields in a
 // DomainMessage that have non-derive constraints. These functions are referenced
 // by #[validate(custom(function = "..."))] attributes.
-func rustEmitCustomValidateFuncs(g *protogen.GeneratedFile, dm *DomainMessage) {
+func rustEmitCustomValidateFuncs(g *protogen.GeneratedFile, dm *DomainMessage, df *DomainFile) {
 	for _, f := range dm.Fields {
 		if f.IsOneof || !rustFieldHasCustomConstraints(f) {
 			continue
@@ -184,6 +212,31 @@ func rustEmitCustomValidateFuncs(g *protogen.GeneratedFile, dm *DomainMessage) {
 		}
 
 		g.P("fn ", funcName, "(value: &", paramType, ") -> Result<(), validator::ValidationError> {")
+
+		if vc.IgnoreEmpty {
+			if isString {
+				g.P("    if value.is_empty() {")
+			} else if f.Kind == FieldKindTimestamp {
+				// No zero-value guard for timestamps
+			} else {
+				g.P("    if *value == 0 {")
+			}
+			if f.Kind != FieldKindTimestamp {
+				g.P("        return Ok(());")
+				g.P("    }")
+			}
+		}
+
+		if vc.IgnoreEmpty && vc.Email {
+			g.P(`    if !validator::ValidateEmail::validate_email(value) {`)
+			g.P(`        return Err(validator::ValidationError::new("email"));`)
+			g.P("    }")
+		}
+		if vc.IgnoreEmpty && vc.URI {
+			g.P(`    if !validator::ValidateUrl::validate_url(value) {`)
+			g.P(`        return Err(validator::ValidationError::new("url"));`)
+			g.P("    }")
+		}
 
 		// String constraints (only valid for string fields)
 		if isString {
@@ -233,6 +286,26 @@ func rustEmitCustomValidateFuncs(g *protogen.GeneratedFile, dm *DomainMessage) {
 			}
 			g.P(`        return Err(validator::ValidationError::new("not_in"));`)
 			g.P("    }")
+		}
+
+		// DefinedOnly: enum value must be a defined constant.
+		if vc.DefinedOnly && f.Kind == FieldKindEnum && f.EnumAsString {
+			enumDef := findEnumByName(df, f.EnumTypeName)
+			if enumDef != nil {
+				seen := make(map[string]bool)
+				var names []string
+				for _, ev := range enumDef.Values {
+					if !seen[ev.Name] {
+						seen[ev.Name] = true
+						names = append(names, `"`+ev.Name+`"`)
+					}
+				}
+				g.P("    if ![" + strings.Join(names, ", ") + "].contains(&value.as_str()) {")
+				g.P(`        return Err(validator::ValidationError::new("defined_only"));`)
+				g.P("    }")
+			} else {
+				g.P("    // NOTE: defined_only check for ", f.Name, " skipped (enum ", f.EnumTypeName, " not in this file)")
+			}
 		}
 
 		// Timestamp range constraints

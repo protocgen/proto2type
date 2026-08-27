@@ -113,7 +113,7 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 	}
 
 	for _, dm := range df.Messages {
-		if err := generateRustDomainMessageFromIR(g, dm, opts); err != nil {
+		if err := generateRustDomainMessageFromIR(g, dm, df, opts); err != nil {
 			return err
 		}
 	}
@@ -397,7 +397,7 @@ func rustOneofVariantTypeFromIR(v *OneofVariant) string {
 }
 
 // generateRustDomainMessageFromIR generates a Rust domain struct from a DomainMessage.
-func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessage, opts *Options) error {
+func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessage, df *DomainFile, opts *Options) error {
 	if dm.Skip {
 		return nil
 	}
@@ -415,7 +415,7 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 	}
 	// Emit custom validation functions for non-derive constraints
 	if opts.ValidateEnabled() {
-		rustEmitCustomValidateFuncs(g, dm)
+		rustEmitCustomValidateFuncs(g, dm, df)
 	}
 
 	// Doc comment
@@ -507,7 +507,7 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 
 	// Generate nested messages
 	for _, nested := range dm.NestedMessages {
-		if err := generateRustDomainMessageFromIR(g, nested, opts); err != nil {
+		if err := generateRustDomainMessageFromIR(g, nested, df, opts); err != nil {
 			return err
 		}
 	}
