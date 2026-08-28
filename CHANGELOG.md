@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-08-27
+
+### Added
+
+- **Go: `NewXxx()` constructors for required fields**: Messages with `REQUIRED` fields now generate constructor functions (e.g. `NewUser(email, displayName string) *User`). OUTPUT_ONLY fields are excluded. Enabled by default, opt-out via `go_constructor=false`. (#96, #180)
+- **IR: `ProtoNumber` on `DomainField`**: Proto field number is now available in the IR for stable ordering.
+
+### Fixed
+
+- **Go constructor: keyword safety**: Parameter names that collide with Go keywords (e.g. `type`) are sanitized with a trailing underscore. (#180)
+- **Rust SQLite integration test**: Added `handle` column to test schema after the IgnoreEmpty test field was added in v0.8.2. (#180)
+- **IgnoreEmpty parity (all backends)**: Constraints (length, pattern, regex, format) are now correctly enforced only when values are non-empty across Go, TypeScript, Kotlin, Rust, and Python. (#179)
+- **Python: `@field_validator` for IgnoreEmpty**: Pydantic `Field()` constraints are skipped in favor of a `@field_validator` that checks only when non-empty. (#179)
+
 ## [0.8.2] - 2026-08-27
 
 ### Added
