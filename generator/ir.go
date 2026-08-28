@@ -158,6 +158,8 @@ type DomainMessage struct {
 	ProtoGoIdent protogen.GoIdent
 	// HasNonSyntheticOneof is true if the message has real (non-synthetic) oneofs.
 	HasNonSyntheticOneof bool
+	// HasEncryptedFields is true when at least one field has (proto2type.field).encrypt = true.
+	HasEncryptedFields bool
 }
 
 // DomainField is the IR for a single message field.
@@ -229,6 +231,9 @@ type DomainField struct {
 	Omitempty bool
 	// Deprecated is true when the field has the deprecated option set.
 	Deprecated bool
+	// Encrypt is true when (proto2type.field).encrypt = true.
+	// Only valid for string fields. Generates EncryptFields/DecryptFields on storage types.
+	Encrypt bool
 	// Proto2DefaultValue is the string representation of a proto2 custom default.
 	// Empty for proto3 fields (which always use zero-value defaults).
 	// TODO: Wire into TS/Go/Rust backends when proto2 support is needed.

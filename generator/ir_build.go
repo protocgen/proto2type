@@ -130,6 +130,9 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options,
 		if df.DocID {
 			dm.HasDocID = true
 		}
+		if df.Encrypt {
+			dm.HasEncryptedFields = true
+		}
 		dm.Fields = append(dm.Fields, df)
 	}
 
@@ -183,6 +186,7 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 		EnumAsString:    isEnumAsString(field, opts),
 		Omitempty:       shouldOmitempty(field, opts),
 		Deprecated:      isDeprecated,
+		Encrypt:         isFieldEncrypted(field),
 
 		FieldBehaviors:      getFieldBehaviors(field),
 		ValidateConstraints: extractValidateConstraints(field),

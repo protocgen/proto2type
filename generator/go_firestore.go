@@ -42,15 +42,18 @@ func generateGoFirestore(gen *protogen.Plugin, file *protogen.File, opts *Option
 		g.P()
 	}
 
+	// Emit Encryptor interface (once per file, if needed).
+	generateGoEncrypt(g, df)
+
 	for _, dm := range df.Messages {
-		generateGoFirestoreMessage(gen, g, dm, opts)
+		generateGoFirestoreMessage(gen, g, df, dm, opts)
 	}
 
 	return nil
 }
 
 // generateGoFirestoreMessage generates a Firestore storage struct for a message.
-func generateGoFirestoreMessage(gen *protogen.Plugin, g *protogen.GeneratedFile, dm *DomainMessage, opts *Options) {
+func generateGoFirestoreMessage(gen *protogen.Plugin, g *protogen.GeneratedFile, df *DomainFile, dm *DomainMessage, opts *Options) {
 	if dm.Skip {
 		return
 	}
@@ -98,7 +101,12 @@ func generateGoFirestoreMessage(gen *protogen.Plugin, g *protogen.GeneratedFile,
 			fsTag += ",omitempty"
 		}
 
-		g.P("\t", fieldName, " ", fieldType, " `firestore:\"", fsTag, "\"`")
+		comment := ""
+		if f.Encrypt {
+			comment = " // encrypted"
+		}
+
+		g.P("\t", fieldName, " ", fieldType, " `firestore:\"", fsTag, "\"`", comment)
 	}
 
 	g.P("}")
@@ -110,8 +118,11 @@ func generateGoFirestoreMessage(gen *protogen.Plugin, g *protogen.GeneratedFile,
 	// Generate ToDomain and FromDomain converters
 	generateDomainConverters(g, dm, "Firestore")
 
+	// Generate EncryptFields and DecryptFields methods
+	generateGoEncryptMethods(g, dm, "Firestore")
+
 	// Nested messages
 	for _, nested := range dm.NestedMessages {
-		generateGoFirestoreMessage(gen, g, nested, opts)
+		generateGoFirestoreMessage(gen, g, df, nested, opts)
 	}
 }

@@ -136,3 +136,9 @@ func isEnumAsString(field *protogen.Field, opts *Options) bool {
 	// Fallback to global option.
 	return opts != nil && opts.EnumAsString
 }
+
+// isFieldEncrypted returns true if the field is marked for application-level encryption.
+func isFieldEncrypted(field *protogen.Field) bool {
+	fo := getFieldOptions(field)
+	return fo != nil && fo.Encrypt
+}

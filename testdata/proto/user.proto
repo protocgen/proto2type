@@ -8,6 +8,7 @@ import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
 import "buf/validate/validate.proto";
 import "google/api/field_behavior.proto";
+import "proto2type/options.proto";
 
 option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
 
@@ -37,7 +38,10 @@ message User {
   Address address = 8;
   google.protobuf.Timestamp created_at = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
   google.protobuf.Duration session_timeout = 10;
-  optional string phone = 11 [(buf.validate.field).string = {min_len: 7, max_len: 20, pattern: "^\\+?[0-9\\-\\s]+$"}];
+  optional string phone = 11 [
+    (proto2type.field).encrypt = true,
+    (buf.validate.field).string = {min_len: 7, max_len: 20, pattern: "^\\+?[0-9\\-\\s]+$"}
+  ];
   bytes avatar = 12;
   google.protobuf.StringValue nickname = 13;
   UserStatus status = 14 [(buf.validate.field).enum.defined_only = true];
