@@ -164,6 +164,11 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, df *DomainFile, dm *Doma
 	g.P("}")
 	g.P()
 
+	// Generate NewXxx constructor for required fields
+	if opts.GoConstructor {
+		generateGoConstructor(g, dm)
+	}
+
 	// Generate ToProto and FromProto converters
 	generateConverters(g, dm, "", opts)
 

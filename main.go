@@ -74,6 +74,7 @@ func main() {
 	flags.BoolVar(&opts.TSStrict, "ts_strict", false, "TypeScript: append .strict() to reject unknown fields")
 	flags.StringVar(&opts.TSOutputSuffix, "ts_output_suffix", ".type", "TypeScript: output file suffix (default .type)")
 	flags.Var(presetFlag{opts: opts}, "ts_preset", "TypeScript: preset (zod-strict, types-only)")
+	flags.BoolVar(&opts.GoConstructor, "go_constructor", true, "generate NewXxx() constructors for types with required fields")
 	flags.BoolVar(&opts.Debug, "debug", false, "emit IR debug information to stderr")
 
 	protogen.Options{

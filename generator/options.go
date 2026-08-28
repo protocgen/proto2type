@@ -115,6 +115,12 @@ type Options struct {
 	// TSOutputSuffix overrides the default TypeScript output file extension.
 	TSOutputSuffix string
 
+	// GoConstructor generates NewXxx() constructor functions for domain types
+	// that have required fields (google.api.field_behavior=REQUIRED or
+	// buf.validate.field.required=true). OUTPUT_ONLY fields are excluded.
+	// Default: true.
+	GoConstructor bool
+
 	// Debug emits IR debug information to stderr when set.
 	Debug bool
 }
