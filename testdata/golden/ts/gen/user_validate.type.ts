@@ -73,6 +73,8 @@ export const UserSchema = /* @__PURE__ */ z.object({
   oldField: z.string().default(""),
   optionalName: z.string().default(""),
   bigNumber: z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).default("0"),
+  /** IgnoreEmpty parity test: skip validation when field is zero-value (empty string). */
+  handle: z.string().refine(v => v === "" || [...v].length >= 2, { message: "must be at least 2 characters" }).refine(v => v === "" || [...v].length <= 50, { message: "must be at most 50 characters" }).refine(((re) => (v) => v === "" || re.test(v))(new RegExp("^[a-zA-Z0-9_]+$", "u")), { message: "must match pattern" }).default(""),
   contactEmail: z.string().refine(v => v === "" || z.string().email().safeParse(v).success, { message: "must be a valid email" }).nullish(),
   contactPhone: z.string().refine(v => [...v].length >= 7, { message: "must be at least 7 characters" }).refine(v => [...v].length <= 20, { message: "must be at most 20 characters" }).nullish(),
 }).superRefine((data, ctx) => {

@@ -130,6 +130,8 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 	if vc.MinLength != nil {
 		if isBytesField {
 			parts = append(parts, fmt.Sprintf(`.refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && %s >= %d, { message: "bytes must be at least %d bytes" })`, b64DecodedLen, *vc.MinLength, *vc.MinLength))
+		} else if vc.IgnoreEmpty {
+			parts = append(parts, fmt.Sprintf(`.refine(v => v === "" || [...v].length >= %d, { message: "must be at least %d characters" })`, *vc.MinLength, *vc.MinLength))
 		} else {
 			parts = append(parts, fmt.Sprintf(`.refine(v => [...v].length >= %d, { message: "must be at least %d characters" })`, *vc.MinLength, *vc.MinLength))
 		}
@@ -137,6 +139,8 @@ func tsStringConstraints(f *DomainField, vc *ValidateConstraints) string {
 	if vc.MaxLength != nil {
 		if isBytesField {
 			parts = append(parts, fmt.Sprintf(`.refine(v => /^[A-Za-z0-9+\/\-_]*={0,2}$/.test(v) && %s <= %d, { message: "bytes must be at most %d bytes" })`, b64DecodedLen, *vc.MaxLength, *vc.MaxLength))
+		} else if vc.IgnoreEmpty {
+			parts = append(parts, fmt.Sprintf(`.refine(v => v === "" || [...v].length <= %d, { message: "must be at most %d characters" })`, *vc.MaxLength, *vc.MaxLength))
 		} else {
 			parts = append(parts, fmt.Sprintf(`.refine(v => [...v].length <= %d, { message: "must be at most %d characters" })`, *vc.MaxLength, *vc.MaxLength))
 		}

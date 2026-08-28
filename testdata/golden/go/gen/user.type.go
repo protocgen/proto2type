@@ -59,6 +59,7 @@ type User struct {
 	OldField        string                    `json:"old_field,omitempty"`
 	OptionalName    string                    `json:"optional_name,omitempty"`
 	BigNumber       int64                     `json:"big_number,omitempty"`
+	Handle          string                    `json:"handle,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
@@ -78,6 +79,7 @@ func (u *User) ToProto() *pb.User {
 		OldField:     u.OldField,
 		OptionalName: u.OptionalName,
 		BigNumber:    u.BigNumber,
+		Handle:       u.Handle,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -258,6 +260,7 @@ func (u *User) TryToProto() (*pb.User, error) {
 		OldField:     u.OldField,
 		OptionalName: u.OptionalName,
 		BigNumber:    u.BigNumber,
+		Handle:       u.Handle,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -597,6 +600,7 @@ func (u *User) FromProto(msg *pb.User) {
 	u.OldField = msg.OldField
 	u.OptionalName = msg.OptionalName
 	u.BigNumber = msg.BigNumber
+	u.Handle = msg.Handle
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
@@ -756,6 +760,8 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			dst.OptionalName = src.OptionalName
 		case "big_number":
 			dst.BigNumber = src.BigNumber
+		case "handle":
+			dst.Handle = src.Handle
 		}
 	}
 }
@@ -777,6 +783,7 @@ func (u *User) Clone() *User {
 		OldField:       u.OldField,
 		OptionalName:   u.OptionalName,
 		BigNumber:      u.BigNumber,
+		Handle:         u.Handle,
 	}
 	if u.Phone != nil {
 		val := *u.Phone
@@ -1157,6 +1164,9 @@ func (u *User) Equal(other *User) bool {
 		return false
 	}
 	if u.BigNumber != other.BigNumber {
+		return false
+	}
+	if u.Handle != other.Handle {
 		return false
 	}
 	if (u.ContactEmail == nil) != (other.ContactEmail == nil) {

@@ -60,6 +60,7 @@ type User struct {
 	OldField        string                    `json:"old_field,omitempty"`
 	OptionalName    string                    `json:"optional_name,omitempty"`
 	BigNumber       int64                     `json:"big_number,omitempty"`
+	Handle          string                    `json:"handle,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
@@ -79,6 +80,7 @@ func (u *User) ToProto() *pb.User {
 		OldField:     u.OldField,
 		OptionalName: u.OptionalName,
 		BigNumber:    u.BigNumber,
+		Handle:       u.Handle,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -259,6 +261,7 @@ func (u *User) TryToProto() (*pb.User, error) {
 		OldField:     u.OldField,
 		OptionalName: u.OptionalName,
 		BigNumber:    u.BigNumber,
+		Handle:       u.Handle,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -598,6 +601,7 @@ func (u *User) FromProto(msg *pb.User) {
 	u.OldField = msg.OldField
 	u.OptionalName = msg.OptionalName
 	u.BigNumber = msg.BigNumber
+	u.Handle = msg.Handle
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
@@ -757,6 +761,8 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 			dst.OptionalName = src.OptionalName
 		case "big_number":
 			dst.BigNumber = src.BigNumber
+		case "handle":
+			dst.Handle = src.Handle
 		}
 	}
 }
@@ -778,6 +784,7 @@ func (u *User) Clone() *User {
 		OldField:       u.OldField,
 		OptionalName:   u.OptionalName,
 		BigNumber:      u.BigNumber,
+		Handle:         u.Handle,
 	}
 	if u.Phone != nil {
 		val := *u.Phone
@@ -1160,6 +1167,9 @@ func (u *User) Equal(other *User) bool {
 	if u.BigNumber != other.BigNumber {
 		return false
 	}
+	if u.Handle != other.Handle {
+		return false
+	}
 	if (u.ContactEmail == nil) != (other.ContactEmail == nil) {
 		return false
 	}
@@ -1192,6 +1202,7 @@ func (u *User) ActiveContactMethod() string {
 
 var _reUserEmailEmail = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 var _reUserPhonePattern = regexp.MustCompile("^\\+?[0-9\\-\\s]+$")
+var _reUserHandlePattern = regexp.MustCompile("^[a-zA-Z0-9_]+$")
 var _reUserContactEmailEmail = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 // Validate checks domain invariants on User.
@@ -1257,6 +1268,17 @@ func (u *User) Validate() error {
 			// valid
 		default:
 			return fmt.Errorf("previous_status: unknown enum value %d", *u.PreviousStatus)
+		}
+	}
+	if u.Handle != "" {
+		if utf8.RuneCountInString(u.Handle) < 2 {
+			return fmt.Errorf("handle: must be at least %d characters", 2)
+		}
+		if utf8.RuneCountInString(u.Handle) > 50 {
+			return fmt.Errorf("handle: must be at most %d characters", 50)
+		}
+		if !_reUserHandlePattern.MatchString(u.Handle) {
+			return fmt.Errorf("handle: must match pattern %s", "^[a-zA-Z0-9_]+$")
 		}
 	}
 	if u.ContactEmail != nil {

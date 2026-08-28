@@ -50,15 +50,16 @@ func applyPythonPreset(opts *Options) {
 
 // pythonImports tracks which Python imports are needed.
 type pythonImports struct {
-	needsDatetime      bool
-	needsTimedelta     bool
-	needsAny           bool
-	needsBase64        bool
-	needsEnum          bool // true when the file has enum definitions
-	hasTimestampFields bool // models with datetime fields need model_rebuild()
-	hasBytesFields     bool
-	timestampModels    []string // model names that have timestamp fields
-	bytesModels        []string // model names that have bytes fields
+	needsDatetime        bool
+	needsTimedelta       bool
+	needsAny             bool
+	needsBase64          bool
+	needsEnum            bool // true when the file has enum definitions
+	hasTimestampFields   bool // models with datetime fields need model_rebuild()
+	hasBytesFields       bool
+	hasIgnoreEmptyFields bool     // true when any field has IgnoreEmpty constraints
+	timestampModels      []string // model names that have timestamp fields
+	bytesModels          []string // model names that have bytes fields
 }
 
 func scanPythonImports(ir *DomainFile, opts *Options) *pythonImports {
@@ -87,6 +88,9 @@ func scanPythonImportsMessage(m *DomainMessage, imps *pythonImports, opts *Optio
 		}
 		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind {
 			hasBytes = true
+		}
+		if f.ValidateConstraints != nil && f.ValidateConstraints.IgnoreEmpty {
+			imps.hasIgnoreEmptyFields = true
 		}
 	}
 	for _, o := range m.Oneofs {
@@ -194,6 +198,9 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 	pydanticParts = append(pydanticParts, "Field")
 	if imps.hasTimestampFields || imps.hasBytesFields {
 		pydanticParts = append(pydanticParts, "field_serializer")
+	}
+	if imps.hasIgnoreEmptyFields {
+		pydanticParts = append(pydanticParts, "field_validator")
 	}
 	sort.Strings(pydanticParts)
 	g.P("from pydantic import ", strings.Join(pydanticParts, ", "))
@@ -409,6 +416,47 @@ func writePythonModel(g *protogen.GeneratedFile, m *DomainMessage, opts *Options
 		g.P("        if v is None:")
 		g.P("            return None")
 		g.P("        return base64.b64encode(v).decode('ascii')")
+		hasContent = true
+	}
+	// IgnoreEmpty field validators — constraints that were skipped from Field()
+	// args are enforced here only when the value is non-zero.
+	for _, f := range m.Fields {
+		vc := f.ValidateConstraints
+		if vc == nil || !vc.IgnoreEmpty || f.FieldSkip {
+			continue
+		}
+		name, _ := escapePythonKeyword(f.Name)
+		g.P()
+		g.P("    @field_validator('", name, "')")
+		g.P("    @classmethod")
+		g.P("    def _validate_", toSnakeCase(f.Name), "_ignore_empty(cls, v: str) -> str:")
+		g.P("        if not v:")
+		g.P("            return v")
+		if vc.MinLength != nil {
+			g.P(fmt.Sprintf("        if len(v) < %d:", *vc.MinLength))
+			g.P(fmt.Sprintf("            raise ValueError('must be at least %d characters')", *vc.MinLength))
+		}
+		if vc.MaxLength != nil {
+			g.P(fmt.Sprintf("        if len(v) > %d:", *vc.MaxLength))
+			g.P(fmt.Sprintf("            raise ValueError('must be at most %d characters')", *vc.MaxLength))
+		}
+		if vc.Pattern != "" {
+			escaped := strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(vc.Pattern)
+			g.P("        import re as _re")
+			g.P(fmt.Sprintf("        if not _re.match(r'%s', v):", escaped))
+			g.P("            raise ValueError('must match pattern')")
+		}
+		if vc.Email {
+			g.P("        import re as _re")
+			g.P("        if not _re.match(r'^[^@]+@[^@]+\\.[^@]+$', v):")
+			g.P("            raise ValueError('must be a valid email')")
+		}
+		if vc.URI {
+			g.P("        import re as _re")
+			g.P("        if not _re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*://', v):")
+			g.P("            raise ValueError('must be a valid URI')")
+		}
+		g.P("        return v")
 		hasContent = true
 	}
 

@@ -417,6 +417,11 @@ func (c *ValidateConstraints) ToPydanticArgs() []string {
 	if c == nil {
 		return nil
 	}
+	// IgnoreEmpty: skip Field-level constraints — these will be enforced
+	// by a @field_validator that checks only when the value is non-zero.
+	if c.IgnoreEmpty {
+		return nil
+	}
 	var args []string
 	if c.MinLength != nil {
 		args = append(args, fmt.Sprintf("min_length=%d", *c.MinLength))

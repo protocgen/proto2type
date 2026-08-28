@@ -81,6 +81,8 @@ export interface User {
   oldField: string;
   optionalName: string;
   bigNumber: string;
+  /** IgnoreEmpty parity test: skip validation when field is zero-value (empty string). */
+  handle: string;
   /** @oneof contact_method — at most one of: contactEmail, contactPhone */
   contactEmail?: string | null;
   contactPhone?: string | null;
@@ -127,6 +129,8 @@ export const UserSchema = /* @__PURE__ */ z.object({
   oldField: z.string().default(""),
   optionalName: z.string().default(""),
   bigNumber: z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" })]).pipe(z.coerce.string()).default("0"),
+  /** IgnoreEmpty parity test: skip validation when field is zero-value (empty string). */
+  handle: z.string().default(""),
   contactEmail: z.string().nullish(),
   contactPhone: z.string().nullish(),
 }).strict().superRefine((data, ctx) => {

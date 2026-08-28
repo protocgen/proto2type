@@ -59,6 +59,8 @@ export interface User {
   oldField: string;
   optionalName: string;
   bigNumber: string;
+  /** IgnoreEmpty parity test: skip validation when field is zero-value (empty string). */
+  handle: string;
   /** @oneof contact_method — at most one of: contactEmail, contactPhone */
   contactEmail?: string | null;
   contactPhone?: string | null;

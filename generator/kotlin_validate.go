@@ -65,26 +65,45 @@ func generateKotlinValidate(g *protogen.GeneratedFile, df *DomainFile, msg *Doma
 		}
 
 		// IgnoreEmpty: skip non-required constraints when field is zero-value.
-		if vc.IgnoreEmpty && hasNonRequiredConstraints && !f.Optional {
-			switch {
-			case f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.StringKind || f.ScalarKind == protoreflect.BytesKind):
-				g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
-			case f.Kind == FieldKindEnum && f.EnumAsString:
-				g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
-			case f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.Int32Kind || f.ScalarKind == protoreflect.Sint32Kind || f.ScalarKind == protoreflect.Sfixed32Kind || f.ScalarKind == protoreflect.Uint32Kind || f.ScalarKind == protoreflect.Fixed32Kind):
-				g.P(indent, "if (", fieldName, " != 0) {")
-			case f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.Int64Kind || f.ScalarKind == protoreflect.Sint64Kind || f.ScalarKind == protoreflect.Sfixed64Kind || f.ScalarKind == protoreflect.Uint64Kind || f.ScalarKind == protoreflect.Fixed64Kind):
-				g.P(indent, "if (", fieldName, " != 0L) {")
-			case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.FloatKind:
-				g.P(indent, "if (", fieldName, " != 0.0f) {")
-			case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.DoubleKind:
-				g.P(indent, "if (", fieldName, " != 0.0) {")
-			case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BoolKind:
-				g.P(indent, "if (", fieldName, ") {")
-			case f.Repeated:
-				g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
-			}
-			indent = indent + "    "
+		emittedIgnoreGuard := false
+		if vc.IgnoreEmpty && hasNonRequiredConstraints {
+			if f.Optional {
+				// Inside ?.let block — null is already handled, but zero-value (e.g. "") should also skip.
+				switch {
+				case f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.StringKind || f.ScalarKind == protoreflect.BytesKind):
+					g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
+					emittedIgnoreGuard = true
+				case f.Kind == FieldKindEnum && f.EnumAsString:
+					g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
+					emittedIgnoreGuard = true
+				}
+				// Numeric/bool optionals: zero-value is semantically valid when explicitly set, skip guard.
+			} else {
+				emittedIgnoreGuard = true
+				switch {
+				case f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.StringKind || f.ScalarKind == protoreflect.BytesKind):
+					g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
+				case f.Kind == FieldKindEnum && f.EnumAsString:
+					g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
+				case f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.Int32Kind || f.ScalarKind == protoreflect.Sint32Kind || f.ScalarKind == protoreflect.Sfixed32Kind || f.ScalarKind == protoreflect.Uint32Kind || f.ScalarKind == protoreflect.Fixed32Kind):
+					g.P(indent, "if (", fieldName, " != 0) {")
+				case f.Kind == FieldKindScalar && (f.ScalarKind == protoreflect.Int64Kind || f.ScalarKind == protoreflect.Sint64Kind || f.ScalarKind == protoreflect.Sfixed64Kind || f.ScalarKind == protoreflect.Uint64Kind || f.ScalarKind == protoreflect.Fixed64Kind):
+					g.P(indent, "if (", fieldName, " != 0L) {")
+				case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.FloatKind:
+					g.P(indent, "if (", fieldName, " != 0.0f) {")
+				case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.DoubleKind:
+					g.P(indent, "if (", fieldName, " != 0.0) {")
+				case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BoolKind:
+					g.P(indent, "if (", fieldName, ") {")
+				case f.Repeated:
+					g.P(indent, "if (", fieldName, ".isNotEmpty()) {")
+				default:
+					emittedIgnoreGuard = false
+				}
+				if emittedIgnoreGuard {
+					indent = indent + "    "
+				}
+			} // else (non-optional)
 		}
 
 		// Email
@@ -217,7 +236,7 @@ func generateKotlinValidate(g *protogen.GeneratedFile, df *DomainFile, msg *Doma
 		}
 
 		// Close IgnoreEmpty guard.
-		if vc.IgnoreEmpty && hasNonRequiredConstraints && !f.Optional {
+		if emittedIgnoreGuard {
 			// Remove the extra indent added above
 			g.P(strings.TrimSuffix(indent, "    "), "}")
 		}

@@ -238,6 +238,73 @@ func rustEmitCustomValidateFuncs(g *protogen.GeneratedFile, dm *DomainMessage, d
 			g.P("    }")
 		}
 
+		// Re-emit constraints that were suppressed from derive attrs by IgnoreEmpty routing.
+		if vc.IgnoreEmpty {
+			if vc.MinLength != nil || vc.MaxLength != nil {
+				if vc.MinLength != nil {
+					g.P(fmt.Sprintf("    if value.chars().count() < %d {", *vc.MinLength))
+					g.P(`        return Err(validator::ValidationError::new("length"));`)
+					g.P("    }")
+				}
+				if vc.MaxLength != nil {
+					g.P(fmt.Sprintf("    if value.chars().count() > %d {", *vc.MaxLength))
+					g.P(`        return Err(validator::ValidationError::new("length"));`)
+					g.P("    }")
+				}
+			}
+			if vc.Pattern != "" {
+				constName := rustRegexConstName(f, "PATTERN")
+				g.P("    if !", constName, ".is_match(value) {")
+				g.P(`        return Err(validator::ValidationError::new("regex"));`)
+				g.P("    }")
+			}
+			if vc.UUID {
+				constName := rustRegexConstName(f, "UUID")
+				g.P("    if !", constName, ".is_match(value) {")
+				g.P(`        return Err(validator::ValidationError::new("regex"));`)
+				g.P("    }")
+			}
+			if f.Kind != FieldKindTimestamp && (vc.Gt != nil || vc.Gte != nil || vc.Lt != nil || vc.Lte != nil) {
+				formatBound := func(val string) string {
+					if f.Kind == FieldKindDuration && strings.HasSuffix(val, "s") {
+						return strings.TrimSuffix(val, "s")
+					}
+					return val
+				}
+				if vc.Gt != nil {
+					g.P(fmt.Sprintf("    if *value <= %s {", formatBound(*vc.Gt)))
+					g.P(`        return Err(validator::ValidationError::new("range"));`)
+					g.P("    }")
+				}
+				if vc.Gte != nil {
+					g.P(fmt.Sprintf("    if *value < %s {", formatBound(*vc.Gte)))
+					g.P(`        return Err(validator::ValidationError::new("range"));`)
+					g.P("    }")
+				}
+				if vc.Lt != nil {
+					g.P(fmt.Sprintf("    if *value >= %s {", formatBound(*vc.Lt)))
+					g.P(`        return Err(validator::ValidationError::new("range"));`)
+					g.P("    }")
+				}
+				if vc.Lte != nil {
+					g.P(fmt.Sprintf("    if *value > %s {", formatBound(*vc.Lte)))
+					g.P(`        return Err(validator::ValidationError::new("range"));`)
+					g.P("    }")
+				}
+			}
+			if vc.Hostname {
+				g.P(`    let hostname_re = regex::Regex::new(r"^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$").unwrap();`)
+				g.P("    if !hostname_re.is_match(value) {")
+				g.P(`        return Err(validator::ValidationError::new("hostname"));`)
+				g.P("    }")
+			}
+			if vc.IP {
+				g.P(`    if value.parse::<std::net::IpAddr>().is_err() {`)
+				g.P(`        return Err(validator::ValidationError::new("ip"));`)
+				g.P("    }")
+			}
+		}
+
 		// String constraints (only valid for string fields)
 		if isString {
 			if vc.Prefix != "" {

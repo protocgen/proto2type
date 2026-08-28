@@ -79,6 +79,12 @@ message User {
   string old_field = 34 [deprecated = true];
   string optional_name = 35;
   int64 big_number = 36;
+
+  // IgnoreEmpty parity test: skip validation when field is zero-value (empty string).
+  string handle = 37 [
+    (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE,
+    (buf.validate.field).string = {min_len: 2, max_len: 50, pattern: "^[a-zA-Z0-9_]+$"}
+  ];
 }
 
 // Address is a nested message.

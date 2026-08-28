@@ -127,9 +127,11 @@ type User struct {
 	Labels map[string]*wrapperspb.StringValue `protobuf:"bytes,32,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Scores map[string]*wrapperspb.Int64Value  `protobuf:"bytes,33,rep,name=scores,proto3" json:"scores,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Deprecated: Marked as deprecated in user.proto.
-	OldField      string `protobuf:"bytes,34,opt,name=old_field,json=oldField,proto3" json:"old_field,omitempty"`
-	OptionalName  string `protobuf:"bytes,35,opt,name=optional_name,json=optionalName,proto3" json:"optional_name,omitempty"`
-	BigNumber     int64  `protobuf:"varint,36,opt,name=big_number,json=bigNumber,proto3" json:"big_number,omitempty"`
+	OldField     string `protobuf:"bytes,34,opt,name=old_field,json=oldField,proto3" json:"old_field,omitempty"`
+	OptionalName string `protobuf:"bytes,35,opt,name=optional_name,json=optionalName,proto3" json:"optional_name,omitempty"`
+	BigNumber    int64  `protobuf:"varint,36,opt,name=big_number,json=bigNumber,proto3" json:"big_number,omitempty"`
+	// IgnoreEmpty parity test: skip validation when field is zero-value (empty string).
+	Handle        string `protobuf:"bytes,37,opt,name=handle,proto3" json:"handle,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -428,6 +430,13 @@ func (x *User) GetBigNumber() int64 {
 	return 0
 }
 
+func (x *User) GetHandle() string {
+	if x != nil {
+		return x.Handle
+	}
+	return ""
+}
+
 type isUser_ContactMethod interface {
 	isUser_ContactMethod()
 }
@@ -640,7 +649,7 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\xc0\x12\n" +
+	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\xf7\x12\n" +
 	"\x04User\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x03R\x02id\x12 \n" +
 	"\x05email\x18\x02 \x01(\tB\n" +
@@ -688,7 +697,8 @@ const file_user_proto_rawDesc = "" +
 	"\told_field\x18\" \x01(\tB\x02\x18\x01R\boldField\x12#\n" +
 	"\roptional_name\x18# \x01(\tR\foptionalName\x12\x1d\n" +
 	"\n" +
-	"big_number\x18$ \x01(\x03R\tbigNumber\x1a;\n" +
+	"big_number\x18$ \x01(\x03R\tbigNumber\x125\n" +
+	"\x06handle\x18% \x01(\tB\x1d\xbaH\x1a\xd8\x01\x01r\x15\x10\x02\x1822\x0f^[a-zA-Z0-9_]+$R\x06handle\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aY\n" +

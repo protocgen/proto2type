@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any
 from datetime import datetime, timedelta
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 class UserStatus(str, Enum):
@@ -75,6 +75,7 @@ class User(BaseModel):
     old_field: str = ''
     optional_name: str = ''
     big_number: int = 0
+    handle: str = Field(default='', description='IgnoreEmpty parity test: skip validation when field is zero-value (empty string).')
     contact_method: str | None = None
 
     @field_serializer('created_at', 'deleted_at')
@@ -91,6 +92,20 @@ class User(BaseModel):
         if v is None:
             return None
         return base64.b64encode(v).decode('ascii')
+
+    @field_validator('handle')
+    @classmethod
+    def _validate_handle_ignore_empty(cls, v: str) -> str:
+        if not v:
+            return v
+        if len(v) < 2:
+            raise ValueError('must be at least 2 characters')
+        if len(v) > 50:
+            raise ValueError('must be at most 50 characters')
+        import re as _re
+        if not _re.match(r'^[a-zA-Z0-9_]+$', v):
+            raise ValueError('must match pattern')
+        return v
 
 
 class Category(BaseModel):

@@ -75,6 +75,8 @@ export const UserSchema = /* @__PURE__ */ z.object({
   oldField: z.string().default(""),
   optionalName: z.string().default(""),
   bigNumber: z.union([z.string().max(100).regex(/^-?\d+$/), z.number().refine(Number.isSafeInteger, { message: "integer out of safe range" }), z.bigint()]).pipe(z.coerce.bigint()).refine(v => v >= -9223372036854775808n && v <= 9223372036854775807n, { message: "int64 out of range" }).default(0n),
+  /** IgnoreEmpty parity test: skip validation when field is zero-value (empty string). */
+  handle: z.string().default(""),
   contactEmail: z.string().nullish(),
   contactPhone: z.string().nullish(),
 }).superRefine((data, ctx) => {

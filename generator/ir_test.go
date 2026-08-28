@@ -80,6 +80,7 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 		"old_field":        FieldKindScalar,    // deprecated string
 		"optional_name":    FieldKindScalar,    // string with ignore_empty validation
 		"big_number":       FieldKindScalar,    // int64
+		"handle":           FieldKindScalar,    // string with ignore_empty + min_len + max_len + pattern
 	}
 
 	for _, f := range user.Fields {

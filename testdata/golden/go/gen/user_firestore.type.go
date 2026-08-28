@@ -56,6 +56,7 @@ type UserFirestore struct {
 	OldField        string                    `firestore:"old_field,omitempty"`
 	OptionalName    string                    `firestore:"optional_name,omitempty"`
 	BigNumber       int64                     `firestore:"big_number,omitempty"`
+	Handle          string                    `firestore:"handle,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
@@ -75,6 +76,7 @@ func (u *UserFirestore) ToProto() *pb.User {
 		OldField:     u.OldField,
 		OptionalName: u.OptionalName,
 		BigNumber:    u.BigNumber,
+		Handle:       u.Handle,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -255,6 +257,7 @@ func (u *UserFirestore) TryToProto() (*pb.User, error) {
 		OldField:     u.OldField,
 		OptionalName: u.OptionalName,
 		BigNumber:    u.BigNumber,
+		Handle:       u.Handle,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -592,6 +595,7 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 	u.OldField = msg.OldField
 	u.OptionalName = msg.OptionalName
 	u.BigNumber = msg.BigNumber
+	u.Handle = msg.Handle
 }
 
 // ToDomain converts to the domain type.
@@ -630,6 +634,7 @@ func (u *UserFirestore) ToDomain() *User {
 		OldField:       u.OldField,
 		OptionalName:   u.OptionalName,
 		BigNumber:      u.BigNumber,
+		Handle:         u.Handle,
 	}
 	if u.Avatar != nil {
 		d.Avatar = make([]byte, len(u.Avatar))
@@ -722,6 +727,7 @@ func (u *UserFirestore) FromDomain(d *User) {
 	u.OldField = d.OldField
 	u.OptionalName = d.OptionalName
 	u.BigNumber = d.BigNumber
+	u.Handle = d.Handle
 }
 
 // AddressFirestore is the Firestore storage representation of test.v1.Address.

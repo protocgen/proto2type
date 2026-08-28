@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-08-27
+
+### Added
+
+- **Go API Server example**: Standalone `examples/go-api-server/` with HTTP server, SQLite, and before/after README showing proto2type domain types in action. (#176)
+- **TypeScript frontend example**: React + Zod form sharing the same `user.proto` as the Go server — the cross-language story. (#177)
+- **README examples table**: Links to both examples from the main README.
+- **Kotlin: `DefinedOnly` enum validation**: `EnumAsString` fields now validate against known enum constants. Typed enum fields are guaranteed by Kotlin's type system. (#179)
+- **Kotlin: `IgnoreEmpty` support**: Fields with `ignore = IGNORE_IF_ZERO_VALUE` skip constraint checks on zero values (`""`, `0`, `0L`, `0.0f`, `false`). (#179)
+- **Rust: `DefinedOnly` enum validation**: `EnumAsString` fields get custom validator checking defined constants. Typed enums are guaranteed by Rust's closed enum. (#179)
+- **Rust: `IgnoreEmpty` support**: Routes format/range checks to custom validation with zero-value guard when `ignore = IGNORE_IF_ZERO_VALUE`. (#179)
+- **CI: TS example typecheck**: `tsc --noEmit` step for `examples/ts-frontend`. (#178)
+
+### Fixed
+
+- **TS/Zod: format checks now skip empty strings**: `email`, `uri`, `uuid`, `hostname`, `ip` validations now use `.refine(v => v === "" || ...)` instead of native Zod methods, matching Go/Kotlin proto3 zero-value semantics. Migration: add `min_len: 1` if you relied on empty string rejection. (#178)
+
+### Changed
+
+- **TS example: Known Limitations removed**: The email IgnoreEmpty drift is fixed, so the section is no longer needed. (#178)
+
 ## [0.8.1] - 2026-08-24
 
 ### Added
