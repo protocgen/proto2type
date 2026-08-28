@@ -186,7 +186,7 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 		EnumAsString:    isEnumAsString(field, opts),
 		Omitempty:       shouldOmitempty(field, opts),
 		Deprecated:      isDeprecated,
-		Encrypt:         isFieldEncrypted(field),
+		Encrypt:         validateEncrypt(field),
 
 		FieldBehaviors:      getFieldBehaviors(field),
 		ValidateConstraints: extractValidateConstraints(field),

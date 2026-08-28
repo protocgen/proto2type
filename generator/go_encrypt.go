@@ -67,6 +67,7 @@ func generateGoEncryptMethods(g *protogen.GeneratedFile, dm *DomainMessage, suff
 	}
 
 	// EncryptFields
+	fmtErrorf := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "fmt", GoName: "Errorf"})
 	g.P("// EncryptFields encrypts all fields annotated with (proto2type.field).encrypt = true.")
 	g.P("// scope is typically the owning user/tenant ID, used as AAD for key derivation.")
 	g.P("// Call exactly once before writing to storage. Calling twice will double-encrypt.")
@@ -82,7 +83,7 @@ func generateGoEncryptMethods(g *protogen.GeneratedFile, dm *DomainMessage, suff
 			g.P("\t\t", recv, ".", f.pascalName, ", err = enc.Encrypt(", recv, ".", f.pascalName, ", scope, \"", f.protoName, "\")")
 		}
 		g.P("\t\tif err != nil {")
-		g.P("\t\t\treturn fmt.Errorf(\"encrypting ", f.protoName, ": %w\", err)")
+		g.P("\t\t\treturn ", fmtErrorf, "(\"encrypting ", f.protoName, ": %w\", err)")
 		g.P("\t\t}")
 		if f.isPointer {
 			g.P("\t\t", recv, ".", f.pascalName, " = &encrypted")
@@ -109,7 +110,7 @@ func generateGoEncryptMethods(g *protogen.GeneratedFile, dm *DomainMessage, suff
 			g.P("\t\t", recv, ".", f.pascalName, ", err = enc.Decrypt(", recv, ".", f.pascalName, ", scope, \"", f.protoName, "\")")
 		}
 		g.P("\t\tif err != nil {")
-		g.P("\t\t\treturn fmt.Errorf(\"decrypting ", f.protoName, ": %w\", err)")
+		g.P("\t\t\treturn ", fmtErrorf, "(\"decrypting ", f.protoName, ": %w\", err)")
 		g.P("\t\t}")
 		if f.isPointer {
 			g.P("\t\t", recv, ".", f.pascalName, " = &decrypted")

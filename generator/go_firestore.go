@@ -7,7 +7,7 @@ import (
 )
 
 // generateGoFirestore generates a Go Firestore storage type file.
-func generateGoFirestore(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+func (gg *goGenerator) generateGoFirestore(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_firestore.type.go")
 	if err != nil {
 		return err
@@ -42,8 +42,11 @@ func generateGoFirestore(gen *protogen.Plugin, file *protogen.File, opts *Option
 		g.P()
 	}
 
-	// Emit Encryptor interface (once per file, if needed).
-	generateGoEncrypt(g, df)
+	// Emit Encryptor interface once per Go package (not per file).
+	if irNeedsEncrypt(df.Messages) && !gg.emittedEncryptor[goImportPath] {
+		generateGoEncrypt(g, df)
+		gg.emittedEncryptor[goImportPath] = true
+	}
 
 	for _, dm := range df.Messages {
 		generateGoFirestoreMessage(gen, g, df, dm, opts)
