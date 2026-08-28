@@ -127,6 +127,7 @@ fn sample_user() -> User {
     u.old_field = String::new();
     u.optional_name = String::new();
     u.big_number = 0;
+    u.handle = String::new();
     u
 }
 
@@ -442,7 +443,8 @@ const USER_CREATE_TABLE: &str = "CREATE TABLE users (
     scores           TEXT    NOT NULL,
     old_field        TEXT    NOT NULL,
     optional_name    TEXT    NOT NULL,
-    big_number       INTEGER NOT NULL
+    big_number       INTEGER NOT NULL,
+    handle           TEXT    NOT NULL
 );";
 
 const USER_INSERT: &str = "INSERT INTO users (
@@ -452,7 +454,8 @@ const USER_INSERT: &str = "INSERT INTO users (
     deleted_at, previous_status, update_mask, extra_metadata,
     preferences, avatar_thumbnail, field_masks, structs,
     lists, event_times, configs, single_value, [values],
-    value_map, labels, scores, old_field, optional_name, big_number
+    value_map, labels, scores, old_field, optional_name, big_number,
+    handle
 ) VALUES (
     ?1, ?2, ?3, ?4, ?5, ?6, ?7,
     ?8, ?9, ?10, ?11, ?12,
@@ -460,7 +463,8 @@ const USER_INSERT: &str = "INSERT INTO users (
     ?17, ?18, ?19, ?20,
     ?21, ?22, ?23, ?24,
     ?25, ?26, ?27, ?28, ?29,
-    ?30, ?31, ?32, ?33, ?34, ?35
+    ?30, ?31, ?32, ?33, ?34, ?35,
+    ?36
 )";
 
 macro_rules! user_row_params {
@@ -501,6 +505,7 @@ macro_rules! user_row_params {
             $row.old_field,
             $row.optional_name,
             $row.big_number,
+            $row.handle,
         ]
     };
 }

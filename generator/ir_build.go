@@ -166,12 +166,13 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 	}
 
 	df := &DomainField{
-		Name:       protoName,
-		PascalName: toPascalCase(protoName),
-		CamelName:  camelName,
-		Optional:   field.Desc.HasOptionalKeyword(),
-		Repeated:   field.Desc.IsList(),
-		IsMap:      field.Desc.IsMap(),
+		Name:        protoName,
+		PascalName:  toPascalCase(protoName),
+		CamelName:   camelName,
+		ProtoNumber: int(field.Desc.Number()),
+		Optional:    field.Desc.HasOptionalKeyword(),
+		Repeated:    field.Desc.IsList(),
+		IsMap:       field.Desc.IsMap(),
 
 		// Annotations
 		DocID:           isDocumentID(field),

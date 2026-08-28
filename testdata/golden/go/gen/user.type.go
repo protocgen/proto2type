@@ -62,6 +62,14 @@ type User struct {
 	Handle          string                    `json:"handle,omitempty"`
 }
 
+// NewUser creates a User with all required fields.
+func NewUser(email string, displayName string) *User {
+	return &User{
+		Email:       email,
+		DisplayName: displayName,
+	}
+}
+
 // ToProto converts to the protobuf message.
 func (u *User) ToProto() *pb.User {
 	if u == nil {

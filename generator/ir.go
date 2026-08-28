@@ -168,6 +168,8 @@ type DomainField struct {
 	PascalName string
 	// CamelName is the lowerCamelCase version of Name (e.g. "displayName").
 	CamelName string
+	// ProtoNumber is the proto field number, used for stable ordering.
+	ProtoNumber int
 
 	// Kind classifies the field (scalar, message, timestamp, enum, etc.).
 	Kind FieldKind
