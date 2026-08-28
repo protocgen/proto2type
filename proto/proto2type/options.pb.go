@@ -137,7 +137,10 @@ type FieldOptions struct {
 	EnumAsString OptionalBool `protobuf:"varint,7,opt,name=enum_as_string,json=enumAsString,proto3,enum=proto2type.OptionalBool" json:"enum_as_string,omitempty"`
 	// Field-level encryption: encrypt before storage write, decrypt after read.
 	// Only valid for string fields. Generates EncryptFields/DecryptFields methods.
-	Encrypt       bool `protobuf:"varint,8,opt,name=encrypt,proto3" json:"encrypt,omitempty"`
+	Encrypt bool `protobuf:"varint,8,opt,name=encrypt,proto3" json:"encrypt,omitempty"`
+	// Computed/derived field: auto-populated from a source field via a transform.
+	// Excluded from domain types. Used for Firestore search indexes.
+	Computed      *ComputedField `protobuf:"bytes,9,opt,name=computed,proto3" json:"computed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -228,6 +231,69 @@ func (x *FieldOptions) GetEncrypt() bool {
 	return false
 }
 
+func (x *FieldOptions) GetComputed() *ComputedField {
+	if x != nil {
+		return x.Computed
+	}
+	return nil
+}
+
+// ComputedField defines a derived field that is automatically populated
+// from another field during FromDomain() conversion.
+type ComputedField struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Source field name (snake_case, must reference another field in the same message).
+	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	// Transform to apply. Supported: "lower", "upper".
+	Transform     string `protobuf:"bytes,2,opt,name=transform,proto3" json:"transform,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ComputedField) Reset() {
+	*x = ComputedField{}
+	mi := &file_proto2type_options_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ComputedField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ComputedField) ProtoMessage() {}
+
+func (x *ComputedField) ProtoReflect() protoreflect.Message {
+	mi := &file_proto2type_options_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ComputedField.ProtoReflect.Descriptor instead.
+func (*ComputedField) Descriptor() ([]byte, []int) {
+	return file_proto2type_options_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ComputedField) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *ComputedField) GetTransform() string {
+	if x != nil {
+		return x.Transform
+	}
+	return ""
+}
+
 var file_proto2type_options_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MessageOptions)(nil),
@@ -266,7 +332,7 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\x18proto2type/options.proto\x12\n" +
 	"proto2type\x1a google/protobuf/descriptor.proto\"$\n" +
 	"\x0eMessageOptions\x12\x12\n" +
-	"\x04skip\x18\x01 \x01(\bR\x04skip\"\xac\x02\n" +
+	"\x04skip\x18\x01 \x01(\bR\x04skip\"\xe3\x02\n" +
 	"\fFieldOptions\x12\x1f\n" +
 	"\vdocument_id\x18\x01 \x01(\bR\n" +
 	"documentId\x12)\n" +
@@ -276,7 +342,11 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\tomitempty\x18\x05 \x01(\x0e2\x18.proto2type.OptionalBoolR\tomitempty\x12\x16\n" +
 	"\x06inline\x18\x06 \x01(\bR\x06inline\x12>\n" +
 	"\x0eenum_as_string\x18\a \x01(\x0e2\x18.proto2type.OptionalBoolR\fenumAsString\x12\x18\n" +
-	"\aencrypt\x18\b \x01(\bR\aencrypt*^\n" +
+	"\aencrypt\x18\b \x01(\bR\aencrypt\x125\n" +
+	"\bcomputed\x18\t \x01(\v2\x19.proto2type.ComputedFieldR\bcomputed\"E\n" +
+	"\rComputedField\x12\x16\n" +
+	"\x06source\x18\x01 \x01(\tR\x06source\x12\x1c\n" +
+	"\ttransform\x18\x02 \x01(\tR\ttransform*^\n" +
 	"\fOptionalBool\x12\x1d\n" +
 	"\x19OPTIONAL_BOOL_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12OPTIONAL_BOOL_TRUE\x10\x01\x12\x17\n" +
@@ -299,26 +369,28 @@ func file_proto2type_options_proto_rawDescGZIP() []byte {
 }
 
 var file_proto2type_options_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto2type_options_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_proto2type_options_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_proto2type_options_proto_goTypes = []any{
 	(OptionalBool)(0),                   // 0: proto2type.OptionalBool
 	(*MessageOptions)(nil),              // 1: proto2type.MessageOptions
 	(*FieldOptions)(nil),                // 2: proto2type.FieldOptions
-	(*descriptorpb.MessageOptions)(nil), // 3: google.protobuf.MessageOptions
-	(*descriptorpb.FieldOptions)(nil),   // 4: google.protobuf.FieldOptions
+	(*ComputedField)(nil),               // 3: proto2type.ComputedField
+	(*descriptorpb.MessageOptions)(nil), // 4: google.protobuf.MessageOptions
+	(*descriptorpb.FieldOptions)(nil),   // 5: google.protobuf.FieldOptions
 }
 var file_proto2type_options_proto_depIdxs = []int32{
 	0, // 0: proto2type.FieldOptions.omitempty:type_name -> proto2type.OptionalBool
 	0, // 1: proto2type.FieldOptions.enum_as_string:type_name -> proto2type.OptionalBool
-	3, // 2: proto2type.message:extendee -> google.protobuf.MessageOptions
-	4, // 3: proto2type.field:extendee -> google.protobuf.FieldOptions
-	1, // 4: proto2type.message:type_name -> proto2type.MessageOptions
-	2, // 5: proto2type.field:type_name -> proto2type.FieldOptions
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	4, // [4:6] is the sub-list for extension type_name
-	2, // [2:4] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 2: proto2type.FieldOptions.computed:type_name -> proto2type.ComputedField
+	4, // 3: proto2type.message:extendee -> google.protobuf.MessageOptions
+	5, // 4: proto2type.field:extendee -> google.protobuf.FieldOptions
+	1, // 5: proto2type.message:type_name -> proto2type.MessageOptions
+	2, // 6: proto2type.field:type_name -> proto2type.FieldOptions
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	5, // [5:7] is the sub-list for extension type_name
+	3, // [3:5] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_proto2type_options_proto_init() }
@@ -332,7 +404,7 @@ func file_proto2type_options_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto2type_options_proto_rawDesc), len(file_proto2type_options_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 2,
 			NumServices:   0,
 		},

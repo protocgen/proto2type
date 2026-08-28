@@ -77,6 +77,9 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	// Direct-copy fields in the struct literal
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -107,6 +110,9 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	// Deep copy pointer fields (optional scalars, wrapper types)
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -136,6 +142,9 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	// Deep copy slices (repeated fields) — with special handling for message/bytes elements
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -214,6 +223,9 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	// Deep copy singular bytes fields (not repeated or optional — those handled above)
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -228,6 +240,9 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	// Deep copy maps — with special handling for message/bytes values
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -315,6 +330,9 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	// Deep copy nested messages
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -328,6 +346,9 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	// Deep copy WKT reference types (slices and maps)
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -382,6 +403,9 @@ func generateGoClone(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	// Deep copy oneof variant pointer fields
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if !f.IsOneof {
 			continue
 		}
@@ -487,6 +511,9 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 	g.P("\t}")
 
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -676,6 +703,9 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	// Compare oneof variant pointer fields
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if !f.IsOneof {
 			continue
 		}

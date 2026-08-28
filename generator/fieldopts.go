@@ -169,3 +169,12 @@ func validateEncrypt(field *protogen.Field) bool {
 	}
 	return true
 }
+
+// getComputedField returns the computed field config, or nil if not set.
+func getComputedField(field *protogen.Field) *proto2typepb.ComputedField {
+	fo := getFieldOptions(field)
+	if fo == nil {
+		return nil
+	}
+	return fo.Computed
+}

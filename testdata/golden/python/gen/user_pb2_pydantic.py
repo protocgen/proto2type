@@ -76,6 +76,7 @@ class User(BaseModel):
     optional_name: str = ''
     big_number: int = 0
     handle: str = Field(default='', description='IgnoreEmpty parity test: skip validation when field is zero-value (empty string).')
+    display_name_lower: str = Field(default='', description='Computed field: lowercase display_name for case-insensitive Firestore queries.')
     contact_method: str | None = None
 
     @field_serializer('created_at', 'deleted_at')

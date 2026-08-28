@@ -19,6 +19,15 @@ class MessageOptions(BaseModel):
     skip: bool = Field(default=False, description='Skip generating types for this message.')
 
 
+class ComputedField(BaseModel):
+    """ComputedField defines a derived field that is automatically populated
+ from another field during FromDomain() conversion."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    source: str = Field(default='', description='Source field name (snake_case, must reference another field in the same message).')
+    transform: str = Field(default='', description='Transform to apply. Supported: \"lower\", \"upper\".')
+
+
 class FieldOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -30,13 +39,16 @@ class FieldOptions(BaseModel):
     inline: bool = Field(default=False, description='Flatten nested message fields into parent (Mongo: bson:\",inline\").')
     enum_as_string: OptionalBool | None = Field(default=None, description='Store this enum field as its string name instead of int32.  Per-field override for the global enum_as_string plugin option.')
     encrypt: bool = Field(default=False, description='Field-level encryption: encrypt before storage write, decrypt after read.  Only valid for string fields. Generates EncryptFields/DecryptFields methods.')
+    computed: ComputedField | None = Field(default=None, description='Computed/derived field: auto-populated from a source field via a transform.  Excluded from domain types. Used for Firestore search indexes.')
 
 
 
 MessageOptions.model_rebuild()
+ComputedField.model_rebuild()
 FieldOptions.model_rebuild()
 
 __all__ = [
+    'ComputedField',
     'FieldOptions',
     'MessageOptions',
     'OptionalBool',

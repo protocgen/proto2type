@@ -83,7 +83,8 @@ data class User(
     @SerialName("old_field") val oldField: String = "",
     @SerialName("optional_name") val optionalName: String = "",
     @SerialName("big_number") val bigNumber: Long = 0L,
-    val handle: String = ""
+    val handle: String = "",
+    @SerialName("display_name_lower") val displayNameLower: String = ""
 )
 
 private val RE_USER_EMAIL_EMAIL = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")

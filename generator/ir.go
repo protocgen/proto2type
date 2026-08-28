@@ -160,6 +160,8 @@ type DomainMessage struct {
 	HasNonSyntheticOneof bool
 	// HasEncryptedFields is true when at least one field has (proto2type.field).encrypt = true.
 	HasEncryptedFields bool
+	// HasComputedFields is true when at least one field has (proto2type.field).computed set.
+	HasComputedFields bool
 }
 
 // DomainField is the IR for a single message field.
@@ -234,6 +236,10 @@ type DomainField struct {
 	// Encrypt is true when (proto2type.field).encrypt = true.
 	// Only valid for string fields. Generates EncryptFields/DecryptFields on storage types.
 	Encrypt bool
+	// Computed holds the computed/derived field config when (proto2type.field).computed is set.
+	// nil means not a computed field. Computed fields are excluded from domain types
+	// and auto-populated in FromDomain() from the source field via the transform.
+	Computed *ComputedFieldIR
 	// Proto2DefaultValue is the string representation of a proto2 custom default.
 	// Empty for proto3 fields (which always use zero-value defaults).
 	// TODO: Wire into TS/Go/Rust backends when proto2 support is needed.
@@ -274,6 +280,16 @@ type DomainField struct {
 	// ProtoMessageGoIdent is the protogen.GoIdent for message types.
 	// Used for QualifiedGoIdent to resolve e.g. pb.Tag.
 	ProtoMessageGoIdent protogen.GoIdent
+}
+
+// ComputedFieldIR holds the configuration for a computed/derived field.
+type ComputedFieldIR struct {
+	// Source is the snake_case name of the source field.
+	Source string
+	// SourcePascal is the PascalCase name of the source field (for Go codegen).
+	SourcePascal string
+	// Transform is the transform to apply ("lower", "upper").
+	Transform string
 }
 
 // MapTypeInfo captures the kind and type name of a map key or value.

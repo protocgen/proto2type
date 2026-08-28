@@ -168,6 +168,7 @@ pub struct User {
     pub big_number: i64,
     #[validate(custom(function = "validate_user_handle"))]
     pub handle: String,
+    pub display_name_lower: String,
 }
 
 lazy_static! {

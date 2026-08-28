@@ -133,6 +133,9 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options,
 		if df.Encrypt {
 			dm.HasEncryptedFields = true
 		}
+		if df.Computed != nil {
+			dm.HasComputedFields = true
+		}
 		dm.Fields = append(dm.Fields, df)
 	}
 
@@ -196,6 +199,15 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 	// Populate proto2 custom default value (if present).
 	if field.Desc.HasDefault() {
 		df.Proto2DefaultValue = field.Desc.Default().String()
+	}
+
+	// Populate computed field config.
+	if cf := getComputedField(field); cf != nil && cf.Source != "" && cf.Transform != "" {
+		df.Computed = &ComputedFieldIR{
+			Source:       cf.Source,
+			SourcePascal: toPascalCase(cf.Source),
+			Transform:    cf.Transform,
+		}
 	}
 
 	df.ProtoGoName = field.GoName

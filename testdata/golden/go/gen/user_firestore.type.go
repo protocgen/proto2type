@@ -13,6 +13,7 @@ import (
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 	log "log"
+	strings "strings"
 )
 
 import "time"
@@ -44,29 +45,30 @@ type UserFirestore struct {
 	Nickname       *string           `firestore:"nickname,omitempty"`
 	Status         int32             `firestore:"status,omitempty"`
 	// oneof: contact_method
-	ContactEmail    *string                   `firestore:"contact_email,omitempty"`
-	ContactPhone    *string                   `firestore:"contact_phone,omitempty"`
-	Tags            []*TagFirestore           `firestore:"tags,omitempty"`
-	DeletedAt       time.Time                 `firestore:"deleted_at,omitempty"`
-	PreviousStatus  int32                     `firestore:"previous_status,omitempty"`
-	UpdateMask      []string                  `firestore:"update_mask,omitempty"`
-	ExtraMetadata   map[string]any            `firestore:"extra_metadata,omitempty"`
-	Preferences     []any                     `firestore:"preferences,omitempty"`
-	AvatarThumbnail *[]byte                   `firestore:"avatar_thumbnail,omitempty"`
-	FieldMasks      [][]string                `firestore:"field_masks,omitempty"`
-	Structs         []map[string]any          `firestore:"structs,omitempty"`
-	Lists           [][]any                   `firestore:"lists,omitempty"`
-	EventTimes      map[string]time.Time      `firestore:"event_times,omitempty"`
-	Configs         map[string]map[string]any `firestore:"configs,omitempty"`
-	SingleValue     any                       `firestore:"single_value,omitempty"`
-	Values          []any                     `firestore:"values,omitempty"`
-	ValueMap        map[string]any            `firestore:"value_map,omitempty"`
-	Labels          map[string]*string        `firestore:"labels,omitempty"`
-	Scores          map[string]*int64         `firestore:"scores,omitempty"`
-	OldField        string                    `firestore:"old_field,omitempty"`
-	OptionalName    string                    `firestore:"optional_name,omitempty"`
-	BigNumber       int64                     `firestore:"big_number,omitempty"`
-	Handle          string                    `firestore:"handle,omitempty"`
+	ContactEmail     *string                   `firestore:"contact_email,omitempty"`
+	ContactPhone     *string                   `firestore:"contact_phone,omitempty"`
+	Tags             []*TagFirestore           `firestore:"tags,omitempty"`
+	DeletedAt        time.Time                 `firestore:"deleted_at,omitempty"`
+	PreviousStatus   int32                     `firestore:"previous_status,omitempty"`
+	UpdateMask       []string                  `firestore:"update_mask,omitempty"`
+	ExtraMetadata    map[string]any            `firestore:"extra_metadata,omitempty"`
+	Preferences      []any                     `firestore:"preferences,omitempty"`
+	AvatarThumbnail  *[]byte                   `firestore:"avatar_thumbnail,omitempty"`
+	FieldMasks       [][]string                `firestore:"field_masks,omitempty"`
+	Structs          []map[string]any          `firestore:"structs,omitempty"`
+	Lists            [][]any                   `firestore:"lists,omitempty"`
+	EventTimes       map[string]time.Time      `firestore:"event_times,omitempty"`
+	Configs          map[string]map[string]any `firestore:"configs,omitempty"`
+	SingleValue      any                       `firestore:"single_value,omitempty"`
+	Values           []any                     `firestore:"values,omitempty"`
+	ValueMap         map[string]any            `firestore:"value_map,omitempty"`
+	Labels           map[string]*string        `firestore:"labels,omitempty"`
+	Scores           map[string]*int64         `firestore:"scores,omitempty"`
+	OldField         string                    `firestore:"old_field,omitempty"`
+	OptionalName     string                    `firestore:"optional_name,omitempty"`
+	BigNumber        int64                     `firestore:"big_number,omitempty"`
+	Handle           string                    `firestore:"handle,omitempty"`
+	DisplayNameLower string                    `firestore:"display_name_lower,omitempty"` // computed: lower(display_name)
 }
 
 // ToProto converts to the protobuf message.
@@ -75,18 +77,19 @@ func (u *UserFirestore) ToProto() *pb.User {
 		return nil
 	}
 	out := &pb.User{
-		Id:           u.ID,
-		Email:        u.Email,
-		DisplayName:  u.DisplayName,
-		Active:       u.Active,
-		Age:          u.Age,
-		Roles:        u.Roles,
-		Metadata:     u.Metadata,
-		Status:       pb.UserStatus(u.Status),
-		OldField:     u.OldField,
-		OptionalName: u.OptionalName,
-		BigNumber:    u.BigNumber,
-		Handle:       u.Handle,
+		Id:               u.ID,
+		Email:            u.Email,
+		DisplayName:      u.DisplayName,
+		Active:           u.Active,
+		Age:              u.Age,
+		Roles:            u.Roles,
+		Metadata:         u.Metadata,
+		Status:           pb.UserStatus(u.Status),
+		OldField:         u.OldField,
+		OptionalName:     u.OptionalName,
+		BigNumber:        u.BigNumber,
+		Handle:           u.Handle,
+		DisplayNameLower: u.DisplayNameLower,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -256,18 +259,19 @@ func (u *UserFirestore) TryToProto() (*pb.User, error) {
 		return nil, nil
 	}
 	out := &pb.User{
-		Id:           u.ID,
-		Email:        u.Email,
-		DisplayName:  u.DisplayName,
-		Active:       u.Active,
-		Age:          u.Age,
-		Roles:        u.Roles,
-		Metadata:     u.Metadata,
-		Status:       pb.UserStatus(u.Status),
-		OldField:     u.OldField,
-		OptionalName: u.OptionalName,
-		BigNumber:    u.BigNumber,
-		Handle:       u.Handle,
+		Id:               u.ID,
+		Email:            u.Email,
+		DisplayName:      u.DisplayName,
+		Active:           u.Active,
+		Age:              u.Age,
+		Roles:            u.Roles,
+		Metadata:         u.Metadata,
+		Status:           pb.UserStatus(u.Status),
+		OldField:         u.OldField,
+		OptionalName:     u.OptionalName,
+		BigNumber:        u.BigNumber,
+		Handle:           u.Handle,
+		DisplayNameLower: u.DisplayNameLower,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -606,6 +610,7 @@ func (u *UserFirestore) FromProto(msg *pb.User) {
 	u.OptionalName = msg.OptionalName
 	u.BigNumber = msg.BigNumber
 	u.Handle = msg.Handle
+	u.DisplayNameLower = msg.DisplayNameLower
 }
 
 // ToDomain converts to the domain type.
@@ -738,6 +743,8 @@ func (u *UserFirestore) FromDomain(d *User) {
 	u.OptionalName = d.OptionalName
 	u.BigNumber = d.BigNumber
 	u.Handle = d.Handle
+	// Computed fields
+	u.DisplayNameLower = strings.ToLower(d.DisplayName)
 }
 
 // EncryptFields encrypts all fields annotated with (proto2type.field).encrypt = true.

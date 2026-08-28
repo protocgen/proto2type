@@ -85,6 +85,7 @@ pub struct UserRow {
     pub optional_name: String,
     pub big_number: i64,
     pub handle: String,
+    pub display_name_lower: String,
 }
 
 impl UserRow {
@@ -127,6 +128,7 @@ impl UserRow {
             optional_name: row.get::<_, String>("optional_name")?,
             big_number: row.get::<_, i64>("big_number")?,
             handle: row.get::<_, String>("handle")?,
+            display_name_lower: row.get::<_, String>("display_name_lower")?,
         })
     }
 
@@ -169,6 +171,7 @@ impl UserRow {
             optional_name: self.optional_name.clone(),
             big_number: self.big_number,
             handle: self.handle.clone(),
+            display_name_lower: self.display_name_lower.clone(),
         })
     }
 
@@ -211,6 +214,7 @@ impl UserRow {
             optional_name: self.optional_name,
             big_number: self.big_number,
             handle: self.handle,
+            display_name_lower: self.display_name_lower,
         })
     }
 
@@ -253,6 +257,7 @@ impl UserRow {
             optional_name: d.optional_name.clone(),
             big_number: d.big_number,
             handle: d.handle.clone(),
+            display_name_lower: d.display_name_lower.clone(),
         })
     }
 }

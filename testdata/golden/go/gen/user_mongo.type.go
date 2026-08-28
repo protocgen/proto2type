@@ -13,6 +13,7 @@ import (
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 	log "log"
+	strings "strings"
 )
 
 import "time"
@@ -34,29 +35,30 @@ type UserMongo struct {
 	Nickname       *string           `bson:"nickname,omitempty"`
 	Status         int32             `bson:"status,omitempty"`
 	// oneof: contact_method
-	ContactEmail    *string                   `bson:"contact_email,omitempty"`
-	ContactPhone    *string                   `bson:"contact_phone,omitempty"`
-	Tags            []*TagMongo               `bson:"tags,omitempty"`
-	DeletedAt       time.Time                 `bson:"deleted_at,omitempty"`
-	PreviousStatus  int32                     `bson:"previous_status,omitempty"`
-	UpdateMask      []string                  `bson:"update_mask,omitempty"`
-	ExtraMetadata   map[string]any            `bson:"extra_metadata,omitempty"`
-	Preferences     []any                     `bson:"preferences,omitempty"`
-	AvatarThumbnail *[]byte                   `bson:"avatar_thumbnail,omitempty"`
-	FieldMasks      [][]string                `bson:"field_masks,omitempty"`
-	Structs         []map[string]any          `bson:"structs,omitempty"`
-	Lists           [][]any                   `bson:"lists,omitempty"`
-	EventTimes      map[string]time.Time      `bson:"event_times,omitempty"`
-	Configs         map[string]map[string]any `bson:"configs,omitempty"`
-	SingleValue     any                       `bson:"single_value,omitempty"`
-	Values          []any                     `bson:"values,omitempty"`
-	ValueMap        map[string]any            `bson:"value_map,omitempty"`
-	Labels          map[string]*string        `bson:"labels,omitempty"`
-	Scores          map[string]*int64         `bson:"scores,omitempty"`
-	OldField        string                    `bson:"old_field,omitempty"`
-	OptionalName    string                    `bson:"optional_name,omitempty"`
-	BigNumber       int64                     `bson:"big_number,omitempty"`
-	Handle          string                    `bson:"handle,omitempty"`
+	ContactEmail     *string                   `bson:"contact_email,omitempty"`
+	ContactPhone     *string                   `bson:"contact_phone,omitempty"`
+	Tags             []*TagMongo               `bson:"tags,omitempty"`
+	DeletedAt        time.Time                 `bson:"deleted_at,omitempty"`
+	PreviousStatus   int32                     `bson:"previous_status,omitempty"`
+	UpdateMask       []string                  `bson:"update_mask,omitempty"`
+	ExtraMetadata    map[string]any            `bson:"extra_metadata,omitempty"`
+	Preferences      []any                     `bson:"preferences,omitempty"`
+	AvatarThumbnail  *[]byte                   `bson:"avatar_thumbnail,omitempty"`
+	FieldMasks       [][]string                `bson:"field_masks,omitempty"`
+	Structs          []map[string]any          `bson:"structs,omitempty"`
+	Lists            [][]any                   `bson:"lists,omitempty"`
+	EventTimes       map[string]time.Time      `bson:"event_times,omitempty"`
+	Configs          map[string]map[string]any `bson:"configs,omitempty"`
+	SingleValue      any                       `bson:"single_value,omitempty"`
+	Values           []any                     `bson:"values,omitempty"`
+	ValueMap         map[string]any            `bson:"value_map,omitempty"`
+	Labels           map[string]*string        `bson:"labels,omitempty"`
+	Scores           map[string]*int64         `bson:"scores,omitempty"`
+	OldField         string                    `bson:"old_field,omitempty"`
+	OptionalName     string                    `bson:"optional_name,omitempty"`
+	BigNumber        int64                     `bson:"big_number,omitempty"`
+	Handle           string                    `bson:"handle,omitempty"`
+	DisplayNameLower string                    `bson:"display_name_lower,omitempty"`
 }
 
 // ToProto converts to the protobuf message.
@@ -65,18 +67,19 @@ func (u *UserMongo) ToProto() *pb.User {
 		return nil
 	}
 	out := &pb.User{
-		Id:           u.ID,
-		Email:        u.Email,
-		DisplayName:  u.DisplayName,
-		Active:       u.Active,
-		Age:          u.Age,
-		Roles:        u.Roles,
-		Metadata:     u.Metadata,
-		Status:       pb.UserStatus(u.Status),
-		OldField:     u.OldField,
-		OptionalName: u.OptionalName,
-		BigNumber:    u.BigNumber,
-		Handle:       u.Handle,
+		Id:               u.ID,
+		Email:            u.Email,
+		DisplayName:      u.DisplayName,
+		Active:           u.Active,
+		Age:              u.Age,
+		Roles:            u.Roles,
+		Metadata:         u.Metadata,
+		Status:           pb.UserStatus(u.Status),
+		OldField:         u.OldField,
+		OptionalName:     u.OptionalName,
+		BigNumber:        u.BigNumber,
+		Handle:           u.Handle,
+		DisplayNameLower: u.DisplayNameLower,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -246,18 +249,19 @@ func (u *UserMongo) TryToProto() (*pb.User, error) {
 		return nil, nil
 	}
 	out := &pb.User{
-		Id:           u.ID,
-		Email:        u.Email,
-		DisplayName:  u.DisplayName,
-		Active:       u.Active,
-		Age:          u.Age,
-		Roles:        u.Roles,
-		Metadata:     u.Metadata,
-		Status:       pb.UserStatus(u.Status),
-		OldField:     u.OldField,
-		OptionalName: u.OptionalName,
-		BigNumber:    u.BigNumber,
-		Handle:       u.Handle,
+		Id:               u.ID,
+		Email:            u.Email,
+		DisplayName:      u.DisplayName,
+		Active:           u.Active,
+		Age:              u.Age,
+		Roles:            u.Roles,
+		Metadata:         u.Metadata,
+		Status:           pb.UserStatus(u.Status),
+		OldField:         u.OldField,
+		OptionalName:     u.OptionalName,
+		BigNumber:        u.BigNumber,
+		Handle:           u.Handle,
+		DisplayNameLower: u.DisplayNameLower,
 	}
 	if u.Address != nil {
 		out.Address = u.Address.ToProto()
@@ -596,6 +600,7 @@ func (u *UserMongo) FromProto(msg *pb.User) {
 	u.OptionalName = msg.OptionalName
 	u.BigNumber = msg.BigNumber
 	u.Handle = msg.Handle
+	u.DisplayNameLower = msg.DisplayNameLower
 }
 
 // ToDomain converts to the domain type.
@@ -728,6 +733,8 @@ func (u *UserMongo) FromDomain(d *User) {
 	u.OptionalName = d.OptionalName
 	u.BigNumber = d.BigNumber
 	u.Handle = d.Handle
+	// Computed fields
+	u.DisplayNameLower = strings.ToLower(d.DisplayName)
 }
 
 // AddressMongo is the MongoDB storage representation of test.v1.Address.
