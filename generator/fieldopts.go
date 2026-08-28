@@ -6,6 +6,7 @@ import (
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
 
 	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
@@ -135,4 +136,36 @@ func isEnumAsString(field *protogen.Field, opts *Options) bool {
 	}
 	// Fallback to global option.
 	return opts != nil && opts.EnumAsString
+}
+
+// isFieldEncrypted returns true if the field is marked for application-level encryption.
+func isFieldEncrypted(field *protogen.Field) bool {
+	fo := getFieldOptions(field)
+	return fo != nil && fo.Encrypt
+}
+
+// validateEncrypt returns true only if the field has encrypt=true AND is a valid
+// candidate for encryption (non-repeated, non-map, string scalar, not a DocID).
+// Invalid combinations are silently ignored — the annotation has no effect.
+func validateEncrypt(field *protogen.Field) bool {
+	if !isFieldEncrypted(field) {
+		return false
+	}
+	// Only string fields are supported for v1 encryption.
+	if field.Desc.Kind() != protoreflect.StringKind {
+		return false
+	}
+	// Repeated and map fields are not supported.
+	if field.Desc.IsList() || field.Desc.IsMap() {
+		return false
+	}
+	// Message fields (e.g. wrappers) are not supported.
+	if field.Desc.Message() != nil {
+		return false
+	}
+	// DocID fields are excluded from the Firestore struct — can't encrypt what's not there.
+	if isDocumentID(field) {
+		return false
+	}
+	return true
 }

@@ -15,11 +15,16 @@ type goGenerator struct {
 	// deepCopyValue helper emitted, preventing redeclaration when multiple
 	// proto files map to the same Go package.
 	emittedDeepCopyHelper map[protogen.GoImportPath]bool
+	// emittedEncryptor tracks Go packages that have already had the Encryptor
+	// interface emitted, preventing redeclaration when multiple proto files
+	// with encrypted fields share a Go package.
+	emittedEncryptor map[protogen.GoImportPath]bool
 }
 
 func newGoGenerator() *goGenerator {
 	return &goGenerator{
 		emittedDeepCopyHelper: make(map[protogen.GoImportPath]bool),
+		emittedEncryptor:      make(map[protogen.GoImportPath]bool),
 	}
 }
 
@@ -36,7 +41,7 @@ func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opt
 	if opts.Backend != "" {
 		switch opts.Backend {
 		case "firestore":
-			return generateGoFirestore(gen, file, opts)
+			return gg.generateGoFirestore(gen, file, opts)
 		case "mongo":
 			return generateGoMongo(gen, file, opts)
 		default:

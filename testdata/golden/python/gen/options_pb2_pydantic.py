@@ -29,6 +29,7 @@ class FieldOptions(BaseModel):
     omitempty: OptionalBool | None = Field(default=None, description='Force omitempty behavior.')
     inline: bool = Field(default=False, description='Flatten nested message fields into parent (Mongo: bson:\",inline\").')
     enum_as_string: OptionalBool | None = Field(default=None, description='Store this enum field as its string name instead of int32.  Per-field override for the global enum_as_string plugin option.')
+    encrypt: bool = Field(default=False, description='Field-level encryption: encrypt before storage write, decrypt after read.  Only valid for string fields. Generates EncryptFields/DecryptFields methods.')
 
 
 

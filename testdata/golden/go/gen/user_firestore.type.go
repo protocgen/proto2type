@@ -17,6 +17,16 @@ import (
 
 import "time"
 
+// Encryptor handles field-level encryption and decryption.
+// Implementations provide the cryptographic backend (AES-GCM, envelope encryption, KMS, etc.).
+type Encryptor interface {
+	// Encrypt encrypts plaintext. scope identifies the tenant/user for key derivation.
+	// fieldName is included as AAD to prevent ciphertext swapping between fields.
+	Encrypt(plaintext, scope, fieldName string) (string, error)
+	// Decrypt decrypts ciphertext with the same scope and fieldName used during encryption.
+	Decrypt(ciphertext, scope, fieldName string) (string, error)
+}
+
 // UserFirestore is the Firestore storage representation of test.v1.User.
 type UserFirestore struct {
 	ID             string            `firestore:"id,omitempty"`
@@ -29,7 +39,7 @@ type UserFirestore struct {
 	Address        *AddressFirestore `firestore:"address,omitempty"`
 	CreatedAt      time.Time         `firestore:"created_at,omitempty"`
 	SessionTimeout time.Duration     `firestore:"session_timeout,omitempty"`
-	Phone          *string           `firestore:"phone,omitempty"`
+	Phone          *string           `firestore:"phone,omitempty"` // encrypted
 	Avatar         []byte            `firestore:"avatar,omitempty"`
 	Nickname       *string           `firestore:"nickname,omitempty"`
 	Status         int32             `firestore:"status,omitempty"`
@@ -728,6 +738,38 @@ func (u *UserFirestore) FromDomain(d *User) {
 	u.OptionalName = d.OptionalName
 	u.BigNumber = d.BigNumber
 	u.Handle = d.Handle
+}
+
+// EncryptFields encrypts all fields annotated with (proto2type.field).encrypt = true.
+// scope is typically the owning user/tenant ID, used as AAD for key derivation.
+// Call exactly once before writing to storage. Calling twice will double-encrypt.
+func (u *UserFirestore) EncryptFields(enc Encryptor, scope string) error {
+	var err error
+	if u.Phone != nil && *u.Phone != "" {
+		var encrypted string
+		encrypted, err = enc.Encrypt(*u.Phone, scope, "phone")
+		if err != nil {
+			return fmt.Errorf("encrypting phone: %w", err)
+		}
+		u.Phone = &encrypted
+	}
+	return nil
+}
+
+// DecryptFields decrypts all fields annotated with (proto2type.field).encrypt = true.
+// scope must match the value used during encryption.
+// Call exactly once after reading from storage. Calling twice will corrupt data.
+func (u *UserFirestore) DecryptFields(enc Encryptor, scope string) error {
+	var err error
+	if u.Phone != nil && *u.Phone != "" {
+		var decrypted string
+		decrypted, err = enc.Decrypt(*u.Phone, scope, "phone")
+		if err != nil {
+			return fmt.Errorf("decrypting phone: %w", err)
+		}
+		u.Phone = &decrypted
+	}
+	return nil
 }
 
 // AddressFirestore is the Firestore storage representation of test.v1.Address.

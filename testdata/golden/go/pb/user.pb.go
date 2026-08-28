@@ -8,6 +8,7 @@ package pb
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	_ "github.com/protocgen/proto2type/proto/proto2type"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -649,7 +650,7 @@ var File_user_proto protoreflect.FileDescriptor
 const file_user_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\"\xf7\x12\n" +
+	"user.proto\x12\atest.v1\x1a\x1egoogle/protobuf/duration.proto\x1a google/protobuf/field_mask.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x18proto2type/options.proto\"\xfc\x12\n" +
 	"\x04User\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\x03R\x02id\x12 \n" +
 	"\x05email\x18\x02 \x01(\tB\n" +
@@ -666,8 +667,8 @@ const file_user_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampB\x03\xe0A\x03R\tcreatedAt\x12B\n" +
 	"\x0fsession_timeout\x18\n" +
-	" \x01(\v2\x19.google.protobuf.DurationR\x0esessionTimeout\x125\n" +
-	"\x05phone\x18\v \x01(\tB\x1a\xbaH\x17r\x15\x10\a\x18\x142\x0f^\\+?[0-9\\-\\s]+$H\x01R\x05phone\x88\x01\x01\x12\x16\n" +
+	" \x01(\v2\x19.google.protobuf.DurationR\x0esessionTimeout\x12:\n" +
+	"\x05phone\x18\v \x01(\tB\x1f\xbaH\x17r\x15\x10\a\x18\x142\x0f^\\+?[0-9\\-\\s]+$\xdaQ\x02@\x01H\x01R\x05phone\x88\x01\x01\x12\x16\n" +
 	"\x06avatar\x18\f \x01(\fR\x06avatar\x128\n" +
 	"\bnickname\x18\r \x01(\v2\x1c.google.protobuf.StringValueR\bnickname\x125\n" +
 	"\x06status\x18\x0e \x01(\x0e2\x13.test.v1.UserStatusB\b\xbaH\x05\x82\x01\x02\x10\x01R\x06status\x12.\n" +
