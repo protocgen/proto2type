@@ -28,6 +28,24 @@ func TestToLowerCamel(t *testing.T) {
 	}
 }
 
+func TestSanitizeGoParam(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"type", "type_"},
+		{"func", "func_"},
+		{"map", "map_"},
+		{"email", "email"},
+		{"displayName", "displayName"},
+	}
+	for _, tt := range tests {
+		got := sanitizeGoParam(tt.in)
+		if got != tt.want {
+			t.Errorf("sanitizeGoParam(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestFieldIsRequired(t *testing.T) {
 	tests := []struct {
 		name string

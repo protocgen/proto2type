@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"sort"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -14,9 +15,10 @@ import (
 // Fields are ordered by proto field number.
 func generateGoConstructor(g *protogen.GeneratedFile, dm *DomainMessage) {
 	type requiredParam struct {
-		paramName string // camelCase parameter name
-		fieldName string // PascalCase struct field name
-		fieldType string // Go type
+		paramName   string // sanitized lowerCamelCase parameter name
+		fieldName   string // PascalCase struct field name
+		fieldType   string // Go type
+		protoNumber int    // proto field number for stable ordering
 	}
 
 	var params []requiredParam
@@ -31,16 +33,23 @@ func generateGoConstructor(g *protogen.GeneratedFile, dm *DomainMessage) {
 		if f.IsOutputOnly() {
 			continue
 		}
+		paramName := sanitizeGoParam(toLowerCamel(f.PascalName))
 		params = append(params, requiredParam{
-			paramName: toLowerCamel(f.PascalName),
-			fieldName: f.PascalName,
-			fieldType: goDomainFieldTypeFromIR(f),
+			paramName:   paramName,
+			fieldName:   f.PascalName,
+			fieldType:   goDomainFieldTypeFromIR(f),
+			protoNumber: f.ProtoNumber,
 		})
 	}
 
 	if len(params) == 0 {
 		return
 	}
+
+	// Stable sort by proto field number.
+	sort.Slice(params, func(i, j int) bool {
+		return params[i].protoNumber < params[j].protoNumber
+	})
 
 	// Build parameter list: "email string, displayName string"
 	var paramParts []string
@@ -69,6 +78,24 @@ func fieldIsRequired(f *DomainField) bool {
 		return true
 	}
 	return false
+}
+
+// goKeywords is the set of Go reserved words that cannot be used as identifiers.
+var goKeywords = map[string]bool{
+	"break": true, "case": true, "chan": true, "const": true, "continue": true,
+	"default": true, "defer": true, "else": true, "fallthrough": true, "for": true,
+	"func": true, "go": true, "goto": true, "if": true, "import": true,
+	"interface": true, "map": true, "package": true, "range": true, "return": true,
+	"select": true, "struct": true, "switch": true, "type": true, "var": true,
+}
+
+// sanitizeGoParam appends an underscore to Go keywords to produce valid identifiers.
+// e.g. "type" → "type_", "func" → "func_"
+func sanitizeGoParam(name string) string {
+	if goKeywords[name] {
+		return name + "_"
+	}
+	return name
 }
 
 // toLowerCamel converts a PascalCase name to lowerCamelCase.
