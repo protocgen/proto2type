@@ -196,6 +196,9 @@ func rustCustomValidateFuncName(messageName string, f *DomainField) string {
 // by #[validate(custom(function = "..."))] attributes.
 func rustEmitCustomValidateFuncs(g *protogen.GeneratedFile, dm *DomainMessage, df *DomainFile) {
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof || !rustFieldHasCustomConstraints(f) {
 			continue
 		}
@@ -431,6 +434,9 @@ func rustEmitRegexConstants(g *protogen.GeneratedFile, dm *DomainMessage) {
 	}
 
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		vc := f.ValidateConstraints
 		if vc == nil {
 			continue

@@ -123,6 +123,9 @@ func writeTSFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, gener
 func irHasRegexConstraint(ir *DomainFile) bool {
 	for _, m := range ir.Messages {
 		for _, f := range m.Fields {
+			if f.Computed != nil {
+				continue
+			}
 			if f.ValidateConstraints != nil && f.ValidateConstraints.Pattern != "" {
 				return true
 			}
@@ -142,6 +145,9 @@ func irHasRegexConstraint(ir *DomainFile) bool {
 // indicating a recursive type cycle.
 func isRecursive(m *DomainMessage) bool {
 	for _, f := range m.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.NeedsBox {
 			return true
 		}
@@ -190,6 +196,9 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 		// For recursive types: emit a manual type alias first, then use z.lazy().
 		g.P("export type ", m.Name, " = {")
 		for _, f := range m.Fields {
+			if f.Computed != nil {
+				continue
+			}
 			if f.FieldSkip || f.IsOneof {
 				continue
 			}
@@ -229,6 +238,9 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 
 	// Emit regular fields.
 	for _, f := range m.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.FieldSkip || f.IsOneof {
 			continue
 		}

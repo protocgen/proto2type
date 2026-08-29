@@ -147,6 +147,9 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 	var docIDFieldName string
 	var docIDField *protogen.Field // kept for converter signature compat
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.DocID {
 			docIDFieldName = f.Name
 			break
@@ -164,6 +167,9 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 	// Build a lookup from proto field name to NeedsBox flag.
 	needsBoxMap := make(map[string]bool)
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		needsBoxMap[f.Name] = f.NeedsBox
 	}
 
@@ -173,6 +179,9 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 	g.P("pub struct ", rowName, " {")
 
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			// Oneof stored as JSON string
 			rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
@@ -201,6 +210,9 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 	g.P("        Ok(Self {")
 
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
 			g.P("            ", rustFieldName, ": row.get(\"", f.Name, "\")?,")
@@ -241,6 +253,9 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 			continue
 		}
 		if isFieldSkipped(field) {
+			continue
+		}
+		if getComputedField(field) != nil {
 			continue
 		}
 
@@ -285,6 +300,9 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 		if isFieldSkipped(field) {
 			continue
 		}
+		if getComputedField(field) != nil {
+			continue
+		}
 
 		protoName := string(field.Desc.Name())
 		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
@@ -320,6 +338,9 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 			continue
 		}
 		if isFieldSkipped(field) {
+			continue
+		}
+		if getComputedField(field) != nil {
 			continue
 		}
 		if isDocumentID(field) {

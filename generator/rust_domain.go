@@ -127,6 +127,9 @@ func irScanRustImports(dm *DomainMessage, needsChrono, needsHashMap *bool) {
 		return
 	}
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.Kind == FieldKindTimestamp {
 			*needsChrono = true
 		}
@@ -156,6 +159,9 @@ func irScanRustValidation(dm *DomainMessage, needsLazyStatic *bool) {
 		return
 	}
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.ValidateConstraints != nil {
 			// Pattern, UUID require regex + lazy_static
 			if f.ValidateConstraints.Pattern != "" || f.ValidateConstraints.UUID {
@@ -440,6 +446,9 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 
 	// Emit fields (including interleaved oneof placeholders)
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
 			g.P("    #[serde(default, skip_serializing_if = \"Option::is_none\")]")

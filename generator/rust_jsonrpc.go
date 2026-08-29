@@ -108,6 +108,9 @@ func isJsonrpcEligible(dm *DomainMessage) bool {
 	// All non-oneof fields must be simple (scalar, optional scalar, enum,
 	// or well-known scalar-like types such as Timestamp/Duration).
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -126,6 +129,9 @@ func isJsonrpcEligible(dm *DomainMessage) bool {
 func jsonrpcScanImports(dm *DomainMessage, msgMap map[string]*DomainMessage, needsSerdeJson, needsChrono *bool) {
 	// Scan hoisted fields.
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -169,6 +175,9 @@ func generateRustJsonrpcEnum(g *protogen.GeneratedFile, dm *DomainMessage, msgMa
 	// Collect hoisted fields (non-oneof fields from the parent message).
 	var hoistedFields []*DomainField
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if !f.IsOneof {
 			hoistedFields = append(hoistedFields, f)
 		}

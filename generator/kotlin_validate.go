@@ -37,6 +37,9 @@ func generateKotlinValidate(g *protogen.GeneratedFile, df *DomainFile, msg *Doma
 	g.P("    val errors = mutableListOf<String>()")
 
 	for _, f := range msg.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		vc := f.ValidateConstraints
 		if vc == nil || !vc.HasConstraints() {
 			continue
@@ -251,6 +254,9 @@ func generateKotlinValidate(g *protogen.GeneratedFile, df *DomainFile, msg *Doma
 	// All proto3 message fields are nullable in Kotlin (Type? = null), so use safe calls.
 	// Consistent with Rust's #[validate(nested)].
 	for _, f := range msg.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.Kind != FieldKindMessage || f.IsMap || f.IsOneof {
 			continue
 		}
@@ -409,6 +415,9 @@ func escapeKotlinStringLiteral(s string) string {
 
 func kotlinEmitRegexConstants(g *protogen.GeneratedFile, msg *DomainMessage) {
 	for _, f := range msg.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		vc := f.ValidateConstraints
 		if vc == nil || !vc.HasConstraints() {
 			continue

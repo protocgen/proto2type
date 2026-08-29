@@ -99,7 +99,6 @@ impl TryFrom<&User> for __buffa_mod::User {
         b.optional_name = d.optional_name.clone().into();
         b.big_number = d.big_number;
         b.handle = d.handle.clone().into();
-        b.display_name_lower = d.display_name_lower.clone().into();
         Ok(b)
     }
 }
@@ -154,7 +153,6 @@ impl TryFrom<&__buffa_mod::User> for User {
         d.optional_name = b.optional_name.to_string();
         d.big_number = b.big_number;
         d.handle = b.handle.to_string();
-        d.display_name_lower = b.display_name_lower.to_string();
         Ok(d)
     }
 }

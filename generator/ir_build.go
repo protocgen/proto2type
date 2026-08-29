@@ -139,6 +139,31 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options,
 		dm.Fields = append(dm.Fields, df)
 	}
 
+	// Post-build: validate computed fields reference existing string source fields.
+	fieldByName := make(map[string]*DomainField, len(dm.Fields))
+	for _, f := range dm.Fields {
+		fieldByName[f.Name] = f
+	}
+	for _, f := range dm.Fields {
+		if f.Computed == nil {
+			continue
+		}
+		src, ok := fieldByName[f.Computed.Source]
+		if !ok || src.Computed != nil || src.Kind != FieldKindScalar ||
+			src.ScalarKind != protoreflect.StringKind || src.Repeated || src.IsMap {
+			// Invalid source — clear computed annotation.
+			f.Computed = nil
+		}
+	}
+	// Recompute HasComputedFields after validation.
+	dm.HasComputedFields = false
+	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			dm.HasComputedFields = true
+			break
+		}
+	}
+
 	// Nested messages (skip synthetic map-entry messages).
 	for _, nested := range msg.Messages {
 		if nested.Desc.IsMapEntry() {
@@ -203,10 +228,25 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 
 	// Populate computed field config.
 	if cf := getComputedField(field); cf != nil && cf.Source != "" && cf.Transform != "" {
-		df.Computed = &ComputedFieldIR{
-			Source:       cf.Source,
-			SourcePascal: toPascalCase(cf.Source),
-			Transform:    cf.Transform,
+		switch cf.Transform {
+		case "lower", "upper":
+			// supported
+		default:
+			// Unsupported transform — silently ignore the annotation.
+			cf = nil
+		}
+		if cf != nil {
+			// Reject self-referencing computed fields.
+			if cf.Source == protoName {
+				cf = nil
+			}
+		}
+		if cf != nil {
+			df.Computed = &ComputedFieldIR{
+				Source:       cf.Source,
+				SourcePascal: toPascalCase(cf.Source),
+				Transform:    cf.Transform,
+			}
 		}
 	}
 
