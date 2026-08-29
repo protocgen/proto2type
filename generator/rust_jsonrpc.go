@@ -155,6 +155,9 @@ func jsonrpcScanImports(dm *DomainMessage, msgMap map[string]*DomainMessage, nee
 		if v.Kind == FieldKindMessage {
 			if variantMsg := msgMap[v.TypeName]; variantMsg != nil {
 				for _, f := range variantMsg.Fields {
+					if f.Computed != nil {
+						continue
+					}
 					if f.Kind == FieldKindTimestamp {
 						*needsChrono = true
 					}
@@ -217,6 +220,9 @@ func generateRustJsonrpcEnum(g *protogen.GeneratedFile, dm *DomainMessage, msgMa
 			variantMsg := msgMap[v.TypeName]
 			if variantMsg != nil {
 				for _, vf := range variantMsg.Fields {
+					if vf.Computed != nil {
+						continue
+					}
 					// Skip inlined fields that collide with hoisted fields.
 					fieldName := escapeRustKeyword(toSnakeCase(vf.PascalName))
 					if hoistedNames[fieldName] {
