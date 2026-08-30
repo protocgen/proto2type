@@ -168,6 +168,10 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options,
 			return nil, fmt.Errorf("proto2type: computed field %q in %s: source %q must not be repeated or map",
 				f.Name, dm.FullName, f.Computed.Source)
 		}
+		if src.Optional {
+			return nil, fmt.Errorf("proto2type: computed field %q in %s: source %q must not be optional (pointer types unsupported)",
+				f.Name, dm.FullName, f.Computed.Source)
+		}
 	}
 
 	// Nested messages (skip synthetic map-entry messages).
