@@ -18,6 +18,9 @@ func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
 	g.P("\t\tswitch path {")
 
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			// Emit a case for each oneof variant
 			oneof := findOneof(dm, f.OneofTypeName)

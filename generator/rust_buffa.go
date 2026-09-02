@@ -210,6 +210,9 @@ func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg 
 	g.P("        let mut b = Self::default();")
 
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
 
 		if f.IsOneof {
@@ -241,6 +244,9 @@ func generateRustBuffaMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg 
 	g.P("        let mut d = Self::default();")
 
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
 
 		if f.IsOneof {

@@ -107,6 +107,9 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 // scanKotlinImports recursively scans a DomainMessage for import requirements.
 func scanKotlinImports(msg *DomainMessage, needsSerialName, needsInstant, needsDuration, needsJsonTypes *bool) {
 	for _, f := range msg.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		scanKotlinFieldImports(f, needsSerialName, needsInstant, needsDuration, needsJsonTypes)
 	}
 
@@ -264,6 +267,9 @@ func writeKotlinMessage(g *protogen.GeneratedFile, msg *DomainMessage) {
 	var lines []fieldLine
 
 	for _, f := range msg.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			camel := escapeKotlinKeyword(toCamelCase(f.Name))
 			typ := kotlinOneofFieldType(f.OneofTypeName)

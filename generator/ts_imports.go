@@ -34,6 +34,9 @@ func collectTSImports(ir *DomainFile, opts *Options, generatedPaths map[string]b
 
 	for _, m := range ir.Messages {
 		for _, f := range m.Fields {
+			if f.Computed != nil {
+				continue
+			}
 			if f.MessageSourcePath != "" {
 				addRef(f.MessageSourcePath, f.MessageTypeName)
 			}

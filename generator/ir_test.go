@@ -46,41 +46,42 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 
 	// Expected field kinds (excludes oneof members).
 	wantFields := map[string]FieldKind{
-		"id":               FieldKindScalar,
-		"email":            FieldKindScalar,
-		"display_name":     FieldKindScalar,
-		"active":           FieldKindScalar,
-		"age":              FieldKindScalar,
-		"roles":            FieldKindScalar,  // repeated scalar
-		"metadata":         FieldKindMessage, // map (outer kind is Message)
-		"address":          FieldKindMessage,
-		"created_at":       FieldKindTimestamp,
-		"session_timeout":  FieldKindDuration,
-		"phone":            FieldKindScalar, // optional string
-		"avatar":           FieldKindScalar, // bytes
-		"nickname":         FieldKindWrapperString,
-		"status":           FieldKindEnum,
-		"tags":             FieldKindMessage,   // repeated message
-		"deleted_at":       FieldKindTimestamp, // optional timestamp
-		"previous_status":  FieldKindEnum,      // optional enum
-		"update_mask":      FieldKindFieldMask, // WKT reference
-		"extra_metadata":   FieldKindStruct,    // WKT reference
-		"preferences":      FieldKindListValue, // WKT reference
-		"avatar_thumbnail": FieldKindScalar,    // optional bytes
-		"field_masks":      FieldKindFieldMask, // repeated WKT reference
-		"structs":          FieldKindStruct,    // repeated WKT reference
-		"lists":            FieldKindListValue, // repeated WKT reference
-		"event_times":      FieldKindMessage,   // map fields outer Kind=Message
-		"configs":          FieldKindMessage,   // map fields outer Kind=Message
-		"single_value":     FieldKindValue,     // singular Value (Issue #116)
-		"values":           FieldKindValue,     // repeated Value (Issue #116)
-		"value_map":        FieldKindMessage,   // map fields outer Kind=Message
-		"labels":           FieldKindMessage,   // map fields outer Kind=Message (wrapper map values)
-		"scores":           FieldKindMessage,   // map fields outer Kind=Message (wrapper map values)
-		"old_field":        FieldKindScalar,    // deprecated string
-		"optional_name":    FieldKindScalar,    // string with ignore_empty validation
-		"big_number":       FieldKindScalar,    // int64
-		"handle":           FieldKindScalar,    // string with ignore_empty + min_len + max_len + pattern
+		"id":                 FieldKindScalar,
+		"email":              FieldKindScalar,
+		"display_name":       FieldKindScalar,
+		"active":             FieldKindScalar,
+		"age":                FieldKindScalar,
+		"roles":              FieldKindScalar,  // repeated scalar
+		"metadata":           FieldKindMessage, // map (outer kind is Message)
+		"address":            FieldKindMessage,
+		"created_at":         FieldKindTimestamp,
+		"session_timeout":    FieldKindDuration,
+		"phone":              FieldKindScalar, // optional string
+		"avatar":             FieldKindScalar, // bytes
+		"nickname":           FieldKindWrapperString,
+		"status":             FieldKindEnum,
+		"tags":               FieldKindMessage,   // repeated message
+		"deleted_at":         FieldKindTimestamp, // optional timestamp
+		"previous_status":    FieldKindEnum,      // optional enum
+		"update_mask":        FieldKindFieldMask, // WKT reference
+		"extra_metadata":     FieldKindStruct,    // WKT reference
+		"preferences":        FieldKindListValue, // WKT reference
+		"avatar_thumbnail":   FieldKindScalar,    // optional bytes
+		"field_masks":        FieldKindFieldMask, // repeated WKT reference
+		"structs":            FieldKindStruct,    // repeated WKT reference
+		"lists":              FieldKindListValue, // repeated WKT reference
+		"event_times":        FieldKindMessage,   // map fields outer Kind=Message
+		"configs":            FieldKindMessage,   // map fields outer Kind=Message
+		"single_value":       FieldKindValue,     // singular Value (Issue #116)
+		"values":             FieldKindValue,     // repeated Value (Issue #116)
+		"value_map":          FieldKindMessage,   // map fields outer Kind=Message
+		"labels":             FieldKindMessage,   // map fields outer Kind=Message (wrapper map values)
+		"scores":             FieldKindMessage,   // map fields outer Kind=Message (wrapper map values)
+		"old_field":          FieldKindScalar,    // deprecated string
+		"optional_name":      FieldKindScalar,    // string with ignore_empty validation
+		"big_number":         FieldKindScalar,    // int64
+		"handle":             FieldKindScalar,    // string with ignore_empty + min_len + max_len + pattern
+		"display_name_lower": FieldKindScalar,    // computed: lower(display_name)
 	}
 
 	for _, f := range user.Fields {
@@ -100,6 +101,28 @@ func TestBuildDomainFile_UserFieldKinds(t *testing.T) {
 	}
 	for missing := range wantFields {
 		t.Errorf("expected field %q not found in IR", missing)
+	}
+
+	// Verify computed field metadata.
+	if !user.HasComputedFields {
+		t.Error("User.HasComputedFields = false, want true")
+	}
+	for _, f := range user.Fields {
+		if f.Name != "display_name_lower" {
+			continue
+		}
+		if f.Computed == nil {
+			t.Fatal("display_name_lower.Computed is nil, want non-nil")
+		}
+		if f.Computed.Source != "display_name" {
+			t.Errorf("Computed.Source = %q, want %q", f.Computed.Source, "display_name")
+		}
+		if f.Computed.SourcePascal != "DisplayName" {
+			t.Errorf("Computed.SourcePascal = %q, want %q", f.Computed.SourcePascal, "DisplayName")
+		}
+		if f.Computed.Transform != "lower" {
+			t.Errorf("Computed.Transform = %q, want %q", f.Computed.Transform, "lower")
+		}
 	}
 }
 

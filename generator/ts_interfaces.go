@@ -13,6 +13,9 @@ import (
 func writeTSExplicitInterface(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) {
 	g.P("export interface ", m.Name, " {")
 	for _, f := range m.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.FieldSkip || f.IsOneof {
 			continue
 		}

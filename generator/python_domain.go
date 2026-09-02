@@ -82,6 +82,9 @@ func scanPythonImportsMessage(m *DomainMessage, imps *pythonImports, opts *Optio
 	}
 	var hasTS, hasBytes bool
 	for _, f := range m.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		scanPythonImportsField(f, imps)
 		if f.Kind == FieldKindTimestamp {
 			hasTS = true
@@ -349,6 +352,9 @@ func writePythonModel(g *protogen.GeneratedFile, m *DomainMessage, opts *Options
 
 	// Regular fields.
 	for _, f := range m.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.FieldSkip {
 			continue
 		}
@@ -383,6 +389,9 @@ func writePythonModel(g *protogen.GeneratedFile, m *DomainMessage, opts *Options
 	// Timestamp field serializer.
 	var tsFields []string
 	for _, f := range m.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.Kind == FieldKindTimestamp && !f.FieldSkip {
 			name, _ := escapePythonKeyword(f.Name)
 			tsFields = append(tsFields, "'"+name+"'")
@@ -404,6 +413,9 @@ func writePythonModel(g *protogen.GeneratedFile, m *DomainMessage, opts *Options
 	// Bytes field serializer.
 	var bytesFields []string
 	for _, f := range m.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && !f.FieldSkip {
 			name, _ := escapePythonKeyword(f.Name)
 			bytesFields = append(bytesFields, "'"+name+"'")
@@ -421,6 +433,9 @@ func writePythonModel(g *protogen.GeneratedFile, m *DomainMessage, opts *Options
 	// IgnoreEmpty field validators — constraints that were skipped from Field()
 	// args are enforced here only when the value is non-zero.
 	for _, f := range m.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		vc := f.ValidateConstraints
 		if vc == nil || !vc.IgnoreEmpty || f.FieldSkip {
 			continue

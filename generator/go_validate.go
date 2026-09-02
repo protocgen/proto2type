@@ -100,6 +100,9 @@ func goEmitRegexVars(g *protogen.GeneratedFile, dm *DomainMessage) {
 	})
 
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		vc := f.ValidateConstraints
 		if vc == nil {
 			continue
@@ -129,6 +132,9 @@ func goEmitNativeFieldChecks(g *protogen.GeneratedFile, df *DomainFile, dm *Doma
 	})
 
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -448,6 +454,9 @@ func goEmitNativeNestedChecks(g *protogen.GeneratedFile, dm *DomainMessage, recv
 	})
 
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}

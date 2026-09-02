@@ -107,6 +107,8 @@ func generateGoFirestoreMessage(gen *protogen.Plugin, g *protogen.GeneratedFile,
 		comment := ""
 		if f.Encrypt {
 			comment = " // encrypted"
+		} else if f.Computed != nil {
+			comment = " // computed: " + f.Computed.Transform + "(" + f.Computed.Source + ")"
 		}
 
 		g.P("\t", fieldName, " ", fieldType, " `firestore:\"", fsTag, "\"`", comment)

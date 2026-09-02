@@ -144,6 +144,10 @@ func generateGoDomainMessage(g *protogen.GeneratedFile, df *DomainFile, dm *Doma
 	g.P("type ", name, " struct {")
 
 	for _, f := range dm.Fields {
+		// Computed fields are storage-only (Firestore indexes etc.) — skip from domain.
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			// Emit a comment and flattened variant fields
 			oneof := findOneof(dm, f.OneofTypeName)

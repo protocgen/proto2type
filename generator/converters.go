@@ -160,8 +160,13 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 	// Use "out" instead of "pb" to avoid shadowing the proto package import
 	// when QualifiedGoIdent resolves types like pb.Tag.
 	g.P("\tout := &", protoType, "{")
+	isDomain := structSuffix == ""
 	for _, f := range dm.Fields {
 		if f.IsOneof {
+			continue
+		}
+		// Computed fields are storage-only — skip from domain ToProto.
+		if f.Computed != nil && isDomain {
 			continue
 		}
 		// Skip document_id fields for Firestore (not in the struct)
@@ -224,6 +229,10 @@ func generateToProtoImpl(g *protogen.GeneratedFile, dm *DomainMessage, structSuf
 
 	// Handle well-known types and special fields outside the struct literal.
 	for _, f := range dm.Fields {
+		// Computed fields are storage-only — skip from domain ToProto.
+		if f.Computed != nil && isDomain {
+			continue
+		}
 		if f.IsOneof {
 			oneof := findOneof(dm, f.OneofTypeName)
 			for _, v := range oneof.Variants {
@@ -875,7 +884,12 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 	g.P("\t\treturn")
 	g.P("\t}")
 
+	isDomain := structSuffix == ""
 	for _, f := range dm.Fields {
+		// Computed fields are storage-only — skip from domain FromProto.
+		if f.Computed != nil && isDomain {
+			continue
+		}
 		if f.IsOneof {
 			oneof := findOneof(dm, f.OneofTypeName)
 			// Clear all variants so a reused receiver doesn't retain stale state.
@@ -1388,6 +1402,10 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 	g.P("\t}")
 	g.P("\td := &", domainType, "{")
 	for _, f := range dm.Fields {
+		// Computed fields are storage-only — not in domain type.
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			// Oneof variants: copy pointer fields directly unless they are
 			// message types (which need recursive conversion).
@@ -1434,7 +1452,7 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 
 	// Deep copy bytes fields (SEC-3)
 	for _, f := range dm.Fields {
-		if f.IsOneof {
+		if f.IsOneof || f.Computed != nil {
 			continue
 		}
 		if f.DocID && isFirestore {
@@ -1465,7 +1483,7 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 
 	// Handle optional timestamp/duration/enum: storage T -> domain *T
 	for _, f := range dm.Fields {
-		if f.IsOneof {
+		if f.IsOneof || f.Computed != nil {
 			continue
 		}
 		if f.DocID && isFirestore {
@@ -1489,6 +1507,9 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 
 	// Handle nested message fields with recursive conversion
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			// Handle oneof message variants with recursive conversion
 			oneof := findOneof(dm, f.OneofTypeName)
@@ -1547,6 +1568,10 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 	g.P("\t\treturn")
 	g.P("\t}")
 	for _, f := range dm.Fields {
+		// Computed fields don't exist on domain type — handled after base copies.
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			// Oneof variants: copy pointer fields directly, except message types
 			// which need recursive FromDomain conversion.
@@ -1632,6 +1657,18 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 			g.P("\t", recv, ".", fieldName, " = d.", fieldName)
 		}
 	}
+
+	// Populate computed/derived fields from their source fields.
+	if dm.HasComputedFields {
+		g.P("\t// Computed fields")
+		for _, f := range dm.Fields {
+			if f.Computed == nil {
+				continue
+			}
+			generateComputedAssignment(g, recv, f)
+		}
+	}
+
 	g.P("}")
 	g.P()
 }

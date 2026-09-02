@@ -108,6 +108,9 @@ func isJsonrpcEligible(dm *DomainMessage) bool {
 	// All non-oneof fields must be simple (scalar, optional scalar, enum,
 	// or well-known scalar-like types such as Timestamp/Duration).
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -126,6 +129,9 @@ func isJsonrpcEligible(dm *DomainMessage) bool {
 func jsonrpcScanImports(dm *DomainMessage, msgMap map[string]*DomainMessage, needsSerdeJson, needsChrono *bool) {
 	// Scan hoisted fields.
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof {
 			continue
 		}
@@ -149,6 +155,9 @@ func jsonrpcScanImports(dm *DomainMessage, msgMap map[string]*DomainMessage, nee
 		if v.Kind == FieldKindMessage {
 			if variantMsg := msgMap[v.TypeName]; variantMsg != nil {
 				for _, f := range variantMsg.Fields {
+					if f.Computed != nil {
+						continue
+					}
 					if f.Kind == FieldKindTimestamp {
 						*needsChrono = true
 					}
@@ -169,6 +178,9 @@ func generateRustJsonrpcEnum(g *protogen.GeneratedFile, dm *DomainMessage, msgMa
 	// Collect hoisted fields (non-oneof fields from the parent message).
 	var hoistedFields []*DomainField
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if !f.IsOneof {
 			hoistedFields = append(hoistedFields, f)
 		}
@@ -208,6 +220,9 @@ func generateRustJsonrpcEnum(g *protogen.GeneratedFile, dm *DomainMessage, msgMa
 			variantMsg := msgMap[v.TypeName]
 			if variantMsg != nil {
 				for _, vf := range variantMsg.Fields {
+					if vf.Computed != nil {
+						continue
+					}
 					// Skip inlined fields that collide with hoisted fields.
 					fieldName := escapeRustKeyword(toSnakeCase(vf.PascalName))
 					if hoistedNames[fieldName] {

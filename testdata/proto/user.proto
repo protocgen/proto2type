@@ -89,6 +89,12 @@ message User {
     (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE,
     (buf.validate.field).string = {min_len: 2, max_len: 50, pattern: "^[a-zA-Z0-9_]+$"}
   ];
+
+  // Computed field: lowercase display_name for case-insensitive Firestore queries.
+  string display_name_lower = 38 [(proto2type.field).computed = {
+    source: "display_name",
+    transform: "lower"
+  }];
 }
 
 // Address is a nested message.

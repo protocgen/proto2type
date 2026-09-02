@@ -126,14 +126,52 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options,
 			continue
 		}
 
-		df := buildDomainField(field, opts)
+		df, err := buildDomainField(field, opts)
+		if err != nil {
+			return nil, err
+		}
 		if df.DocID {
 			dm.HasDocID = true
 		}
 		if df.Encrypt {
 			dm.HasEncryptedFields = true
 		}
+		if df.Computed != nil {
+			dm.HasComputedFields = true
+		}
 		dm.Fields = append(dm.Fields, df)
+	}
+
+	// Post-build: validate computed fields reference existing string source fields.
+	fieldByName := make(map[string]*DomainField, len(dm.Fields))
+	for _, f := range dm.Fields {
+		fieldByName[f.Name] = f
+	}
+	for _, f := range dm.Fields {
+		if f.Computed == nil {
+			continue
+		}
+		src, ok := fieldByName[f.Computed.Source]
+		if !ok {
+			return nil, fmt.Errorf("proto2type: computed field %q in %s references unknown source %q",
+				f.Name, dm.FullName, f.Computed.Source)
+		}
+		if src.Computed != nil {
+			return nil, fmt.Errorf("proto2type: computed field %q in %s references another computed field %q",
+				f.Name, dm.FullName, f.Computed.Source)
+		}
+		if src.Kind != FieldKindScalar || src.ScalarKind != protoreflect.StringKind {
+			return nil, fmt.Errorf("proto2type: computed field %q in %s: source %q must be a string scalar",
+				f.Name, dm.FullName, f.Computed.Source)
+		}
+		if src.Repeated || src.IsMap {
+			return nil, fmt.Errorf("proto2type: computed field %q in %s: source %q must not be repeated or map",
+				f.Name, dm.FullName, f.Computed.Source)
+		}
+		if src.Optional {
+			return nil, fmt.Errorf("proto2type: computed field %q in %s: source %q must not be optional (pointer types unsupported)",
+				f.Name, dm.FullName, f.Computed.Source)
+		}
 	}
 
 	// Nested messages (skip synthetic map-entry messages).
@@ -154,7 +192,7 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options,
 }
 
 // buildDomainField builds the IR for a single field.
-func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
+func buildDomainField(field *protogen.Field, opts *Options) (*DomainField, error) {
 	protoName := string(field.Desc.Name())
 
 	camelName := toCamelCase(protoName)
@@ -198,6 +236,25 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 		df.Proto2DefaultValue = field.Desc.Default().String()
 	}
 
+	// Populate computed field config.
+	if cf := getComputedField(field); cf != nil && cf.Source != "" && cf.Transform != "" {
+		switch cf.Transform {
+		case "lower", "upper":
+			// supported
+		default:
+			return nil, fmt.Errorf("proto2type: computed field %q has unsupported transform %q (supported: lower, upper)",
+				protoName, cf.Transform)
+		}
+		if cf.Source == protoName {
+			return nil, fmt.Errorf("proto2type: computed field %q references itself as source", protoName)
+		}
+		df.Computed = &ComputedFieldIR{
+			Source:       cf.Source,
+			SourcePascal: toPascalCase(cf.Source),
+			Transform:    cf.Transform,
+		}
+	}
+
 	df.ProtoGoName = field.GoName
 	if field.Enum != nil {
 		df.ProtoEnumGoIdent = field.Enum.GoIdent
@@ -214,7 +271,7 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 		// are messages), but we record FieldKindMessage to indicate it's a map.
 		// Consumers check IsMap first.
 		df.Kind = FieldKindMessage
-		return df
+		return df, nil
 	}
 
 	// Repeated and singular fields.
@@ -240,7 +297,7 @@ func buildDomainField(field *protogen.Field, opts *Options) *DomainField {
 		}
 	}
 
-	return df
+	return df, nil
 }
 
 // classifyField returns the FieldKind and (for scalars) the ScalarKind.

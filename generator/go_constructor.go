@@ -23,6 +23,9 @@ func generateGoConstructor(g *protogen.GeneratedFile, dm *DomainMessage) {
 
 	var params []requiredParam
 	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
 		if f.IsOneof || f.FieldSkip {
 			continue
 		}

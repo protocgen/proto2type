@@ -50,6 +50,19 @@ message FieldOptions {
   // Field-level encryption: encrypt before storage write, decrypt after read.
   // Only valid for string fields. Generates EncryptFields/DecryptFields methods.
   bool encrypt = 8;
+
+  // Computed/derived field: auto-populated from a source field via a transform.
+  // Excluded from domain types. Used for Firestore search indexes.
+  ComputedField computed = 9;
+}
+
+// ComputedField defines a derived field that is automatically populated
+// from another field during FromDomain() conversion.
+message ComputedField {
+  // Source field name (snake_case, must reference another field in the same message).
+  string source = 1;
+  // Transform to apply. Supported: "lower", "upper".
+  string transform = 2;
 }
 
 enum OptionalBool {
