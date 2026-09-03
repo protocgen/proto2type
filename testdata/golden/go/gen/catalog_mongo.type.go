@@ -60,6 +60,11 @@ func (m *ModelCatalogEntryMongo) ToProto() *pb.ModelCatalogEntry {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (m *ModelCatalogEntryMongo) FromProto(msg *pb.ModelCatalogEntry) {
 	if msg == nil {
 		return

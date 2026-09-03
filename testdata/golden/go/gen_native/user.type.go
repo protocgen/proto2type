@@ -424,6 +424,11 @@ func (u *User) TryToProto() (*pb.User, error) {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (u *User) FromProto(msg *pb.User) {
 	if msg == nil {
 		return
@@ -613,6 +618,9 @@ func (u *User) FromProto(msg *pb.User) {
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
+//
+// Only top-level field names are supported (e.g. "email", "address").
+// Nested paths like "address.street" are silently ignored.
 func ApplyFieldMaskUser(dst, src *User, paths []string) {
 	if dst == nil || src == nil {
 		return
@@ -1384,6 +1392,11 @@ func (a *Address) ToProto() *pb.Address {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (a *Address) FromProto(msg *pb.Address) {
 	if msg == nil {
 		return
@@ -1396,6 +1409,9 @@ func (a *Address) FromProto(msg *pb.Address) {
 }
 
 // ApplyFieldMaskAddress copies fields from src to dst based on the given paths.
+//
+// Only top-level field names are supported (e.g. "email", "address").
+// Nested paths like "address.street" are silently ignored.
 func ApplyFieldMaskAddress(dst, src *Address, paths []string) {
 	if dst == nil || src == nil {
 		return
@@ -1504,6 +1520,11 @@ func (t *Tag) ToProto() *pb.Tag {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (t *Tag) FromProto(msg *pb.Tag) {
 	if msg == nil {
 		return
@@ -1513,6 +1534,9 @@ func (t *Tag) FromProto(msg *pb.Tag) {
 }
 
 // ApplyFieldMaskTag copies fields from src to dst based on the given paths.
+//
+// Only top-level field names are supported (e.g. "email", "address").
+// Nested paths like "address.street" are silently ignored.
 func ApplyFieldMaskTag(dst, src *Tag, paths []string) {
 	if dst == nil || src == nil {
 		return
@@ -1597,6 +1621,11 @@ func (c *Category) ToProto() *pb.Category {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (c *Category) FromProto(msg *pb.Category) {
 	if msg == nil {
 		return
@@ -1621,6 +1650,9 @@ func (c *Category) FromProto(msg *pb.Category) {
 }
 
 // ApplyFieldMaskCategory copies fields from src to dst based on the given paths.
+//
+// Only top-level field names are supported (e.g. "email", "address").
+// Nested paths like "address.street" are silently ignored.
 func ApplyFieldMaskCategory(dst, src *Category, paths []string) {
 	if dst == nil || src == nil {
 		return

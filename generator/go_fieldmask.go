@@ -10,6 +10,9 @@ func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
 	name := dm.Name
 
 	g.P("// ApplyFieldMask", name, " copies fields from src to dst based on the given paths.")
+	g.P("//")
+	g.P("// Only top-level field names are supported (e.g. \"email\", \"address\").")
+	g.P("// Nested paths like \"address.street\" are silently ignored.")
 	g.P("func ApplyFieldMask", name, "(dst, src *", name, ", paths []string) {")
 	g.P("\tif dst == nil || src == nil {")
 	g.P("\t\treturn")

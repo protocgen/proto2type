@@ -35,6 +35,11 @@ func (s *SettingsFirestore) ToProto() *pb.Settings {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (s *SettingsFirestore) FromProto(msg *pb.Settings) {
 	if msg == nil {
 		return
@@ -90,6 +95,11 @@ func (o *OrganizationFirestore) ToProto() *pb.Organization {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (o *OrganizationFirestore) FromProto(msg *pb.Organization) {
 	if msg == nil {
 		return
@@ -171,6 +181,11 @@ func (o *OrganizationDepartmentFirestore) ToProto() *pb.Organization_Department 
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (o *OrganizationDepartmentFirestore) FromProto(msg *pb.Organization_Department) {
 	if msg == nil {
 		return
@@ -245,6 +260,11 @@ func (o *OrganizationDepartmentTeamFirestore) ToProto() *pb.Organization_Departm
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (o *OrganizationDepartmentTeamFirestore) FromProto(msg *pb.Organization_Department_Team) {
 	if msg == nil {
 		return
@@ -316,6 +336,11 @@ func (n *NotificationFirestore) ToProto() *pb.Notification {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (n *NotificationFirestore) FromProto(msg *pb.Notification) {
 	if msg == nil {
 		return
@@ -489,6 +514,11 @@ func (d *DocumentFirestore) TryToProto() (*pb.Document, error) {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (d *DocumentFirestore) FromProto(msg *pb.Document) {
 	if msg == nil {
 		return
@@ -619,6 +649,11 @@ func (t *TreeNodeFirestore) ToProto() *pb.TreeNode {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (t *TreeNodeFirestore) FromProto(msg *pb.TreeNode) {
 	if msg == nil {
 		return
@@ -705,6 +740,11 @@ func (a *AuditLogFirestore) ToProto() *pb.AuditLog {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (a *AuditLogFirestore) FromProto(msg *pb.AuditLog) {
 	if msg == nil {
 		return
@@ -765,6 +805,11 @@ func (e *EventFirestore) ToProto() *pb.Event {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (e *EventFirestore) FromProto(msg *pb.Event) {
 	if msg == nil {
 		return
@@ -914,6 +959,11 @@ func (w *WktPayloadFirestore) TryToProto() (*pb.WktPayload, error) {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (w *WktPayloadFirestore) FromProto(msg *pb.WktPayload) {
 	if msg == nil {
 		return

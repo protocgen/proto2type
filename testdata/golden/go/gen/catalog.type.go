@@ -62,6 +62,11 @@ func (m *ModelCatalogEntry) ToProto() *pb.ModelCatalogEntry {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (m *ModelCatalogEntry) FromProto(msg *pb.ModelCatalogEntry) {
 	if msg == nil {
 		return
@@ -91,6 +96,9 @@ func (m *ModelCatalogEntry) FromProto(msg *pb.ModelCatalogEntry) {
 }
 
 // ApplyFieldMaskModelCatalogEntry copies fields from src to dst based on the given paths.
+//
+// Only top-level field names are supported (e.g. "email", "address").
+// Nested paths like "address.street" are silently ignored.
 func ApplyFieldMaskModelCatalogEntry(dst, src *ModelCatalogEntry, paths []string) {
 	if dst == nil || src == nil {
 		return
