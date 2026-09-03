@@ -424,6 +424,11 @@ func (u *User) TryToProto() (*pb.User, error) {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (u *User) FromProto(msg *pb.User) {
 	if msg == nil {
 		return
@@ -613,6 +618,9 @@ func (u *User) FromProto(msg *pb.User) {
 }
 
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
+//
+// Only top-level field names are supported (e.g. "email", "address").
+// Nested paths like "address.street" are silently ignored.
 func ApplyFieldMaskUser(dst, src *User, paths []string) {
 	if dst == nil || src == nil {
 		return
@@ -630,9 +638,21 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 		case "age":
 			dst.Age = src.Age
 		case "roles":
-			dst.Roles = src.Roles
+			if src.Roles != nil {
+				dst.Roles = make([]string, len(src.Roles))
+				copy(dst.Roles, src.Roles)
+			} else {
+				dst.Roles = nil
+			}
 		case "metadata":
-			dst.Metadata = src.Metadata
+			if src.Metadata != nil {
+				dst.Metadata = make(map[string]string, len(src.Metadata))
+				for k, v := range src.Metadata {
+					dst.Metadata[k] = v
+				}
+			} else {
+				dst.Metadata = nil
+			}
 		case "address":
 			dst.Address = src.Address.Clone()
 		case "created_at":
@@ -657,7 +677,14 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 		case "contact_phone":
 			dst.ContactPhone = src.ContactPhone
 		case "tags":
-			dst.Tags = src.Tags
+			if src.Tags != nil {
+				dst.Tags = make([]*Tag, len(src.Tags))
+				for i, v := range src.Tags {
+					dst.Tags[i] = v.Clone()
+				}
+			} else {
+				dst.Tags = nil
+			}
 		case "deleted_at":
 			dst.DeletedAt = src.DeletedAt
 		case "previous_status":
@@ -725,7 +752,14 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 				dst.Lists = nil
 			}
 		case "event_times":
-			dst.EventTimes = src.EventTimes
+			if src.EventTimes != nil {
+				dst.EventTimes = make(map[string]time.Time, len(src.EventTimes))
+				for k, v := range src.EventTimes {
+					dst.EventTimes[k] = v
+				}
+			} else {
+				dst.EventTimes = nil
+			}
 		case "configs":
 			if src.Configs != nil {
 				dst.Configs = make(map[string]map[string]any, len(src.Configs))
@@ -760,9 +794,23 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 				dst.ValueMap = nil
 			}
 		case "labels":
-			dst.Labels = src.Labels
+			if src.Labels != nil {
+				dst.Labels = make(map[string]*string, len(src.Labels))
+				for k, v := range src.Labels {
+					dst.Labels[k] = v
+				}
+			} else {
+				dst.Labels = nil
+			}
 		case "scores":
-			dst.Scores = src.Scores
+			if src.Scores != nil {
+				dst.Scores = make(map[string]*int64, len(src.Scores))
+				for k, v := range src.Scores {
+					dst.Scores[k] = v
+				}
+			} else {
+				dst.Scores = nil
+			}
 		case "old_field":
 			dst.OldField = src.OldField
 		case "optional_name":
@@ -1029,7 +1077,7 @@ func (u *User) Equal(other *User) bool {
 	if (u.DeletedAt == nil) != (other.DeletedAt == nil) {
 		return false
 	}
-	if u.DeletedAt != nil && *u.DeletedAt != *other.DeletedAt {
+	if u.DeletedAt != nil && !u.DeletedAt.Equal(*other.DeletedAt) {
 		return false
 	}
 	if (u.PreviousStatus == nil) != (other.PreviousStatus == nil) {
@@ -1344,6 +1392,11 @@ func (a *Address) ToProto() *pb.Address {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (a *Address) FromProto(msg *pb.Address) {
 	if msg == nil {
 		return
@@ -1356,6 +1409,9 @@ func (a *Address) FromProto(msg *pb.Address) {
 }
 
 // ApplyFieldMaskAddress copies fields from src to dst based on the given paths.
+//
+// Only top-level field names are supported (e.g. "email", "address").
+// Nested paths like "address.street" are silently ignored.
 func ApplyFieldMaskAddress(dst, src *Address, paths []string) {
 	if dst == nil || src == nil {
 		return
@@ -1464,6 +1520,11 @@ func (t *Tag) ToProto() *pb.Tag {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (t *Tag) FromProto(msg *pb.Tag) {
 	if msg == nil {
 		return
@@ -1473,6 +1534,9 @@ func (t *Tag) FromProto(msg *pb.Tag) {
 }
 
 // ApplyFieldMaskTag copies fields from src to dst based on the given paths.
+//
+// Only top-level field names are supported (e.g. "email", "address").
+// Nested paths like "address.street" are silently ignored.
 func ApplyFieldMaskTag(dst, src *Tag, paths []string) {
 	if dst == nil || src == nil {
 		return
@@ -1557,6 +1621,11 @@ func (c *Category) ToProto() *pb.Category {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (c *Category) FromProto(msg *pb.Category) {
 	if msg == nil {
 		return
@@ -1581,6 +1650,9 @@ func (c *Category) FromProto(msg *pb.Category) {
 }
 
 // ApplyFieldMaskCategory copies fields from src to dst based on the given paths.
+//
+// Only top-level field names are supported (e.g. "email", "address").
+// Nested paths like "address.street" are silently ignored.
 func ApplyFieldMaskCategory(dst, src *Category, paths []string) {
 	if dst == nil || src == nil {
 		return
@@ -1592,7 +1664,14 @@ func ApplyFieldMaskCategory(dst, src *Category, paths []string) {
 		case "parent":
 			dst.Parent = src.Parent.Clone()
 		case "children":
-			dst.Children = src.Children
+			if src.Children != nil {
+				dst.Children = make([]*Category, len(src.Children))
+				for i, v := range src.Children {
+					dst.Children[i] = v.Clone()
+				}
+			} else {
+				dst.Children = nil
+			}
 		}
 	}
 }

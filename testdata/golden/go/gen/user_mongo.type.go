@@ -416,6 +416,11 @@ func (u *UserMongo) TryToProto() (*pb.User, error) {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (u *UserMongo) FromProto(msg *pb.User) {
 	if msg == nil {
 		return
@@ -651,9 +656,13 @@ func (u *UserMongo) ToDomain() *User {
 		d.AvatarThumbnail = &b
 	}
 	vDeletedAt := u.DeletedAt
-	d.DeletedAt = &vDeletedAt
+	if !vDeletedAt.IsZero() {
+		d.DeletedAt = &vDeletedAt
+	}
 	vPreviousStatus := u.PreviousStatus
-	d.PreviousStatus = &vPreviousStatus
+	if vPreviousStatus != 0 {
+		d.PreviousStatus = &vPreviousStatus
+	}
 	if u.Address != nil {
 		d.Address = u.Address.ToDomain()
 	}
@@ -762,6 +771,11 @@ func (a *AddressMongo) ToProto() *pb.Address {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (a *AddressMongo) FromProto(msg *pb.Address) {
 	if msg == nil {
 		return
@@ -819,6 +833,11 @@ func (t *TagMongo) ToProto() *pb.Tag {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (t *TagMongo) FromProto(msg *pb.Tag) {
 	if msg == nil {
 		return
@@ -878,6 +897,11 @@ func (c *CategoryMongo) ToProto() *pb.Category {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (c *CategoryMongo) FromProto(msg *pb.Category) {
 	if msg == nil {
 		return

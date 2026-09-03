@@ -10,6 +10,9 @@ func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
 	name := dm.Name
 
 	g.P("// ApplyFieldMask", name, " copies fields from src to dst based on the given paths.")
+	g.P("//")
+	g.P("// Only top-level field names are supported (e.g. \"email\", \"address\").")
+	g.P("// Nested paths like \"address.street\" are silently ignored.")
 	g.P("func ApplyFieldMask", name, "(dst, src *", name, ", paths []string) {")
 	g.P("\tif dst == nil || src == nil {")
 	g.P("\t\treturn")
@@ -253,7 +256,54 @@ func generateGoFieldMask(g *protogen.GeneratedFile, dm *DomainMessage) {
 			g.P("\t\t\t} else {")
 			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
 			g.P("\t\t\t}")
+		} else if f.Repeated && f.Kind == FieldKindMessage {
+			// Deep copy repeated messages via Clone()
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make(", goDomainFieldTypeFromIR(f), ", len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tfor i, v := range src.", f.PascalName, " {")
+			g.P("\t\t\t\t\tdst.", f.PascalName, "[i] = v.Clone()")
+			g.P("\t\t\t\t}")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
+		} else if f.Repeated {
+			// Deep copy repeated scalars/timestamps/durations/enums/wrappers
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make(", goDomainFieldTypeFromIR(f), ", len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tcopy(dst.", f.PascalName, ", src.", f.PascalName, ")")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
+		} else if f.IsMap && f.MapValue != nil && f.MapValue.Kind == FieldKindMessage {
+			// Deep copy map with message values via Clone()
+			keyType := goType(f.MapKey.ScalarKind)
+			valType := goMapValueTypeFromIR(f.MapValue)
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make(map[", keyType, "]", valType, ", len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tfor k, v := range src.", f.PascalName, " {")
+			g.P("\t\t\t\t\tif v != nil {")
+			g.P("\t\t\t\t\t\tdst.", f.PascalName, "[k] = v.Clone()")
+			g.P("\t\t\t\t\t} else {")
+			g.P("\t\t\t\t\t\tdst.", f.PascalName, "[k] = nil")
+			g.P("\t\t\t\t\t}")
+			g.P("\t\t\t\t}")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
+		} else if f.IsMap {
+			// Deep copy map with scalar/timestamp/duration/enum values
+			keyType := goType(f.MapKey.ScalarKind)
+			valType := goMapValueTypeFromIR(f.MapValue)
+			g.P("\t\t\tif src.", f.PascalName, " != nil {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = make(map[", keyType, "]", valType, ", len(src.", f.PascalName, "))")
+			g.P("\t\t\t\tfor k, v := range src.", f.PascalName, " {")
+			g.P("\t\t\t\t\tdst.", f.PascalName, "[k] = v")
+			g.P("\t\t\t\t}")
+			g.P("\t\t\t} else {")
+			g.P("\t\t\t\tdst.", f.PascalName, " = nil")
+			g.P("\t\t\t}")
 		} else {
+			// Scalar / non-reference fields: direct assignment is safe
 			g.P("\t\t\tdst.", f.PascalName, " = src.", f.PascalName)
 		}
 	}

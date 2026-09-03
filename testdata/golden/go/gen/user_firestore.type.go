@@ -426,6 +426,11 @@ func (u *UserFirestore) TryToProto() (*pb.User, error) {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (u *UserFirestore) FromProto(msg *pb.User) {
 	if msg == nil {
 		return
@@ -661,9 +666,13 @@ func (u *UserFirestore) ToDomain() *User {
 		d.AvatarThumbnail = &b
 	}
 	vDeletedAt := u.DeletedAt
-	d.DeletedAt = &vDeletedAt
+	if !vDeletedAt.IsZero() {
+		d.DeletedAt = &vDeletedAt
+	}
 	vPreviousStatus := u.PreviousStatus
-	d.PreviousStatus = &vPreviousStatus
+	if vPreviousStatus != 0 {
+		d.PreviousStatus = &vPreviousStatus
+	}
 	if u.Address != nil {
 		d.Address = u.Address.ToDomain()
 	}
@@ -804,6 +813,11 @@ func (a *AddressFirestore) ToProto() *pb.Address {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (a *AddressFirestore) FromProto(msg *pb.Address) {
 	if msg == nil {
 		return
@@ -861,6 +875,11 @@ func (t *TagFirestore) ToProto() *pb.Tag {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (t *TagFirestore) FromProto(msg *pb.Tag) {
 	if msg == nil {
 		return
@@ -920,6 +939,11 @@ func (c *CategoryFirestore) ToProto() *pb.Category {
 }
 
 // FromProto populates from a protobuf message.
+//
+// Note: The receiver is not fully zeroed before population. Repeated and map
+// fields are overwritten only when the source message has non-empty values.
+// To avoid retaining stale data from a previous call, use a fresh (zero-value)
+// receiver rather than reusing one across multiple FromProto calls.
 func (c *CategoryFirestore) FromProto(msg *pb.Category) {
 	if msg == nil {
 		return
