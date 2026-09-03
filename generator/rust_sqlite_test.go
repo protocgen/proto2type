@@ -17,10 +17,10 @@ func TestRustSqliteFieldTypeFromIR(t *testing.T) {
 		field *DomainField
 		want  string
 	}{
-		// --- Repeated / Map always → "String" regardless of kind ---
-		{"repeated scalar", &DomainField{Kind: FieldKindScalar, ScalarKind: protoreflect.Int32Kind, Repeated: true}, "String"},
-		{"repeated message", &DomainField{Kind: FieldKindMessage, Repeated: true}, "String"},
-		{"map field", &DomainField{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind, IsMap: true}, "String"},
+		// --- Repeated / Map always → "Option<String>" regardless of kind (NULL-safe) ---
+		{"repeated scalar", &DomainField{Kind: FieldKindScalar, ScalarKind: protoreflect.Int32Kind, Repeated: true}, "Option<String>"},
+		{"repeated message", &DomainField{Kind: FieldKindMessage, Repeated: true}, "Option<String>"},
+		{"map field", &DomainField{Kind: FieldKindScalar, ScalarKind: protoreflect.StringKind, IsMap: true}, "Option<String>"},
 
 		// --- Timestamp ---
 		{"timestamp singular", &DomainField{Kind: FieldKindTimestamp}, "i64"},
