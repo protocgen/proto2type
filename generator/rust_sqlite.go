@@ -394,6 +394,16 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 // rustSqliteFieldType returns the SQLite-appropriate Rust type for a field.
 
 func rustSqliteFieldType(field *protogen.Field, opts *Options) string {
+	// Repeated fields -> Option<String> (JSON serialized, NULL-safe for schema evolution)
+	if field.Desc.IsList() {
+		return "Option<String>"
+	}
+
+	// Map fields -> Option<String> (JSON serialized, NULL-safe for schema evolution)
+	if field.Desc.IsMap() {
+		return "Option<String>"
+	}
+
 	// Timestamps -> i64 (epoch_ms)
 	if isWellKnownTimestamp(field) {
 		if field.Desc.HasOptionalKeyword() {
@@ -414,42 +424,24 @@ func rustSqliteFieldType(field *protogen.Field, opts *Options) string {
 		return rustSqliteWrapperType(field)
 	}
 
-	// WKT JSON types -> String (or Option<String> if repeated/map for NULL safety)
+	// WKT JSON types -> String
 	if isWellKnownStruct(field) || isWellKnownValue(field) || isWellKnownListValue(field) || isWellKnownFieldMask(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return "Option<String>"
-		}
 		return "String"
 	}
 
 	// Empty -> skip (unit type has no storage representation, but if present use String)
 	if isWellKnownEmpty(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return "Option<String>"
-		}
 		return "String"
 	}
 
-	// Any -> String (JSON), or Option<String> if repeated/map
+	// Any -> String (JSON)
 	if isWellKnownAny(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return "Option<String>"
-		}
+		// TODO: google.protobuf.Any is too complex for auto-mapping
 		return "String"
 	}
 
 	// Nested messages -> Option<String> (JSON serialized, NULL for absent) (P1-12)
-	if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() {
-		return "Option<String>"
-	}
-
-	// Repeated fields -> Option<String> (JSON serialized, NULL-safe for schema evolution)
-	if field.Desc.IsList() {
-		return "Option<String>"
-	}
-
-	// Map fields -> Option<String> (JSON serialized, NULL-safe for schema evolution)
-	if field.Desc.IsMap() {
+	if field.Desc.Kind() == protoreflect.MessageKind {
 		return "Option<String>"
 	}
 
@@ -600,6 +592,15 @@ func rustSqliteWrapperType(field *protogen.Field) string {
 
 // rustSqliteToDomainConversion returns the expression to convert a SQLite row field to a domain field.
 func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts *Options, needsBox bool) string {
+	// Repeated: deserialize from Option<String>, defaulting to empty vec on NULL
+	if field.Desc.IsList() {
+		return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", fieldName)
+	}
+	// Map: deserialize from Option<String>, defaulting to empty map on NULL
+	if field.Desc.IsMap() {
+		return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"{}\"))?", fieldName)
+	}
+
 	if isWellKnownTimestamp(field) {
 		if field.Desc.HasOptionalKeyword() {
 			return fmt.Sprintf("match self.%s { Some(ms) => Some(epoch_ms_to_datetime(ms)?), None => None }", fieldName)
@@ -613,23 +614,14 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 	if isWellKnownWrapper(field) {
 		return fmt.Sprintf("self.%s.clone()", fieldName)
 	}
-	// WKT JSON types: deserialize from String (or Option<String> if repeated/map)
+	// WKT JSON types: deserialize from String
 	if isWellKnownStruct(field) || isWellKnownValue(field) || isWellKnownListValue(field) || isWellKnownFieldMask(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", fieldName)
-		}
 		return fmt.Sprintf("serde_json::from_str(&self.%s)?", fieldName)
 	}
 	if isWellKnownEmpty(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", fieldName)
-		}
 		return "()"
 	}
 	if isWellKnownAny(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", fieldName)
-		}
 		return fmt.Sprintf("serde_json::from_str(&self.%s)?", fieldName)
 	}
 	// Nested message: deserialize from Option<String> (P1-12)
@@ -638,14 +630,6 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 			return fmt.Sprintf("match &self.%s { Some(s) => Some(Box::new(serde_json::from_str(s)?)), None => None }", fieldName)
 		}
 		return fmt.Sprintf("match &self.%s { Some(s) => Some(serde_json::from_str(s)?), None => None }", fieldName)
-	}
-	// Repeated: deserialize from Option<String>, defaulting to empty vec on NULL
-	if field.Desc.IsList() {
-		return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", fieldName)
-	}
-	// Map: deserialize from Option<String>, defaulting to empty map on NULL
-	if field.Desc.IsMap() {
-		return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"{}\"))?", fieldName)
 	}
 	// Enum types: convert from i32 to Rust enum
 	if field.Desc.Kind() == protoreflect.EnumKind {
@@ -686,6 +670,15 @@ func rustSqliteToDomainConversion(field *protogen.Field, fieldName string, opts 
 // rustSqliteIntoDomainConversion returns the expression for consuming conversion (into_domain).
 // Like rustSqliteToDomainConversion but moves String fields instead of cloning.
 func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opts *Options, needsBox bool) string {
+	// Repeated: deserialize from Option<String>, defaulting to empty vec on NULL
+	if field.Desc.IsList() {
+		return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", fieldName)
+	}
+	// Map: deserialize from Option<String>, defaulting to empty map on NULL
+	if field.Desc.IsMap() {
+		return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"{}\"))?", fieldName)
+	}
+
 	if isWellKnownTimestamp(field) {
 		if field.Desc.HasOptionalKeyword() {
 			return fmt.Sprintf("match self.%s { Some(ms) => Some(epoch_ms_to_datetime(ms)?), None => None }", fieldName)
@@ -698,23 +691,14 @@ func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opt
 	if isWellKnownWrapper(field) {
 		return fmt.Sprintf("self.%s", fieldName)
 	}
-	// WKT JSON types: deserialize from String (or Option<String> if repeated/map)
+	// WKT JSON types: deserialize from String
 	if isWellKnownStruct(field) || isWellKnownValue(field) || isWellKnownListValue(field) || isWellKnownFieldMask(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", fieldName)
-		}
 		return fmt.Sprintf("serde_json::from_str(&self.%s)?", fieldName)
 	}
 	if isWellKnownEmpty(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", fieldName)
-		}
 		return "()"
 	}
 	if isWellKnownAny(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", fieldName)
-		}
 		return fmt.Sprintf("serde_json::from_str(&self.%s)?", fieldName)
 	}
 	// Nested message: deserialize from Option<String>
@@ -723,14 +707,6 @@ func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opt
 			return fmt.Sprintf("match self.%s { Some(s) => Some(Box::new(serde_json::from_str(&s)?)), None => None }", fieldName)
 		}
 		return fmt.Sprintf("match self.%s { Some(s) => Some(serde_json::from_str(&s)?), None => None }", fieldName)
-	}
-	// Repeated: deserialize from Option<String>, defaulting to empty vec on NULL
-	if field.Desc.IsList() {
-		return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", fieldName)
-	}
-	// Map: deserialize from Option<String>, defaulting to empty map on NULL
-	if field.Desc.IsMap() {
-		return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"{}\"))?", fieldName)
 	}
 	// Enum types: convert from i32 to Rust enum
 	if field.Desc.Kind() == protoreflect.EnumKind {
@@ -767,6 +743,15 @@ func rustSqliteIntoDomainConversion(field *protogen.Field, fieldName string, opt
 
 // rustSqliteFromDomainConversion returns the expression to convert a domain field to a SQLite row field.
 func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opts *Options, needsBox bool) string {
+	// Repeated: serialize to Option<String>
+	if field.Desc.IsList() {
+		return fmt.Sprintf("Some(serde_json::to_string(&d.%s)?)", fieldName)
+	}
+	// Map: serialize to Option<String>
+	if field.Desc.IsMap() {
+		return fmt.Sprintf("Some(serde_json::to_string(&d.%s)?)", fieldName)
+	}
+
 	if isWellKnownTimestamp(field) {
 		if field.Desc.HasOptionalKeyword() {
 			return fmt.Sprintf("d.%s.as_ref().map(|dt| datetime_to_epoch_ms(dt))", fieldName)
@@ -780,23 +765,14 @@ func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opt
 	if isWellKnownWrapper(field) {
 		return fmt.Sprintf("d.%s.clone()", fieldName)
 	}
-	// WKT JSON types: serialize to String (or Option<String> if repeated/map)
+	// WKT JSON types: serialize to String
 	if isWellKnownStruct(field) || isWellKnownValue(field) || isWellKnownListValue(field) || isWellKnownFieldMask(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return fmt.Sprintf("Some(serde_json::to_string(&d.%s)?)", fieldName)
-		}
 		return fmt.Sprintf("serde_json::to_string(&d.%s)?", fieldName)
 	}
 	if isWellKnownEmpty(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return fmt.Sprintf("Some(serde_json::to_string(&d.%s)?)", fieldName)
-		}
 		return `"()".to_string()`
 	}
 	if isWellKnownAny(field) {
-		if field.Desc.IsList() || field.Desc.IsMap() {
-			return fmt.Sprintf("Some(serde_json::to_string(&d.%s)?)", fieldName)
-		}
 		return fmt.Sprintf("serde_json::to_string(&d.%s)?", fieldName)
 	}
 	// Nested message: serialize to Option<String> (P1-12)
@@ -805,14 +781,6 @@ func rustSqliteFromDomainConversion(field *protogen.Field, fieldName string, opt
 			return fmt.Sprintf("match &d.%s { Some(v) => Some(serde_json::to_string(v.as_ref())?), None => None }", fieldName)
 		}
 		return fmt.Sprintf("match &d.%s { Some(v) => Some(serde_json::to_string(v)?), None => None }", fieldName)
-	}
-	// Repeated: serialize to Option<String>
-	if field.Desc.IsList() {
-		return fmt.Sprintf("Some(serde_json::to_string(&d.%s)?)", fieldName)
-	}
-	// Map: serialize to Option<String>
-	if field.Desc.IsMap() {
-		return fmt.Sprintf("Some(serde_json::to_string(&d.%s)?)", fieldName)
 	}
 	// P0-3: unsigned types need cast to i64 for SQLite
 	if field.Desc.Kind() == protoreflect.Uint32Kind || field.Desc.Kind() == protoreflect.Fixed32Kind {

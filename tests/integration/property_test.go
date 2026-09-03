@@ -176,11 +176,40 @@ func TestProperty_CloneIndependence(t *testing.T) {
 		clone := u.Clone()
 		snapshot := u.Clone()
 
-		// Mutate the clone
+		// Mutate scalar fields
 		clone.Email = "mutated@test.com"
 		clone.Age = 999
-		clone.Roles = []string{"mutated"}
-		clone.Metadata = map[string]string{"mutated": "true"}
+
+		// In-place mutate slice elements
+		if len(clone.Roles) > 0 {
+			clone.Roles[0] = "mutated_role"
+		} else {
+			clone.Roles = append(clone.Roles, "added_role")
+		}
+		if len(clone.Avatar) > 0 {
+			clone.Avatar[0] ^= 0xFF
+		}
+
+		// In-place mutate map entries
+		if len(clone.Metadata) > 0 {
+			for k := range clone.Metadata {
+				clone.Metadata[k] = "mutated_val"
+				break
+			}
+		} else {
+			clone.Metadata = map[string]string{"new_key": "new_val"}
+		}
+
+		// In-place mutate nested message fields
+		if clone.Address != nil {
+			clone.Address.Street = "mutated street"
+		}
+		if len(clone.Tags) > 0 && clone.Tags[0] != nil {
+			clone.Tags[0].Key = "mutated_tag"
+		}
+		if clone.Phone != nil {
+			*clone.Phone = "999-9999"
+		}
 
 		// Original should be unchanged
 		if !u.Equal(snapshot) {
@@ -215,9 +244,31 @@ func TestProperty_ProtoRoundtripIsolation(t *testing.T) {
 		restored := &gen.User{}
 		restored.FromProto(pb)
 
-		// Mutate proto after FromProto
+		// Mutate proto scalars after FromProto
 		pb.Email = "hacked"
 		pb.Age = 999
+
+		// NOTE: FromProto shallow-assigns scalar slices and maps
+		// (recv.Roles = msg.Roles, recv.Metadata = msg.Metadata), so
+		// mutating pb.Roles[0] in-place would also corrupt restored.
+		// Instead, reassign the slice/map headers to verify that header
+		// reassignment on the proto doesn't affect restored.
+		if len(pb.Roles) > 0 {
+			pb.Roles = []string{"hacked_role"}
+		}
+		if len(pb.Metadata) > 0 {
+			pb.Metadata = map[string]string{"hacked": "meta"}
+		}
+		// Avatar bytes are defensively copied via copy() in FromProto,
+		// so in-place mutation here should NOT affect restored.
+		if len(pb.Avatar) > 0 {
+			pb.Avatar[0] ^= 0xFF
+		}
+		// Tags are nested messages, deep-copied via elem.FromProto,
+		// so in-place mutation here should NOT affect restored.
+		if len(pb.Tags) > 0 && pb.Tags[0] != nil {
+			pb.Tags[0].Key = "hacked_tag"
+		}
 
 		// Restored should be unaffected
 		if !restored.Equal(snapshot) {

@@ -114,7 +114,7 @@ jobs:
           github_token: ${{ github.token }}
 
       - name: Install protoc-gen-go
-        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 
       - name: Build plugin
         run: go build -o protoc-gen-proto2type .
@@ -275,7 +275,7 @@ jobs:
           FIRESTORE_EMULATOR_HOST: localhost:8080
 
       - name: Install protoc-gen-go
-        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+        run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 
       - name: Build plugin
         run: go build -o protoc-gen-proto2type .
