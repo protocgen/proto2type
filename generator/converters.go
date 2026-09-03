@@ -1059,10 +1059,15 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 				g.P("\t\t", recv, ".", domainFieldName, " = make([]struct{}, len(msg.", protoFieldName, "))")
 				g.P("\t}")
 			case FieldKindAny:
+				// Repeated Any: deep copy via proto.Clone to prevent aliasing (SEC-3)
+				protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+				anyType := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/anypb", GoName: "Any"})
 				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
 				g.P("\t\t", recv, ".", domainFieldName, " = make([]any, len(msg.", protoFieldName, "))")
 				g.P("\t\tfor i, v := range msg.", protoFieldName, " {")
-				g.P("\t\t\t", recv, ".", domainFieldName, "[i] = v")
+				g.P("\t\t\tif v != nil {")
+				g.P("\t\t\t\t", recv, ".", domainFieldName, "[i] = ", protoClone, "(v).(*", anyType, ")")
+				g.P("\t\t\t}")
 				g.P("\t\t}")
 				g.P("\t}")
 			default:
@@ -1151,9 +1156,11 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 			g.P("\t\t", recv, ".", domainFieldName, " = msg.", protoFieldName, ".AsInterface()")
 			g.P("\t}")
 		} else if f.Kind == FieldKindAny && !f.Repeated {
-			// Any: proto *anypb.Any → domain any (direct assignment)
+			// Any: proto *anypb.Any → domain any (deep copy to prevent aliasing, SEC-3)
+			protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+			anyType := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/anypb", GoName: "Any"})
 			g.P("\tif msg.", protoFieldName, " != nil {")
-			g.P("\t\t", recv, ".", domainFieldName, " = msg.", protoFieldName)
+			g.P("\t\t", recv, ".", domainFieldName, " = ", protoClone, "(msg.", protoFieldName, ").(*", anyType, ")")
 			g.P("\t}")
 		} else if f.Kind == FieldKindEmpty && !f.Repeated {
 			// Empty: proto *emptypb.Empty → domain struct{} (no data to copy)
@@ -1311,11 +1318,15 @@ func generateFromProto(g *protogen.GeneratedFile, dm *DomainMessage, structSuffi
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindAny:
-				// Map with Any values: direct assignment per-element
+				// Map with Any values: deep copy via proto.Clone to prevent aliasing (SEC-3)
+				protoClone := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/proto", GoName: "Clone"})
+				anyType := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "google.golang.org/protobuf/types/known/anypb", GoName: "Any"})
 				g.P("\tif len(msg.", protoFieldName, ") > 0 {")
 				g.P("\t\t", recv, ".", domainFieldName, " = make(map[", keyType, "]any, len(msg.", protoFieldName, "))")
 				g.P("\t\tfor k, v := range msg.", protoFieldName, " {")
-				g.P("\t\t\t", recv, ".", domainFieldName, "[k] = v")
+				g.P("\t\t\tif v != nil {")
+				g.P("\t\t\t\t", recv, ".", domainFieldName, "[k] = ", protoClone, "(v).(*", anyType, ")")
+				g.P("\t\t\t}")
 				g.P("\t\t}")
 				g.P("\t}")
 			case FieldKindEmpty:
@@ -1482,6 +1493,7 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 	}
 
 	// Handle optional timestamp/duration/enum: storage T -> domain *T
+	// Only take address if the storage value is non-zero, otherwise leave domain field as nil.
 	for _, f := range dm.Fields {
 		if f.IsOneof || f.Computed != nil {
 			continue
@@ -1494,14 +1506,28 @@ func generateDomainConverters(g *protogen.GeneratedFile, dm *DomainMessage, stor
 		}
 		fieldName := f.PascalName
 		switch f.Kind {
-		case FieldKindTimestamp, FieldKindDuration:
-			// Storage has time.Time, domain has *time.Time — take address
+		case FieldKindTimestamp:
+			// Storage has time.Time, domain has *time.Time — only set if non-zero
 			g.P("\tv", fieldName, " := ", recv, ".", fieldName)
-			g.P("\td.", fieldName, " = &v", fieldName)
+			g.P("\tif !v", fieldName, ".IsZero() {")
+			g.P("\t\td.", fieldName, " = &v", fieldName)
+			g.P("\t}")
+		case FieldKindDuration:
+			// Storage has time.Duration, domain has *time.Duration — only set if non-zero
+			g.P("\tv", fieldName, " := ", recv, ".", fieldName)
+			g.P("\tif v", fieldName, " != 0 {")
+			g.P("\t\td.", fieldName, " = &v", fieldName)
+			g.P("\t}")
 		case FieldKindEnum:
-			// Storage has int32/string, domain has *int32/*string — take address
+			// Storage has int32/string, domain has *int32/*string — only set if non-zero
 			g.P("\tv", fieldName, " := ", recv, ".", fieldName)
-			g.P("\td.", fieldName, " = &v", fieldName)
+			if f.EnumAsString {
+				g.P("\tif v", fieldName, " != \"\" {")
+			} else {
+				g.P("\tif v", fieldName, " != 0 {")
+			}
+			g.P("\t\td.", fieldName, " = &v", fieldName)
+			g.P("\t}")
 		}
 	}
 

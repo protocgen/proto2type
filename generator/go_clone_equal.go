@@ -638,6 +638,14 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 				g.P("\t\t}")
 			}
 			g.P("\t}")
+		} else if f.Optional && f.Kind == FieldKindTimestamp {
+			// Optional *time.Time: compare nil-ness then use .Equal() for monotonic clock safety
+			g.P("\tif (", recv, ".", f.PascalName, " == nil) != (other.", f.PascalName, " == nil) {")
+			g.P("\t\treturn false")
+			g.P("\t}")
+			g.P("\tif ", recv, ".", f.PascalName, " != nil && !", recv, ".", f.PascalName, ".Equal(*other.", f.PascalName, ") {")
+			g.P("\t\treturn false")
+			g.P("\t}")
 		} else if f.Optional || f.Kind.IsWrapper() {
 			// Pointer fields: compare nil-ness then deref
 			g.P("\tif (", recv, ".", f.PascalName, " == nil) != (other.", f.PascalName, " == nil) {")
@@ -723,6 +731,11 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 				// Non-comparable pointer types: use reflect.DeepEqual
 				deepEqual := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "reflect", GoName: "DeepEqual"})
 				g.P("\tif ", recv, ".", v.Name, " != nil && !", deepEqual, "(", recv, ".", v.Name, ", other.", v.Name, ") {")
+				g.P("\t\treturn false")
+				g.P("\t}")
+			case FieldKindTimestamp:
+				// *time.Time oneof variant: use .Equal() for monotonic clock safety
+				g.P("\tif ", recv, ".", v.Name, " != nil && !", recv, ".", v.Name, ".Equal(*other.", v.Name, ") {")
 				g.P("\t\treturn false")
 				g.P("\t}")
 			default:

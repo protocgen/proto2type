@@ -513,7 +513,7 @@ func (d *DocumentFirestore) FromProto(msg *pb.Document) {
 	}
 	d.Extension = nil
 	if msg.Extension != nil {
-		d.Extension = msg.Extension
+		d.Extension = proto.Clone(msg.Extension).(*anypb.Any)
 	}
 	d.UpdateMask = nil
 	if msg.UpdateMask != nil {

@@ -661,9 +661,13 @@ func (u *UserFirestore) ToDomain() *User {
 		d.AvatarThumbnail = &b
 	}
 	vDeletedAt := u.DeletedAt
-	d.DeletedAt = &vDeletedAt
+	if !vDeletedAt.IsZero() {
+		d.DeletedAt = &vDeletedAt
+	}
 	vPreviousStatus := u.PreviousStatus
-	d.PreviousStatus = &vPreviousStatus
+	if vPreviousStatus != 0 {
+		d.PreviousStatus = &vPreviousStatus
+	}
 	if u.Address != nil {
 		d.Address = u.Address.ToDomain()
 	}

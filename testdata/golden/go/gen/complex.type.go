@@ -158,7 +158,14 @@ func ApplyFieldMaskOrganization(dst, src *Organization, paths []string) {
 		case "name":
 			dst.Name = src.Name
 		case "departments":
-			dst.Departments = src.Departments
+			if src.Departments != nil {
+				dst.Departments = make([]*OrganizationDepartment, len(src.Departments))
+				for i, v := range src.Departments {
+					dst.Departments[i] = v.Clone()
+				}
+			} else {
+				dst.Departments = nil
+			}
 		}
 	}
 }
@@ -273,7 +280,14 @@ func ApplyFieldMaskOrganizationDepartment(dst, src *OrganizationDepartment, path
 		case "name":
 			dst.Name = src.Name
 		case "teams":
-			dst.Teams = src.Teams
+			if src.Teams != nil {
+				dst.Teams = make([]*OrganizationDepartmentTeam, len(src.Teams))
+				for i, v := range src.Teams {
+					dst.Teams[i] = v.Clone()
+				}
+			} else {
+				dst.Teams = nil
+			}
 		}
 	}
 }
@@ -372,7 +386,12 @@ func ApplyFieldMaskOrganizationDepartmentTeam(dst, src *OrganizationDepartmentTe
 		case "name":
 			dst.Name = src.Name
 		case "members":
-			dst.Members = src.Members
+			if src.Members != nil {
+				dst.Members = make([]string, len(src.Members))
+				copy(dst.Members, src.Members)
+			} else {
+				dst.Members = nil
+			}
 		}
 	}
 }
@@ -814,7 +833,7 @@ func (d *Document) FromProto(msg *pb.Document) {
 	}
 	d.Extension = nil
 	if msg.Extension != nil {
-		d.Extension = msg.Extension
+		d.Extension = proto.Clone(msg.Extension).(*anypb.Any)
 	}
 	d.UpdateMask = nil
 	if msg.UpdateMask != nil {
@@ -848,9 +867,27 @@ func ApplyFieldMaskDocument(dst, src *Document, paths []string) {
 		case "id":
 			dst.ID = src.ID
 		case "settings_map":
-			dst.SettingsMap = src.SettingsMap
+			if src.SettingsMap != nil {
+				dst.SettingsMap = make(map[string]*Settings, len(src.SettingsMap))
+				for k, v := range src.SettingsMap {
+					if v != nil {
+						dst.SettingsMap[k] = v.Clone()
+					} else {
+						dst.SettingsMap[k] = nil
+					}
+				}
+			} else {
+				dst.SettingsMap = nil
+			}
 		case "code_names":
-			dst.CodeNames = src.CodeNames
+			if src.CodeNames != nil {
+				dst.CodeNames = make(map[int32]string, len(src.CodeNames))
+				for k, v := range src.CodeNames {
+					dst.CodeNames[k] = v
+				}
+			} else {
+				dst.CodeNames = nil
+			}
 		case "metadata":
 			if src.Metadata != nil {
 				dst.Metadata = deepCopyValue(src.Metadata).(map[string]any)
@@ -879,7 +916,12 @@ func ApplyFieldMaskDocument(dst, src *Document, paths []string) {
 		case "view_count":
 			dst.ViewCount = src.ViewCount
 		case "placeholders":
-			dst.Placeholders = src.Placeholders
+			if src.Placeholders != nil {
+				dst.Placeholders = make([]struct{}, len(src.Placeholders))
+				copy(dst.Placeholders, src.Placeholders)
+			} else {
+				dst.Placeholders = nil
+			}
 		}
 	}
 }
@@ -1089,7 +1131,14 @@ func ApplyFieldMaskTreeNode(dst, src *TreeNode, paths []string) {
 		case "value":
 			dst.Value = src.Value
 		case "children":
-			dst.Children = src.Children
+			if src.Children != nil {
+				dst.Children = make([]*TreeNode, len(src.Children))
+				for i, v := range src.Children {
+					dst.Children[i] = v.Clone()
+				}
+			} else {
+				dst.Children = nil
+			}
 		case "parent":
 			dst.Parent = src.Parent.Clone()
 		}

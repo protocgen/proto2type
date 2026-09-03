@@ -116,7 +116,12 @@ func ApplyFieldMaskModelCatalogEntry(dst, src *ModelCatalogEntry, paths []string
 		case "discount_percent":
 			dst.DiscountPercent = src.DiscountPercent
 		case "aliases":
-			dst.Aliases = src.Aliases
+			if src.Aliases != nil {
+				dst.Aliases = make([]string, len(src.Aliases))
+				copy(dst.Aliases, src.Aliases)
+			} else {
+				dst.Aliases = nil
+			}
 		case "provider_model_id":
 			dst.ProviderModelID = src.ProviderModelID
 		case "created_at":

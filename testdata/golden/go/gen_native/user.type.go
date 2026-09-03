@@ -630,9 +630,21 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 		case "age":
 			dst.Age = src.Age
 		case "roles":
-			dst.Roles = src.Roles
+			if src.Roles != nil {
+				dst.Roles = make([]string, len(src.Roles))
+				copy(dst.Roles, src.Roles)
+			} else {
+				dst.Roles = nil
+			}
 		case "metadata":
-			dst.Metadata = src.Metadata
+			if src.Metadata != nil {
+				dst.Metadata = make(map[string]string, len(src.Metadata))
+				for k, v := range src.Metadata {
+					dst.Metadata[k] = v
+				}
+			} else {
+				dst.Metadata = nil
+			}
 		case "address":
 			dst.Address = src.Address.Clone()
 		case "created_at":
@@ -657,7 +669,14 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 		case "contact_phone":
 			dst.ContactPhone = src.ContactPhone
 		case "tags":
-			dst.Tags = src.Tags
+			if src.Tags != nil {
+				dst.Tags = make([]*Tag, len(src.Tags))
+				for i, v := range src.Tags {
+					dst.Tags[i] = v.Clone()
+				}
+			} else {
+				dst.Tags = nil
+			}
 		case "deleted_at":
 			dst.DeletedAt = src.DeletedAt
 		case "previous_status":
@@ -725,7 +744,14 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 				dst.Lists = nil
 			}
 		case "event_times":
-			dst.EventTimes = src.EventTimes
+			if src.EventTimes != nil {
+				dst.EventTimes = make(map[string]time.Time, len(src.EventTimes))
+				for k, v := range src.EventTimes {
+					dst.EventTimes[k] = v
+				}
+			} else {
+				dst.EventTimes = nil
+			}
 		case "configs":
 			if src.Configs != nil {
 				dst.Configs = make(map[string]map[string]any, len(src.Configs))
@@ -760,9 +786,23 @@ func ApplyFieldMaskUser(dst, src *User, paths []string) {
 				dst.ValueMap = nil
 			}
 		case "labels":
-			dst.Labels = src.Labels
+			if src.Labels != nil {
+				dst.Labels = make(map[string]*string, len(src.Labels))
+				for k, v := range src.Labels {
+					dst.Labels[k] = v
+				}
+			} else {
+				dst.Labels = nil
+			}
 		case "scores":
-			dst.Scores = src.Scores
+			if src.Scores != nil {
+				dst.Scores = make(map[string]*int64, len(src.Scores))
+				for k, v := range src.Scores {
+					dst.Scores[k] = v
+				}
+			} else {
+				dst.Scores = nil
+			}
 		case "old_field":
 			dst.OldField = src.OldField
 		case "optional_name":
@@ -1029,7 +1069,7 @@ func (u *User) Equal(other *User) bool {
 	if (u.DeletedAt == nil) != (other.DeletedAt == nil) {
 		return false
 	}
-	if u.DeletedAt != nil && *u.DeletedAt != *other.DeletedAt {
+	if u.DeletedAt != nil && !u.DeletedAt.Equal(*other.DeletedAt) {
 		return false
 	}
 	if (u.PreviousStatus == nil) != (other.PreviousStatus == nil) {
@@ -1592,7 +1632,14 @@ func ApplyFieldMaskCategory(dst, src *Category, paths []string) {
 		case "parent":
 			dst.Parent = src.Parent.Clone()
 		case "children":
-			dst.Children = src.Children
+			if src.Children != nil {
+				dst.Children = make([]*Category, len(src.Children))
+				for i, v := range src.Children {
+					dst.Children[i] = v.Clone()
+				}
+			} else {
+				dst.Children = nil
+			}
 		}
 	}
 }
