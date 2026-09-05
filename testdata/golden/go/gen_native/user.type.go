@@ -1145,7 +1145,7 @@ func (u *User) Equal(other *User) bool {
 		if !ok {
 			return false
 		}
-		if v != ov {
+		if !v.Equal(ov) {
 			return false
 		}
 	}
