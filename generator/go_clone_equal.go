@@ -575,6 +575,11 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 				g.P("\t\tif a != nil && *a != *b {")
 				g.P("\t\t\treturn false")
 				g.P("\t\t}")
+			} else if f.Kind == FieldKindTimestamp {
+				// Repeated time.Time: use .Equal() for monotonic clock safety
+				g.P("\t\tif !", recv, ".", f.PascalName, "[i].Equal(other.", f.PascalName, "[i]) {")
+				g.P("\t\t\treturn false")
+				g.P("\t\t}")
 			} else {
 				// Scalar elements: ==
 				g.P("\t\tif ", recv, ".", f.PascalName, "[i] != other.", f.PascalName, "[i] {")
@@ -632,6 +637,11 @@ func generateGoEqual(g *protogen.GeneratedFile, dm *DomainMessage) {
 					g.P("\t\t\treturn false")
 					g.P("\t\t}")
 				}
+			} else if f.MapValue != nil && f.MapValue.Kind == FieldKindTimestamp {
+				// Map value time.Time: use .Equal() for monotonic clock safety
+				g.P("\t\tif !v.Equal(ov) {")
+				g.P("\t\t\treturn false")
+				g.P("\t\t}")
 			} else {
 				g.P("\t\tif v != ov {")
 				g.P("\t\t\treturn false")
