@@ -93,6 +93,26 @@ func (u *User) ToProto() *pb.User { ... }
 func (u *User) FromProto(msg *pb.User) { ... }
 ```
 
+#### Receiver Reuse
+
+`FromProto` fully resets the receiver before population: all reference fields (slices, maps, pointers, nested messages, oneofs) are cleared to their zero values, and scalar fields are overwritten unconditionally. This means it is **safe to reuse a receiver** across multiple `FromProto` calls without retaining stale data:
+
+```go
+u := &User{}
+u.FromProto(protoA)  // u now contains protoA's data
+u.FromProto(protoB)  // u is fully reset, then populated with protoB's data
+// u.Roles, u.Metadata, u.Address etc. from protoA are gone
+```
+
+#### Deep Copy Guarantees
+
+Both `ToProto` and `FromProto` produce **fully independent** copies:
+
+- `[]byte` fields are defensively copied via `copy()`
+- `*anypb.Any` fields are deep-copied via `proto.Clone()`
+- Nested messages use recursive `FromProto()`/`ToProto()` calls
+- Scalar slices and maps are assigned by header (Go value semantics)
+
 ### Deep Copy and Equality
 
 `Clone()` and `Equal()` methods are automatically generated for all domain structs. These operations correctly recurse into nested messages, slices, and maps.
@@ -113,6 +133,20 @@ To support partial updates, `proto2type` generates an `ApplyFieldMask<Name>` fun
 // ApplyFieldMaskUser copies fields from src to dst based on the given paths.
 func ApplyFieldMaskUser(dst, src *User, paths []string) { ... }
 ```
+
+#### Supported Paths
+
+Only **top-level field names** are supported (e.g. `"email"`, `"address"`, `"metadata"`). Nested paths like `"address.street"` are **silently ignored** — the entire `address` message is either copied or not.
+
+```go
+// ✅ Works: copies the entire address and email
+ApplyFieldMaskUser(dst, src, []string{"email", "address"})
+
+// ❌ Ignored: "address.street" does not match any case
+ApplyFieldMaskUser(dst, src, []string{"address.street"})
+```
+
+All reference fields (slices, maps, nested messages) are **deep-copied** during mask application — the result is fully independent from the source.
 
 ## Validation
 

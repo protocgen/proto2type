@@ -1,0 +1,56 @@
+syntax = "proto3";
+package test.v1;
+
+import "proto2type/options.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
+
+// EmptyMessage has zero fields — tests that code generation produces valid
+// types, Clone, Equal, ToProto, FromProto, and Validate without panicking.
+message EmptyMessage {}
+
+// SingleValueEnum has only the UNSPECIFIED sentinel — tests that validators,
+// defined_only checks, and type unions don't break on single-variant enums.
+enum SingleValueEnum {
+  SINGLE_VALUE_ENUM_UNSPECIFIED = 0;
+}
+
+// AllOptionalScalars has every field marked optional — tests pointer-heavy
+// struct generation, all-nil instantiation, Clone independence, and JSON
+// omitempty for every proto3 optional scalar type.
+message AllOptionalScalars {
+  optional string opt_string = 1;
+  optional int32 opt_int32 = 2;
+  optional int64 opt_int64 = 3;
+  optional bool opt_bool = 4;
+  optional double opt_double = 5;
+  optional float opt_float = 6;
+  optional bytes opt_bytes = 7;
+  optional google.protobuf.Timestamp opt_timestamp = 8;
+  optional SingleValueEnum opt_enum = 9;
+}
+
+// OneofOnly has zero regular fields and a single oneof — tests that
+// generators don't assume at least one standard field exists.
+message OneofOnly {
+  oneof payload {
+    string text = 1;
+    int32 number = 2;
+    bool flag = 3;
+  }
+}
+
+// MapOnly contains only map fields — tests nil-map vs empty-map semantics,
+// map cloning, and equality without any scalar anchors.
+message MapOnly {
+  map<string, string> string_map = 1;
+  map<int32, string> int_map = 2;
+}
+
+// RepeatedOnly contains only repeated fields — tests nil-slice vs
+// empty-slice semantics, slice cloning, and equality.
+message RepeatedOnly {
+  repeated string items = 1;
+  repeated int32 numbers = 2;
+}

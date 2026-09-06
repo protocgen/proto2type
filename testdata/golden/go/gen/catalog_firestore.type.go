@@ -59,10 +59,10 @@ func (m *ModelCatalogEntryFirestore) ToProto() *pb.ModelCatalogEntry {
 
 // FromProto populates from a protobuf message.
 //
-// Note: The receiver is not fully zeroed before population. Repeated and map
-// fields are overwritten only when the source message has non-empty values.
-// To avoid retaining stale data from a previous call, use a fresh (zero-value)
-// receiver rather than reusing one across multiple FromProto calls.
+// The receiver is fully reset before population: all reference fields
+// (slices, maps, pointers, nested messages) are cleared to their zero values,
+// and scalar fields are overwritten unconditionally. This makes it safe to
+// reuse a receiver across multiple FromProto calls without retaining stale data.
 func (m *ModelCatalogEntryFirestore) FromProto(msg *pb.ModelCatalogEntry) {
 	if msg == nil {
 		return
