@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"encoding/base64"
+	"fmt"
 	"testing"
 	"time"
 
@@ -360,5 +362,218 @@ func TestRapid_NilSafety(t *testing.T) {
 				t.Fatalf("FromProto receiver-reuse left stale state:\n  got:      %+v\n  expected: %+v", u, expected)
 			}
 		})
+	})
+}
+
+// ---------- valid User field names for FieldMask ----------
+
+var userFieldNames = []string{
+	"id", "email", "display_name", "active", "age", "roles", "metadata",
+	"address", "created_at", "session_timeout", "phone", "avatar", "nickname",
+	"status", "tags", "deleted_at", "previous_status", "update_mask",
+	"avatar_thumbnail", "event_times", "labels", "scores",
+	"old_field", "optional_name", "big_number", "handle",
+}
+
+func rapidFieldPaths(t *rapid.T) []string {
+	n := rapid.IntRange(0, len(userFieldNames)).Draw(t, "n_paths")
+	if n == 0 {
+		return nil
+	}
+	// Shuffle a copy and take the first n elements.
+	shuffled := make([]string, len(userFieldNames))
+	copy(shuffled, userFieldNames)
+	// Fisher-Yates shuffle using rapid draws for deterministic shrinking.
+	for i := len(shuffled) - 1; i > 0; i-- {
+		j := rapid.IntRange(0, i).Draw(t, "shuffle")
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	}
+	return shuffled[:n]
+}
+
+// ---------- P4: FieldMask properties ----------
+
+func TestRapid_FieldMaskIdempotency(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		dst := rapidUser(t)
+		src := rapidUser(t)
+		paths := rapidFieldPaths(t)
+		if len(paths) == 0 {
+			return // empty mask is a no-op
+		}
+
+		// Apply once.
+		dst1 := dst.Clone()
+		gen.ApplyFieldMaskUser(dst1, src, paths)
+
+		// Apply twice.
+		dst2 := dst.Clone()
+		gen.ApplyFieldMaskUser(dst2, src, paths)
+		gen.ApplyFieldMaskUser(dst2, src, paths)
+
+		if !dst1.Equal(dst2) {
+			t.Fatalf("FieldMask is not idempotent for paths %v", paths)
+		}
+	})
+}
+
+func TestRapid_FieldMaskFrameRule(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		dst := rapidUser(t)
+		src := rapidUser(t)
+
+		snapshot := dst.Clone()
+
+		// Apply with empty paths — dst must be unchanged.
+		gen.ApplyFieldMaskUser(dst, src, nil)
+		if !dst.Equal(snapshot) {
+			t.Fatal("FieldMask with nil paths modified dst")
+		}
+
+		gen.ApplyFieldMaskUser(dst, src, []string{})
+		if !dst.Equal(snapshot) {
+			t.Fatal("FieldMask with empty paths modified dst")
+		}
+	})
+}
+
+// ---------- P5: Storage roundtrip ----------
+
+func TestRapid_FirestoreRoundtrip(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		u := rapidUser(t)
+
+		var fs gen.UserFirestore
+		fs.FromDomain(u)
+		restored := fs.ToDomain()
+
+		if !restored.Equal(u) {
+			t.Fatalf("Firestore roundtrip mismatch:\n  orig:     %+v\n  restored: %+v", u, restored)
+		}
+	})
+}
+
+func TestRapid_MongoRoundtrip(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		u := rapidUser(t)
+
+		var m gen.UserMongo
+		m.FromDomain(u)
+		restored := m.ToDomain()
+
+		if !restored.Equal(u) {
+			t.Fatalf("Mongo roundtrip mismatch:\n  orig:     %+v\n  restored: %+v", u, restored)
+		}
+	})
+}
+
+// ---------- P6: Encrypt/Decrypt roundtrip ----------
+
+// xorEncryptor is a simple reversible encryptor for property testing.
+// It XORs plaintext with a key derived from scope+fieldName, then base64-encodes.
+type xorEncryptor struct{}
+
+func (xorEncryptor) Encrypt(plaintext, scope, fieldName string) (string, error) {
+	key := deriveKey(scope, fieldName)
+	ct := xorBytes([]byte(plaintext), key)
+	return base64.StdEncoding.EncodeToString(ct), nil
+}
+
+func (xorEncryptor) Decrypt(ciphertext, scope, fieldName string) (string, error) {
+	ct, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		return "", fmt.Errorf("decrypt base64: %w", err)
+	}
+	key := deriveKey(scope, fieldName)
+	return string(xorBytes(ct, key)), nil
+}
+
+func deriveKey(scope, fieldName string) []byte {
+	// Simple deterministic key derivation for testing.
+	raw := []byte(scope + ":" + fieldName)
+	if len(raw) == 0 {
+		raw = []byte{0x42}
+	}
+	return raw
+}
+
+func xorBytes(data, key []byte) []byte {
+	out := make([]byte, len(data))
+	for i, b := range data {
+		out[i] = b ^ key[i%len(key)]
+	}
+	return out
+}
+
+func TestRapid_EncryptDecryptRoundtrip(t *testing.T) {
+	enc := xorEncryptor{}
+	rapid.Check(t, func(t *rapid.T) {
+		u := rapidUser(t)
+		scope := rapid.StringN(1, 20, -1).Draw(t, "scope")
+
+		var fs gen.UserFirestore
+		fs.FromDomain(u)
+
+		// Snapshot the phone before encrypt.
+		var origPhone *string
+		if fs.Phone != nil {
+			s := *fs.Phone
+			origPhone = &s
+		}
+
+		if err := fs.EncryptFields(enc, scope); err != nil {
+			t.Fatalf("EncryptFields: %v", err)
+		}
+
+		// If phone was non-empty, ciphertext should differ from plaintext.
+		if origPhone != nil && *origPhone != "" && fs.Phone != nil && *fs.Phone == *origPhone {
+			t.Fatal("EncryptFields did not change non-empty phone")
+		}
+
+		if err := fs.DecryptFields(enc, scope); err != nil {
+			t.Fatalf("DecryptFields: %v", err)
+		}
+
+		// After decrypt, phone must match original.
+		if origPhone == nil {
+			if fs.Phone != nil {
+				t.Fatal("phone should be nil after decrypt")
+			}
+		} else {
+			if fs.Phone == nil || *fs.Phone != *origPhone {
+				t.Fatalf("phone mismatch: got %v, want %v", fs.Phone, *origPhone)
+			}
+		}
+	})
+}
+
+// ---------- Additional properties ----------
+
+func TestRapid_EqualTransitivity(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		a := rapidUser(t)
+		b := a.Clone()
+		c := b.Clone()
+
+		if !a.Equal(b) || !b.Equal(c) {
+			t.Fatal("Clone should produce Equal structs")
+		}
+		if !a.Equal(c) {
+			t.Fatal("Equal is not transitive: a==b && b==c but a!=c")
+		}
+	})
+}
+
+func TestRapid_ValidateCloneConsistency(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		u := rapidUser(t)
+		clone := u.Clone()
+
+		origErr := u.Validate()
+		cloneErr := clone.Validate()
+
+		if (origErr == nil) != (cloneErr == nil) {
+			t.Fatalf("Validate inconsistency: orig=%v, clone=%v", origErr, cloneErr)
+		}
 	})
 }

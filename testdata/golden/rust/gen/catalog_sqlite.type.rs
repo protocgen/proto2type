@@ -69,20 +69,20 @@ impl ModelCatalogEntryRow {
     /// Constructs a ModelCatalogEntryRow from a rusqlite::Row using named column access.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
-            provider: row.get::<_, String>("provider")?,
-            display_name: row.get::<_, String>("display_name")?,
-            input_per_million: row.get::<_, f64>("input_per_million")?,
-            output_per_million: row.get::<_, f64>("output_per_million")?,
-            enabled: row.get::<_, bool>("enabled")?,
-            category: row.get::<_, String>("category")?,
-            context_window: row.get::<_, i64>("context_window")?,
-            discount_percent: row.get::<_, f64>("discount_percent")?,
+            provider: row.get::<_, Option<String>>("provider")?.unwrap_or_default(),
+            display_name: row.get::<_, Option<String>>("display_name")?.unwrap_or_default(),
+            input_per_million: row.get::<_, Option<f64>>("input_per_million")?.unwrap_or_default(),
+            output_per_million: row.get::<_, Option<f64>>("output_per_million")?.unwrap_or_default(),
+            enabled: row.get::<_, Option<bool>>("enabled")?.unwrap_or_default(),
+            category: row.get::<_, Option<String>>("category")?.unwrap_or_default(),
+            context_window: row.get::<_, Option<i64>>("context_window")?.unwrap_or_default(),
+            discount_percent: row.get::<_, Option<f64>>("discount_percent")?.unwrap_or_default(),
             aliases: row.get::<_, Option<String>>("aliases")?,
-            provider_model_id: row.get::<_, String>("provider_model_id")?,
-            created_at: row.get::<_, i64>("created_at")?,
-            updated_at: row.get::<_, i64>("updated_at")?,
-            notes: row.get::<_, String>("notes")?,
-            region: row.get::<_, String>("region")?,
+            provider_model_id: row.get::<_, Option<String>>("provider_model_id")?.unwrap_or_default(),
+            created_at: row.get::<_, Option<i64>>("created_at")?.unwrap_or_default(),
+            updated_at: row.get::<_, Option<i64>>("updated_at")?.unwrap_or_default(),
+            notes: row.get::<_, Option<String>>("notes")?.unwrap_or_default(),
+            region: row.get::<_, Option<String>>("region")?.unwrap_or_default(),
         })
     }
 

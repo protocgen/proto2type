@@ -10,6 +10,13 @@ import (
 	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
 )
 
+// goGenerator holds per-run state for Go code generation.
+//
+// goGenerator is NOT safe for concurrent use. Its maps are read and written
+// without synchronization. This is fine because protoc plugins are
+// single-process, single-threaded filters: protogen.Plugin processes files
+// sequentially on the main goroutine. If file processing is ever parallelized,
+// these maps must be protected with a sync.Mutex.
 type goGenerator struct {
 	// emittedDeepCopyHelper tracks which Go import paths have already had the
 	// deepCopyValue helper emitted, preventing redeclaration when multiple
