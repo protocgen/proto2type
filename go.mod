@@ -5,13 +5,14 @@ go 1.26.0
 toolchain go1.26.4
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260709200747-435963d16310.1
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
 	buf.build/go/protovalidate v1.3.0
 	cloud.google.com/go/firestore v1.25.0
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7
 	google.golang.org/protobuf v1.36.12
 	hegel.dev/go/hegel v0.6.32
+	pgregory.net/rapid v1.3.0
 )
 
 require (
@@ -55,5 +56,4 @@ require (
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260630182238-925bb5da69e7 // indirect
 	google.golang.org/grpc v1.83.0 // indirect
-	pgregory.net/rapid v1.3.0 // indirect
 )
