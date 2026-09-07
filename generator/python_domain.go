@@ -481,6 +481,9 @@ func writePythonModel(g *protogen.GeneratedFile, m *DomainMessage, opts *Options
 
 	g.P()
 	g.P()
+
+	// Generate apply_field_mask function
+	generatePythonFieldMask(g, m)
 }
 
 func writePythonField(g *protogen.GeneratedFile, f *DomainField, opts *Options) {

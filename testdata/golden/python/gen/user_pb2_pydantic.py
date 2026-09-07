@@ -29,6 +29,21 @@ class Address(BaseModel):
     country: str = ''
 
 
+def apply_field_mask_address(dst: Address, src: Address, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "street":
+            dst.street = src.street
+        elif path == "city":
+            dst.city = src.city
+        elif path == "state":
+            dst.state = src.state
+        elif path == "zip":
+            dst.zip = src.zip
+        elif path == "country":
+            dst.country = src.country
+
 class Tag(BaseModel):
     """Tag is a label with a key-value pair."""
     model_config = ConfigDict(populate_by_name=True)
@@ -36,6 +51,15 @@ class Tag(BaseModel):
     key: str = ''
     value: str = ''
 
+
+def apply_field_mask_tag(dst: Tag, src: Tag, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "key":
+            dst.key = src.key
+        elif path == "value":
+            dst.value = src.value
 
 class User(BaseModel):
     """User represents a user account."""
@@ -108,6 +132,85 @@ class User(BaseModel):
         return v
 
 
+def apply_field_mask_user(dst: User, src: User, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "id":
+            dst.id = src.id
+        elif path == "email":
+            dst.email = src.email
+        elif path == "display_name":
+            dst.display_name = src.display_name
+        elif path == "active":
+            dst.active = src.active
+        elif path == "age":
+            dst.age = src.age
+        elif path == "roles":
+            dst.roles = copy.deepcopy(src.roles)
+        elif path == "metadata":
+            dst.metadata = copy.deepcopy(src.metadata)
+        elif path == "address":
+            dst.address = copy.deepcopy(src.address)
+        elif path == "created_at":
+            dst.created_at = copy.deepcopy(src.created_at)
+        elif path == "session_timeout":
+            dst.session_timeout = copy.deepcopy(src.session_timeout)
+        elif path == "phone":
+            dst.phone = src.phone
+        elif path == "avatar":
+            dst.avatar = src.avatar
+        elif path == "nickname":
+            dst.nickname = copy.deepcopy(src.nickname)
+        elif path == "status":
+            dst.status = src.status
+        elif path == "contact_email":
+            dst.contact_method = src.contact_method
+        elif path == "contact_phone":
+            dst.contact_method = src.contact_method
+        elif path == "tags":
+            dst.tags = copy.deepcopy(src.tags)
+        elif path == "deleted_at":
+            dst.deleted_at = copy.deepcopy(src.deleted_at)
+        elif path == "previous_status":
+            dst.previous_status = src.previous_status
+        elif path == "update_mask":
+            dst.update_mask = copy.deepcopy(src.update_mask)
+        elif path == "extra_metadata":
+            dst.extra_metadata = copy.deepcopy(src.extra_metadata)
+        elif path == "preferences":
+            dst.preferences = copy.deepcopy(src.preferences)
+        elif path == "avatar_thumbnail":
+            dst.avatar_thumbnail = src.avatar_thumbnail
+        elif path == "field_masks":
+            dst.field_masks = copy.deepcopy(src.field_masks)
+        elif path == "structs":
+            dst.structs = copy.deepcopy(src.structs)
+        elif path == "lists":
+            dst.lists = copy.deepcopy(src.lists)
+        elif path == "event_times":
+            dst.event_times = copy.deepcopy(src.event_times)
+        elif path == "configs":
+            dst.configs = copy.deepcopy(src.configs)
+        elif path == "single_value":
+            dst.single_value = copy.deepcopy(src.single_value)
+        elif path == "values":
+            dst.values = copy.deepcopy(src.values)
+        elif path == "value_map":
+            dst.value_map = copy.deepcopy(src.value_map)
+        elif path == "labels":
+            dst.labels = copy.deepcopy(src.labels)
+        elif path == "scores":
+            dst.scores = copy.deepcopy(src.scores)
+        elif path == "old_field":
+            dst.old_field = src.old_field
+        elif path == "optional_name":
+            dst.optional_name = src.optional_name
+        elif path == "big_number":
+            dst.big_number = src.big_number
+        elif path == "handle":
+            dst.handle = src.handle
+
 class Category(BaseModel):
     """Category is a recursive tree structure for testing z.lazy() generation."""
     model_config = ConfigDict(populate_by_name=True)
@@ -116,6 +219,17 @@ class Category(BaseModel):
     parent: Category | None = None
     children: list[Category] = Field(default_factory=list)
 
+
+def apply_field_mask_category(dst: Category, src: Category, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "name":
+            dst.name = src.name
+        elif path == "parent":
+            dst.parent = copy.deepcopy(src.parent)
+        elif path == "children":
+            dst.children = copy.deepcopy(src.children)
 
 
 Address.model_rebuild()

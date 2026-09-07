@@ -14,6 +14,13 @@ class TextChunk(BaseModel):
     delta: str = ''
 
 
+def apply_field_mask_text_chunk(dst: TextChunk, src: TextChunk, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "delta":
+            dst.delta = src.delta
+
 class ToolInvocation(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -23,6 +30,19 @@ class ToolInvocation(BaseModel):
     requires_approval: bool = False
 
 
+def apply_field_mask_tool_invocation(dst: ToolInvocation, src: ToolInvocation, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "call_id":
+            dst.call_id = src.call_id
+        elif path == "tool_name":
+            dst.tool_name = src.tool_name
+        elif path == "args":
+            dst.args = copy.deepcopy(src.args)
+        elif path == "requires_approval":
+            dst.requires_approval = src.requires_approval
+
 class StreamDone(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -30,12 +50,30 @@ class StreamDone(BaseModel):
     cost_usd: float = 0.0
 
 
+def apply_field_mask_stream_done(dst: StreamDone, src: StreamDone, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "total_tokens":
+            dst.total_tokens = src.total_tokens
+        elif path == "cost_usd":
+            dst.cost_usd = src.cost_usd
+
 class StreamError(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     message: str = ''
     code: str | None = None
 
+
+def apply_field_mask_stream_error(dst: StreamError, src: StreamError, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "message":
+            dst.message = src.message
+        elif path == "code":
+            dst.code = src.code
 
 class StreamEvent(BaseModel):
     """StreamEvent is the canonical jsonrpc test case:
@@ -46,6 +84,21 @@ class StreamEvent(BaseModel):
     payload: TextChunk | ToolInvocation | StreamDone | StreamError | None = None
 
 
+def apply_field_mask_stream_event(dst: StreamEvent, src: StreamEvent, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "stream_id":
+            dst.stream_id = src.stream_id
+        elif path == "text":
+            dst.payload = copy.deepcopy(src.payload)
+        elif path == "tool_call":
+            dst.payload = copy.deepcopy(src.payload)
+        elif path == "done":
+            dst.payload = copy.deepcopy(src.payload)
+        elif path == "error":
+            dst.payload = copy.deepcopy(src.payload)
+
 class NonEligible(BaseModel):
     """NonEligible has no oneof — should be skipped by jsonrpc backend."""
     model_config = ConfigDict(populate_by_name=True)
@@ -53,6 +106,15 @@ class NonEligible(BaseModel):
     id: str = ''
     name: str = ''
 
+
+def apply_field_mask_non_eligible(dst: NonEligible, src: NonEligible, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "id":
+            dst.id = src.id
+        elif path == "name":
+            dst.name = src.name
 
 class MultiOneof(BaseModel):
     """MultiOneof has 2 oneofs — should be skipped."""
@@ -62,6 +124,15 @@ class MultiOneof(BaseModel):
     b: str | None = None
 
 
+def apply_field_mask_multi_oneof(dst: MultiOneof, src: MultiOneof, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "x":
+            dst.a = src.a
+        elif path == "y":
+            dst.b = src.b
+
 class WktEvent(BaseModel):
     """WktEvent has bare WKT-typed oneof variants (not wrapped in messages).
  Tests that the jsonrpc backend correctly emits value fields for these."""
@@ -70,6 +141,19 @@ class WktEvent(BaseModel):
     event_id: str = ''
     payload: datetime | dict[str, Any] | str | None = None
 
+
+def apply_field_mask_wkt_event(dst: WktEvent, src: WktEvent, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "event_id":
+            dst.event_id = src.event_id
+        elif path == "timestamp":
+            dst.payload = copy.deepcopy(src.payload)
+        elif path == "metadata":
+            dst.payload = copy.deepcopy(src.payload)
+        elif path == "raw":
+            dst.payload = src.payload
 
 
 TextChunk.model_rebuild()

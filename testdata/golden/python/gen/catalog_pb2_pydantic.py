@@ -37,6 +37,41 @@ class ModelCatalogEntry(BaseModel):
         return v.strftime('%Y-%m-%dT%H:%M:%S.') + f'{v.microsecond // 1000:03d}' + 'Z'
 
 
+def apply_field_mask_model_catalog_entry(dst: ModelCatalogEntry, src: ModelCatalogEntry, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "model_id":
+            dst.model_id = src.model_id
+        elif path == "provider":
+            dst.provider = src.provider
+        elif path == "display_name":
+            dst.display_name = src.display_name
+        elif path == "input_per_million":
+            dst.input_per_million = src.input_per_million
+        elif path == "output_per_million":
+            dst.output_per_million = src.output_per_million
+        elif path == "enabled":
+            dst.enabled = src.enabled
+        elif path == "category":
+            dst.category = src.category
+        elif path == "context_window":
+            dst.context_window = src.context_window
+        elif path == "discount_percent":
+            dst.discount_percent = src.discount_percent
+        elif path == "aliases":
+            dst.aliases = copy.deepcopy(src.aliases)
+        elif path == "provider_model_id":
+            dst.provider_model_id = src.provider_model_id
+        elif path == "created_at":
+            dst.created_at = copy.deepcopy(src.created_at)
+        elif path == "updated_at":
+            dst.updated_at = copy.deepcopy(src.updated_at)
+        elif path == "notes":
+            dst.notes = src.notes
+        elif path == "region":
+            dst.region = src.region
+
 
 ModelCatalogEntry.model_rebuild()
 

@@ -34,3 +34,25 @@ fun KeywordFields.validateOrThrow() {
     }
 }
 
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskKeywordFields(dst: KeywordFields, src: KeywordFields, paths: List<String>): KeywordFields {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "type" -> result.copy(type = src.type)
+            "self" -> result.copy(self = src.self)
+            "match" -> result.copy(match = src.match)
+            "mod" -> result.copy(mod = src.mod)
+            "ref" -> result.copy(ref = src.ref)
+            "super" -> result.copy(`super` = src.`super`)
+            "cls" -> result.copy(cls = src.cls)
+            else -> result
+        }
+    }
+    return result
+}
+

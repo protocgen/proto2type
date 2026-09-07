@@ -31,12 +31,30 @@ class Settings(BaseModel):
     locale: str = ''
 
 
+def apply_field_mask_settings(dst: Settings, src: Settings, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "theme":
+            dst.theme = src.theme
+        elif path == "locale":
+            dst.locale = src.locale
+
 class OrganizationDepartmentTeam(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     name: str = ''
     members: list[str] = Field(default_factory=list)
 
+
+def apply_field_mask_organization_department_team(dst: OrganizationDepartmentTeam, src: OrganizationDepartmentTeam, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "name":
+            dst.name = src.name
+        elif path == "members":
+            dst.members = copy.deepcopy(src.members)
 
 class OrganizationDepartment(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -45,6 +63,15 @@ class OrganizationDepartment(BaseModel):
     teams: list[OrganizationDepartmentTeam] = Field(default_factory=list)
 
 
+def apply_field_mask_organization_department(dst: OrganizationDepartment, src: OrganizationDepartment, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "name":
+            dst.name = src.name
+        elif path == "teams":
+            dst.teams = copy.deepcopy(src.teams)
+
 class Organization(BaseModel):
     """Deeply nested messages (3 levels)."""
     model_config = ConfigDict(populate_by_name=True)
@@ -52,6 +79,15 @@ class Organization(BaseModel):
     name: str = ''
     departments: list[OrganizationDepartment] = Field(default_factory=list)
 
+
+def apply_field_mask_organization(dst: Organization, src: Organization, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "name":
+            dst.name = src.name
+        elif path == "departments":
+            dst.departments = copy.deepcopy(src.departments)
 
 class Notification(BaseModel):
     """Multiple oneofs."""
@@ -62,6 +98,25 @@ class Notification(BaseModel):
     channel: str | None = None
     content: str | None = None
 
+
+def apply_field_mask_notification(dst: Notification, src: Notification, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "id":
+            dst.id = src.id
+        elif path == "email":
+            dst.channel = src.channel
+        elif path == "sms":
+            dst.channel = src.channel
+        elif path == "push_token":
+            dst.channel = src.channel
+        elif path == "plain_text":
+            dst.content = src.content
+        elif path == "html":
+            dst.content = src.content
+        elif path == "priority":
+            dst.priority = src.priority
 
 class Document(BaseModel):
     """Map with message values and various WKTs."""
@@ -78,6 +133,29 @@ class Document(BaseModel):
     placeholders: list[None] = Field(default_factory=list)
 
 
+def apply_field_mask_document(dst: Document, src: Document, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "id":
+            dst.id = src.id
+        elif path == "settings_map":
+            dst.settings_map = copy.deepcopy(src.settings_map)
+        elif path == "code_names":
+            dst.code_names = copy.deepcopy(src.code_names)
+        elif path == "metadata":
+            dst.metadata = copy.deepcopy(src.metadata)
+        elif path == "extension":
+            dst.extension = copy.deepcopy(src.extension)
+        elif path == "update_mask":
+            dst.update_mask = copy.deepcopy(src.update_mask)
+        elif path == "archived":
+            dst.archived = copy.deepcopy(src.archived)
+        elif path == "view_count":
+            dst.view_count = copy.deepcopy(src.view_count)
+        elif path == "placeholders":
+            dst.placeholders = copy.deepcopy(src.placeholders)
+
 class TreeNode(BaseModel):
     """Recursive/self-referencing message."""
     model_config = ConfigDict(populate_by_name=True)
@@ -86,6 +164,17 @@ class TreeNode(BaseModel):
     children: list[TreeNode] = Field(default_factory=list)
     parent: TreeNode | None = None
 
+
+def apply_field_mask_tree_node(dst: TreeNode, src: TreeNode, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "value":
+            dst.value = src.value
+        elif path == "children":
+            dst.children = copy.deepcopy(src.children)
+        elif path == "parent":
+            dst.parent = copy.deepcopy(src.parent)
 
 class AuditLog(BaseModel):
     """Message with skipped field and name override."""
@@ -96,6 +185,17 @@ class AuditLog(BaseModel):
     user_id: str = ''
 
 
+def apply_field_mask_audit_log(dst: AuditLog, src: AuditLog, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "id":
+            dst.id = src.id
+        elif path == "action":
+            dst.action = src.action
+        elif path == "user_id":
+            dst.user_id = src.user_id
+
 class Event(BaseModel):
     """Oneof with mixed variant types (message, enum, scalar)."""
     model_config = ConfigDict(populate_by_name=True)
@@ -103,6 +203,19 @@ class Event(BaseModel):
     id: str = ''
     payload: str | Settings | Priority | None = None
 
+
+def apply_field_mask_event(dst: Event, src: Event, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "id":
+            dst.id = src.id
+        elif path == "text_message":
+            dst.payload = src.payload
+        elif path == "settings_update":
+            dst.payload = copy.deepcopy(src.payload)
+        elif path == "priority_change":
+            dst.payload = src.payload
 
 class WktPayload(BaseModel):
     """Oneof with bare WKT variants — tests nil vs empty Clone semantics (#73).
@@ -116,6 +229,23 @@ class WktPayload(BaseModel):
     id: str = ''
     content: dict[str, Any] | Any | str | None = None
 
+
+def apply_field_mask_wkt_payload(dst: WktPayload, src: WktPayload, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "id":
+            dst.id = src.id
+        elif path == "struct_data":
+            dst.content = copy.deepcopy(src.content)
+        elif path == "any_value":
+            dst.content = copy.deepcopy(src.content)
+        elif path == "list_data":
+            dst.content = copy.deepcopy(src.content)
+        elif path == "mask":
+            dst.content = copy.deepcopy(src.content)
+        elif path == "raw":
+            dst.content = src.content
 
 
 Settings.model_rebuild()

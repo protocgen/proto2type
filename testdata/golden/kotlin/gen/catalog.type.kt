@@ -42,3 +42,33 @@ fun ModelCatalogEntry.validateOrThrow() {
     }
 }
 
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskModelCatalogEntry(dst: ModelCatalogEntry, src: ModelCatalogEntry, paths: List<String>): ModelCatalogEntry {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "model_id" -> result.copy(modelId = src.modelId)
+            "provider" -> result.copy(provider = src.provider)
+            "display_name" -> result.copy(displayName = src.displayName)
+            "input_per_million" -> result.copy(inputPerMillion = src.inputPerMillion)
+            "output_per_million" -> result.copy(outputPerMillion = src.outputPerMillion)
+            "enabled" -> result.copy(enabled = src.enabled)
+            "category" -> result.copy(category = src.category)
+            "context_window" -> result.copy(contextWindow = src.contextWindow)
+            "discount_percent" -> result.copy(discountPercent = src.discountPercent)
+            "aliases" -> result.copy(aliases = src.aliases.toList())
+            "provider_model_id" -> result.copy(providerModelId = src.providerModelId)
+            "created_at" -> result.copy(createdAt = src.createdAt)
+            "updated_at" -> result.copy(updatedAt = src.updatedAt)
+            "notes" -> result.copy(notes = src.notes)
+            "region" -> result.copy(region = src.region)
+            else -> result
+        }
+    }
+    return result
+}
+

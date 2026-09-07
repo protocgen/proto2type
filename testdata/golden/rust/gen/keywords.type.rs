@@ -27,3 +27,23 @@ pub struct KeywordFields {
     pub cls: bool,
 }
 
+impl KeywordFields {
+    /// Copies fields from `src` to `self` based on the given paths.
+    ///
+    /// Only top-level field names are supported.
+    pub fn apply_field_mask(&mut self, src: &Self, paths: &[&str]) {
+        for path in paths {
+            match *path {
+                "type" => self.r#type = src.r#type.clone(),
+                "self" => self.self_ = src.self_.clone(),
+                "match" => self.r#match = src.r#match.clone(),
+                "mod" => self.r#mod = src.r#mod.clone(),
+                "ref" => self.r#ref = src.r#ref.clone(),
+                "super" => self.super_ = src.super_.clone(),
+                "cls" => self.cls = src.cls.clone(),
+                _ => {} // ignore unknown paths
+            }
+        }
+    }
+}
+

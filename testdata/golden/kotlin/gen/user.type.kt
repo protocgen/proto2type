@@ -148,6 +148,70 @@ fun UserContactMethod.validateOrThrow() {
     }
 }
 
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskUser(dst: User, src: User, paths: List<String>): User {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "id" -> result.copy(id = src.id)
+            "email" -> result.copy(email = src.email)
+            "display_name" -> result.copy(displayName = src.displayName)
+            "active" -> result.copy(active = src.active)
+            "age" -> result.copy(age = src.age)
+            "roles" -> result.copy(roles = src.roles.toList())
+            "metadata" -> result.copy(metadata = src.metadata.toMap())
+            "address" -> result.copy(address = src.address)
+            "created_at" -> result.copy(createdAt = src.createdAt)
+            "session_timeout" -> result.copy(sessionTimeout = src.sessionTimeout)
+            "phone" -> result.copy(phone = src.phone)
+            "avatar" -> result.copy(avatar = src.avatar.copyOf())
+            "nickname" -> result.copy(nickname = src.nickname)
+            "status" -> result.copy(status = src.status)
+            "contact_email" -> if (src.contactMethod is UserContactMethod.ContactEmail) {
+                result.copy(contactMethod = UserContactMethod.ContactEmail(src.contactMethod.value))
+            } else if (result.contactMethod is UserContactMethod.ContactEmail) {
+                result.copy(contactMethod = null)
+            } else {
+                result
+            }
+            "contact_phone" -> if (src.contactMethod is UserContactMethod.ContactPhone) {
+                result.copy(contactMethod = UserContactMethod.ContactPhone(src.contactMethod.value))
+            } else if (result.contactMethod is UserContactMethod.ContactPhone) {
+                result.copy(contactMethod = null)
+            } else {
+                result
+            }
+            "tags" -> result.copy(tags = src.tags.toList())
+            "deleted_at" -> result.copy(deletedAt = src.deletedAt)
+            "previous_status" -> result.copy(previousStatus = src.previousStatus)
+            "update_mask" -> result.copy(updateMask = src.updateMask)
+            "extra_metadata" -> result.copy(extraMetadata = src.extraMetadata)
+            "preferences" -> result.copy(preferences = src.preferences)
+            "avatar_thumbnail" -> result.copy(avatarThumbnail = src.avatarThumbnail?.copyOf())
+            "field_masks" -> result.copy(fieldMasks = src.fieldMasks.toList())
+            "structs" -> result.copy(structs = src.structs.toList())
+            "lists" -> result.copy(lists = src.lists.toList())
+            "event_times" -> result.copy(eventTimes = src.eventTimes.toMap())
+            "configs" -> result.copy(configs = src.configs.toMap())
+            "single_value" -> result.copy(singleValue = src.singleValue)
+            "values" -> result.copy(values = src.values.toList())
+            "value_map" -> result.copy(valueMap = src.valueMap.toMap())
+            "labels" -> result.copy(labels = src.labels.toMap())
+            "scores" -> result.copy(scores = src.scores.toMap())
+            "old_field" -> result.copy(oldField = src.oldField)
+            "optional_name" -> result.copy(optionalName = src.optionalName)
+            "big_number" -> result.copy(bigNumber = src.bigNumber)
+            "handle" -> result.copy(handle = src.handle)
+            else -> result
+        }
+    }
+    return result
+}
+
 /** Address is a nested message. */
 @Serializable
 data class Address(
@@ -178,6 +242,26 @@ fun Address.validateOrThrow() {
     }
 }
 
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskAddress(dst: Address, src: Address, paths: List<String>): Address {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "street" -> result.copy(street = src.street)
+            "city" -> result.copy(city = src.city)
+            "state" -> result.copy(state = src.state)
+            "zip" -> result.copy(zip = src.zip)
+            "country" -> result.copy(country = src.country)
+            else -> result
+        }
+    }
+    return result
+}
+
 /** Tag is a label with a key-value pair. */
 @Serializable
 data class Tag(
@@ -197,6 +281,23 @@ fun Tag.validateOrThrow() {
     if (errors.isNotEmpty()) {
         throw IllegalStateException("Tag: validation failed: " + errors.joinToString("; "))
     }
+}
+
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskTag(dst: Tag, src: Tag, paths: List<String>): Tag {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "key" -> result.copy(key = src.key)
+            "value" -> result.copy(value = src.value)
+            else -> result
+        }
+    }
+    return result
 }
 
 /** Category is a recursive tree structure for testing z.lazy() generation. */
@@ -221,5 +322,23 @@ fun Category.validateOrThrow() {
     if (errors.isNotEmpty()) {
         throw IllegalStateException("Category: validation failed: " + errors.joinToString("; "))
     }
+}
+
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskCategory(dst: Category, src: Category, paths: List<String>): Category {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "name" -> result.copy(name = src.name)
+            "parent" -> result.copy(parent = src.parent)
+            "children" -> result.copy(children = src.children.toList())
+            else -> result
+        }
+    }
+    return result
 }
 
