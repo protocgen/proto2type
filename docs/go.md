@@ -95,7 +95,7 @@ func (u *User) FromProto(msg *pb.User) { ... }
 
 #### Receiver Reuse
 
-When `msg` is non-nil, `FromProto` fully resets the receiver before population: all reference fields (slices, maps, pointers, nested messages, oneofs) are cleared to their zero values, and scalar fields are overwritten unconditionally. This means it is **safe to reuse a receiver** across multiple `FromProto` calls without retaining stale data. When `msg` is nil, the receiver is left unchanged.
+When `msg` is non-nil, `FromProto` resets all proto-backed fields on the receiver before population: reference fields (slices, maps, pointers, nested messages, oneofs) are cleared to their zero values, and scalar fields are overwritten. Computed fields and storage-only fields (e.g. Firestore document IDs) are not touched. This means it is **safe to reuse a receiver** across multiple `FromProto` calls without retaining stale proto data. When `msg` is nil, the receiver is left unchanged.
 
 ```go
 u := &User{}

@@ -26,11 +26,12 @@ func (e *EmptyMessageMongo) ToProto() *pb.EmptyMessage {
 
 // FromProto populates from a protobuf message.
 //
-// When msg is non-nil, the receiver is fully reset before population: all
-// reference fields (slices, maps, pointers, nested messages) are cleared to
-// their zero values, and scalar fields are overwritten unconditionally. This
-// makes it safe to reuse a receiver across multiple FromProto calls without
-// retaining stale data. When msg is nil, the receiver is left unchanged.
+// When msg is non-nil, all proto-backed fields on the receiver are reset before
+// population: reference fields (slices, maps, pointers, nested messages) are
+// cleared to their zero values, and scalar fields are overwritten. Computed
+// fields and storage-only fields (e.g. Firestore document IDs) are not touched.
+// This makes it safe to reuse a receiver across multiple FromProto calls.
+// When msg is nil, the receiver is left unchanged.
 func (e *EmptyMessageMongo) FromProto(msg *pb.EmptyMessage) {
 	if msg == nil {
 		return
@@ -112,11 +113,12 @@ func (a *AllOptionalScalarsMongo) ToProto() *pb.AllOptionalScalars {
 
 // FromProto populates from a protobuf message.
 //
-// When msg is non-nil, the receiver is fully reset before population: all
-// reference fields (slices, maps, pointers, nested messages) are cleared to
-// their zero values, and scalar fields are overwritten unconditionally. This
-// makes it safe to reuse a receiver across multiple FromProto calls without
-// retaining stale data. When msg is nil, the receiver is left unchanged.
+// When msg is non-nil, all proto-backed fields on the receiver are reset before
+// population: reference fields (slices, maps, pointers, nested messages) are
+// cleared to their zero values, and scalar fields are overwritten. Computed
+// fields and storage-only fields (e.g. Firestore document IDs) are not touched.
+// This makes it safe to reuse a receiver across multiple FromProto calls.
+// When msg is nil, the receiver is left unchanged.
 func (a *AllOptionalScalarsMongo) FromProto(msg *pb.AllOptionalScalars) {
 	if msg == nil {
 		return
@@ -255,11 +257,12 @@ func (o *OneofOnlyMongo) ToProto() *pb.OneofOnly {
 
 // FromProto populates from a protobuf message.
 //
-// When msg is non-nil, the receiver is fully reset before population: all
-// reference fields (slices, maps, pointers, nested messages) are cleared to
-// their zero values, and scalar fields are overwritten unconditionally. This
-// makes it safe to reuse a receiver across multiple FromProto calls without
-// retaining stale data. When msg is nil, the receiver is left unchanged.
+// When msg is non-nil, all proto-backed fields on the receiver are reset before
+// population: reference fields (slices, maps, pointers, nested messages) are
+// cleared to their zero values, and scalar fields are overwritten. Computed
+// fields and storage-only fields (e.g. Firestore document IDs) are not touched.
+// This makes it safe to reuse a receiver across multiple FromProto calls.
+// When msg is nil, the receiver is left unchanged.
 func (o *OneofOnlyMongo) FromProto(msg *pb.OneofOnly) {
 	if msg == nil {
 		return
@@ -320,11 +323,12 @@ func (m *MapOnlyMongo) ToProto() *pb.MapOnly {
 
 // FromProto populates from a protobuf message.
 //
-// When msg is non-nil, the receiver is fully reset before population: all
-// reference fields (slices, maps, pointers, nested messages) are cleared to
-// their zero values, and scalar fields are overwritten unconditionally. This
-// makes it safe to reuse a receiver across multiple FromProto calls without
-// retaining stale data. When msg is nil, the receiver is left unchanged.
+// When msg is non-nil, all proto-backed fields on the receiver are reset before
+// population: reference fields (slices, maps, pointers, nested messages) are
+// cleared to their zero values, and scalar fields are overwritten. Computed
+// fields and storage-only fields (e.g. Firestore document IDs) are not touched.
+// This makes it safe to reuse a receiver across multiple FromProto calls.
+// When msg is nil, the receiver is left unchanged.
 func (m *MapOnlyMongo) FromProto(msg *pb.MapOnly) {
 	if msg == nil {
 		return
@@ -376,11 +380,12 @@ func (r *RepeatedOnlyMongo) ToProto() *pb.RepeatedOnly {
 
 // FromProto populates from a protobuf message.
 //
-// When msg is non-nil, the receiver is fully reset before population: all
-// reference fields (slices, maps, pointers, nested messages) are cleared to
-// their zero values, and scalar fields are overwritten unconditionally. This
-// makes it safe to reuse a receiver across multiple FromProto calls without
-// retaining stale data. When msg is nil, the receiver is left unchanged.
+// When msg is non-nil, all proto-backed fields on the receiver are reset before
+// population: reference fields (slices, maps, pointers, nested messages) are
+// cleared to their zero values, and scalar fields are overwritten. Computed
+// fields and storage-only fields (e.g. Firestore document IDs) are not touched.
+// This makes it safe to reuse a receiver across multiple FromProto calls.
+// When msg is nil, the receiver is left unchanged.
 func (r *RepeatedOnlyMongo) FromProto(msg *pb.RepeatedOnly) {
 	if msg == nil {
 		return
