@@ -47,13 +47,13 @@ impl KeywordFieldsRow {
     /// Constructs a KeywordFieldsRow from a rusqlite::Row using named column access.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
-            r#type: row.get::<_, String>("type")?,
-            self_: row.get::<_, i32>("self")?,
-            r#match: row.get::<_, bool>("match")?,
-            r#mod: row.get::<_, String>("mod")?,
-            r#ref: row.get::<_, i64>("ref")?,
-            super_: row.get::<_, String>("super")?,
-            cls: row.get::<_, bool>("cls")?,
+            r#type: row.get::<_, Option<String>>("type")?.unwrap_or_default(),
+            self_: row.get::<_, Option<i32>>("self")?.unwrap_or_default(),
+            r#match: row.get::<_, Option<bool>>("match")?.unwrap_or_default(),
+            r#mod: row.get::<_, Option<String>>("mod")?.unwrap_or_default(),
+            r#ref: row.get::<_, Option<i64>>("ref")?.unwrap_or_default(),
+            super_: row.get::<_, Option<String>>("super")?.unwrap_or_default(),
+            cls: row.get::<_, Option<bool>>("cls")?.unwrap_or_default(),
         })
     }
 

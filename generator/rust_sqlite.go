@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -62,7 +63,8 @@ func generateRustSqlite(gen *protogen.Plugin, file *protogen.File, opts *Options
 	return nil
 }
 
-// irNeedsChronoSqlite returns true if any non-skipped, non-docID field is a Timestamp.
+// irNeedsChronoSqlite returns true if any non-skipped, non-docID field is a Timestamp,
+// including timestamps inside map values and oneof variants.
 func irNeedsChronoSqlite(msgs []*DomainMessage) bool {
 	for _, m := range msgs {
 		if m.Skip {
@@ -74,6 +76,18 @@ func irNeedsChronoSqlite(msgs []*DomainMessage) bool {
 			}
 			if f.Kind == FieldKindTimestamp {
 				return true
+			}
+			// Check map value types for timestamps.
+			if f.IsMap && f.MapValue != nil && f.MapValue.Kind == FieldKindTimestamp {
+				return true
+			}
+		}
+		// Check oneof variants for timestamps.
+		for _, o := range m.Oneofs {
+			for _, v := range o.Variants {
+				if v.Kind == FieldKindTimestamp {
+					return true
+				}
 			}
 		}
 		if irNeedsChronoSqlite(m.NestedMessages) {
@@ -224,7 +238,14 @@ func generateRustSqliteMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg
 
 		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
 		fieldType := rustSqliteFieldTypeFromIR(f)
-		g.P("            ", rustFieldName, ": row.get::<_, ", fieldType, ">(\"", f.Name, "\")?,")
+		// For non-Option types, wrap with Option and unwrap_or_default so that
+		// NULL columns (e.g. from ALTER TABLE ADD COLUMN) produce zero-values
+		// instead of errors.
+		if strings.HasPrefix(fieldType, "Option<") {
+			g.P("            ", rustFieldName, ": row.get::<_, ", fieldType, ">(\"", f.Name, "\")?,")
+		} else {
+			g.P("            ", rustFieldName, ": row.get::<_, Option<", fieldType, ">>(\"", f.Name, "\")?.unwrap_or_default(),")
+		}
 	}
 
 	g.P("        })")
