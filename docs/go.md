@@ -95,7 +95,7 @@ func (u *User) FromProto(msg *pb.User) { ... }
 
 #### Receiver Reuse
 
-`FromProto` fully resets the receiver before population: all reference fields (slices, maps, pointers, nested messages, oneofs) are cleared to their zero values, and scalar fields are overwritten unconditionally. This means it is **safe to reuse a receiver** across multiple `FromProto` calls without retaining stale data:
+When `msg` is non-nil, `FromProto` fully resets the receiver before population: all reference fields (slices, maps, pointers, nested messages, oneofs) are cleared to their zero values, and scalar fields are overwritten unconditionally. This means it is **safe to reuse a receiver** across multiple `FromProto` calls without retaining stale data. When `msg` is nil, the receiver is left unchanged.
 
 ```go
 u := &User{}
@@ -104,14 +104,15 @@ u.FromProto(protoB)  // u is fully reset, then populated with protoB's data
 // u.Roles, u.Metadata, u.Address etc. from protoA are gone
 ```
 
-#### Deep Copy Guarantees
+#### Copy Semantics
 
-Both `ToProto` and `FromProto` produce **fully independent** copies:
+`ToProto` and `FromProto` deep-copy reference types that could cause aliasing bugs:
 
 - `[]byte` fields are defensively copied via `copy()`
 - `*anypb.Any` fields are deep-copied via `proto.Clone()`
 - Nested messages use recursive `FromProto()`/`ToProto()` calls
-- Scalar slices and maps are assigned by header (Go value semantics)
+
+**Note:** Scalar slices (e.g. `[]string`) and scalar maps (e.g. `map[string]string`) are assigned by header — the domain struct and proto message share the same backing array. Mutating an element in place on one side will affect the other. Use `Clone()` if you need full isolation.
 
 ### Deep Copy and Equality
 

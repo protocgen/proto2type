@@ -26,10 +26,11 @@ func (e *EmptyMessageFirestore) ToProto() *pb.EmptyMessage {
 
 // FromProto populates from a protobuf message.
 //
-// The receiver is fully reset before population: all reference fields
-// (slices, maps, pointers, nested messages) are cleared to their zero values,
-// and scalar fields are overwritten unconditionally. This makes it safe to
-// reuse a receiver across multiple FromProto calls without retaining stale data.
+// When msg is non-nil, the receiver is fully reset before population: all
+// reference fields (slices, maps, pointers, nested messages) are cleared to
+// their zero values, and scalar fields are overwritten unconditionally. This
+// makes it safe to reuse a receiver across multiple FromProto calls without
+// retaining stale data. When msg is nil, the receiver is left unchanged.
 func (e *EmptyMessageFirestore) FromProto(msg *pb.EmptyMessage) {
 	if msg == nil {
 		return
@@ -111,10 +112,11 @@ func (a *AllOptionalScalarsFirestore) ToProto() *pb.AllOptionalScalars {
 
 // FromProto populates from a protobuf message.
 //
-// The receiver is fully reset before population: all reference fields
-// (slices, maps, pointers, nested messages) are cleared to their zero values,
-// and scalar fields are overwritten unconditionally. This makes it safe to
-// reuse a receiver across multiple FromProto calls without retaining stale data.
+// When msg is non-nil, the receiver is fully reset before population: all
+// reference fields (slices, maps, pointers, nested messages) are cleared to
+// their zero values, and scalar fields are overwritten unconditionally. This
+// makes it safe to reuse a receiver across multiple FromProto calls without
+// retaining stale data. When msg is nil, the receiver is left unchanged.
 func (a *AllOptionalScalarsFirestore) FromProto(msg *pb.AllOptionalScalars) {
 	if msg == nil {
 		return
@@ -253,10 +255,11 @@ func (o *OneofOnlyFirestore) ToProto() *pb.OneofOnly {
 
 // FromProto populates from a protobuf message.
 //
-// The receiver is fully reset before population: all reference fields
-// (slices, maps, pointers, nested messages) are cleared to their zero values,
-// and scalar fields are overwritten unconditionally. This makes it safe to
-// reuse a receiver across multiple FromProto calls without retaining stale data.
+// When msg is non-nil, the receiver is fully reset before population: all
+// reference fields (slices, maps, pointers, nested messages) are cleared to
+// their zero values, and scalar fields are overwritten unconditionally. This
+// makes it safe to reuse a receiver across multiple FromProto calls without
+// retaining stale data. When msg is nil, the receiver is left unchanged.
 func (o *OneofOnlyFirestore) FromProto(msg *pb.OneofOnly) {
 	if msg == nil {
 		return
@@ -317,10 +320,11 @@ func (m *MapOnlyFirestore) ToProto() *pb.MapOnly {
 
 // FromProto populates from a protobuf message.
 //
-// The receiver is fully reset before population: all reference fields
-// (slices, maps, pointers, nested messages) are cleared to their zero values,
-// and scalar fields are overwritten unconditionally. This makes it safe to
-// reuse a receiver across multiple FromProto calls without retaining stale data.
+// When msg is non-nil, the receiver is fully reset before population: all
+// reference fields (slices, maps, pointers, nested messages) are cleared to
+// their zero values, and scalar fields are overwritten unconditionally. This
+// makes it safe to reuse a receiver across multiple FromProto calls without
+// retaining stale data. When msg is nil, the receiver is left unchanged.
 func (m *MapOnlyFirestore) FromProto(msg *pb.MapOnly) {
 	if msg == nil {
 		return
@@ -372,10 +376,11 @@ func (r *RepeatedOnlyFirestore) ToProto() *pb.RepeatedOnly {
 
 // FromProto populates from a protobuf message.
 //
-// The receiver is fully reset before population: all reference fields
-// (slices, maps, pointers, nested messages) are cleared to their zero values,
-// and scalar fields are overwritten unconditionally. This makes it safe to
-// reuse a receiver across multiple FromProto calls without retaining stale data.
+// When msg is non-nil, the receiver is fully reset before population: all
+// reference fields (slices, maps, pointers, nested messages) are cleared to
+// their zero values, and scalar fields are overwritten unconditionally. This
+// makes it safe to reuse a receiver across multiple FromProto calls without
+// retaining stale data. When msg is nil, the receiver is left unchanged.
 func (r *RepeatedOnlyFirestore) FromProto(msg *pb.RepeatedOnly) {
 	if msg == nil {
 		return
