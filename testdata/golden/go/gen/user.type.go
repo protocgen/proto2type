@@ -424,10 +424,12 @@ func (u *User) TryToProto() (*pb.User, error) {
 
 // FromProto populates from a protobuf message.
 //
-// Note: The receiver is not fully zeroed before population. Repeated and map
-// fields are overwritten only when the source message has non-empty values.
-// To avoid retaining stale data from a previous call, use a fresh (zero-value)
-// receiver rather than reusing one across multiple FromProto calls.
+// When msg is non-nil, all proto-backed fields on the receiver are reset before
+// population: reference fields (slices, maps, pointers, nested messages) are
+// cleared to their zero values, and scalar fields are overwritten. Computed
+// fields and storage-only fields (e.g. Firestore document IDs) are not touched.
+// This makes it safe to reuse a receiver across multiple FromProto calls.
+// When msg is nil, the receiver is left unchanged.
 func (u *User) FromProto(msg *pb.User) {
 	if msg == nil {
 		return
@@ -1308,10 +1310,12 @@ func (a *Address) ToProto() *pb.Address {
 
 // FromProto populates from a protobuf message.
 //
-// Note: The receiver is not fully zeroed before population. Repeated and map
-// fields are overwritten only when the source message has non-empty values.
-// To avoid retaining stale data from a previous call, use a fresh (zero-value)
-// receiver rather than reusing one across multiple FromProto calls.
+// When msg is non-nil, all proto-backed fields on the receiver are reset before
+// population: reference fields (slices, maps, pointers, nested messages) are
+// cleared to their zero values, and scalar fields are overwritten. Computed
+// fields and storage-only fields (e.g. Firestore document IDs) are not touched.
+// This makes it safe to reuse a receiver across multiple FromProto calls.
+// When msg is nil, the receiver is left unchanged.
 func (a *Address) FromProto(msg *pb.Address) {
 	if msg == nil {
 		return
@@ -1422,10 +1426,12 @@ func (t *Tag) ToProto() *pb.Tag {
 
 // FromProto populates from a protobuf message.
 //
-// Note: The receiver is not fully zeroed before population. Repeated and map
-// fields are overwritten only when the source message has non-empty values.
-// To avoid retaining stale data from a previous call, use a fresh (zero-value)
-// receiver rather than reusing one across multiple FromProto calls.
+// When msg is non-nil, all proto-backed fields on the receiver are reset before
+// population: reference fields (slices, maps, pointers, nested messages) are
+// cleared to their zero values, and scalar fields are overwritten. Computed
+// fields and storage-only fields (e.g. Firestore document IDs) are not touched.
+// This makes it safe to reuse a receiver across multiple FromProto calls.
+// When msg is nil, the receiver is left unchanged.
 func (t *Tag) FromProto(msg *pb.Tag) {
 	if msg == nil {
 		return
@@ -1526,10 +1532,12 @@ func (c *Category) ToProto() *pb.Category {
 
 // FromProto populates from a protobuf message.
 //
-// Note: The receiver is not fully zeroed before population. Repeated and map
-// fields are overwritten only when the source message has non-empty values.
-// To avoid retaining stale data from a previous call, use a fresh (zero-value)
-// receiver rather than reusing one across multiple FromProto calls.
+// When msg is non-nil, all proto-backed fields on the receiver are reset before
+// population: reference fields (slices, maps, pointers, nested messages) are
+// cleared to their zero values, and scalar fields are overwritten. Computed
+// fields and storage-only fields (e.g. Firestore document IDs) are not touched.
+// This makes it safe to reuse a receiver across multiple FromProto calls.
+// When msg is nil, the receiver is left unchanged.
 func (c *Category) FromProto(msg *pb.Category) {
 	if msg == nil {
 		return
