@@ -45,6 +45,14 @@ func BuildDomainFile(file *protogen.File, opts *Options) (*DomainFile, error) {
 		}
 	}
 
+	// Services.
+	for _, svc := range file.Services {
+		ds := buildDomainService(svc)
+		if ds != nil {
+			df.Services = append(df.Services, ds)
+		}
+	}
+
 	// Post-process: detect flattened name collisions (PB-4).
 	// e.g. message Foo_Bar {} and message Foo { message Bar {} } both
 	// flatten to "FooBar", which would produce duplicate type names.
@@ -808,4 +816,27 @@ func markFieldsWithRecursiveSet(msgs []*DomainMessage, adj map[string][]string, 
 		}
 		markFieldsWithRecursiveSet(msg.NestedMessages, adj, recursive)
 	}
+}
+
+// buildDomainService builds the IR for a single proto service.
+func buildDomainService(svc *protogen.Service) *DomainService {
+	ds := &DomainService{
+		Name:     svc.GoName,
+		FullName: string(svc.Desc.FullName()),
+		Comment:  cleanComment(svc.Comments.Leading.String()),
+	}
+
+	for _, method := range svc.Methods {
+		dm := &DomainMethod{
+			Name:            method.GoName,
+			Comment:         cleanComment(method.Comments.Leading.String()),
+			InputType:       irMessageNameFromDesc(method.Input.Desc),
+			OutputType:      irMessageNameFromDesc(method.Output.Desc),
+			ClientStreaming: method.Desc.IsStreamingClient(),
+			ServerStreaming: method.Desc.IsStreamingServer(),
+		}
+		ds.Methods = append(ds.Methods, dm)
+	}
+
+	return ds
 }

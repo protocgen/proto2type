@@ -122,6 +122,11 @@ func (gg *goGenerator) generateGoDomain(gen *protogen.Plugin, file *protogen.Fil
 		}
 	}
 
+	// Generate service handler interfaces.
+	if len(df.Services) > 0 {
+		generateGoServices(g, df)
+	}
+
 	// Emit the deepCopyValue helper if any message needs it for Clone,
 	// but only once per Go package (import path).
 	if irNeedsDeepCopyHelper(df.Messages) && !gg.emittedDeepCopyHelper[goImportPath] {
