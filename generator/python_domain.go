@@ -28,6 +28,13 @@ func generatePython(gen *protogen.Plugin, file *protogen.File, opts *Options) er
 	// Scan what imports are needed.
 	imports := scanPythonImports(ir, opts)
 
+	// Detect type name collisions across source files and build aliases.
+	buildCrossFileAliases(imports, ir.SourcePath, opts)
+
+	// Apply aliases to IR field type names so type annotations use the
+	// aliased name (e.g. "CommonStatus" instead of "Status").
+	applyCrossFileAliases(ir, imports)
+
 	// Determine output filename.
 	outFile := pythonOutputFilename(file.Desc.Path(), opts)
 	g := gen.NewGeneratedFile(outFile, "")
@@ -64,6 +71,13 @@ type pythonImports struct {
 	// crossFileImports maps proto source path → set of type names needed
 	// from that file. Used to generate cross-file import statements.
 	crossFileImports map[string]map[string]bool
+
+	// crossFileAliases maps original type name → aliased import name
+	// for types that collide across source files. When two source files
+	// both export a type named "Status", one is imported as-is and the
+	// other(s) get a source-qualified alias (e.g. "CommonStatus").
+	// Built by buildCrossFileAliases() after scanning is complete.
+	crossFileAliases map[string]string
 }
 
 func scanPythonImports(ir *DomainFile, opts *Options) *pythonImports {
@@ -185,6 +199,121 @@ func pythonCrossFileModuleName(protoPath string, opts *Options) string {
 	return base + "_pb2_pydantic"
 }
 
+// buildCrossFileAliases detects type name collisions across source files and
+// builds an alias map. For each type name that appears in multiple source files,
+// only the first (alphabetically by source path) keeps the bare name; the rest
+// get an alias like "ModuleTypeName" (e.g. "CommonStatus" for "Status" from
+// "common.proto"). This prevents silent shadowing in Python imports.
+func buildCrossFileAliases(imps *pythonImports, currentSource string, opts *Options) {
+	if len(imps.crossFileImports) == 0 {
+		return
+	}
+
+	// Collect all type names from external files, grouped by name.
+	// nameToSources maps typeName → list of source paths that export it.
+	nameToSources := make(map[string][]string)
+	for sourcePath, types := range imps.crossFileImports {
+		if sourcePath == currentSource {
+			continue
+		}
+		for typeName := range types {
+			nameToSources[typeName] = append(nameToSources[typeName], sourcePath)
+		}
+	}
+
+	// For names that appear in multiple source files, build aliases.
+	for typeName, sources := range nameToSources {
+		if len(sources) <= 1 {
+			continue // no collision
+		}
+		// Sort sources so alias assignment is deterministic.
+		sort.Strings(sources)
+
+		if imps.crossFileAliases == nil {
+			imps.crossFileAliases = make(map[string]string)
+		}
+
+		// First source keeps the bare name; subsequent sources get aliases.
+		for _, src := range sources[1:] {
+			prefix := pythonAliasPrefix(src)
+			alias := prefix + typeName
+			// Key: "sourcePath:typeName" to uniquely identify the import.
+			imps.crossFileAliases[src+":"+typeName] = alias
+		}
+	}
+}
+
+// pythonAliasPrefix returns a PascalCase prefix from a proto source path,
+// suitable for aliasing colliding imports.
+// e.g. "common.proto" → "Common", "user_types.proto" → "UserTypes".
+func pythonAliasPrefix(protoPath string) string {
+	base := strings.TrimSuffix(protoPath, ".proto")
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	return toPascalCase(base)
+}
+
+// applyCrossFileAliases rewrites MessageTypeName / EnumTypeName on IR fields
+// whose cross-file import has been aliased. This ensures the generated type
+// annotations reference the aliased name (e.g. "CommonStatus") instead of the
+// bare name that would collide.
+func applyCrossFileAliases(ir *DomainFile, imps *pythonImports) {
+	if len(imps.crossFileAliases) == 0 {
+		return
+	}
+	for _, m := range ir.Messages {
+		applyCrossFileAliasesToMessage(m, imps)
+	}
+}
+
+func applyCrossFileAliasesToMessage(m *DomainMessage, imps *pythonImports) {
+	for _, f := range m.Fields {
+		// Message field reference.
+		if f.MessageSourcePath != "" && f.MessageTypeName != "" {
+			key := f.MessageSourcePath + ":" + f.MessageTypeName
+			if alias, ok := imps.crossFileAliases[key]; ok {
+				f.MessageTypeName = alias
+			}
+		}
+		// Enum field reference.
+		if f.EnumSourcePath != "" && f.EnumTypeName != "" {
+			key := f.EnumSourcePath + ":" + f.EnumTypeName
+			if alias, ok := imps.crossFileAliases[key]; ok {
+				f.EnumTypeName = alias
+			}
+		}
+		// Map value cross-file reference.
+		if f.IsMap && f.MapValue != nil {
+			if f.MapValue.SourcePath != "" && f.MapValue.MessageTypeName != "" {
+				key := f.MapValue.SourcePath + ":" + f.MapValue.MessageTypeName
+				if alias, ok := imps.crossFileAliases[key]; ok {
+					f.MapValue.MessageTypeName = alias
+				}
+			}
+			if f.MapValue.SourcePath != "" && f.MapValue.EnumTypeName != "" {
+				key := f.MapValue.SourcePath + ":" + f.MapValue.EnumTypeName
+				if alias, ok := imps.crossFileAliases[key]; ok {
+					f.MapValue.EnumTypeName = alias
+				}
+			}
+		}
+	}
+	for _, o := range m.Oneofs {
+		for _, v := range o.Variants {
+			if v.SourcePath != "" && v.TypeName != "" {
+				key := v.SourcePath + ":" + v.TypeName
+				if alias, ok := imps.crossFileAliases[key]; ok {
+					v.TypeName = alias
+				}
+			}
+		}
+	}
+	for _, nested := range m.NestedMessages {
+		applyCrossFileAliasesToMessage(nested, imps)
+	}
+}
+
 // applyWKTImportFlags sets import flags based on a field kind. Reads from
 // wktPythonTable in python_types.go — no separate switch to maintain.
 func applyWKTImportFlags(kind FieldKind, imps *pythonImports) {
@@ -294,7 +423,18 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 				names = append(names, n)
 			}
 			sort.Strings(names)
-			g.P("from .", modName, " import ", strings.Join(names, ", "))
+
+			// Build import fragments, using "as Alias" for colliding names.
+			var fragments []string
+			for _, n := range names {
+				key := p + ":" + n
+				if alias, ok := imps.crossFileAliases[key]; ok {
+					fragments = append(fragments, n+" as "+alias)
+				} else {
+					fragments = append(fragments, n)
+				}
+			}
+			g.P("from .", modName, " import ", strings.Join(fragments, ", "))
 		}
 	}
 
