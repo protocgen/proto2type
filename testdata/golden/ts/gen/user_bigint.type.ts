@@ -24,12 +24,47 @@ export const AddressSchema = /* @__PURE__ */ z.object({
 });
 export type Address = z.infer<typeof AddressSchema>;
 
+export function applyFieldMaskAddress(dst: Address, src: Address, paths: string[]): void {
+  for (const path of paths) {
+    switch (path) {
+      case "street":
+        dst.street = src.street;
+        break;
+      case "city":
+        dst.city = src.city;
+        break;
+      case "state":
+        dst.state = src.state;
+        break;
+      case "zip":
+        dst.zip = src.zip;
+        break;
+      case "country":
+        dst.country = src.country;
+        break;
+    }
+  }
+}
+
 /** Tag is a label with a key-value pair. */
 export const TagSchema = /* @__PURE__ */ z.object({
   key: z.string().default(""),
   value: z.string().default(""),
 });
 export type Tag = z.infer<typeof TagSchema>;
+
+export function applyFieldMaskTag(dst: Tag, src: Tag, paths: string[]): void {
+  for (const path of paths) {
+    switch (path) {
+      case "key":
+        dst.key = src.key;
+        break;
+      case "value":
+        dst.value = src.value;
+        break;
+    }
+  }
+}
 
 /** User represents a user account. */
 const _User_contactMethodKeys = ["contactEmail", "contactPhone"] as const;
@@ -94,6 +129,124 @@ export const UserSchema = /* @__PURE__ */ z.object({
 });
 export type User = z.infer<typeof UserSchema>;
 
+export function applyFieldMaskUser(dst: User, src: User, paths: string[]): void {
+  for (const path of paths) {
+    switch (path) {
+      case "id":
+        dst.id = src.id;
+        break;
+      case "email":
+        dst.email = src.email;
+        break;
+      case "display_name":
+        dst.displayName = src.displayName;
+        break;
+      case "active":
+        dst.active = src.active;
+        break;
+      case "age":
+        dst.age = src.age;
+        break;
+      case "roles":
+        dst.roles = src.roles ? [...src.roles] : [];
+        break;
+      case "metadata":
+        dst.metadata = src.metadata ? structuredClone(src.metadata) : {};
+        break;
+      case "address":
+        dst.address = src.address ? structuredClone(src.address) : undefined;
+        break;
+      case "created_at":
+        dst.createdAt = src.createdAt;
+        break;
+      case "session_timeout":
+        dst.sessionTimeout = src.sessionTimeout;
+        break;
+      case "phone":
+        dst.phone = src.phone;
+        break;
+      case "avatar":
+        dst.avatar = src.avatar;
+        break;
+      case "nickname":
+        dst.nickname = src.nickname;
+        break;
+      case "status":
+        dst.status = src.status;
+        break;
+      case "contact_email":
+        dst.contactEmail = src.contactEmail;
+        break;
+      case "contact_phone":
+        dst.contactPhone = src.contactPhone;
+        break;
+      case "tags":
+        dst.tags = src.tags ? structuredClone(src.tags) : [];
+        break;
+      case "deleted_at":
+        dst.deletedAt = src.deletedAt;
+        break;
+      case "previous_status":
+        dst.previousStatus = src.previousStatus;
+        break;
+      case "update_mask":
+        dst.updateMask = src.updateMask;
+        break;
+      case "extra_metadata":
+        dst.extraMetadata = src.extraMetadata ? structuredClone(src.extraMetadata) : undefined;
+        break;
+      case "preferences":
+        dst.preferences = src.preferences ? structuredClone(src.preferences) : undefined;
+        break;
+      case "avatar_thumbnail":
+        dst.avatarThumbnail = src.avatarThumbnail;
+        break;
+      case "field_masks":
+        dst.fieldMasks = src.fieldMasks ? [...src.fieldMasks] : [];
+        break;
+      case "structs":
+        dst.structs = src.structs ? structuredClone(src.structs) : [];
+        break;
+      case "lists":
+        dst.lists = src.lists ? structuredClone(src.lists) : [];
+        break;
+      case "event_times":
+        dst.eventTimes = src.eventTimes ? structuredClone(src.eventTimes) : {};
+        break;
+      case "configs":
+        dst.configs = src.configs ? structuredClone(src.configs) : {};
+        break;
+      case "single_value":
+        dst.singleValue = src.singleValue ? structuredClone(src.singleValue) : undefined;
+        break;
+      case "values":
+        dst.values = src.values ? structuredClone(src.values) : [];
+        break;
+      case "value_map":
+        dst.valueMap = src.valueMap ? structuredClone(src.valueMap) : {};
+        break;
+      case "labels":
+        dst.labels = src.labels ? structuredClone(src.labels) : {};
+        break;
+      case "scores":
+        dst.scores = src.scores ? structuredClone(src.scores) : {};
+        break;
+      case "old_field":
+        dst.oldField = src.oldField;
+        break;
+      case "optional_name":
+        dst.optionalName = src.optionalName;
+        break;
+      case "big_number":
+        dst.bigNumber = src.bigNumber;
+        break;
+      case "handle":
+        dst.handle = src.handle;
+        break;
+    }
+  }
+}
+
 /** Category is a recursive tree structure for testing z.lazy() generation. */
 export type Category = {
   name?: string | null;
@@ -105,4 +258,20 @@ export const CategorySchema: z.ZodType<Category> = /* @__PURE__ */ z.lazy(() => 
   parent: CategorySchema.nullish(),
   children: z.array(CategorySchema).default(() => []),
 }));
+
+export function applyFieldMaskCategory(dst: Category, src: Category, paths: string[]): void {
+  for (const path of paths) {
+    switch (path) {
+      case "name":
+        dst.name = src.name;
+        break;
+      case "parent":
+        dst.parent = src.parent ? structuredClone(src.parent) : undefined;
+        break;
+      case "children":
+        dst.children = src.children ? structuredClone(src.children) : [];
+        break;
+    }
+  }
+}
 

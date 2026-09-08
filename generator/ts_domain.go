@@ -297,6 +297,9 @@ func writeTSMessage(g *protogen.GeneratedFile, m *DomainMessage, opts *Options) 
 	if !recursive && !opts.TSExplicitTypes {
 		g.P("export type ", m.Name, " = z.infer<typeof ", m.Name, "Schema>;")
 	}
+
+	g.P()
+	generateTsFieldMask(g, m)
 }
 
 func emitOneofExclusivity(g *protogen.GeneratedFile, mName string, exclusiveOneofs []*DomainOneof) {

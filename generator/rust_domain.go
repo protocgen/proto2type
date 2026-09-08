@@ -514,6 +514,8 @@ func generateRustDomainMessageFromIR(g *protogen.GeneratedFile, dm *DomainMessag
 		rustEmitRegexConstants(g, dm)
 	}
 
+	generateRustFieldMask(g, dm)
+
 	// Generate nested messages
 	for _, nested := range dm.NestedMessages {
 		if err := generateRustDomainMessageFromIR(g, nested, df, opts); err != nil {

@@ -22,6 +22,12 @@ class EmptyMessage(BaseModel):
 
 
 
+def apply_field_mask_empty_message(dst: EmptyMessage, src: EmptyMessage, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        pass
+
 class AllOptionalScalars(BaseModel):
     """AllOptionalScalars has every field marked optional — tests pointer-heavy
  struct generation, all-nil instantiation, Clone independence, and JSON
@@ -54,6 +60,29 @@ class AllOptionalScalars(BaseModel):
         return base64.b64encode(v).decode('ascii')
 
 
+def apply_field_mask_all_optional_scalars(dst: AllOptionalScalars, src: AllOptionalScalars, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "opt_string":
+            dst.opt_string = src.opt_string
+        elif path == "opt_int32":
+            dst.opt_int32 = src.opt_int32
+        elif path == "opt_int64":
+            dst.opt_int64 = src.opt_int64
+        elif path == "opt_bool":
+            dst.opt_bool = src.opt_bool
+        elif path == "opt_double":
+            dst.opt_double = src.opt_double
+        elif path == "opt_float":
+            dst.opt_float = src.opt_float
+        elif path == "opt_bytes":
+            dst.opt_bytes = src.opt_bytes
+        elif path == "opt_timestamp":
+            dst.opt_timestamp = copy.deepcopy(src.opt_timestamp)
+        elif path == "opt_enum":
+            dst.opt_enum = src.opt_enum
+
 class OneofOnly(BaseModel):
     """OneofOnly has zero regular fields and a single oneof — tests that
  generators don't assume at least one standard field exists."""
@@ -61,6 +90,17 @@ class OneofOnly(BaseModel):
 
     payload: str | int | bool | None = None
 
+
+def apply_field_mask_oneof_only(dst: OneofOnly, src: OneofOnly, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "text":
+            dst.payload = src.payload
+        elif path == "number":
+            dst.payload = src.payload
+        elif path == "flag":
+            dst.payload = src.payload
 
 class MapOnly(BaseModel):
     """MapOnly contains only map fields — tests nil-map vs empty-map semantics,
@@ -71,6 +111,15 @@ class MapOnly(BaseModel):
     int_map: dict[int, str] = Field(default_factory=dict)
 
 
+def apply_field_mask_map_only(dst: MapOnly, src: MapOnly, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "string_map":
+            dst.string_map = copy.deepcopy(src.string_map)
+        elif path == "int_map":
+            dst.int_map = copy.deepcopy(src.int_map)
+
 class RepeatedOnly(BaseModel):
     """RepeatedOnly contains only repeated fields — tests nil-slice vs
  empty-slice semantics, slice cloning, and equality."""
@@ -79,6 +128,15 @@ class RepeatedOnly(BaseModel):
     items: list[str] = Field(default_factory=list)
     numbers: list[int] = Field(default_factory=list)
 
+
+def apply_field_mask_repeated_only(dst: RepeatedOnly, src: RepeatedOnly, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "items":
+            dst.items = copy.deepcopy(src.items)
+        elif path == "numbers":
+            dst.numbers = copy.deepcopy(src.numbers)
 
 
 EmptyMessage.model_rebuild()

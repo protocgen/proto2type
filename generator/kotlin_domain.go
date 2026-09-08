@@ -99,6 +99,7 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 		}
 		writeKotlinMessage(g, msg)
 		generateKotlinValidate(g, ir, msg, opts)
+		generateKotlinFieldMask(g, msg)
 	}
 
 	return nil

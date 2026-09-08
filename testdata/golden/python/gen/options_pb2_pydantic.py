@@ -19,6 +19,13 @@ class MessageOptions(BaseModel):
     skip: bool = Field(default=False, description='Skip generating types for this message.')
 
 
+def apply_field_mask_message_options(dst: MessageOptions, src: MessageOptions, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "skip":
+            dst.skip = src.skip
+
 class ComputedField(BaseModel):
     """ComputedField defines a derived field that is automatically populated
  from another field during FromDomain() conversion."""
@@ -27,6 +34,15 @@ class ComputedField(BaseModel):
     source: str = Field(default='', description='Source field name (snake_case, must reference another field in the same message).')
     transform: str = Field(default='', description='Transform to apply. Supported: \"lower\", \"upper\".')
 
+
+def apply_field_mask_computed_field(dst: ComputedField, src: ComputedField, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "source":
+            dst.source = src.source
+        elif path == "transform":
+            dst.transform = src.transform
 
 class FieldOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -41,6 +57,29 @@ class FieldOptions(BaseModel):
     encrypt: bool = Field(default=False, description='Field-level encryption: encrypt before storage write, decrypt after read.  Only valid for string fields. Generates EncryptFields/DecryptFields methods.')
     computed: ComputedField | None = Field(default=None, description='Computed/derived field: auto-populated from a source field via a transform.  Excluded from domain types. Used for Firestore search indexes.')
 
+
+def apply_field_mask_field_options(dst: FieldOptions, src: FieldOptions, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "document_id":
+            dst.document_id = src.document_id
+        elif path == "server_timestamp":
+            dst.server_timestamp = src.server_timestamp
+        elif path == "name":
+            dst.name = src.name
+        elif path == "skip":
+            dst.skip = src.skip
+        elif path == "omitempty":
+            dst.omitempty = src.omitempty
+        elif path == "inline":
+            dst.inline = src.inline
+        elif path == "enum_as_string":
+            dst.enum_as_string = src.enum_as_string
+        elif path == "encrypt":
+            dst.encrypt = src.encrypt
+        elif path == "computed":
+            dst.computed = copy.deepcopy(src.computed)
 
 
 MessageOptions.model_rebuild()

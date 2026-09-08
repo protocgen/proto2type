@@ -20,6 +20,25 @@ class KeywordFields(BaseModel):
     cls_: bool = Field(default=False, alias='cls')
 
 
+def apply_field_mask_keyword_fields(dst: KeywordFields, src: KeywordFields, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "type":
+            dst.type_ = src.type_
+        elif path == "self":
+            dst.self_ = src.self_
+        elif path == "match":
+            dst.match_ = src.match_
+        elif path == "mod":
+            dst.mod = src.mod
+        elif path == "ref":
+            dst.ref = src.ref
+        elif path == "super":
+            dst.super_ = src.super_
+        elif path == "cls":
+            dst.cls_ = src.cls_
+
 
 KeywordFields.model_rebuild()
 

@@ -30,3 +30,31 @@ pub struct ModelCatalogEntry {
     pub region: String,
 }
 
+impl ModelCatalogEntry {
+    /// Copies fields from `src` to `self` based on the given paths.
+    ///
+    /// Only top-level field names are supported.
+    pub fn apply_field_mask(&mut self, src: &Self, paths: &[&str]) {
+        for path in paths {
+            match *path {
+                "model_id" => self.model_id = src.model_id.clone(),
+                "provider" => self.provider = src.provider.clone(),
+                "display_name" => self.display_name = src.display_name.clone(),
+                "input_per_million" => self.input_per_million = src.input_per_million.clone(),
+                "output_per_million" => self.output_per_million = src.output_per_million.clone(),
+                "enabled" => self.enabled = src.enabled.clone(),
+                "category" => self.category = src.category.clone(),
+                "context_window" => self.context_window = src.context_window.clone(),
+                "discount_percent" => self.discount_percent = src.discount_percent.clone(),
+                "aliases" => self.aliases = src.aliases.clone(),
+                "provider_model_id" => self.provider_model_id = src.provider_model_id.clone(),
+                "created_at" => self.created_at = src.created_at.clone(),
+                "updated_at" => self.updated_at = src.updated_at.clone(),
+                "notes" => self.notes = src.notes.clone(),
+                "region" => self.region = src.region.clone(),
+                _ => {} // ignore unknown paths
+            }
+        }
+    }
+}
+

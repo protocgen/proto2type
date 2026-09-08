@@ -66,6 +66,23 @@ fun Settings.validateOrThrow() {
     }
 }
 
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskSettings(dst: Settings, src: Settings, paths: List<String>): Settings {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "theme" -> result.copy(theme = src.theme)
+            "locale" -> result.copy(locale = src.locale)
+            else -> result
+        }
+    }
+    return result
+}
+
 /** Deeply nested messages (3 levels). */
 @Serializable
 data class Organization(
@@ -127,6 +144,23 @@ fun OrganizationDepartmentTeam.validateOrThrow() {
     if (errors.isNotEmpty()) {
         throw IllegalStateException("OrganizationDepartmentTeam: validation failed: " + errors.joinToString("; "))
     }
+}
+
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskOrganization(dst: Organization, src: Organization, paths: List<String>): Organization {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "name" -> result.copy(name = src.name)
+            "departments" -> result.copy(departments = src.departments.toList())
+            else -> result
+        }
+    }
+    return result
 }
 
 /**
@@ -219,6 +253,58 @@ fun NotificationContent.validateOrThrow() {
     }
 }
 
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskNotification(dst: Notification, src: Notification, paths: List<String>): Notification {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "id" -> result.copy(id = src.id)
+            "email" -> if (src.channel is NotificationChannel.Email) {
+                result.copy(channel = NotificationChannel.Email(src.channel.value))
+            } else if (result.channel is NotificationChannel.Email) {
+                result.copy(channel = null)
+            } else {
+                result
+            }
+            "sms" -> if (src.channel is NotificationChannel.Sms) {
+                result.copy(channel = NotificationChannel.Sms(src.channel.value))
+            } else if (result.channel is NotificationChannel.Sms) {
+                result.copy(channel = null)
+            } else {
+                result
+            }
+            "push_token" -> if (src.channel is NotificationChannel.PushToken) {
+                result.copy(channel = NotificationChannel.PushToken(src.channel.value))
+            } else if (result.channel is NotificationChannel.PushToken) {
+                result.copy(channel = null)
+            } else {
+                result
+            }
+            "plain_text" -> if (src.content is NotificationContent.PlainText) {
+                result.copy(content = NotificationContent.PlainText(src.content.value))
+            } else if (result.content is NotificationContent.PlainText) {
+                result.copy(content = null)
+            } else {
+                result
+            }
+            "html" -> if (src.content is NotificationContent.Html) {
+                result.copy(content = NotificationContent.Html(src.content.value))
+            } else if (result.content is NotificationContent.Html) {
+                result.copy(content = null)
+            } else {
+                result
+            }
+            "priority" -> result.copy(priority = src.priority)
+            else -> result
+        }
+    }
+    return result
+}
+
 /** Map with message values and various WKTs. */
 @Serializable
 data class Document(
@@ -247,6 +333,30 @@ fun Document.validateOrThrow() {
     }
 }
 
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskDocument(dst: Document, src: Document, paths: List<String>): Document {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "id" -> result.copy(id = src.id)
+            "settings_map" -> result.copy(settingsMap = src.settingsMap.toMap())
+            "code_names" -> result.copy(codeNames = src.codeNames.toMap())
+            "metadata" -> result.copy(metadata = src.metadata)
+            "extension" -> result.copy(extension = src.extension)
+            "update_mask" -> result.copy(updateMask = src.updateMask)
+            "archived" -> result.copy(archived = src.archived)
+            "view_count" -> result.copy(viewCount = src.viewCount)
+            "placeholders" -> result.copy(placeholders = src.placeholders.toList())
+            else -> result
+        }
+    }
+    return result
+}
+
 /** Recursive/self-referencing message. */
 @Serializable
 data class TreeNode(
@@ -271,6 +381,24 @@ fun TreeNode.validateOrThrow() {
     }
 }
 
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskTreeNode(dst: TreeNode, src: TreeNode, paths: List<String>): TreeNode {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "value" -> result.copy(value = src.value)
+            "children" -> result.copy(children = src.children.toList())
+            "parent" -> result.copy(parent = src.parent)
+            else -> result
+        }
+    }
+    return result
+}
+
 /** Message with skipped field and name override. */
 @Serializable
 data class AuditLog(
@@ -291,6 +419,24 @@ fun AuditLog.validateOrThrow() {
     if (errors.isNotEmpty()) {
         throw IllegalStateException("AuditLog: validation failed: " + errors.joinToString("; "))
     }
+}
+
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskAuditLog(dst: AuditLog, src: AuditLog, paths: List<String>): AuditLog {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "id" -> result.copy(id = src.id)
+            "action" -> result.copy(action = src.action)
+            "user_id" -> result.copy(userId = src.userId)
+            else -> result
+        }
+    }
+    return result
 }
 
 /**
@@ -350,6 +496,43 @@ fun EventPayload.validateOrThrow() {
     if (errors.isNotEmpty()) {
         throw IllegalStateException("EventPayload: validation failed: " + errors.joinToString("; "))
     }
+}
+
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskEvent(dst: Event, src: Event, paths: List<String>): Event {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "id" -> result.copy(id = src.id)
+            "text_message" -> if (src.payload is EventPayload.TextMessage) {
+                result.copy(payload = EventPayload.TextMessage(src.payload.value))
+            } else if (result.payload is EventPayload.TextMessage) {
+                result.copy(payload = null)
+            } else {
+                result
+            }
+            "settings_update" -> if (src.payload is EventPayload.SettingsUpdate) {
+                result.copy(payload = EventPayload.SettingsUpdate(src.payload.value))
+            } else if (result.payload is EventPayload.SettingsUpdate) {
+                result.copy(payload = null)
+            } else {
+                result
+            }
+            "priority_change" -> if (src.payload is EventPayload.PriorityChange) {
+                result.copy(payload = EventPayload.PriorityChange(src.payload.value))
+            } else if (result.payload is EventPayload.PriorityChange) {
+                result.copy(payload = null)
+            } else {
+                result
+            }
+            else -> result
+        }
+    }
+    return result
 }
 
 /**
@@ -417,5 +600,56 @@ fun WktPayloadContent.validateOrThrow() {
     if (errors.isNotEmpty()) {
         throw IllegalStateException("WktPayloadContent: validation failed: " + errors.joinToString("; "))
     }
+}
+
+/**
+ * Copies fields from [src] to [dst] based on the given [paths], returning a new instance.
+ *
+ * Only top-level field names are supported.
+ */
+fun applyFieldMaskWktPayload(dst: WktPayload, src: WktPayload, paths: List<String>): WktPayload {
+    var result = dst
+    for (path in paths) {
+        result = when (path) {
+            "id" -> result.copy(id = src.id)
+            "struct_data" -> if (src.content is WktPayloadContent.StructData) {
+                result.copy(content = WktPayloadContent.StructData(src.content.value))
+            } else if (result.content is WktPayloadContent.StructData) {
+                result.copy(content = null)
+            } else {
+                result
+            }
+            "any_value" -> if (src.content is WktPayloadContent.AnyValue) {
+                result.copy(content = WktPayloadContent.AnyValue(src.content.value))
+            } else if (result.content is WktPayloadContent.AnyValue) {
+                result.copy(content = null)
+            } else {
+                result
+            }
+            "list_data" -> if (src.content is WktPayloadContent.ListData) {
+                result.copy(content = WktPayloadContent.ListData(src.content.value))
+            } else if (result.content is WktPayloadContent.ListData) {
+                result.copy(content = null)
+            } else {
+                result
+            }
+            "mask" -> if (src.content is WktPayloadContent.Mask) {
+                result.copy(content = WktPayloadContent.Mask(src.content.value))
+            } else if (result.content is WktPayloadContent.Mask) {
+                result.copy(content = null)
+            } else {
+                result
+            }
+            "raw" -> if (src.content is WktPayloadContent.Raw) {
+                result.copy(content = WktPayloadContent.Raw(src.content.value))
+            } else if (result.content is WktPayloadContent.Raw) {
+                result.copy(content = null)
+            } else {
+                result
+            }
+            else -> result
+        }
+    }
+    return result
 }
 

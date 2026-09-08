@@ -175,6 +175,56 @@ lazy_static! {
     static ref RE_HANDLE_PATTERN: Regex = Regex::new(r#"^[a-zA-Z0-9_]+$"#).unwrap();
 }
 
+impl User {
+    /// Copies fields from `src` to `self` based on the given paths.
+    ///
+    /// Only top-level field names are supported.
+    pub fn apply_field_mask(&mut self, src: &Self, paths: &[&str]) {
+        for path in paths {
+            match *path {
+                "id" => self.id = src.id.clone(),
+                "email" => self.email = src.email.clone(),
+                "display_name" => self.display_name = src.display_name.clone(),
+                "active" => self.active = src.active.clone(),
+                "age" => self.age = src.age.clone(),
+                "roles" => self.roles = src.roles.clone(),
+                "metadata" => self.metadata = src.metadata.clone(),
+                "address" => self.address = src.address.clone(),
+                "created_at" => self.created_at = src.created_at.clone(),
+                "session_timeout" => self.session_timeout = src.session_timeout.clone(),
+                "phone" => self.phone = src.phone.clone(),
+                "avatar" => self.avatar = src.avatar.clone(),
+                "nickname" => self.nickname = src.nickname.clone(),
+                "status" => self.status = src.status.clone(),
+                "contact_email" => self.contact_method = src.contact_method.clone(),
+                "contact_phone" => self.contact_method = src.contact_method.clone(),
+                "tags" => self.tags = src.tags.clone(),
+                "deleted_at" => self.deleted_at = src.deleted_at.clone(),
+                "previous_status" => self.previous_status = src.previous_status.clone(),
+                "update_mask" => self.update_mask = src.update_mask.clone(),
+                "extra_metadata" => self.extra_metadata = src.extra_metadata.clone(),
+                "preferences" => self.preferences = src.preferences.clone(),
+                "avatar_thumbnail" => self.avatar_thumbnail = src.avatar_thumbnail.clone(),
+                "field_masks" => self.field_masks = src.field_masks.clone(),
+                "structs" => self.structs = src.structs.clone(),
+                "lists" => self.lists = src.lists.clone(),
+                "event_times" => self.event_times = src.event_times.clone(),
+                "configs" => self.configs = src.configs.clone(),
+                "single_value" => self.single_value = src.single_value.clone(),
+                "values" => self.values = src.values.clone(),
+                "value_map" => self.value_map = src.value_map.clone(),
+                "labels" => self.labels = src.labels.clone(),
+                "scores" => self.scores = src.scores.clone(),
+                "old_field" => self.old_field = src.old_field.clone(),
+                "optional_name" => self.optional_name = src.optional_name.clone(),
+                "big_number" => self.big_number = src.big_number.clone(),
+                "handle" => self.handle = src.handle.clone(),
+                _ => {} // ignore unknown paths
+            }
+        }
+    }
+}
+
 /// Domain representation of test.v1.Address.
 ///
 /// Address is a nested message.
@@ -196,6 +246,24 @@ lazy_static! {
     static ref RE_ZIP_PATTERN: Regex = Regex::new(r#"^[0-9]{5}(-[0-9]{4})?$"#).unwrap();
 }
 
+impl Address {
+    /// Copies fields from `src` to `self` based on the given paths.
+    ///
+    /// Only top-level field names are supported.
+    pub fn apply_field_mask(&mut self, src: &Self, paths: &[&str]) {
+        for path in paths {
+            match *path {
+                "street" => self.street = src.street.clone(),
+                "city" => self.city = src.city.clone(),
+                "state" => self.state = src.state.clone(),
+                "zip" => self.zip = src.zip.clone(),
+                "country" => self.country = src.country.clone(),
+                _ => {} // ignore unknown paths
+            }
+        }
+    }
+}
+
 /// Domain representation of test.v1.Tag.
 ///
 /// Tag is a label with a key-value pair.
@@ -204,6 +272,21 @@ lazy_static! {
 pub struct Tag {
     pub key: String,
     pub value: String,
+}
+
+impl Tag {
+    /// Copies fields from `src` to `self` based on the given paths.
+    ///
+    /// Only top-level field names are supported.
+    pub fn apply_field_mask(&mut self, src: &Self, paths: &[&str]) {
+        for path in paths {
+            match *path {
+                "key" => self.key = src.key.clone(),
+                "value" => self.value = src.value.clone(),
+                _ => {} // ignore unknown paths
+            }
+        }
+    }
 }
 
 /// Domain representation of test.v1.Category.
@@ -219,5 +302,21 @@ pub struct Category {
     #[serde(default)]
     #[validate(nested)]
     pub children: Vec<Category>,
+}
+
+impl Category {
+    /// Copies fields from `src` to `self` based on the given paths.
+    ///
+    /// Only top-level field names are supported.
+    pub fn apply_field_mask(&mut self, src: &Self, paths: &[&str]) {
+        for path in paths {
+            match *path {
+                "name" => self.name = src.name.clone(),
+                "parent" => self.parent = src.parent.clone(),
+                "children" => self.children = src.children.clone(),
+                _ => {} // ignore unknown paths
+            }
+        }
+    }
 }
 
