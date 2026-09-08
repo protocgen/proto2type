@@ -60,6 +60,10 @@ type pythonImports struct {
 	hasIgnoreEmptyFields bool     // true when any field has IgnoreEmpty constraints
 	timestampModels      []string // model names that have timestamp fields
 	bytesModels          []string // model names that have bytes fields
+
+	// crossFileImports maps proto source path → set of type names needed
+	// from that file. Used to generate cross-file import statements.
+	crossFileImports map[string]map[string]bool
 }
 
 func scanPythonImports(ir *DomainFile, opts *Options) *pythonImports {
@@ -95,6 +99,23 @@ func scanPythonImportsMessage(m *DomainMessage, imps *pythonImports, opts *Optio
 		if f.ValidateConstraints != nil && f.ValidateConstraints.IgnoreEmpty {
 			imps.hasIgnoreEmptyFields = true
 		}
+		// Track cross-file message references.
+		if f.MessageSourcePath != "" {
+			addPythonCrossFileRef(imps, f.MessageSourcePath, f.MessageTypeName)
+		}
+		// Track cross-file enum references.
+		if f.EnumSourcePath != "" {
+			addPythonCrossFileRef(imps, f.EnumSourcePath, f.EnumTypeName)
+		}
+		// Check map value cross-file references.
+		if f.IsMap && f.MapValue != nil {
+			if f.MapValue.SourcePath != "" && f.MapValue.MessageTypeName != "" {
+				addPythonCrossFileRef(imps, f.MapValue.SourcePath, f.MapValue.MessageTypeName)
+			}
+			if f.MapValue.SourcePath != "" && f.MapValue.EnumTypeName != "" {
+				addPythonCrossFileRef(imps, f.MapValue.SourcePath, f.MapValue.EnumTypeName)
+			}
+		}
 	}
 	for _, o := range m.Oneofs {
 		for _, v := range o.Variants {
@@ -107,6 +128,10 @@ func scanPythonImportsMessage(m *DomainMessage, imps *pythonImports, opts *Optio
 			}
 			if v.Kind == FieldKindStruct || v.Kind == FieldKindValue {
 				imps.needsAny = true
+			}
+			// Track cross-file oneof variant references.
+			if v.SourcePath != "" && v.TypeName != "" {
+				addPythonCrossFileRef(imps, v.SourcePath, v.TypeName)
 			}
 		}
 	}
@@ -131,6 +156,33 @@ func scanPythonImportsField(f *DomainField, imps *pythonImports) {
 	if f.IsMap && f.MapValue != nil {
 		applyWKTImportFlags(f.MapValue.Kind, imps)
 	}
+}
+
+// addPythonCrossFileRef records that typeName from sourcePath is needed.
+func addPythonCrossFileRef(imps *pythonImports, sourcePath, typeName string) {
+	if sourcePath == "" || typeName == "" {
+		return
+	}
+	if imps.crossFileImports == nil {
+		imps.crossFileImports = make(map[string]map[string]bool)
+	}
+	if imps.crossFileImports[sourcePath] == nil {
+		imps.crossFileImports[sourcePath] = make(map[string]bool)
+	}
+	imps.crossFileImports[sourcePath][typeName] = true
+}
+
+// pythonCrossFileModuleName converts a proto source path to a Python module name.
+// e.g. "user.proto" → "user_pb2_pydantic", "subdir/common.proto" → "common_pb2_pydantic".
+func pythonCrossFileModuleName(protoPath string, opts *Options) string {
+	base := strings.TrimSuffix(protoPath, ".proto")
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	if opts.PythonStripProtoSuffix {
+		return base
+	}
+	return base + "_pb2_pydantic"
 }
 
 // applyWKTImportFlags sets import flags based on a field kind. Reads from
@@ -222,6 +274,27 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 			modPath := opts.PythonBaseClass[:idx]
 			className := opts.PythonBaseClass[idx+1:]
 			g.P("from ", modPath, " import ", className)
+		}
+	}
+
+	// Cross-file imports for types defined in other proto files.
+	if len(imps.crossFileImports) > 0 {
+		var paths []string
+		for p := range imps.crossFileImports {
+			if p == ir.SourcePath {
+				continue
+			}
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		for _, p := range paths {
+			modName := pythonCrossFileModuleName(p, opts)
+			var names []string
+			for n := range imps.crossFileImports[p] {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			g.P("from .", modName, " import ", strings.Join(names, ", "))
 		}
 	}
 
