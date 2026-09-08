@@ -219,11 +219,11 @@ def apply_field_mask_event(dst: Event, src: Event, paths: list[str]) -> None:
 
 class WktPayload(BaseModel):
     """Oneof with bare WKT variants — tests nil vs empty Clone semantics (#73).
- Each variant is a WKT type that maps to a pointer-to-nil-able Go type:
-   Struct    → *map[string]any
-   Value     → *any
-   ListValue → *[]any
-   FieldMask → *[]string."""
+Each variant is a WKT type that maps to a pointer-to-nil-able Go type:
+Struct    → *map[string]any
+Value     → *any
+ListValue → *[]any
+FieldMask → *[]string."""
     model_config = ConfigDict(populate_by_name=True)
 
     id: str = ''

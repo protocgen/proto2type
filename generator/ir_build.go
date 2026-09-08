@@ -563,6 +563,16 @@ func irMessageNameFromDesc(md protoreflect.MessageDescriptor) string {
 // sequences that could break block-comment syntax (e.g. Kotlin's /** */).
 func cleanComment(s string) string {
 	s = strings.TrimSpace(s)
+	// Strip proto comment line prefixes (e.g. "// Foo" → "Foo").
+	// protogen.Comments may include the "// " prefix per line.
+	var cleaned []string
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "// ")
+		line = strings.TrimPrefix(line, "//")
+		cleaned = append(cleaned, line)
+	}
+	s = strings.TrimSpace(strings.Join(cleaned, "\n"))
 	// Prevent a proto comment containing "*/" from prematurely closing
 	// a generated block comment (SEC-1).
 	s = strings.ReplaceAll(s, "*/", "* /")

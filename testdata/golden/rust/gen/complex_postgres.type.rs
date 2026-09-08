@@ -6,6 +6,31 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug)]
+pub enum ConversionError {
+    Json(serde_json::Error),
+    InvalidEnumValue(i32),
+    Overflow,
+}
+
+impl std::fmt::Display for ConversionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(e) => write!(f, "json: {e}"),
+            Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),
+            Self::Overflow => write!(f, "integer overflow during conversion"),
+        }
+    }
+}
+
+impl std::error::Error for ConversionError {}
+
+impl From<serde_json::Error> for ConversionError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Json(e)
+    }
+}
+
 /// PostgreSQL storage representation of test.v1.Settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct SettingsPostgres {

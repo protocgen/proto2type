@@ -7,6 +7,45 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
+#[derive(Debug)]
+pub enum ConversionError {
+    Json(serde_json::Error),
+    InvalidTimestamp(i64),
+    InvalidEnumValue(i32),
+    Overflow,
+}
+
+impl std::fmt::Display for ConversionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json(e) => write!(f, "json: {e}"),
+            Self::InvalidTimestamp(ms) => write!(f, "invalid timestamp: {ms}ms"),
+            Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),
+            Self::Overflow => write!(f, "integer overflow during conversion"),
+        }
+    }
+}
+
+impl std::error::Error for ConversionError {}
+
+impl From<serde_json::Error> for ConversionError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Json(e)
+    }
+}
+
+/// Converts epoch milliseconds to a chrono DateTime<Utc>.
+#[allow(dead_code)]
+fn epoch_ms_to_datetime(ms: i64) -> Result<DateTime<Utc>, ConversionError> {
+    DateTime::from_timestamp_millis(ms).ok_or(ConversionError::InvalidTimestamp(ms))
+}
+
+/// Converts a chrono DateTime<Utc> to epoch milliseconds.
+#[allow(dead_code)]
+fn datetime_to_epoch_ms(dt: &DateTime<Utc>) -> i64 {
+    dt.timestamp_millis()
+}
+
 /// PostgreSQL storage representation of test.v1.ModelCatalogEntry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ModelCatalogEntryPostgres {

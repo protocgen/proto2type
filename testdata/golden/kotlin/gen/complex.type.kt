@@ -559,11 +559,11 @@ sealed class WktPayloadContent {
 }
 
 /** Oneof with bare WKT variants — tests nil vs empty Clone semantics (#73).
- Each variant is a WKT type that maps to a pointer-to-nil-able Go type:
-   Struct    → *map[string]any
-   Value     → *any
-   ListValue → *[]any
-   FieldMask → *[]string */
+Each variant is a WKT type that maps to a pointer-to-nil-able Go type:
+Struct    → *map[string]any
+Value     → *any
+ListValue → *[]any
+FieldMask → *[]string */
 @Serializable
 data class WktPayload(
     val id: String = "",

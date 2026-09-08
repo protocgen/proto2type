@@ -11,13 +11,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 class SingleValueEnum(str, Enum):
     """SingleValueEnum has only the UNSPECIFIED sentinel — tests that validators,
- defined_only checks, and type unions don't break on single-variant enums."""
+defined_only checks, and type unions don't break on single-variant enums."""
 
 
 
 class EmptyMessage(BaseModel):
     """EmptyMessage has zero fields — tests that code generation produces valid
- types, Clone, Equal, ToProto, FromProto, and Validate without panicking."""
+types, Clone, Equal, ToProto, FromProto, and Validate without panicking."""
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -30,8 +30,8 @@ def apply_field_mask_empty_message(dst: EmptyMessage, src: EmptyMessage, paths: 
 
 class AllOptionalScalars(BaseModel):
     """AllOptionalScalars has every field marked optional — tests pointer-heavy
- struct generation, all-nil instantiation, Clone independence, and JSON
- omitempty for every proto3 optional scalar type."""
+struct generation, all-nil instantiation, Clone independence, and JSON
+omitempty for every proto3 optional scalar type."""
     model_config = ConfigDict(populate_by_name=True)
 
     opt_string: str | None = None
@@ -85,7 +85,7 @@ def apply_field_mask_all_optional_scalars(dst: AllOptionalScalars, src: AllOptio
 
 class OneofOnly(BaseModel):
     """OneofOnly has zero regular fields and a single oneof — tests that
- generators don't assume at least one standard field exists."""
+generators don't assume at least one standard field exists."""
     model_config = ConfigDict(populate_by_name=True)
 
     payload: str | int | bool | None = None
@@ -104,7 +104,7 @@ def apply_field_mask_oneof_only(dst: OneofOnly, src: OneofOnly, paths: list[str]
 
 class MapOnly(BaseModel):
     """MapOnly contains only map fields — tests nil-map vs empty-map semantics,
- map cloning, and equality without any scalar anchors."""
+map cloning, and equality without any scalar anchors."""
     model_config = ConfigDict(populate_by_name=True)
 
     string_map: dict[str, str] = Field(default_factory=dict)
@@ -122,7 +122,7 @@ def apply_field_mask_map_only(dst: MapOnly, src: MapOnly, paths: list[str]) -> N
 
 class RepeatedOnly(BaseModel):
     """RepeatedOnly contains only repeated fields — tests nil-slice vs
- empty-slice semantics, slice cloning, and equality."""
+empty-slice semantics, slice cloning, and equality."""
     model_config = ConfigDict(populate_by_name=True)
 
     items: list[str] = Field(default_factory=list)

@@ -28,7 +28,7 @@ def apply_field_mask_message_options(dst: MessageOptions, src: MessageOptions, p
 
 class ComputedField(BaseModel):
     """ComputedField defines a derived field that is automatically populated
- from another field during FromDomain() conversion."""
+from another field during FromDomain() conversion."""
     model_config = ConfigDict(populate_by_name=True)
 
     source: str = Field(default='', description='Source field name (snake_case, must reference another field in the same message).')
@@ -47,15 +47,15 @@ def apply_field_mask_computed_field(dst: ComputedField, src: ComputedField, path
 class FieldOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    document_id: bool = Field(default=False, description='Mark as document ID field.  Firestore: excluded from struct (ID is doc path).  Mongo: tagged bson:\"_id\".')
+    document_id: bool = Field(default=False, description='Mark as document ID field. Firestore: excluded from struct (ID is doc path). Mongo: tagged bson:\"_id\".')
     server_timestamp: bool = Field(default=False, description='Server-managed timestamp (Firestore serverTimestamp).')
     name: str = Field(default='', description='Override the storage field name.')
     skip: bool = Field(default=False, description='Exclude from generated types entirely.')
     omitempty: OptionalBool | None = Field(default=None, description='Force omitempty behavior.')
     inline: bool = Field(default=False, description='Flatten nested message fields into parent (Mongo: bson:\",inline\").')
-    enum_as_string: OptionalBool | None = Field(default=None, description='Store this enum field as its string name instead of int32.  Per-field override for the global enum_as_string plugin option.')
-    encrypt: bool = Field(default=False, description='Field-level encryption: encrypt before storage write, decrypt after read.  Only valid for string fields. Generates EncryptFields/DecryptFields methods.')
-    computed: ComputedField | None = Field(default=None, description='Computed/derived field: auto-populated from a source field via a transform.  Excluded from domain types. Used for Firestore search indexes.')
+    enum_as_string: OptionalBool | None = Field(default=None, description='Store this enum field as its string name instead of int32. Per-field override for the global enum_as_string plugin option.')
+    encrypt: bool = Field(default=False, description='Field-level encryption: encrypt before storage write, decrypt after read. Only valid for string fields. Generates EncryptFields/DecryptFields methods.')
+    computed: ComputedField | None = Field(default=None, description='Computed/derived field: auto-populated from a source field via a transform. Excluded from domain types. Used for Firestore search indexes.')
 
 
 def apply_field_mask_field_options(dst: FieldOptions, src: FieldOptions, paths: list[str]) -> None:
