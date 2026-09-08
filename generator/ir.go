@@ -130,6 +130,40 @@ type DomainFile struct {
 	Enums []*DomainEnum
 	// Messages are the top-level message definitions.
 	Messages []*DomainMessage
+	// Services are the proto service definitions.
+	Services []*DomainService
+}
+
+// DomainService is the IR for a single proto service.
+type DomainService struct {
+	// Name is the PascalCase service name (e.g. "UserService").
+	Name string
+	// FullName is the fully-qualified proto name (e.g. "test.v1.UserService").
+	FullName string
+	// Comment is the leading proto comment, if any.
+	Comment string
+	// Skip is true when the service has (proto2type.service).skip = true.
+	Skip bool
+	// Methods in declaration order.
+	Methods []*DomainMethod
+}
+
+// DomainMethod is the IR for a single RPC method.
+type DomainMethod struct {
+	// Name is the PascalCase method name (e.g. "GetUser").
+	Name string
+	// Comment is the leading proto comment, if any.
+	Comment string
+	// InputType is the domain type name for the request (e.g. "GetUserRequest").
+	InputType string
+	// OutputType is the domain type name for the response (e.g. "GetUserResponse").
+	OutputType string
+	// ClientStreaming is true for client-streaming RPCs.
+	ClientStreaming bool
+	// ServerStreaming is true for server-streaming RPCs.
+	ServerStreaming bool
+	// Skip is true when the method has (proto2type.method).skip = true.
+	Skip bool
 }
 
 // DomainMessage is the IR for a single proto message.
