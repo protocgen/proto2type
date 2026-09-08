@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 from .user_pb2_pydantic import User
@@ -100,4 +101,20 @@ __all__ = [
     'ListUsersResponse',
     'UpdateUserRequest',
 ]
+
+
+class UserServiceHandler(Protocol):
+    """UserServiceHandler — // UserService provides CRUD operations on Users."""
+
+    def get_user(self, req: GetUserRequest) -> GetUserResponse:
+        """GetUser — // GetUser retrieves a user by ID."""
+        ...
+
+    def list_users(self, req: ListUsersRequest) -> ListUsersResponse:
+        """ListUsers — // ListUsers retrieves a paginated list of users."""
+        ...
+
+    def update_user(self, req: UpdateUserRequest) -> GetUserResponse:
+        """UpdateUser — // UpdateUser updates a user with field mask."""
+        ...
 

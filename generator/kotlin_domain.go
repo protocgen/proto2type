@@ -102,6 +102,11 @@ func generateKotlinDomain(gen *protogen.Plugin, file *protogen.File, opts *Optio
 		generateKotlinFieldMask(g, msg)
 	}
 
+	// Service handler interfaces.
+	if len(ir.Services) > 0 {
+		generateKotlinServices(g, ir)
+	}
+
 	return nil
 }
 

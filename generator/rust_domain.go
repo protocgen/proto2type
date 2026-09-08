@@ -120,6 +120,11 @@ func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options
 		}
 	}
 
+	// Service handler trait definitions.
+	if len(df.Services) > 0 {
+		generateRustServices(g, df)
+	}
+
 	return nil
 }
 
