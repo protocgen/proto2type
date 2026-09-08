@@ -300,16 +300,16 @@ func TestApplyCrossFileAliases_RewritesFieldNames(t *testing.T) {
 			{
 				Fields: []*DomainField{
 					{
-						Name:              "status",
-						Kind:              FieldKindEnum,
-						EnumTypeName:      "Status",
-						EnumSourcePath:    "b.proto",
+						Name:           "status",
+						Kind:           FieldKindEnum,
+						EnumTypeName:   "Status",
+						EnumSourcePath: "b.proto",
 					},
 					{
-						Name:              "other_status",
-						Kind:              FieldKindEnum,
-						EnumTypeName:      "Status",
-						EnumSourcePath:    "a.proto", // not aliased
+						Name:           "other_status",
+						Kind:           FieldKindEnum,
+						EnumTypeName:   "Status",
+						EnumSourcePath: "a.proto", // not aliased
 					},
 				},
 			},
