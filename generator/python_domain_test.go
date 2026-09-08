@@ -233,3 +233,117 @@ func indexOf(names []string, target string) int {
 	}
 	return -1
 }
+
+func TestBuildCrossFileAliases_NoCollision(t *testing.T) {
+	imps := &pythonImports{
+		crossFileImports: map[string]map[string]bool{
+			"a.proto": {"User": true},
+			"b.proto": {"Order": true},
+		},
+	}
+	buildCrossFileAliases(imps, "current.proto", &Options{})
+
+	if len(imps.crossFileAliases) != 0 {
+		t.Errorf("expected no aliases, got %d", len(imps.crossFileAliases))
+	}
+}
+
+func TestBuildCrossFileAliases_WithCollision(t *testing.T) {
+	imps := &pythonImports{
+		crossFileImports: map[string]map[string]bool{
+			"a.proto": {"Status": true, "User": true},
+			"b.proto": {"Status": true},
+		},
+	}
+	buildCrossFileAliases(imps, "current.proto", &Options{})
+
+	if len(imps.crossFileAliases) != 1 {
+		t.Fatalf("expected 1 alias, got %d: %v", len(imps.crossFileAliases), imps.crossFileAliases)
+	}
+
+	// a.proto sorts before b.proto, so b.proto's Status gets aliased.
+	alias := imps.crossFileAliases["b.proto:Status"]
+	if alias != "BStatus" {
+		t.Errorf("expected alias BStatus, got %q", alias)
+	}
+
+	// a.proto's Status should NOT be aliased (it keeps the bare name).
+	if _, ok := imps.crossFileAliases["a.proto:Status"]; ok {
+		t.Error("a.proto:Status should not be aliased (first alphabetically)")
+	}
+}
+
+func TestBuildCrossFileAliases_SkipsCurrentSource(t *testing.T) {
+	// Types defined in the current file should never cause aliases.
+	imps := &pythonImports{
+		crossFileImports: map[string]map[string]bool{
+			"current.proto": {"Status": true},
+			"other.proto":   {"Status": true},
+		},
+	}
+	buildCrossFileAliases(imps, "current.proto", &Options{})
+
+	// Only one source file (other.proto) is external, so no collision.
+	if len(imps.crossFileAliases) != 0 {
+		t.Errorf("expected no aliases (current source excluded), got %d", len(imps.crossFileAliases))
+	}
+}
+
+func TestApplyCrossFileAliases_RewritesFieldNames(t *testing.T) {
+	imps := &pythonImports{
+		crossFileAliases: map[string]string{
+			"b.proto:Status": "BStatus",
+		},
+	}
+	ir := &DomainFile{
+		Messages: []*DomainMessage{
+			{
+				Fields: []*DomainField{
+					{
+						Name:           "status",
+						Kind:           FieldKindEnum,
+						EnumTypeName:   "Status",
+						EnumSourcePath: "b.proto",
+					},
+					{
+						Name:           "other_status",
+						Kind:           FieldKindEnum,
+						EnumTypeName:   "Status",
+						EnumSourcePath: "a.proto", // not aliased
+					},
+				},
+			},
+		},
+	}
+	applyCrossFileAliases(ir, imps)
+
+	// The b.proto Status should be rewritten.
+	if ir.Messages[0].Fields[0].EnumTypeName != "BStatus" {
+		t.Errorf("expected BStatus, got %q", ir.Messages[0].Fields[0].EnumTypeName)
+	}
+	// The a.proto Status should be unchanged.
+	if ir.Messages[0].Fields[1].EnumTypeName != "Status" {
+		t.Errorf("expected Status (unchanged), got %q", ir.Messages[0].Fields[1].EnumTypeName)
+	}
+}
+
+func TestPythonAliasPrefix(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"common.proto", "Common"},
+		{"user_types.proto", "UserTypes"},
+		{"subdir/shared.proto", "Shared"},
+		{"deeply/nested/helpers.proto", "Helpers"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := pythonAliasPrefix(tt.path)
+			if got != tt.want {
+				t.Errorf("pythonAliasPrefix(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}

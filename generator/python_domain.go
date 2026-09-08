@@ -28,6 +28,13 @@ func generatePython(gen *protogen.Plugin, file *protogen.File, opts *Options) er
 	// Scan what imports are needed.
 	imports := scanPythonImports(ir, opts)
 
+	// Detect type name collisions across source files and build aliases.
+	buildCrossFileAliases(imports, ir.SourcePath, opts)
+
+	// Apply aliases to IR field type names so type annotations use the
+	// aliased name (e.g. "CommonStatus" instead of "Status").
+	applyCrossFileAliases(ir, imports)
+
 	// Determine output filename.
 	outFile := pythonOutputFilename(file.Desc.Path(), opts)
 	g := gen.NewGeneratedFile(outFile, "")
@@ -60,6 +67,17 @@ type pythonImports struct {
 	hasIgnoreEmptyFields bool     // true when any field has IgnoreEmpty constraints
 	timestampModels      []string // model names that have timestamp fields
 	bytesModels          []string // model names that have bytes fields
+
+	// crossFileImports maps proto source path → set of type names needed
+	// from that file. Used to generate cross-file import statements.
+	crossFileImports map[string]map[string]bool
+
+	// crossFileAliases maps original type name → aliased import name
+	// for types that collide across source files. When two source files
+	// both export a type named "Status", one is imported as-is and the
+	// other(s) get a source-qualified alias (e.g. "CommonStatus").
+	// Built by buildCrossFileAliases() after scanning is complete.
+	crossFileAliases map[string]string
 }
 
 func scanPythonImports(ir *DomainFile, opts *Options) *pythonImports {
@@ -95,6 +113,23 @@ func scanPythonImportsMessage(m *DomainMessage, imps *pythonImports, opts *Optio
 		if f.ValidateConstraints != nil && f.ValidateConstraints.IgnoreEmpty {
 			imps.hasIgnoreEmptyFields = true
 		}
+		// Track cross-file message references.
+		if f.MessageSourcePath != "" {
+			addPythonCrossFileRef(imps, f.MessageSourcePath, f.MessageTypeName)
+		}
+		// Track cross-file enum references.
+		if f.EnumSourcePath != "" {
+			addPythonCrossFileRef(imps, f.EnumSourcePath, f.EnumTypeName)
+		}
+		// Check map value cross-file references.
+		if f.IsMap && f.MapValue != nil {
+			if f.MapValue.SourcePath != "" && f.MapValue.MessageTypeName != "" {
+				addPythonCrossFileRef(imps, f.MapValue.SourcePath, f.MapValue.MessageTypeName)
+			}
+			if f.MapValue.SourcePath != "" && f.MapValue.EnumTypeName != "" {
+				addPythonCrossFileRef(imps, f.MapValue.SourcePath, f.MapValue.EnumTypeName)
+			}
+		}
 	}
 	for _, o := range m.Oneofs {
 		for _, v := range o.Variants {
@@ -107,6 +142,10 @@ func scanPythonImportsMessage(m *DomainMessage, imps *pythonImports, opts *Optio
 			}
 			if v.Kind == FieldKindStruct || v.Kind == FieldKindValue {
 				imps.needsAny = true
+			}
+			// Track cross-file oneof variant references.
+			if v.SourcePath != "" && v.TypeName != "" {
+				addPythonCrossFileRef(imps, v.SourcePath, v.TypeName)
 			}
 		}
 	}
@@ -130,6 +169,148 @@ func scanPythonImportsField(f *DomainField, imps *pythonImports) {
 	applyWKTImportFlags(f.Kind, imps)
 	if f.IsMap && f.MapValue != nil {
 		applyWKTImportFlags(f.MapValue.Kind, imps)
+	}
+}
+
+// addPythonCrossFileRef records that typeName from sourcePath is needed.
+func addPythonCrossFileRef(imps *pythonImports, sourcePath, typeName string) {
+	if sourcePath == "" || typeName == "" {
+		return
+	}
+	if imps.crossFileImports == nil {
+		imps.crossFileImports = make(map[string]map[string]bool)
+	}
+	if imps.crossFileImports[sourcePath] == nil {
+		imps.crossFileImports[sourcePath] = make(map[string]bool)
+	}
+	imps.crossFileImports[sourcePath][typeName] = true
+}
+
+// pythonCrossFileModuleName converts a proto source path to a Python module name.
+// e.g. "user.proto" → "user_pb2_pydantic", "subdir/common.proto" → "common_pb2_pydantic".
+func pythonCrossFileModuleName(protoPath string, opts *Options) string {
+	base := strings.TrimSuffix(protoPath, ".proto")
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	if opts.PythonStripProtoSuffix {
+		return base
+	}
+	return base + "_pb2_pydantic"
+}
+
+// buildCrossFileAliases detects type name collisions across source files and
+// builds an alias map. For each type name that appears in multiple source files,
+// only the first (alphabetically by source path) keeps the bare name; the rest
+// get an alias like "ModuleTypeName" (e.g. "CommonStatus" for "Status" from
+// "common.proto"). This prevents silent shadowing in Python imports.
+func buildCrossFileAliases(imps *pythonImports, currentSource string, opts *Options) {
+	if len(imps.crossFileImports) == 0 {
+		return
+	}
+
+	// Collect all type names from external files, grouped by name.
+	// nameToSources maps typeName → list of source paths that export it.
+	nameToSources := make(map[string][]string)
+	for sourcePath, types := range imps.crossFileImports {
+		if sourcePath == currentSource {
+			continue
+		}
+		for typeName := range types {
+			nameToSources[typeName] = append(nameToSources[typeName], sourcePath)
+		}
+	}
+
+	// For names that appear in multiple source files, build aliases.
+	for typeName, sources := range nameToSources {
+		if len(sources) <= 1 {
+			continue // no collision
+		}
+		// Sort sources so alias assignment is deterministic.
+		sort.Strings(sources)
+
+		if imps.crossFileAliases == nil {
+			imps.crossFileAliases = make(map[string]string)
+		}
+
+		// First source keeps the bare name; subsequent sources get aliases.
+		for _, src := range sources[1:] {
+			prefix := pythonAliasPrefix(src)
+			alias := prefix + typeName
+			// Key: "sourcePath:typeName" to uniquely identify the import.
+			imps.crossFileAliases[src+":"+typeName] = alias
+		}
+	}
+}
+
+// pythonAliasPrefix returns a PascalCase prefix from a proto source path,
+// suitable for aliasing colliding imports.
+// e.g. "common.proto" → "Common", "user_types.proto" → "UserTypes".
+func pythonAliasPrefix(protoPath string) string {
+	base := strings.TrimSuffix(protoPath, ".proto")
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	return toPascalCase(base)
+}
+
+// applyCrossFileAliases rewrites MessageTypeName / EnumTypeName on IR fields
+// whose cross-file import has been aliased. This ensures the generated type
+// annotations reference the aliased name (e.g. "CommonStatus") instead of the
+// bare name that would collide.
+func applyCrossFileAliases(ir *DomainFile, imps *pythonImports) {
+	if len(imps.crossFileAliases) == 0 {
+		return
+	}
+	for _, m := range ir.Messages {
+		applyCrossFileAliasesToMessage(m, imps)
+	}
+}
+
+func applyCrossFileAliasesToMessage(m *DomainMessage, imps *pythonImports) {
+	for _, f := range m.Fields {
+		// Message field reference.
+		if f.MessageSourcePath != "" && f.MessageTypeName != "" {
+			key := f.MessageSourcePath + ":" + f.MessageTypeName
+			if alias, ok := imps.crossFileAliases[key]; ok {
+				f.MessageTypeName = alias
+			}
+		}
+		// Enum field reference.
+		if f.EnumSourcePath != "" && f.EnumTypeName != "" {
+			key := f.EnumSourcePath + ":" + f.EnumTypeName
+			if alias, ok := imps.crossFileAliases[key]; ok {
+				f.EnumTypeName = alias
+			}
+		}
+		// Map value cross-file reference.
+		if f.IsMap && f.MapValue != nil {
+			if f.MapValue.SourcePath != "" && f.MapValue.MessageTypeName != "" {
+				key := f.MapValue.SourcePath + ":" + f.MapValue.MessageTypeName
+				if alias, ok := imps.crossFileAliases[key]; ok {
+					f.MapValue.MessageTypeName = alias
+				}
+			}
+			if f.MapValue.SourcePath != "" && f.MapValue.EnumTypeName != "" {
+				key := f.MapValue.SourcePath + ":" + f.MapValue.EnumTypeName
+				if alias, ok := imps.crossFileAliases[key]; ok {
+					f.MapValue.EnumTypeName = alias
+				}
+			}
+		}
+	}
+	for _, o := range m.Oneofs {
+		for _, v := range o.Variants {
+			if v.SourcePath != "" && v.TypeName != "" {
+				key := v.SourcePath + ":" + v.TypeName
+				if alias, ok := imps.crossFileAliases[key]; ok {
+					v.TypeName = alias
+				}
+			}
+		}
+	}
+	for _, nested := range m.NestedMessages {
+		applyCrossFileAliasesToMessage(nested, imps)
 	}
 }
 
@@ -222,6 +403,38 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 			modPath := opts.PythonBaseClass[:idx]
 			className := opts.PythonBaseClass[idx+1:]
 			g.P("from ", modPath, " import ", className)
+		}
+	}
+
+	// Cross-file imports for types defined in other proto files.
+	if len(imps.crossFileImports) > 0 {
+		var paths []string
+		for p := range imps.crossFileImports {
+			if p == ir.SourcePath {
+				continue
+			}
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		for _, p := range paths {
+			modName := pythonCrossFileModuleName(p, opts)
+			var names []string
+			for n := range imps.crossFileImports[p] {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+
+			// Build import fragments, using "as Alias" for colliding names.
+			var fragments []string
+			for _, n := range names {
+				key := p + ":" + n
+				if alias, ok := imps.crossFileAliases[key]; ok {
+					fragments = append(fragments, n+" as "+alias)
+				} else {
+					fragments = append(fragments, n)
+				}
+			}
+			g.P("from .", modName, " import ", strings.Join(fragments, ", "))
 		}
 	}
 
