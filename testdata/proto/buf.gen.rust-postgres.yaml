@@ -1,0 +1,14 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - user.proto
+      - catalog.proto
+      - complex.proto
+      - edge_cases.proto
+plugins:
+  - local: protoc-gen-proto2type
+    out: ../golden/rust/gen
+    opt:
+      - lang=rust
+      - backend=postgres
