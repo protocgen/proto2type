@@ -1,0 +1,17 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - user.proto
+      - catalog.proto
+      - complex.proto
+      - edge_cases.proto
+plugins:
+  # PostgreSQL storage types
+  - local: protoc-gen-proto2type
+    out: ../golden/go/gen
+    opt:
+      - paths=source_relative
+      - backend=postgres
+      - domain=false
+      - go_package=github.com/protocgen/proto2type/testdata/golden/go/gen;gen
