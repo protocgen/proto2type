@@ -11,7 +11,8 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7
 	google.golang.org/protobuf v1.36.12
-	hegel.dev/go/hegel v0.6.32
+	hegel.dev/go/hegel v0.6.33
+	pgregory.net/rapid v1.3.0
 )
 
 require (
@@ -55,5 +56,4 @@ require (
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260630182238-925bb5da69e7 // indirect
 	google.golang.org/grpc v1.83.0 // indirect
-	pgregory.net/rapid v1.3.0 // indirect
 )
