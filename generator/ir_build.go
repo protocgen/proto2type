@@ -568,8 +568,11 @@ func cleanComment(s string) string {
 	var cleaned []string
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
-		line = strings.TrimPrefix(line, "// ")
-		line = strings.TrimPrefix(line, "//")
+		if strings.HasPrefix(line, "// ") {
+			line = strings.TrimPrefix(line, "// ")
+		} else {
+			line = strings.TrimPrefix(line, "//")
+		}
 		cleaned = append(cleaned, line)
 	}
 	s = strings.TrimSpace(strings.Join(cleaned, "\n"))
