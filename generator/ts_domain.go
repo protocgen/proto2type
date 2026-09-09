@@ -116,6 +116,11 @@ func writeTSFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, gener
 		writeTSMessage(g, m, opts)
 		g.P()
 	}
+
+	// Services.
+	if len(ir.Services) > 0 {
+		generateTSServices(g, ir)
+	}
 }
 
 // irHasRegexConstraint returns true if any field or oneof variant in the IR

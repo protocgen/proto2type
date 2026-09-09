@@ -354,6 +354,9 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 	if imps.needsAny {
 		typingImports = append(typingImports, "Any")
 	}
+	if len(ir.Services) > 0 {
+		typingImports = append(typingImports, "Protocol")
+	}
 	if len(typingImports) > 0 {
 		sort.Strings(typingImports)
 		g.P("from typing import ", strings.Join(typingImports, ", "))
@@ -463,6 +466,12 @@ func writePythonFile(g *protogen.GeneratedFile, ir *DomainFile, opts *Options, i
 
 	// __all__ exports.
 	writePythonAllExports(g, ir)
+
+	// Service handler interfaces.
+	if len(ir.Services) > 0 {
+		g.P()
+		generatePythonServices(g, ir)
+	}
 }
 
 func writePythonEnum(g *protogen.GeneratedFile, e *DomainEnum, opts *Options) {
