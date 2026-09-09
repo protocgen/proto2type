@@ -197,17 +197,17 @@ fun applyFieldMaskUpdateUserRequest(dst: UpdateUserRequest, src: UpdateUserReque
 }
 
 /**
- * UserServiceHandler — // UserService provides CRUD operations on Users.
+ * UserServiceHandler — UserService provides CRUD operations on Users.
  *
  * All methods use domain types rather than proto types for clean
  * separation between the transport layer and business logic.
  */
 interface UserServiceHandler {
-    /** GetUser — // GetUser retrieves a user by ID. */
+    /** GetUser — GetUser retrieves a user by ID. */
     suspend fun getUser(req: GetUserRequest): GetUserResponse
-    /** ListUsers — // ListUsers retrieves a paginated list of users. */
+    /** ListUsers — ListUsers retrieves a paginated list of users. */
     suspend fun listUsers(req: ListUsersRequest): ListUsersResponse
-    /** UpdateUser — // UpdateUser updates a user with field mask. */
+    /** UpdateUser — UpdateUser updates a user with field mask. */
     suspend fun updateUser(req: UpdateUserRequest): GetUserResponse
 }
 

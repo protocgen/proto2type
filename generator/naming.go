@@ -328,3 +328,15 @@ func topologicalSortMessages(msgs []*DomainMessage) []*DomainMessage {
 	}
 	return order
 }
+
+// sanitizeBlockComment prevents a comment containing "*/" from prematurely
+// closing a generated block comment (KDoc, JSDoc, etc.).
+func sanitizeBlockComment(s string) string {
+	return strings.ReplaceAll(s, "*/", "* /")
+}
+
+// sanitizePythonDocstring prevents a comment containing triple-quotes from
+// prematurely closing a generated Python docstring.
+func sanitizePythonDocstring(s string) string {
+	return strings.ReplaceAll(s, `"""`, `\"\"\"`)
+}

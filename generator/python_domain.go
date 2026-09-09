@@ -801,6 +801,12 @@ func writePythonAllExports(g *protogen.GeneratedFile, ir *DomainFile) {
 		}
 		names = append(names, m.Name)
 	}
+	for _, svc := range ir.Services {
+		if svc.Skip {
+			continue
+		}
+		names = append(names, svc.Name+"Handler")
+	}
 	sort.Strings(names)
 
 	g.P("__all__ = [")
