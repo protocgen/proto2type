@@ -338,10 +338,15 @@ func sanitizeBlockComment(s string) string {
 // sanitizePythonDocstring prevents a comment containing triple-quotes or
 // trailing backslashes from breaking a generated Python docstring.
 func sanitizePythonDocstring(s string) string {
-	// A trailing backslash escapes the first quote of the closing """,
-	// producing an unterminated string. Escape it first.
-	if strings.HasSuffix(s, `\`) {
-		s = s[:len(s)-1] + `\\`
+	// A trailing odd-count backslash run escapes the first quote of
+	// the closing """, producing an unterminated string. Append one
+	// extra backslash to make the run even (and therefore inert).
+	trailing := 0
+	for i := len(s) - 1; i >= 0 && s[i] == '\\'; i-- {
+		trailing++
+	}
+	if trailing%2 == 1 {
+		s += `\`
 	}
 	return strings.ReplaceAll(s, `"""`, `\"\"\"`)
 }
