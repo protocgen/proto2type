@@ -328,3 +328,25 @@ func topologicalSortMessages(msgs []*DomainMessage) []*DomainMessage {
 	}
 	return order
 }
+
+// sanitizeBlockComment prevents a comment containing "*/" from prematurely
+// closing a generated block comment (KDoc, JSDoc, etc.).
+func sanitizeBlockComment(s string) string {
+	return strings.ReplaceAll(s, "*/", "* /")
+}
+
+// sanitizePythonDocstring prevents a comment containing triple-quotes or
+// trailing backslashes from breaking a generated Python docstring.
+func sanitizePythonDocstring(s string) string {
+	// A trailing odd-count backslash run escapes the first quote of
+	// the closing """, producing an unterminated string. Append one
+	// extra backslash to make the run even (and therefore inert).
+	trailing := 0
+	for i := len(s) - 1; i >= 0 && s[i] == '\\'; i-- {
+		trailing++
+	}
+	if trailing%2 == 1 {
+		s += `\`
+	}
+	return strings.ReplaceAll(s, `"""`, `\"\"\"`)
+}

@@ -17,7 +17,7 @@ func generateTSServices(g *protogen.GeneratedFile, df *DomainFile) {
 		// Emit JSDoc comment.
 		if svc.Comment != "" {
 			g.P("/**")
-			g.P(" * ", handlerName, " — ", svc.Comment)
+			g.P(" * ", handlerName, " — ", sanitizeBlockComment(svc.Comment))
 			g.P(" *")
 		} else {
 			g.P("/**")
@@ -35,7 +35,7 @@ func generateTSServices(g *protogen.GeneratedFile, df *DomainFile) {
 			}
 
 			if m.Comment != "" {
-				g.P("  /** ", m.Name, " — ", m.Comment, " */")
+				g.P("  /** ", m.Name, " — ", sanitizeBlockComment(m.Comment), " */")
 			}
 
 			if m.ClientStreaming || m.ServerStreaming {

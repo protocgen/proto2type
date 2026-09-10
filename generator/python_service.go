@@ -17,7 +17,7 @@ func generatePythonServices(g *protogen.GeneratedFile, df *DomainFile) {
 		// Emit class docstring.
 		if svc.Comment != "" {
 			g.P("class ", handlerName, "(Protocol):")
-			g.P(`    """`, handlerName, ` — `, svc.Comment, `"""`)
+			g.P(`    """`, handlerName, ` — `, sanitizePythonDocstring(svc.Comment), `"""`)
 		} else {
 			g.P("class ", handlerName, "(Protocol):")
 			g.P(`    """Defines the domain-level interface for `, svc.Name, `."""`)
@@ -29,11 +29,11 @@ func generatePythonServices(g *protogen.GeneratedFile, df *DomainFile) {
 				continue
 			}
 
-			methodName := toSnakeCase(m.Name)
+			methodName, _ := escapePythonKeyword(toSnakeCase(m.Name))
 
 			if m.Comment != "" {
 				g.P("    def ", methodName, "(self, req: ", m.InputType, ") -> ", m.OutputType, ":")
-				g.P(`        """`, m.Name, ` — `, m.Comment, `"""`)
+				g.P(`        """`, m.Name, ` — `, sanitizePythonDocstring(m.Comment), `"""`)
 				g.P("        ...")
 			} else if m.ClientStreaming || m.ServerStreaming {
 				g.P("    # ", m.Name, " is a streaming RPC and requires a streaming adapter.")

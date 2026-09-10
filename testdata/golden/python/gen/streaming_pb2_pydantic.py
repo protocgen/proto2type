@@ -77,7 +77,7 @@ def apply_field_mask_stream_error(dst: StreamError, src: StreamError, paths: lis
 
 class StreamEvent(BaseModel):
     """StreamEvent is the canonical jsonrpc test case:
- 1 scalar field + 1 oneof with message variants."""
+1 scalar field + 1 oneof with message variants."""
     model_config = ConfigDict(populate_by_name=True)
 
     stream_id: str = ''
@@ -135,7 +135,7 @@ def apply_field_mask_multi_oneof(dst: MultiOneof, src: MultiOneof, paths: list[s
 
 class WktEvent(BaseModel):
     """WktEvent has bare WKT-typed oneof variants (not wrapped in messages).
- Tests that the jsonrpc backend correctly emits value fields for these."""
+Tests that the jsonrpc backend correctly emits value fields for these."""
     model_config = ConfigDict(populate_by_name=True)
 
     event_id: str = ''

@@ -44,6 +44,14 @@ func generateRustPostgres(gen *protogen.Plugin, file *protogen.File, opts *Optio
 	// Build a lookup from FullName -> *protogen.Message for converter generation.
 	protoMsgMap := buildProtoMessageMap(file.Messages)
 
+	// Emit ConversionError type (shared with SQLite backend).
+	generateRustConversionError(g, needsChrono)
+
+	// Generate helper functions if chrono is needed.
+	if needsChrono {
+		generateRustEpochMsHelpers(g)
+	}
+
 	for _, dm := range df.Messages {
 		msg := protoMsgMap[dm.FullName]
 		if msg == nil {

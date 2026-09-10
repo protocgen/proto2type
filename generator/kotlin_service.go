@@ -17,7 +17,7 @@ func generateKotlinServices(g *protogen.GeneratedFile, df *DomainFile) {
 		// Emit KDoc comment.
 		if svc.Comment != "" {
 			g.P("/**")
-			g.P(" * ", handlerName, " — ", svc.Comment)
+			g.P(" * ", handlerName, " — ", sanitizeBlockComment(svc.Comment))
 			g.P(" *")
 		} else {
 			g.P("/**")
@@ -34,10 +34,10 @@ func generateKotlinServices(g *protogen.GeneratedFile, df *DomainFile) {
 				continue
 			}
 
-			methodName := toLowerCamel(m.Name)
+			methodName := escapeKotlinKeyword(toLowerCamel(m.Name))
 
 			if m.Comment != "" {
-				g.P("    /** ", m.Name, " — ", m.Comment, " */")
+				g.P("    /** ", m.Name, " — ", sanitizeBlockComment(m.Comment), " */")
 			}
 
 			if m.ClientStreaming || m.ServerStreaming {

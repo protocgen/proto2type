@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"strings"
+
 	"google.golang.org/protobuf/compiler/protogen"
 )
 
@@ -14,9 +16,15 @@ func generateRustServices(g *protogen.GeneratedFile, df *DomainFile) {
 
 		traitName := svc.Name + "Handler"
 
-		// Emit doc comment.
+		// Emit doc comment (handling multiline).
 		if svc.Comment != "" {
-			g.P("/// ", traitName, " — ", svc.Comment)
+			for i, line := range strings.Split(svc.Comment, "\n") {
+				if i == 0 {
+					g.P("/// ", traitName, " — ", line)
+				} else {
+					g.P("/// ", line)
+				}
+			}
 		} else {
 			g.P("/// ", traitName, " defines the domain-level interface for ", svc.Name, ".")
 		}
@@ -31,10 +39,12 @@ func generateRustServices(g *protogen.GeneratedFile, df *DomainFile) {
 				continue
 			}
 
-			methodName := toSnakeCase(m.Name)
+			methodName := escapeRustKeyword(toSnakeCase(m.Name))
 
 			if m.Comment != "" {
-				g.P("    /// ", m.Name, " — ", m.Comment)
+				for _, line := range strings.Split(m.Comment, "\n") {
+					g.P("    /// ", line)
+				}
 			}
 
 			if m.ClientStreaming || m.ServerStreaming {

@@ -8,7 +8,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /** Test message with proto fields named after Rust keywords.
- These are valid proto field names but require r# escaping in Rust. */
+These are valid proto field names but require r# escaping in Rust. */
 @Serializable
 data class KeywordFields(
     val type: String = "",

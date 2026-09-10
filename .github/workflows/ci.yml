@@ -126,7 +126,9 @@ jobs:
         run: |
           cd testdata/proto
           buf generate
+          buf generate --template buf.gen.go-native.yaml
           buf generate --template buf.gen.rust.yaml
+          buf generate --template buf.gen.rust-postgres.yaml
           buf generate --template buf.gen.python.yaml
           buf generate --template buf.gen.kotlin.yaml
 
@@ -175,7 +177,7 @@ jobs:
           for domain_file in testdata/golden/rust/gen/*.type.rs; do
             base=$(basename "$domain_file" .type.rs)
             # Skip sqlite/postgres files (handled as submodules), buffa files, and
-            # jsonrpc files (they depend on crate::proto or external crates not in this scaffold)
+            # jsonrpc files (they depend on sqlx, crate::proto, or external crates not in this scaffold)
             if echo "$base" | grep -qE '_sqlite$|_buffa$|_buffa_|_postgres$|_jsonrpc$'; then
               continue
             fi

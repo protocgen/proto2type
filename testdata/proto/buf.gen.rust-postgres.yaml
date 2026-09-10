@@ -10,5 +10,7 @@ plugins:
   - local: protoc-gen-proto2type
     out: ../golden/rust/gen
     opt:
+      - paths=source_relative
       - lang=rust
       - backend=postgres
+      - domain=false

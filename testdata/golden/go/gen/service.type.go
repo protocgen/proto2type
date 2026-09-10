@@ -538,15 +538,15 @@ func (u *UpdateUserRequest) Validate() error {
 	return nil
 }
 
-// UserServiceHandler — // UserService provides CRUD operations on Users.
+// UserServiceHandler — UserService provides CRUD operations on Users.
 //
 // All methods use domain types rather than proto types for clean
 // separation between the transport layer and business logic.
 type UserServiceHandler interface {
-	// GetUser — // GetUser retrieves a user by ID.
+	// GetUser — GetUser retrieves a user by ID.
 	GetUser(ctx context.Context, req *GetUserRequest) (*GetUserResponse, error)
-	// ListUsers — // ListUsers retrieves a paginated list of users.
+	// ListUsers — ListUsers retrieves a paginated list of users.
 	ListUsers(ctx context.Context, req *ListUsersRequest) (*ListUsersResponse, error)
-	// UpdateUser — // UpdateUser updates a user with field mask.
+	// UpdateUser — UpdateUser updates a user with field mask.
 	UpdateUser(ctx context.Context, req *UpdateUserRequest) (*GetUserResponse, error)
 }
