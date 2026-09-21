@@ -577,3 +577,162 @@ func TestRapid_ValidateCloneConsistency(t *testing.T) {
 		}
 	})
 }
+
+// ---------- rapidDocument generator ----------
+
+func rapidSettings(t *rapid.T) *gen.Settings {
+	return &gen.Settings{
+		Theme:  rapid.Int32Range(0, 10).Draw(t, "theme"),
+		Locale: rapid.StringN(0, 10, -1).Draw(t, "locale"),
+	}
+}
+
+func rapidDocument(t *rapid.T) *gen.Document {
+	d := gen.Document{
+		ID: rapid.StringN(0, 20, -1).Draw(t, "doc_id"),
+	}
+
+	// Message-valued map (BUG-4 regression surface).
+	if rapid.Bool().Draw(t, "has_settings") {
+		n := rapid.IntRange(1, 3).Draw(t, "n_settings")
+		d.SettingsMap = make(map[string]*gen.Settings, n)
+		for i := 0; i < n; i++ {
+			k := rapid.StringN(1, 10, -1).Draw(t, "setting_key")
+			d.SettingsMap[k] = rapidSettings(t)
+		}
+	}
+
+	// Scalar map.
+	if rapid.Bool().Draw(t, "has_codenames") {
+		n := rapid.IntRange(1, 3).Draw(t, "n_codes")
+		d.CodeNames = make(map[int32]string, n)
+		for i := 0; i < n; i++ {
+			k := rapid.Int32Range(0, 100).Draw(t, "code_key")
+			d.CodeNames[k] = rapid.StringN(0, 10, -1).Draw(t, "code_val")
+		}
+	}
+
+	// Update mask.
+	d.UpdateMask = rapid.SliceOfN(rapid.StringN(0, 10, -1), 0, 3).Draw(t, "doc_mask")
+
+	// Optional wrappers.
+	if rapid.Bool().Draw(t, "has_archived") {
+		b := rapid.Bool().Draw(t, "archived")
+		d.Archived = &b
+	}
+	if rapid.Bool().Draw(t, "has_viewcount") {
+		v := rapid.Int64Range(0, 1000000).Draw(t, "view_count")
+		d.ViewCount = &v
+	}
+
+	return &d
+}
+
+// ---------- P3 extension: Document clone independence (BUG-4 surface) ----------
+
+func TestRapid_DocumentCloneIndependence(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		doc := rapidDocument(t)
+		snapshot := doc.Clone()
+		clone := doc.Clone()
+
+		// Mutate map values deeply on the clone.
+		for k, s := range clone.SettingsMap {
+			if s != nil {
+				s.Theme = 999
+				s.Locale = "mutated"
+			}
+			_ = k
+		}
+		// Mutate scalar map.
+		for k := range clone.CodeNames {
+			clone.CodeNames[k] = "mutated"
+		}
+		// Mutate optional pointer.
+		if clone.Archived != nil {
+			b := !(*clone.Archived)
+			clone.Archived = &b
+		}
+
+		// Original must be completely untouched.
+		if !doc.Equal(snapshot) {
+			t.Fatalf("mutating clone changed original:\n  orig:     %+v\n  snapshot: %+v", doc, snapshot)
+		}
+	})
+}
+
+// ---------- P4a: FieldMask isolation (mutation after apply) ----------
+
+func TestRapid_FieldMaskIsolation(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		dst := rapidUser(t)
+		src := rapidUser(t)
+
+		// Pick a non-empty subset of reference-type paths (slices, maps, bytes).
+		refPaths := []string{"roles", "metadata", "avatar", "tags", "update_mask", "event_times", "avatar_thumbnail"}
+		n := rapid.IntRange(1, len(refPaths)).Draw(t, "n_ref_paths")
+		paths := refPaths[:n]
+
+		gen.ApplyFieldMaskUser(dst, src, paths)
+		snapshot := dst.Clone()
+
+		// Mutate src's reference-type fields.
+		if len(src.Roles) > 0 {
+			src.Roles[0] = "MUTATED"
+		}
+		if src.Metadata != nil {
+			src.Metadata["INJECTED"] = "hack"
+		}
+		if len(src.Avatar) > 0 {
+			src.Avatar[0] ^= 0xFF
+		}
+		if len(src.Tags) > 0 && src.Tags[0] != nil {
+			src.Tags[0].Key = "MUTATED"
+		}
+		if len(src.UpdateMask) > 0 {
+			src.UpdateMask[0] = "MUTATED"
+		}
+		if src.EventTimes != nil {
+			src.EventTimes["INJECTED"] = time.Now()
+		}
+		if src.AvatarThumbnail != nil && len(*src.AvatarThumbnail) > 0 {
+			(*src.AvatarThumbnail)[0] ^= 0xFF
+		}
+
+		// dst must be unaffected by src mutations.
+		if !dst.Equal(snapshot) {
+			t.Fatalf("FieldMask isolation violated: mutating src changed dst for paths %v", paths)
+		}
+	})
+}
+
+// ---------- TryToProto error path ----------
+
+func TestTryToProtoErrorPath(t *testing.T) {
+	// ExtraMetadata with an unsupported type should cause TryToProto to return an error.
+	u := &gen.User{
+		ID:    "test",
+		Email: "test@test.com",
+		ExtraMetadata: map[string]any{
+			"bad": func() {}, // functions are not supported by structpb
+		},
+	}
+
+	pb, err := u.TryToProto()
+	if err == nil {
+		t.Fatal("TryToProto should return error for unsupported structpb type")
+	}
+	if pb != nil {
+		t.Fatal("TryToProto should return nil proto on error")
+	}
+
+	// Verify ToProto doesn't panic (it logs instead).
+	result := u.ToProto()
+	if result == nil {
+		t.Fatal("ToProto should not return nil")
+	}
+	// ExtraMetadata should be nil because of the conversion failure.
+	if result.ExtraMetadata != nil {
+		t.Fatal("ToProto should set ExtraMetadata to nil on conversion failure")
+	}
+}
