@@ -44,6 +44,7 @@ func generateGoPostgresSearchIndex(gen *protogen.Plugin, file *protogen.File, op
 	g.P("package ", goPackageName)
 	g.P()
 	g.P(`import (`)
+	g.P(`	"fmt"`)
 	g.P(`	"strings"`)
 	g.P(`	"time"`)
 	g.P(``)
@@ -147,20 +148,28 @@ func generateSearchIndexTypes(g *protogen.GeneratedFile) {
 	g.P("	_ = strings.ToLower")
 	g.P("	_ = time.Now")
 	g.P("	_ = proto.Marshal")
+	g.P("	_ = fmt.Sprintf")
 	g.P(")")
 	g.P()
 }
 
 // generateSearchIndexExtractor generates an Extract<Name>Indexes function
-// for a proto message. This is the core code generator for search_index mode.
-//
-// For now, it generates a skeleton that walks top-level fields and extracts
-// basic string/token values. The full implementation will load SearchParameter
-// definitions from the postgres_search_params JSON file and map FHIRPath
-// expressions to proto field accessors.
+// for a proto message. When postgres_search_params is provided, it uses
+// SearchParameter definitions to generate precise FHIRPath-compiled extraction.
+// Otherwise, it falls back to a naive field walk as a starting point.
 func generateSearchIndexExtractor(gen *protogen.Plugin, g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) error {
 	msgName := msg.GoIdent.GoName
 	resType := msgName // e.g. "Patient"
+
+	// Load search params if available
+	var searchParams []SearchParam
+	if opts.PostgresSearchParams != "" {
+		index, err := LoadSearchParams(opts.PostgresSearchParams)
+		if err != nil {
+			return fmt.Errorf("loading search params for %s: %w", resType, err)
+		}
+		searchParams = index[resType]
+	}
 
 	g.P(fmt.Sprintf("// Extract%sIndexes extracts HAPI-style search index rows from a %s proto.", msgName, msgName))
 	g.P("// Each SearchParameter expression is compiled to a direct proto field accessor.")
@@ -192,42 +201,46 @@ func generateSearchIndexExtractor(gen *protogen.Plugin, g *protogen.GeneratedFil
 		}
 	}
 
-	// Walk fields and generate extraction for known types
-	for _, field := range msg.Fields {
-		fieldName := string(field.Desc.Name())
-		goGetter := fmt.Sprintf("Get%s()", field.GoName)
+	// Use SearchParameter-driven extraction if search params are loaded
+	if len(searchParams) > 0 {
+		if err := emitSearchIndexExtraction(g, msg, searchParams, resType); err != nil {
+			return err
+		}
+	} else {
+		// Fallback: naive field walk for wrapped string fields (no search params JSON provided)
+		for _, field := range msg.Fields {
+			fieldName := string(field.Desc.Name())
+			goGetter := fmt.Sprintf("Get%s()", field.GoName)
 
-		switch {
-		case isWrappedStringField(field):
-			spName := toSearchParamName(fieldName)
-			if field.Desc.IsList() {
-				// Repeated wrapped string (e.g. given: []*String)
-				g.P(fmt.Sprintf("	// SearchParameter: %s (%s)", spName, resType+"."+fieldName))
-				g.P(fmt.Sprintf("	for _, v := range r.%s {", goGetter))
-				g.P("		if v != nil && v.GetValue() != \"\" {")
-				g.P("			idx.Strings = append(idx.Strings, SpidxString{")
-				g.P("				TenantID: tenantID,")
-				g.P(fmt.Sprintf("				ResType:  %q,", resType))
-				g.P("				ResID:    resID,")
-				g.P(fmt.Sprintf("				SpName:   %q,", spName))
-				g.P("				SpValue:  strings.ToLower(v.GetValue()),")
-				g.P("			})")
-				g.P("		}")
-				g.P("	}")
-				g.P()
-			} else {
-				// Singular wrapped string
-				g.P(fmt.Sprintf("	// SearchParameter: %s (%s)", spName, resType+"."+fieldName))
-				g.P(fmt.Sprintf("	if r.%s != nil && r.%s.GetValue() != \"\" {", goGetter, goGetter))
-				g.P("		idx.Strings = append(idx.Strings, SpidxString{")
-				g.P("			TenantID: tenantID,")
-				g.P(fmt.Sprintf("			ResType:  %q,", resType))
-				g.P("			ResID:    resID,")
-				g.P(fmt.Sprintf("			SpName:   %q,", spName))
-				g.P(fmt.Sprintf("			SpValue:  strings.ToLower(r.%s.GetValue()),", goGetter))
-				g.P("		})")
-				g.P("	}")
-				g.P()
+			if isWrappedStringField(field) {
+				spName := toSearchParamName(fieldName)
+				if field.Desc.IsList() {
+					g.P(fmt.Sprintf("	// SearchParameter: %s (%s)", spName, resType+"."+fieldName))
+					g.P(fmt.Sprintf("	for _, v := range r.%s {", goGetter))
+					g.P("		if v != nil && v.GetValue() != \"\" {")
+					g.P("			idx.Strings = append(idx.Strings, SpidxString{")
+					g.P("				TenantID: tenantID,")
+					g.P(fmt.Sprintf("				ResType:  %q,", resType))
+					g.P("				ResID:    resID,")
+					g.P(fmt.Sprintf("				SpName:   %q,", spName))
+					g.P("				SpValue:  strings.ToLower(v.GetValue()),")
+					g.P("			})")
+					g.P("		}")
+					g.P("	}")
+					g.P()
+				} else {
+					g.P(fmt.Sprintf("	// SearchParameter: %s (%s)", spName, resType+"."+fieldName))
+					g.P(fmt.Sprintf("	if r.%s != nil && r.%s.GetValue() != \"\" {", goGetter, goGetter))
+					g.P("		idx.Strings = append(idx.Strings, SpidxString{")
+					g.P("			TenantID: tenantID,")
+					g.P(fmt.Sprintf("			ResType:  %q,", resType))
+					g.P("			ResID:    resID,")
+					g.P(fmt.Sprintf("			SpName:   %q,", spName))
+					g.P(fmt.Sprintf("			SpValue:  strings.ToLower(r.%s.GetValue()),", goGetter))
+					g.P("		})")
+					g.P("	}")
+					g.P()
+				}
 			}
 		}
 	}
