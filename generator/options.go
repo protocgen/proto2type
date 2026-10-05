@@ -9,6 +9,16 @@ type Options struct {
 	// Empty string means no storage types are generated.
 	Backend string
 
+	// PostgresMode controls the Postgres backend behavior:
+	//   ""             (default) — struct-per-message with db:"" tags
+	//   "search_index" — HAPI-style search index extraction functions (FHIR)
+	PostgresMode string
+
+	// PostgresSearchParams is the path to a FHIR SearchParameter JSON bundle.
+	// Required when PostgresMode is "search_index".
+	// e.g. "fhir/r4/search-parameters.json"
+	PostgresSearchParams string
+
 	// Domain controls whether domain types and proto converters are generated.
 	Domain bool
 

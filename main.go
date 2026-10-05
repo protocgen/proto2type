@@ -50,6 +50,8 @@ func main() {
 
 	flags.StringVar(&opts.Lang, "lang", "go", "target language: go, python, kotlin, typescript")
 	flags.StringVar(&opts.Backend, "backend", "", "storage backend: firestore, mongo, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc")
+	flags.StringVar(&opts.PostgresMode, "postgres_mode", "", "postgres backend mode: '' (struct), 'search_index' (HAPI-style FHIR search index extraction)")
+	flags.StringVar(&opts.PostgresSearchParams, "postgres_search_params", "", "path to FHIR SearchParameter JSON bundle (required for postgres_mode=search_index)")
 	flags.BoolVar(&opts.Domain, "domain", true, "generate domain types + proto converters")
 	flags.StringVar(&opts.OutputFile, "output_file", "", "override output filename")
 	flags.BoolVar(&opts.EnumAsString, "enum_as_string", false, "store enums as string names")
