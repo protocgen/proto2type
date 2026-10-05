@@ -1,0 +1,117 @@
+syntax = "proto3";
+package fhir.test.v1;
+
+option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
+
+// Minimal FHIR-like wrapped primitives for testing search index generation.
+// These mimic the google/fhir proto pattern where all primitives are wrapped.
+
+message String {
+  string value = 1;
+}
+
+message Id {
+  string value = 1;
+}
+
+message Boolean {
+  bool value = 1;
+}
+
+message Date {
+  int64 value_us = 1;      // microseconds since epoch
+  int32 precision = 2;     // enum: DAY, MONTH, YEAR
+  string timezone = 3;
+}
+
+message DateTime {
+  int64 value_us = 1;
+  int32 precision = 2;
+  string timezone = 3;
+}
+
+message Code {
+  string value = 1;
+}
+
+message Uri {
+  string value = 1;
+}
+
+// Coding — system + code pair
+message Coding {
+  Uri system = 1;
+  Code code = 2;
+  String display = 3;
+}
+
+// CodeableConcept — list of codings
+message CodeableConcept {
+  repeated Coding coding = 1;
+  String text = 2;
+}
+
+// Identifier — system + value (e.g. MRN)
+message Identifier {
+  Uri system = 1;
+  String value = 2;
+}
+
+// Reference — link to another resource
+message Reference {
+  Uri uri = 1;
+  String display = 2;
+}
+
+// HumanName — structured name
+message HumanName {
+  String family = 1;
+  repeated String given = 2;
+  repeated String prefix = 3;
+}
+
+// Address
+message Address {
+  repeated String line = 1;
+  String city = 2;
+  String state = 3;
+  String postal_code = 4;
+  String country = 5;
+}
+
+// ContactPoint (telecom)
+message ContactPoint {
+  Code system = 1;    // phone, email, etc.
+  String value = 2;
+}
+
+// Patient — the main FHIR resource for testing
+message Patient {
+  Id id = 1;
+  repeated Identifier identifier = 2;
+  Boolean active = 3;
+  repeated HumanName name = 4;
+  repeated ContactPoint telecom = 5;
+  Code gender = 6;
+  Date birth_date = 7;
+  // Choice type: deceased[x] — either Boolean or DateTime
+  oneof deceased {
+    Boolean deceased_boolean = 8;
+    DateTime deceased_date_time = 9;
+  }
+  repeated Address address = 10;
+  Reference managing_organization = 11;
+  repeated PatientLink link = 12;
+  repeated PatientCommunication communication = 13;
+  repeated Reference general_practitioner = 14;
+}
+
+message PatientLink {
+  Reference other = 1;
+  Code type = 2;
+}
+
+message PatientCommunication {
+  CodeableConcept language = 1;
+  Boolean preferred = 2;
+}
