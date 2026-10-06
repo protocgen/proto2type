@@ -1,0 +1,117 @@
+{
+  "resourceType": "Bundle",
+  "entry": [
+    {
+      "resource": {
+        "name": "family",
+        "type": "string",
+        "expression": "Patient.name.family",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "given",
+        "type": "string",
+        "expression": "Patient.name.given",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "address-city",
+        "type": "string",
+        "expression": "Patient.address.city",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "birthdate",
+        "type": "date",
+        "expression": "Patient.birthDate",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "gender",
+        "type": "token",
+        "expression": "Patient.gender",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "identifier",
+        "type": "token",
+        "expression": "Patient.identifier",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "active",
+        "type": "token",
+        "expression": "Patient.active",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "email",
+        "type": "token",
+        "expression": "Patient.telecom.where(system='email')",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "phone",
+        "type": "token",
+        "expression": "Patient.telecom.where(system='phone')",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "organization",
+        "type": "reference",
+        "expression": "Patient.managingOrganization",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "general-practitioner",
+        "type": "reference",
+        "expression": "Patient.generalPractitioner",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "deceased",
+        "type": "token",
+        "expression": "Patient.deceased.exists() and Patient.deceased != false",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "death-date",
+        "type": "date",
+        "expression": "(Patient.deceased as dateTime)",
+        "base": ["Patient"]
+      }
+    },
+    {
+      "resource": {
+        "name": "language",
+        "type": "token",
+        "expression": "Patient.communication.language",
+        "base": ["Patient"]
+      }
+    }
+  ]
+}

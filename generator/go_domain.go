@@ -52,6 +52,9 @@ func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opt
 		case "mongo":
 			return generateGoMongo(gen, file, opts)
 		case "postgres":
+			if opts.PostgresMode == "search_index" {
+				return generateGoPostgresSearchIndex(gen, file, opts)
+			}
 			return generateGoPostgres(gen, file, opts)
 		default:
 			return fmt.Errorf("proto2type: unsupported Go backend %q (supported: firestore, mongo, postgres)", opts.Backend)
