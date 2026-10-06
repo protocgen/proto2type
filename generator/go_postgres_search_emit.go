@@ -66,13 +66,21 @@ func emitStringExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, msg *p
 		// Nested: Patient.name.family, Patient.address.city
 		outer := c.Segments[0]
 		inner := c.Segments[1]
-		g.P(fmt.Sprintf("\tfor _, outer := range r.%s {", outer.GoGetter))
-		g.P("\t\tif outer == nil { continue }")
+
+		outerField := findProtoField(msg, outer.Field)
+		outerIsList := false
+		if outerField != nil {
+			outerIsList = outerField.Desc.IsList()
+		} else {
+			outerIsList = isRepeatedFieldName(outer.Field)
+		}
 
 		isList := false
-		if outerField := findProtoField(msg, outer.Field); outerField != nil && outerField.Message != nil {
+		isScalarString := false
+		if outerField != nil && outerField.Message != nil {
 			if innerField := findProtoField(outerField.Message, inner.Field); innerField != nil {
 				isList = innerField.Desc.IsList()
+				isScalarString = innerField.Desc.Kind().String() == "string"
 			} else {
 				isList = isRepeatedFieldName(inner.Field)
 			}
@@ -80,30 +88,62 @@ func emitStringExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, msg *p
 			isList = isRepeatedFieldName(inner.Field)
 		}
 
+		if outerIsList {
+			g.P(fmt.Sprintf("\tfor _, outer := range r.%s {", outer.GoGetter))
+			g.P("\t\tif outer == nil { continue }")
+		} else {
+			g.P(fmt.Sprintf("\tif outer := r.%s; outer != nil {", outer.GoGetter))
+		}
+		indent := "\t\t"
+
 		if isList {
-			// Inner is also repeated (e.g., given names)
-			g.P(fmt.Sprintf("\t\tfor _, v := range outer.%s {", inner.GoGetter))
-			g.P("\t\t\tif v != nil && v.GetValue() != \"\" {")
-			g.P("\t\t\t\tidx.Strings = append(idx.Strings, SpidxString{")
-			g.P("\t\t\t\t\tTenantID: tenantID,")
-			g.P(fmt.Sprintf("\t\t\t\t\tResType:  %q,", c.ResType))
-			g.P("\t\t\t\t\tResID:    resID,")
-			g.P(fmt.Sprintf("\t\t\t\t\tSpName:   %q,", sp.Name))
-			g.P("\t\t\t\t\tSpValue:  strings.ToLower(v.GetValue()),")
-			g.P("\t\t\t\t})")
-			g.P("\t\t\t}")
-			g.P("\t\t}")
+			// Inner is repeated (e.g., given names)
+			g.P(fmt.Sprintf("%sfor _, v := range outer.%s {", indent, inner.GoGetter))
+			if isScalarString {
+				g.P(fmt.Sprintf("%s\tif v != \"\" {", indent))
+				g.P(fmt.Sprintf("%s\t\tidx.Strings = append(idx.Strings, SpidxString{", indent))
+				g.P(fmt.Sprintf("%s\t\t\tTenantID: tenantID,", indent))
+				g.P(fmt.Sprintf("%s\t\t\tResType:  %q,", indent, c.ResType))
+				g.P(fmt.Sprintf("%s\t\t\tResID:    resID,", indent))
+				g.P(fmt.Sprintf("%s\t\t\tSpName:   %q,", indent, sp.Name))
+				g.P(fmt.Sprintf("%s\t\t\tSpValue:  strings.ToLower(v),", indent))
+				g.P(fmt.Sprintf("%s\t\t})", indent))
+				g.P(fmt.Sprintf("%s\t}", indent))
+			} else {
+				g.P(fmt.Sprintf("%s\tif v != nil && v.GetValue() != \"\" {", indent))
+				g.P(fmt.Sprintf("%s\t\tidx.Strings = append(idx.Strings, SpidxString{", indent))
+				g.P(fmt.Sprintf("%s\t\t\tTenantID: tenantID,", indent))
+				g.P(fmt.Sprintf("%s\t\t\tResType:  %q,", indent, c.ResType))
+				g.P(fmt.Sprintf("%s\t\t\tResID:    resID,", indent))
+				g.P(fmt.Sprintf("%s\t\t\tSpName:   %q,", indent, sp.Name))
+				g.P(fmt.Sprintf("%s\t\t\tSpValue:  strings.ToLower(v.GetValue()),", indent))
+				g.P(fmt.Sprintf("%s\t\t})", indent))
+				g.P(fmt.Sprintf("%s\t}", indent))
+			}
+			g.P(fmt.Sprintf("%s}", indent))
 		} else {
 			// Inner is singular: Patient.name.family (family is singular on HumanName)
-			g.P(fmt.Sprintf("\t\tif v := outer.%s; v != nil && v.GetValue() != \"\" {", inner.GoGetter))
-			g.P("\t\t\tidx.Strings = append(idx.Strings, SpidxString{")
-			g.P("\t\t\t\tTenantID: tenantID,")
-			g.P(fmt.Sprintf("\t\t\t\tResType:  %q,", c.ResType))
-			g.P("\t\t\t\tResID:    resID,")
-			g.P(fmt.Sprintf("\t\t\t\tSpName:   %q,", sp.Name))
-			g.P("\t\t\t\tSpValue:  strings.ToLower(v.GetValue()),")
-			g.P("\t\t\t})")
-			g.P("\t\t}")
+			if isScalarString {
+				g.P(fmt.Sprintf("%sif v := outer.%s; v != \"\" {", indent, inner.GoGetter))
+				g.P(fmt.Sprintf("%s\tidx.Strings = append(idx.Strings, SpidxString{", indent))
+				g.P(fmt.Sprintf("%s\t\tTenantID: tenantID,", indent))
+				g.P(fmt.Sprintf("%s\t\tResType:  %q,", indent, c.ResType))
+				g.P(fmt.Sprintf("%s\t\tResID:    resID,", indent))
+				g.P(fmt.Sprintf("%s\t\tSpName:   %q,", indent, sp.Name))
+				g.P(fmt.Sprintf("%s\t\tSpValue:  strings.ToLower(v),", indent))
+				g.P(fmt.Sprintf("%s\t})", indent))
+				g.P(fmt.Sprintf("%s}", indent))
+			} else {
+				g.P(fmt.Sprintf("%sif v := outer.%s; v != nil && v.GetValue() != \"\" {", indent, inner.GoGetter))
+				g.P(fmt.Sprintf("%s\tidx.Strings = append(idx.Strings, SpidxString{", indent))
+				g.P(fmt.Sprintf("%s\t\tTenantID: tenantID,", indent))
+				g.P(fmt.Sprintf("%s\t\tResType:  %q,", indent, c.ResType))
+				g.P(fmt.Sprintf("%s\t\tResID:    resID,", indent))
+				g.P(fmt.Sprintf("%s\t\tSpName:   %q,", indent, sp.Name))
+				g.P(fmt.Sprintf("%s\t\tSpValue:  strings.ToLower(v.GetValue()),", indent))
+				g.P(fmt.Sprintf("%s\t})", indent))
+				g.P(fmt.Sprintf("%s}", indent))
+			}
 		}
 		g.P("\t}")
 	}
@@ -212,15 +252,56 @@ func emitTokenExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, msg *pr
 
 		case "code":
 			// Code: extract value string (e.g. gender code)
-			g.P(fmt.Sprintf("\tif r.%s != nil && r.%s.GetValue() != \"\" {", seg.GoGetter, seg.GoGetter))
-			g.P("\t\tidx.Tokens = append(idx.Tokens, SpidxToken{")
-			g.P("\t\t\tTenantID: tenantID,")
-			g.P(fmt.Sprintf("\t\t\tResType:  %q,", c.ResType))
-			g.P("\t\t\tResID:    resID,")
-			g.P(fmt.Sprintf("\t\t\tSpName:   %q,", sp.Name))
-			g.P(fmt.Sprintf("\t\t\tSpValue:  r.%s.GetValue(),", seg.GoGetter))
-			g.P("\t\t})")
-			g.P("\t}")
+			field := findProtoField(msg, seg.Field)
+			isList := field != nil && field.Desc.IsList()
+			isScalar := field != nil && field.Desc.Kind().String() == "string"
+			if isList {
+				g.P(fmt.Sprintf("\tfor _, code := range r.%s {", seg.GoGetter))
+				if isScalar {
+					g.P("\t\tif code != \"\" {")
+					g.P("\t\t\tidx.Tokens = append(idx.Tokens, SpidxToken{")
+					g.P("\t\t\t\tTenantID: tenantID,")
+					g.P(fmt.Sprintf("\t\t\t\tResType:  %q,", c.ResType))
+					g.P("\t\t\t\tResID:    resID,")
+					g.P(fmt.Sprintf("\t\t\t\tSpName:   %q,", sp.Name))
+					g.P("\t\t\t\tSpValue:  code,")
+					g.P("\t\t\t})")
+					g.P("\t\t}")
+				} else {
+					g.P("\t\tif code != nil && code.GetValue() != \"\" {")
+					g.P("\t\t\tidx.Tokens = append(idx.Tokens, SpidxToken{")
+					g.P("\t\t\t\tTenantID: tenantID,")
+					g.P(fmt.Sprintf("\t\t\t\tResType:  %q,", c.ResType))
+					g.P("\t\t\t\tResID:    resID,")
+					g.P(fmt.Sprintf("\t\t\t\tSpName:   %q,", sp.Name))
+					g.P("\t\t\t\tSpValue:  code.GetValue(),")
+					g.P("\t\t\t})")
+					g.P("\t\t}")
+				}
+				g.P("\t}")
+			} else {
+				if isScalar {
+					g.P(fmt.Sprintf("\tif r.%s != \"\" {", seg.GoGetter))
+					g.P("\t\tidx.Tokens = append(idx.Tokens, SpidxToken{")
+					g.P("\t\t\tTenantID: tenantID,")
+					g.P(fmt.Sprintf("\t\t\tResType:  %q,", c.ResType))
+					g.P("\t\t\tResID:    resID,")
+					g.P(fmt.Sprintf("\t\t\tSpName:   %q,", sp.Name))
+					g.P(fmt.Sprintf("\t\t\tSpValue:  r.%s,", seg.GoGetter))
+					g.P("\t\t})")
+					g.P("\t}")
+				} else {
+					g.P(fmt.Sprintf("\tif r.%s != nil && r.%s.GetValue() != \"\" {", seg.GoGetter, seg.GoGetter))
+					g.P("\t\tidx.Tokens = append(idx.Tokens, SpidxToken{")
+					g.P("\t\t\tTenantID: tenantID,")
+					g.P(fmt.Sprintf("\t\t\tResType:  %q,", c.ResType))
+					g.P("\t\t\tResID:    resID,")
+					g.P(fmt.Sprintf("\t\t\tSpName:   %q,", sp.Name))
+					g.P(fmt.Sprintf("\t\t\tSpValue:  r.%s.GetValue(),", seg.GoGetter))
+					g.P("\t\t})")
+					g.P("\t}")
+				}
+			}
 
 		case "enum":
 			// Enum (code): extract value enum name as string (Spike 4 validated)
