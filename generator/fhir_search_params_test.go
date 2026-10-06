@@ -16,6 +16,9 @@ func TestCompileFHIRPath_SimpleField(t *testing.T) {
 	if compiled.Segments[0].Field != "birth_date" {
 		t.Errorf("expected field 'birth_date', got %q", compiled.Segments[0].Field)
 	}
+	if compiled.Segments[0].GoGetter != "GetBirthDate()" {
+		t.Errorf("expected GoGetter 'GetBirthDate()', got %q", compiled.Segments[0].GoGetter)
+	}
 }
 
 func TestCompileFHIRPath_NestedField(t *testing.T) {
@@ -30,8 +33,14 @@ func TestCompileFHIRPath_NestedField(t *testing.T) {
 	if compiled.Segments[0].Field != "name" {
 		t.Errorf("expected first segment 'name', got %q", compiled.Segments[0].Field)
 	}
+	if compiled.Segments[0].GoGetter != "GetName()" {
+		t.Errorf("expected first segment GoGetter 'GetName()', got %q", compiled.Segments[0].GoGetter)
+	}
 	if compiled.Segments[1].Field != "family" {
 		t.Errorf("expected second segment 'family', got %q", compiled.Segments[1].Field)
+	}
+	if compiled.Segments[1].GoGetter != "GetFamily()" {
+		t.Errorf("expected second segment GoGetter 'GetFamily()', got %q", compiled.Segments[1].GoGetter)
 	}
 }
 

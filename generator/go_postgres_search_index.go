@@ -213,7 +213,7 @@ func generateSearchIndexExtractor(gen *protogen.Plugin, g *protogen.GeneratedFil
 		if err := emitSearchIndexExtraction(g, msg, searchParams, resType); err != nil {
 			return err
 		}
-	} else {
+	} else if spIndex == nil {
 		// Fallback: naive field walk for wrapped string fields (no search params JSON provided)
 		for _, field := range msg.Fields {
 			fieldName := string(field.Desc.Name())

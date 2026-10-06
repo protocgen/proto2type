@@ -198,39 +198,6 @@ func ExtractCodingIndexes(tenantID string, r *Coding) *SearchIndexes {
 	resID := ""
 	_ = resID
 
-	// SearchParameter: system (Coding.system)
-	if r.GetSystem() != nil && r.GetSystem().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Coding",
-			ResID:    resID,
-			SpName:   "system",
-			SpValue:  strings.ToLower(r.GetSystem().GetValue()),
-		})
-	}
-
-	// SearchParameter: code (Coding.code)
-	if r.GetCode() != nil && r.GetCode().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Coding",
-			ResID:    resID,
-			SpName:   "code",
-			SpValue:  strings.ToLower(r.GetCode().GetValue()),
-		})
-	}
-
-	// SearchParameter: display (Coding.display)
-	if r.GetDisplay() != nil && r.GetDisplay().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Coding",
-			ResID:    resID,
-			SpName:   "display",
-			SpValue:  strings.ToLower(r.GetDisplay().GetValue()),
-		})
-	}
-
 	return idx
 }
 
@@ -244,17 +211,6 @@ func ExtractCodeableConceptIndexes(tenantID string, r *CodeableConcept) *SearchI
 	idx := &SearchIndexes{}
 	resID := ""
 	_ = resID
-
-	// SearchParameter: text (CodeableConcept.text)
-	if r.GetText() != nil && r.GetText().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "CodeableConcept",
-			ResID:    resID,
-			SpName:   "text",
-			SpValue:  strings.ToLower(r.GetText().GetValue()),
-		})
-	}
 
 	return idx
 }
@@ -270,28 +226,6 @@ func ExtractIdentifierIndexes(tenantID string, r *Identifier) *SearchIndexes {
 	resID := ""
 	_ = resID
 
-	// SearchParameter: system (Identifier.system)
-	if r.GetSystem() != nil && r.GetSystem().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Identifier",
-			ResID:    resID,
-			SpName:   "system",
-			SpValue:  strings.ToLower(r.GetSystem().GetValue()),
-		})
-	}
-
-	// SearchParameter: value (Identifier.value)
-	if r.GetValue() != nil && r.GetValue().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Identifier",
-			ResID:    resID,
-			SpName:   "value",
-			SpValue:  strings.ToLower(r.GetValue().GetValue()),
-		})
-	}
-
 	return idx
 }
 
@@ -305,28 +239,6 @@ func ExtractReferenceIndexes(tenantID string, r *Reference) *SearchIndexes {
 	idx := &SearchIndexes{}
 	resID := ""
 	_ = resID
-
-	// SearchParameter: uri (Reference.uri)
-	if r.GetUri() != nil && r.GetUri().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Reference",
-			ResID:    resID,
-			SpName:   "uri",
-			SpValue:  strings.ToLower(r.GetUri().GetValue()),
-		})
-	}
-
-	// SearchParameter: display (Reference.display)
-	if r.GetDisplay() != nil && r.GetDisplay().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Reference",
-			ResID:    resID,
-			SpName:   "display",
-			SpValue:  strings.ToLower(r.GetDisplay().GetValue()),
-		})
-	}
 
 	return idx
 }
@@ -342,43 +254,6 @@ func ExtractHumanNameIndexes(tenantID string, r *HumanName) *SearchIndexes {
 	resID := ""
 	_ = resID
 
-	// SearchParameter: family (HumanName.family)
-	if r.GetFamily() != nil && r.GetFamily().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "HumanName",
-			ResID:    resID,
-			SpName:   "family",
-			SpValue:  strings.ToLower(r.GetFamily().GetValue()),
-		})
-	}
-
-	// SearchParameter: given (HumanName.given)
-	for _, v := range r.GetGiven() {
-		if v != nil && v.GetValue() != "" {
-			idx.Strings = append(idx.Strings, SpidxString{
-				TenantID: tenantID,
-				ResType:  "HumanName",
-				ResID:    resID,
-				SpName:   "given",
-				SpValue:  strings.ToLower(v.GetValue()),
-			})
-		}
-	}
-
-	// SearchParameter: prefix (HumanName.prefix)
-	for _, v := range r.GetPrefix() {
-		if v != nil && v.GetValue() != "" {
-			idx.Strings = append(idx.Strings, SpidxString{
-				TenantID: tenantID,
-				ResType:  "HumanName",
-				ResID:    resID,
-				SpName:   "prefix",
-				SpValue:  strings.ToLower(v.GetValue()),
-			})
-		}
-	}
-
 	return idx
 }
 
@@ -393,63 +268,6 @@ func ExtractAddressIndexes(tenantID string, r *Address) *SearchIndexes {
 	resID := ""
 	_ = resID
 
-	// SearchParameter: line (Address.line)
-	for _, v := range r.GetLine() {
-		if v != nil && v.GetValue() != "" {
-			idx.Strings = append(idx.Strings, SpidxString{
-				TenantID: tenantID,
-				ResType:  "Address",
-				ResID:    resID,
-				SpName:   "line",
-				SpValue:  strings.ToLower(v.GetValue()),
-			})
-		}
-	}
-
-	// SearchParameter: city (Address.city)
-	if r.GetCity() != nil && r.GetCity().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Address",
-			ResID:    resID,
-			SpName:   "city",
-			SpValue:  strings.ToLower(r.GetCity().GetValue()),
-		})
-	}
-
-	// SearchParameter: state (Address.state)
-	if r.GetState() != nil && r.GetState().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Address",
-			ResID:    resID,
-			SpName:   "state",
-			SpValue:  strings.ToLower(r.GetState().GetValue()),
-		})
-	}
-
-	// SearchParameter: postalcode (Address.postal_code)
-	if r.GetPostalCode() != nil && r.GetPostalCode().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Address",
-			ResID:    resID,
-			SpName:   "postalcode",
-			SpValue:  strings.ToLower(r.GetPostalCode().GetValue()),
-		})
-	}
-
-	// SearchParameter: country (Address.country)
-	if r.GetCountry() != nil && r.GetCountry().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "Address",
-			ResID:    resID,
-			SpName:   "country",
-			SpValue:  strings.ToLower(r.GetCountry().GetValue()),
-		})
-	}
-
 	return idx
 }
 
@@ -463,28 +281,6 @@ func ExtractContactPointIndexes(tenantID string, r *ContactPoint) *SearchIndexes
 	idx := &SearchIndexes{}
 	resID := ""
 	_ = resID
-
-	// SearchParameter: system (ContactPoint.system)
-	if r.GetSystem() != nil && r.GetSystem().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "ContactPoint",
-			ResID:    resID,
-			SpName:   "system",
-			SpValue:  strings.ToLower(r.GetSystem().GetValue()),
-		})
-	}
-
-	// SearchParameter: value (ContactPoint.value)
-	if r.GetValue() != nil && r.GetValue().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "ContactPoint",
-			ResID:    resID,
-			SpName:   "value",
-			SpValue:  strings.ToLower(r.GetValue().GetValue()),
-		})
-	}
 
 	return idx
 }
@@ -574,13 +370,13 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 
 	// SearchParameter: gender (token)
 	// FHIRPath: Patient.gender
-	if r.GetGender() != nil {
+	if r.GetGender() != nil && r.GetGender().GetValue() != "" {
 		idx.Tokens = append(idx.Tokens, SpidxToken{
 			TenantID: tenantID,
 			ResType:  "Patient",
 			ResID:    resID,
 			SpName:   "gender",
-			SpValue:  fmt.Sprintf("%v", r.GetGender()),
+			SpValue:  r.GetGender().GetValue(),
 		})
 	}
 
@@ -682,23 +478,15 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 				})
 			}
 		}
-		// Typed reference: GetOrganizationId()
-		if typedRef := ref.GetOrganizationId(); typedRef != nil && typedRef.GetValue() != "" {
-			idx.References = append(idx.References, SpidxReference{
-				TenantID:   tenantID,
-				ResType:    "Patient",
-				ResID:      resID,
-				SpName:     "organization",
-				TargetType: "Organization",
-				TargetID:   typedRef.GetValue(),
-			})
-		}
 	}
 
 	// SearchParameter: general-practitioner (reference)
 	// FHIRPath: Patient.generalPractitioner
 	// google/fhir Reference: try URI first, then typed reference ID
-	if ref := r.GetGeneralPractitioner(); ref != nil {
+	for _, ref := range r.GetGeneralPractitioner() {
+		if ref == nil {
+			continue
+		}
 		// URI-based reference: "Organization/org-123"
 		if uri := ref.GetUri(); uri != nil && uri.GetValue() != "" {
 			parts := strings.SplitN(uri.GetValue(), "/", 2)
@@ -712,17 +500,6 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 					TargetID:   parts[1],
 				})
 			}
-		}
-		// Typed reference: GetPractitionerId()
-		if typedRef := ref.GetPractitionerId(); typedRef != nil && typedRef.GetValue() != "" {
-			idx.References = append(idx.References, SpidxReference{
-				TenantID:   tenantID,
-				ResType:    "Patient",
-				ResID:      resID,
-				SpName:     "general-practitioner",
-				TargetType: "Practitioner",
-				TargetID:   typedRef.GetValue(),
-			})
 		}
 	}
 
@@ -791,17 +568,6 @@ func ExtractPatientLinkIndexes(tenantID string, r *PatientLink) *SearchIndexes {
 	idx := &SearchIndexes{}
 	resID := ""
 	_ = resID
-
-	// SearchParameter: type (PatientLink.type)
-	if r.GetType() != nil && r.GetType().GetValue() != "" {
-		idx.Strings = append(idx.Strings, SpidxString{
-			TenantID: tenantID,
-			ResType:  "PatientLink",
-			ResID:    resID,
-			SpName:   "type",
-			SpValue:  strings.ToLower(r.GetType().GetValue()),
-		})
-	}
 
 	return idx
 }

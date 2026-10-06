@@ -23,13 +23,13 @@ func emitSearchIndexExtraction(g *protogen.GeneratedFile, msg *protogen.Message,
 
 		switch sp.Type {
 		case "string":
-			emitStringExtraction(g, compiled)
+			emitStringExtraction(g, compiled, msg)
 		case "token":
 			emitTokenExtraction(g, compiled, msg)
 		case "date":
 			emitDateExtraction(g, compiled)
 		case "reference":
-			emitReferenceExtraction(g, compiled, resType)
+			emitReferenceExtraction(g, compiled, msg, resType)
 		case "quantity":
 			emitQuantityExtraction(g, compiled)
 		case "uri":
@@ -44,7 +44,7 @@ func emitSearchIndexExtraction(g *protogen.GeneratedFile, msg *protogen.Message,
 // Examples:
 //   - Patient.name.family → nested loop over name, get family
 //   - Patient.address.city → nested loop over address, get city
-func emitStringExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath) {
+func emitStringExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, msg *protogen.Message) {
 	sp := c.SearchParam
 	g.P(fmt.Sprintf("\t// SearchParameter: %s (string)", sp.Name))
 	g.P(fmt.Sprintf("\t// FHIRPath: %s", sp.Expression))
@@ -69,7 +69,18 @@ func emitStringExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath) {
 		g.P(fmt.Sprintf("\tfor _, outer := range r.%s {", outer.GoGetter))
 		g.P("\t\tif outer == nil { continue }")
 
-		if isRepeatedFieldName(inner.Field) {
+		isList := false
+		if outerField := findProtoField(msg, outer.Field); outerField != nil && outerField.Message != nil {
+			if innerField := findProtoField(outerField.Message, inner.Field); innerField != nil {
+				isList = innerField.Desc.IsList()
+			} else {
+				isList = isRepeatedFieldName(inner.Field)
+			}
+		} else {
+			isList = isRepeatedFieldName(inner.Field)
+		}
+
+		if isList {
 			// Inner is also repeated (e.g., given names)
 			g.P(fmt.Sprintf("\t\tfor _, v := range outer.%s {", inner.GoGetter))
 			g.P("\t\t\tif v != nil && v.GetValue() != \"\" {")
@@ -199,6 +210,18 @@ func emitTokenExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, msg *pr
 			g.P("\t\t})")
 			g.P("\t}")
 
+		case "code":
+			// Code: extract value string (e.g. gender code)
+			g.P(fmt.Sprintf("\tif r.%s != nil && r.%s.GetValue() != \"\" {", seg.GoGetter, seg.GoGetter))
+			g.P("\t\tidx.Tokens = append(idx.Tokens, SpidxToken{")
+			g.P("\t\t\tTenantID: tenantID,")
+			g.P(fmt.Sprintf("\t\t\tResType:  %q,", c.ResType))
+			g.P("\t\t\tResID:    resID,")
+			g.P(fmt.Sprintf("\t\t\tSpName:   %q,", sp.Name))
+			g.P(fmt.Sprintf("\t\t\tSpValue:  r.%s.GetValue(),", seg.GoGetter))
+			g.P("\t\t})")
+			g.P("\t}")
+
 		case "enum":
 			// Enum (code): extract value enum name as string (Spike 4 validated)
 			g.P(fmt.Sprintf("\tif r.%s != nil {", seg.GoGetter))
@@ -294,8 +317,8 @@ func emitDateExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath) {
 //   - URI-based: ref.GetUri() → "ResourceType/id" string
 //   - Typed: ref.Get<Type>Id() → ReferenceId{Value: "id"} (Spike 4 discovery)
 //
-// We generate both extraction paths.
-func emitReferenceExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, resType string) {
+// We generate both extraction paths when supported by the proto descriptor.
+func emitReferenceExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, msg *protogen.Message, resType string) {
 	sp := c.SearchParam
 
 	g.P(fmt.Sprintf("\t// SearchParameter: %s (reference)", sp.Name))
@@ -314,54 +337,83 @@ func emitReferenceExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, res
 
 	if len(c.Segments) == 1 {
 		seg := c.Segments[0]
-		emitSingleRefExtraction(g, c, sp, seg.GoGetter, "r", typedRefTarget)
+		field := findProtoField(msg, seg.Field)
+		isList := field != nil && field.Desc.IsList()
+		var refMsg *protogen.Message
+		if field != nil {
+			refMsg = field.Message
+		}
+
+		if isList {
+			g.P(fmt.Sprintf("\tfor _, ref := range r.%s {", seg.GoGetter))
+			g.P("\t\tif ref == nil { continue }")
+			emitRefExtractionBody(g, c, sp, "ref", refMsg, typedRefTarget, "\t")
+			g.P("\t}")
+		} else {
+			g.P(fmt.Sprintf("\tif ref := r.%s; ref != nil {", seg.GoGetter))
+			emitRefExtractionBody(g, c, sp, "ref", refMsg, typedRefTarget, "")
+			g.P("\t}")
+		}
 	} else if len(c.Segments) == 2 {
-		seg := c.Segments[0]
-		// Repeated field containing references
-		g.P(fmt.Sprintf("\tfor _, outer := range r.%s {", seg.GoGetter))
+		outerSeg := c.Segments[0]
+		g.P(fmt.Sprintf("\tfor _, outer := range r.%s {", outerSeg.GoGetter))
 		g.P("\t\tif outer == nil { continue }")
-		emitSingleRefExtraction(g, c, sp, lastSeg.GoGetter, "outer", typedRefTarget)
+		var refMsg *protogen.Message
+		isList := false
+		if outerField := findProtoField(msg, outerSeg.Field); outerField != nil && outerField.Message != nil {
+			if innerField := findProtoField(outerField.Message, lastSeg.Field); innerField != nil {
+				isList = innerField.Desc.IsList()
+				refMsg = innerField.Message
+			}
+		}
+
+		if isList {
+			g.P(fmt.Sprintf("\t\tfor _, ref := range outer.%s {", lastSeg.GoGetter))
+			g.P("\t\t\tif ref == nil { continue }")
+			emitRefExtractionBody(g, c, sp, "ref", refMsg, typedRefTarget, "\t\t")
+			g.P("\t\t}")
+		} else {
+			g.P(fmt.Sprintf("\t\tif ref := outer.%s; ref != nil {", lastSeg.GoGetter))
+			emitRefExtractionBody(g, c, sp, "ref", refMsg, typedRefTarget, "\t")
+			g.P("\t\t}")
+		}
 		g.P("\t}")
 	}
 	g.P()
 }
 
-// emitSingleRefExtraction emits code to extract one Reference field.
-// varName is the variable holding the parent (e.g. "r" or "outer").
-func emitSingleRefExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, sp SearchParam, getter, varName, typedTarget string) {
-	g.P(fmt.Sprintf("\tif ref := %s.%s; ref != nil {", varName, getter))
+func emitRefExtractionBody(g *protogen.GeneratedFile, c *CompiledFHIRPath, sp SearchParam, refVar string, refMsg *protogen.Message, typedTarget, indent string) {
 	// Path 1: URI-based reference
-	g.P("\t\t// URI-based reference: \"Organization/org-123\"")
-	g.P("\t\tif uri := ref.GetUri(); uri != nil && uri.GetValue() != \"\" {")
-	g.P("\t\t\tparts := strings.SplitN(uri.GetValue(), \"/\", 2)")
-	g.P("\t\t\tif len(parts) == 2 {")
-	g.P("\t\t\t\tidx.References = append(idx.References, SpidxReference{")
-	g.P("\t\t\t\t\tTenantID:   tenantID,")
-	g.P(fmt.Sprintf("\t\t\t\t\tResType:    %q,", c.ResType))
-	g.P("\t\t\t\t\tResID:      resID,")
-	g.P(fmt.Sprintf("\t\t\t\t\tSpName:     %q,", sp.Name))
-	g.P("\t\t\t\t\tTargetType: parts[0],")
-	g.P("\t\t\t\t\tTargetID:   parts[1],")
-	g.P("\t\t\t\t})")
-	g.P("\t\t\t}")
-	g.P("\t\t}")
+	g.P(fmt.Sprintf("\t%s// URI-based reference: \"Organization/org-123\"", indent))
+	g.P(fmt.Sprintf("\t%sif uri := %s.GetUri(); uri != nil && uri.GetValue() != \"\" {", indent, refVar))
+	g.P(fmt.Sprintf("\t%s\tparts := strings.SplitN(uri.GetValue(), \"/\", 2)", indent))
+	g.P(fmt.Sprintf("\t%s\tif len(parts) == 2 {", indent))
+	g.P(fmt.Sprintf("\t%s\t\tidx.References = append(idx.References, SpidxReference{", indent))
+	g.P(fmt.Sprintf("\t%s\t\t\tTenantID:   tenantID,", indent))
+	g.P(fmt.Sprintf("\t%s\t\t\tResType:    %q,", indent, c.ResType))
+	g.P(fmt.Sprintf("\t%s\t\t\tResID:      resID,", indent))
+	g.P(fmt.Sprintf("\t%s\t\t\tSpName:     %q,", indent, sp.Name))
+	g.P(fmt.Sprintf("\t%s\t\t\tTargetType: parts[0],", indent))
+	g.P(fmt.Sprintf("\t%s\t\t\tTargetID:   parts[1],", indent))
+	g.P(fmt.Sprintf("\t%s\t\t})", indent))
+	g.P(fmt.Sprintf("\t%s\t}", indent))
+	g.P(fmt.Sprintf("\t%s}", indent))
 
 	// Path 2: Typed reference (google/fhir oneof)
-	if typedTarget != "" {
-		g.P(fmt.Sprintf("\t\t// Typed reference: Get%sId()", typedTarget))
-		g.P(fmt.Sprintf("\t\tif typedRef := ref.Get%sId(); typedRef != nil && typedRef.GetValue() != \"\" {", typedTarget))
-		g.P("\t\t\tidx.References = append(idx.References, SpidxReference{")
-		g.P("\t\t\t\tTenantID:   tenantID,")
-		g.P(fmt.Sprintf("\t\t\t\tResType:    %q,", c.ResType))
-		g.P("\t\t\t\tResID:      resID,")
-		g.P(fmt.Sprintf("\t\t\t\tSpName:     %q,", sp.Name))
-		g.P(fmt.Sprintf("\t\t\t\tTargetType: %q,", typedTarget))
-		g.P("\t\t\t\tTargetID:   typedRef.GetValue(),")
-		g.P("\t\t\t})")
-		g.P("\t\t}")
+	// Only emit if refMsg has the typed target field (e.g. organization_id)
+	if typedTarget != "" && (refMsg == nil || hasProtoField(refMsg, toSnakeCase(typedTarget)+"_id")) {
+		g.P(fmt.Sprintf("\t%s// Typed reference: Get%sId()", indent, typedTarget))
+		g.P(fmt.Sprintf("\t%sif typedRef := %s.Get%sId(); typedRef != nil && typedRef.GetValue() != \"\" {", indent, refVar, typedTarget))
+		g.P(fmt.Sprintf("\t%s\tidx.References = append(idx.References, SpidxReference{", indent))
+		g.P(fmt.Sprintf("\t%s\t\tTenantID:   tenantID,", indent))
+		g.P(fmt.Sprintf("\t%s\t\tResType:    %q,", indent, c.ResType))
+		g.P(fmt.Sprintf("\t%s\t\tResID:      resID,", indent))
+		g.P(fmt.Sprintf("\t%s\t\tSpName:     %q,", indent, sp.Name))
+		g.P(fmt.Sprintf("\t%s\t\tTargetType: %q,", indent, typedTarget))
+		g.P(fmt.Sprintf("\t%s\t\tTargetID:   typedRef.GetValue(),", indent))
+		g.P(fmt.Sprintf("\t%s\t})", indent))
+		g.P(fmt.Sprintf("\t%s}", indent))
 	}
-
-	g.P("\t}")
 }
 
 // emitQuantityExtraction generates code for quantity search parameters.
@@ -402,36 +454,65 @@ func isRepeatedFieldName(field string) bool {
 }
 
 // detectFieldType uses proto message descriptors to determine the FHIR type
-// of a field. Returns: "identifier", "boolean", "enum", or "" (unknown).
+// of a field. Returns: "identifier", "boolean", "enum", "code", or "" (unknown).
 func detectFieldType(msg *protogen.Message, fieldName string) string {
 	if msg == nil {
 		return ""
 	}
-	for _, f := range msg.Fields {
-		if toSnakeCase(string(f.Desc.Name())) != fieldName && string(f.Desc.Name()) != fieldName {
-			continue
+	f := findProtoField(msg, fieldName)
+	if f == nil {
+		return ""
+	}
+
+	// Check message type name for known FHIR types
+	if f.Message != nil {
+		msgName := string(f.Message.Desc.Name())
+		switch {
+		case msgName == "Identifier" || strings.HasSuffix(msgName, ".Identifier"):
+			return "identifier"
+		case msgName == "Boolean":
+			return "boolean"
+		case msgName == "Code":
+			return "code"
 		}
-		// Check message type name for known FHIR types
-		if f.Message != nil {
-			msgName := string(f.Message.Desc.Name())
-			switch {
-			case msgName == "Identifier" || strings.HasSuffix(msgName, ".Identifier"):
-				return "identifier"
-			case msgName == "Boolean":
-				return "boolean"
-			}
-		}
-		// Check if the field is a message wrapping an enum (e.g. GenderCode)
-		if f.Message != nil {
-			for _, subField := range f.Message.Fields {
-				if string(subField.Desc.Name()) == "value" && subField.Desc.Kind().String() == "enum" {
+
+		for _, subField := range f.Message.Fields {
+			if string(subField.Desc.Name()) == "value" {
+				if subField.Desc.Kind().String() == "enum" {
 					return "enum"
+				}
+				if subField.Desc.Kind().String() == "string" {
+					return "code"
 				}
 			}
 		}
-		return ""
 	}
 	return ""
+}
+
+func findProtoField(msg *protogen.Message, name string) *protogen.Field {
+	if msg == nil {
+		return nil
+	}
+	targetSnake := toSnakeCase(name)
+	targetLower := strings.ToLower(strings.ReplaceAll(name, "_", ""))
+	for _, f := range msg.Fields {
+		fieldName := string(f.Desc.Name())
+		if fieldName == name || toSnakeCase(fieldName) == targetSnake {
+			return f
+		}
+		if strings.ToLower(strings.ReplaceAll(fieldName, "_", "")) == targetLower {
+			return f
+		}
+		if strings.EqualFold(f.GoName, name) {
+			return f
+		}
+	}
+	return nil
+}
+
+func hasProtoField(msg *protogen.Message, name string) bool {
+	return findProtoField(msg, name) != nil
 }
 
 // inferRefTargetType infers the target resource type from a reference field name.

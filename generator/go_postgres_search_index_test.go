@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"go/parser"
+	"go/token"
 	"strings"
 	"testing"
 )
@@ -37,9 +39,13 @@ func TestSearchIndexGeneration_Integration(t *testing.T) {
 	}
 
 	var output string
+	fset := token.NewFileSet()
 	for _, f := range resp.File {
 		t.Logf("Generated file: %s", f.GetName())
 		output += f.GetContent()
+		if _, err := parser.ParseFile(fset, f.GetName(), f.GetContent(), parser.AllErrors); err != nil {
+			t.Fatalf("ParseFile(%s): %v\nContent:\n%s", f.GetName(), err, f.GetContent())
+		}
 	}
 
 	// Verify struct types
@@ -126,8 +132,12 @@ func TestSearchIndexGeneration_NoSearchParams(t *testing.T) {
 	}
 
 	var output string
+	fset := token.NewFileSet()
 	for _, f := range resp.File {
 		output += f.GetContent()
+		if _, err := parser.ParseFile(fset, f.GetName(), f.GetContent(), parser.AllErrors); err != nil {
+			t.Fatalf("ParseFile(%s): %v\nContent:\n%s", f.GetName(), err, f.GetContent())
+		}
 	}
 
 	// Should still generate extraction function
