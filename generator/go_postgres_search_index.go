@@ -55,9 +55,19 @@ func generateGoPostgresSearchIndex(gen *protogen.Plugin, file *protogen.File, op
 	// Generate the search index row types (shared across all resources)
 	generateSearchIndexTypes(g)
 
+	// Load search params once if configured
+	var spIndex SearchParamIndex
+	if opts.PostgresSearchParams != "" {
+		var err error
+		spIndex, err = LoadSearchParams(opts.PostgresSearchParams)
+		if err != nil {
+			return fmt.Errorf("loading search params: %w", err)
+		}
+	}
+
 	// Generate extraction functions for each top-level message
 	for _, msg := range file.Messages {
-		if err := generateSearchIndexExtractor(gen, g, msg, opts); err != nil {
+		if err := generateSearchIndexExtractor(gen, g, msg, opts, spIndex); err != nil {
 			return err
 		}
 	}
@@ -157,18 +167,14 @@ func generateSearchIndexTypes(g *protogen.GeneratedFile) {
 // for a proto message. When postgres_search_params is provided, it uses
 // SearchParameter definitions to generate precise FHIRPath-compiled extraction.
 // Otherwise, it falls back to a naive field walk as a starting point.
-func generateSearchIndexExtractor(gen *protogen.Plugin, g *protogen.GeneratedFile, msg *protogen.Message, opts *Options) error {
+func generateSearchIndexExtractor(gen *protogen.Plugin, g *protogen.GeneratedFile, msg *protogen.Message, opts *Options, spIndex SearchParamIndex) error {
 	msgName := msg.GoIdent.GoName
 	resType := msgName // e.g. "Patient"
 
-	// Load search params if available
+	// Select search params for this resource type from the loaded index
 	var searchParams []SearchParam
-	if opts.PostgresSearchParams != "" {
-		index, err := LoadSearchParams(opts.PostgresSearchParams)
-		if err != nil {
-			return fmt.Errorf("loading search params for %s: %w", resType, err)
-		}
-		searchParams = index[resType]
+	if spIndex != nil {
+		searchParams = spIndex[resType]
 	}
 
 	g.P(fmt.Sprintf("// Extract%sIndexes extracts HAPI-style search index rows from a %s proto.", msgName, msgName))
@@ -180,6 +186,7 @@ func generateSearchIndexExtractor(gen *protogen.Plugin, g *protogen.GeneratedFil
 	g.P()
 	g.P("	idx := &SearchIndexes{}")
 	g.P("	resID := \"\"")
+	g.P("	_ = resID")
 	g.P()
 
 	// Find the ID field — google/fhir wraps it in a message

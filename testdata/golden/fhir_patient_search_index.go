@@ -98,6 +98,7 @@ func ExtractStringIndexes(tenantID string, r *String) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	return idx
 }
@@ -111,6 +112,7 @@ func ExtractIdIndexes(tenantID string, r *Id) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	return idx
 }
@@ -124,6 +126,7 @@ func ExtractBooleanIndexes(tenantID string, r *Boolean) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	return idx
 }
@@ -137,6 +140,7 @@ func ExtractDateIndexes(tenantID string, r *Date) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	return idx
 }
@@ -150,6 +154,7 @@ func ExtractDateTimeIndexes(tenantID string, r *DateTime) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	return idx
 }
@@ -163,6 +168,7 @@ func ExtractCodeIndexes(tenantID string, r *Code) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	return idx
 }
@@ -176,6 +182,7 @@ func ExtractUriIndexes(tenantID string, r *Uri) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	return idx
 }
@@ -189,6 +196,7 @@ func ExtractCodingIndexes(tenantID string, r *Coding) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	// SearchParameter: system (Coding.system)
 	if r.GetSystem() != nil && r.GetSystem().GetValue() != "" {
@@ -235,6 +243,7 @@ func ExtractCodeableConceptIndexes(tenantID string, r *CodeableConcept) *SearchI
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	// SearchParameter: text (CodeableConcept.text)
 	if r.GetText() != nil && r.GetText().GetValue() != "" {
@@ -259,6 +268,7 @@ func ExtractIdentifierIndexes(tenantID string, r *Identifier) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	// SearchParameter: system (Identifier.system)
 	if r.GetSystem() != nil && r.GetSystem().GetValue() != "" {
@@ -294,6 +304,7 @@ func ExtractReferenceIndexes(tenantID string, r *Reference) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	// SearchParameter: uri (Reference.uri)
 	if r.GetUri() != nil && r.GetUri().GetValue() != "" {
@@ -329,6 +340,7 @@ func ExtractHumanNameIndexes(tenantID string, r *HumanName) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	// SearchParameter: family (HumanName.family)
 	if r.GetFamily() != nil && r.GetFamily().GetValue() != "" {
@@ -379,6 +391,7 @@ func ExtractAddressIndexes(tenantID string, r *Address) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	// SearchParameter: line (Address.line)
 	for _, v := range r.GetLine() {
@@ -449,6 +462,7 @@ func ExtractContactPointIndexes(tenantID string, r *ContactPoint) *SearchIndexes
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	// SearchParameter: system (ContactPoint.system)
 	if r.GetSystem() != nil && r.GetSystem().GetValue() != "" {
@@ -484,6 +498,7 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	// Extract resource ID
 	if r.GetId() != nil {
@@ -492,11 +507,11 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 
 	// SearchParameter: family (string)
 	// FHIRPath: Patient.name.family
-	for _, outer := range r.Getname() {
+	for _, outer := range r.GetName() {
 		if outer == nil {
 			continue
 		}
-		if v := outer.Getfamily(); v != nil && v.GetValue() != "" {
+		if v := outer.GetFamily(); v != nil && v.GetValue() != "" {
 			idx.Strings = append(idx.Strings, SpidxString{
 				TenantID: tenantID,
 				ResType:  "Patient",
@@ -509,11 +524,11 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 
 	// SearchParameter: given (string)
 	// FHIRPath: Patient.name.given
-	for _, outer := range r.Getname() {
+	for _, outer := range r.GetName() {
 		if outer == nil {
 			continue
 		}
-		for _, v := range outer.Getgiven() {
+		for _, v := range outer.GetGiven() {
 			if v != nil && v.GetValue() != "" {
 				idx.Strings = append(idx.Strings, SpidxString{
 					TenantID: tenantID,
@@ -528,11 +543,11 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 
 	// SearchParameter: address-city (string)
 	// FHIRPath: Patient.address.city
-	for _, outer := range r.Getaddress() {
+	for _, outer := range r.GetAddress() {
 		if outer == nil {
 			continue
 		}
-		if v := outer.Getcity(); v != nil && v.GetValue() != "" {
+		if v := outer.GetCity(); v != nil && v.GetValue() != "" {
 			idx.Strings = append(idx.Strings, SpidxString{
 				TenantID: tenantID,
 				ResType:  "Patient",
@@ -545,7 +560,7 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 
 	// SearchParameter: birthdate (date)
 	// FHIRPath: Patient.birthDate
-	if d := r.GetbirthDate(); d != nil {
+	if d := r.GetBirthDate(); d != nil {
 		t := time.UnixMicro(d.GetValueUs()).UTC()
 		idx.Dates = append(idx.Dates, SpidxDate{
 			TenantID: tenantID,
@@ -559,19 +574,19 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 
 	// SearchParameter: gender (token)
 	// FHIRPath: Patient.gender
-	if r.Getgender() != nil {
+	if r.GetGender() != nil {
 		idx.Tokens = append(idx.Tokens, SpidxToken{
 			TenantID: tenantID,
 			ResType:  "Patient",
 			ResID:    resID,
 			SpName:   "gender",
-			SpValue:  fmt.Sprintf("%v", r.Getgender()),
+			SpValue:  fmt.Sprintf("%v", r.GetGender()),
 		})
 	}
 
 	// SearchParameter: identifier (token)
 	// FHIRPath: Patient.identifier
-	for _, ident := range r.Getidentifier() {
+	for _, ident := range r.GetIdentifier() {
 		if ident == nil {
 			continue
 		}
@@ -597,19 +612,19 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 
 	// SearchParameter: active (token)
 	// FHIRPath: Patient.active
-	if r.Getactive() != nil {
+	if r.GetActive() != nil {
 		idx.Tokens = append(idx.Tokens, SpidxToken{
 			TenantID: tenantID,
 			ResType:  "Patient",
 			ResID:    resID,
 			SpName:   "active",
-			SpValue:  fmt.Sprintf("%v", r.Getactive().GetValue()),
+			SpValue:  fmt.Sprintf("%v", r.GetActive().GetValue()),
 		})
 	}
 
 	// SearchParameter: email (token)
 	// FHIRPath: Patient.telecom.where(system='email')
-	for _, item := range r.Gettelecom() {
+	for _, item := range r.GetTelecom() {
 		if item == nil {
 			continue
 		}
@@ -630,7 +645,7 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 
 	// SearchParameter: phone (token)
 	// FHIRPath: Patient.telecom.where(system='phone')
-	for _, item := range r.Gettelecom() {
+	for _, item := range r.GetTelecom() {
 		if item == nil {
 			continue
 		}
@@ -652,7 +667,7 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 	// SearchParameter: organization (reference)
 	// FHIRPath: Patient.managingOrganization
 	// google/fhir Reference: try URI first, then typed reference ID
-	if ref := r.GetmanagingOrganization(); ref != nil {
+	if ref := r.GetManagingOrganization(); ref != nil {
 		// URI-based reference: "Organization/org-123"
 		if uri := ref.GetUri(); uri != nil && uri.GetValue() != "" {
 			parts := strings.SplitN(uri.GetValue(), "/", 2)
@@ -683,7 +698,7 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 	// SearchParameter: general-practitioner (reference)
 	// FHIRPath: Patient.generalPractitioner
 	// google/fhir Reference: try URI first, then typed reference ID
-	if ref := r.GetgeneralPractitioner(); ref != nil {
+	if ref := r.GetGeneralPractitioner(); ref != nil {
 		// URI-based reference: "Organization/org-123"
 		if uri := ref.GetUri(); uri != nil && uri.GetValue() != "" {
 			parts := strings.SplitN(uri.GetValue(), "/", 2)
@@ -714,7 +729,7 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 	// SearchParameter: deceased (token)
 	// FHIRPath: Patient.deceased.exists() and Patient.deceased != false
 	// exists() check — index whether field is present
-	if r.Getdeceased() != nil {
+	if r.GetDeceased() != nil {
 		idx.Tokens = append(idx.Tokens, SpidxToken{
 			TenantID: tenantID,
 			ResType:  "Patient",
@@ -731,11 +746,11 @@ func ExtractPatientIndexes(tenantID string, r *Patient) *SearchIndexes {
 
 	// SearchParameter: language (token)
 	// FHIRPath: Patient.communication.language
-	for _, outer := range r.Getcommunication() {
+	for _, outer := range r.GetCommunication() {
 		if outer == nil {
 			continue
 		}
-		if v := outer.Getlanguage(); v != nil {
+		if v := outer.GetLanguage(); v != nil {
 			// CodeableConcept → extract codings
 			for _, coding := range v.GetCoding() {
 				if coding == nil {
@@ -775,6 +790,7 @@ func ExtractPatientLinkIndexes(tenantID string, r *PatientLink) *SearchIndexes {
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	// SearchParameter: type (PatientLink.type)
 	if r.GetType() != nil && r.GetType().GetValue() != "" {
@@ -799,6 +815,7 @@ func ExtractPatientCommunicationIndexes(tenantID string, r *PatientCommunication
 
 	idx := &SearchIndexes{}
 	resID := ""
+	_ = resID
 
 	return idx
 }

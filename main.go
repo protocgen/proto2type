@@ -108,6 +108,17 @@ func main() {
 			return fmt.Errorf("proto2type: must specify at least one of domain=true or backend=<name>")
 		}
 
+		if opts.PostgresMode != "" {
+			switch opts.PostgresMode {
+			case "tables", "search_index":
+			default:
+				return fmt.Errorf("unknown postgres_mode: %q (must be 'tables' or 'search_index')", opts.PostgresMode)
+			}
+			if opts.PostgresMode == "search_index" && opts.PostgresSearchParams == "" {
+				return fmt.Errorf("postgres_mode=search_index requires postgres_search_params to be specified")
+			}
+		}
+
 		// Instantiate a new runner for this invocation.
 		runner := generator.NewRunner()
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -31,7 +32,8 @@ type SearchParamIndex map[string][]SearchParam
 // LoadSearchParams reads a FHIR SearchParameter Bundle JSON file
 // and returns an index keyed by resource type.
 func LoadSearchParams(path string) (SearchParamIndex, error) {
-	data, err := os.ReadFile(path)
+	// #nosec G304 -- search parameter file path provided by user CLI flag
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("LoadSearchParams: %w", err)
 	}
@@ -128,9 +130,10 @@ func CompileFHIRPath(sp SearchParam, resType string) (*CompiledFHIRPath, error) 
 		}
 		// Build segments from the path (skip resource type)
 		for _, seg := range segments[1:] {
+			snake := toSnakeCase(seg)
 			compiled.Segments = append(compiled.Segments, FHIRPathSegment{
-				Field:    toSnakeCase(seg),
-				GoGetter: "Get" + seg + "()",
+				Field:    snake,
+				GoGetter: protoFieldToGoGetter(snake),
 			})
 		}
 		return compiled, nil
@@ -143,9 +146,10 @@ func CompileFHIRPath(sp SearchParam, resType string) (*CompiledFHIRPath, error) 
 		existsPath := strings.Split(relevantExpr, ".exists()")[0]
 		segments := strings.Split(existsPath, ".")
 		for _, seg := range segments[1:] {
+			snake := toSnakeCase(seg)
 			compiled.Segments = append(compiled.Segments, FHIRPathSegment{
-				Field:    toSnakeCase(seg),
-				GoGetter: "Get" + seg + "()",
+				Field:    snake,
+				GoGetter: protoFieldToGoGetter(snake),
 			})
 		}
 		return compiled, nil
@@ -176,8 +180,9 @@ func splitFHIRPath(path string) []FHIRPathSegment {
 
 		// Check if the NEXT part is "where(...)" — if so, attach it to this field
 		if i+1 < len(parts) && strings.HasPrefix(parts[i+1], "where(") {
-			seg.Field = toSnakeCase(part)
-			seg.GoGetter = "Get" + part + "()"
+			snake := toSnakeCase(part)
+			seg.Field = snake
+			seg.GoGetter = protoFieldToGoGetter(snake)
 			whereInner := parts[i+1][6 : len(parts[i+1])-1] // strip "where(" and ")"
 			eqParts := strings.SplitN(whereInner, "='", 2)
 			if len(eqParts) == 2 {
@@ -191,8 +196,9 @@ func splitFHIRPath(path string) []FHIRPathSegment {
 
 		// Handle "field.where(condition)" already combined (shouldn't happen with splitDot)
 		if idx := strings.Index(part, ".where("); idx >= 0 {
-			seg.Field = toSnakeCase(part[:idx])
-			seg.GoGetter = "Get" + part[:idx] + "()"
+			snake := toSnakeCase(part[:idx])
+			seg.Field = snake
+			seg.GoGetter = protoFieldToGoGetter(snake)
 			whereInner := part[idx+7 : len(part)-1]
 			eqParts := strings.SplitN(whereInner, "='", 2)
 			if len(eqParts) == 2 {
@@ -208,8 +214,9 @@ func splitFHIRPath(path string) []FHIRPathSegment {
 			continue
 		}
 
-		seg.Field = toSnakeCase(part)
-		seg.GoGetter = "Get" + part + "()"
+		snake := toSnakeCase(part)
+		seg.Field = snake
+		seg.GoGetter = protoFieldToGoGetter(snake)
 		segments = append(segments, seg)
 	}
 
