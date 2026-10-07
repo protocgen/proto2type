@@ -32,7 +32,23 @@ func (gg *goGenerator) generateGoPostgresSearchIndex(gen *protogen.Plugin, file 
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
-		filename = filepath.Base(filename)
+		baseName := filepath.Base(filename)
+		if prevSrc, exists := gg.emittedSearchIndexFiles[baseName]; exists && prevSrc != file.Desc.Path() {
+			dir := filepath.Dir(filename)
+			dirPrefix := strings.ReplaceAll(strings.TrimPrefix(dir, "."), string(filepath.Separator), "_")
+			dirPrefix = strings.Trim(dirPrefix, "_")
+			if dirPrefix != "" {
+				filename = dirPrefix + "_" + baseName
+			} else {
+				filename = baseName
+			}
+		} else {
+			filename = baseName
+		}
+		if gg.emittedSearchIndexFiles == nil {
+			gg.emittedSearchIndexFiles = make(map[string]string)
+		}
+		gg.emittedSearchIndexFiles[filename] = file.Desc.Path()
 	}
 	g := gen.NewGeneratedFile(filename, goImportPath)
 

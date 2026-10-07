@@ -75,8 +75,13 @@ func emitStringExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, msg *p
 			g.P("\t\t}")
 			g.P("\t}")
 		} else if field != nil && field.Message != nil && string(field.Message.Desc.Name()) == "Address" {
-			g.P(fmt.Sprintf("\tfor _, addr := range r.%s {", getter))
-			g.P("\t\tif addr == nil { continue }")
+			isList := field.Desc.IsList()
+			if isList {
+				g.P(fmt.Sprintf("\tfor _, addr := range r.%s {", getter))
+				g.P("\t\tif addr == nil { continue }")
+			} else {
+				g.P(fmt.Sprintf("\tif addr := r.%s; addr != nil {", getter))
+			}
 			g.P("\t\tfor _, line := range addr.GetLine() {")
 			g.P("\t\t\tif line != nil && line.GetValue() != \"\" {")
 			g.P("\t\t\t\tidx.Strings = append(idx.Strings, SpidxString{")
@@ -144,8 +149,13 @@ func emitStringExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, msg *p
 			g.P("\t\t}")
 			g.P("\t}")
 		} else if field != nil && field.Message != nil && string(field.Message.Desc.Name()) == "HumanName" {
-			g.P(fmt.Sprintf("\tfor _, name := range r.%s {", getter))
-			g.P("\t\tif name == nil { continue }")
+			isList := field.Desc.IsList()
+			if isList {
+				g.P(fmt.Sprintf("\tfor _, name := range r.%s {", getter))
+				g.P("\t\tif name == nil { continue }")
+			} else {
+				g.P(fmt.Sprintf("\tif name := r.%s; name != nil {", getter))
+			}
 			g.P("\t\tif family := name.GetFamily(); family != nil && family.GetValue() != \"\" {")
 			g.P("\t\t\tidx.Strings = append(idx.Strings, SpidxString{")
 			g.P("\t\t\t\tTenantID: tenantID,")
@@ -827,6 +837,20 @@ func emitDateExtraction(g *protogen.GeneratedFile, c *CompiledFHIRPath, msg *pro
 		if isChoice {
 			if field != nil && isChoiceTypeMessage(field.Message) {
 				g.P(fmt.Sprintf("\tif d := r.%s; d != nil {", getter))
+				// Extract Date variant if present
+				if hasProtoField(field.Message, "date") {
+					g.P("\t\tif dt := d.GetDate(); dt != nil {")
+					g.P("\t\t\tt := time.UnixMicro(dt.GetValueUs()).UTC()")
+					g.P("\t\t\tidx.Dates = append(idx.Dates, SpidxDate{")
+					g.P("\t\t\t\tTenantID: tenantID,")
+					g.P(fmt.Sprintf("\t\t\t\tResType:  %q,", c.ResType))
+					g.P("\t\t\t\tResID:    resID,")
+					g.P(fmt.Sprintf("\t\t\t\tSpName:   %q,", sp.Name))
+					g.P("\t\t\t\tSpLow:    t,")
+					g.P("\t\t\t\tSpHigh:   t,")
+					g.P("\t\t\t})")
+					g.P("\t\t}")
+				}
 				// Extract DateTime variant if present
 				if hasProtoField(field.Message, "date_time") {
 					g.P("\t\tif dt := d.GetDateTime(); dt != nil {")

@@ -30,6 +30,9 @@ type goGenerator struct {
 	// SearchIndexes and Spidx* types emitted, preventing redeclaration when
 	// multiple proto files share a Go package.
 	emittedSearchIndexTypes map[protogen.GoImportPath]bool
+	// emittedSearchIndexFiles tracks generated filenames to prevent collisions
+	// when multiple proto files with identical basenames map to the same Go package.
+	emittedSearchIndexFiles map[string]string
 }
 
 func newGoGenerator() *goGenerator {
@@ -37,6 +40,7 @@ func newGoGenerator() *goGenerator {
 		emittedDeepCopyHelper:   make(map[protogen.GoImportPath]bool),
 		emittedEncryptor:        make(map[protogen.GoImportPath]bool),
 		emittedSearchIndexTypes: make(map[protogen.GoImportPath]bool),
+		emittedSearchIndexFiles: make(map[string]string),
 	}
 }
 
