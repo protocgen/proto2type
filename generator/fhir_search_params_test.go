@@ -88,6 +88,52 @@ func TestCompileFHIRPath_ChoiceType(t *testing.T) {
 	if compiled.ChoiceType != "dateTime" {
 		t.Errorf("expected choice type 'dateTime', got %q", compiled.ChoiceType)
 	}
+
+	// Test .as(Type) syntax
+	sp2 := SearchParam{
+		Name:       "abatement-string",
+		Type:       "string",
+		Expression: "Condition.abatement.as(string)",
+	}
+	compiled2, err := CompileFHIRPath(sp2, "Condition")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !compiled2.IsChoiceType {
+		t.Error("expected IsChoiceType=true")
+	}
+	if compiled2.ChoiceField != "abatement" {
+		t.Errorf("expected choice field 'abatement', got %q", compiled2.ChoiceField)
+	}
+	if compiled2.ChoiceType != "string" {
+		t.Errorf("expected choice type 'string', got %q", compiled2.ChoiceType)
+	}
+	if len(compiled2.Segments) != 1 || compiled2.Segments[0].Field != "abatement" {
+		t.Fatalf("expected segments [abatement], got %+v", compiled2.Segments)
+	}
+
+	// Test nested .as(Type) syntax
+	sp3 := SearchParam{
+		Name:       "component-value-concept",
+		Type:       "token",
+		Expression: "Observation.component.value.as(CodeableConcept)",
+	}
+	compiled3, err := CompileFHIRPath(sp3, "Observation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !compiled3.IsChoiceType {
+		t.Error("expected IsChoiceType=true")
+	}
+	if compiled3.ChoiceField != "value" {
+		t.Errorf("expected choice field 'value', got %q", compiled3.ChoiceField)
+	}
+	if compiled3.ChoiceType != "CodeableConcept" {
+		t.Errorf("expected choice type 'CodeableConcept', got %q", compiled3.ChoiceType)
+	}
+	if len(compiled3.Segments) != 2 || compiled3.Segments[0].Field != "component" || compiled3.Segments[1].Field != "value" {
+		t.Fatalf("expected segments [component, value], got %+v", compiled3.Segments)
+	}
 }
 
 func TestCompileFHIRPath_Exists(t *testing.T) {

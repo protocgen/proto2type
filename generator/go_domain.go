@@ -26,12 +26,21 @@ type goGenerator struct {
 	// interface emitted, preventing redeclaration when multiple proto files
 	// with encrypted fields share a Go package.
 	emittedEncryptor map[protogen.GoImportPath]bool
+	// emittedSearchIndexTypes tracks Go packages that have already had the
+	// SearchIndexes and Spidx* types emitted, preventing redeclaration when
+	// multiple proto files share a Go package.
+	emittedSearchIndexTypes map[protogen.GoImportPath]bool
+	// emittedSearchIndexFiles tracks generated filenames to prevent collisions
+	// when multiple proto files with identical basenames map to the same Go package.
+	emittedSearchIndexFiles map[string]string
 }
 
 func newGoGenerator() *goGenerator {
 	return &goGenerator{
-		emittedDeepCopyHelper: make(map[protogen.GoImportPath]bool),
-		emittedEncryptor:      make(map[protogen.GoImportPath]bool),
+		emittedDeepCopyHelper:   make(map[protogen.GoImportPath]bool),
+		emittedEncryptor:        make(map[protogen.GoImportPath]bool),
+		emittedSearchIndexTypes: make(map[protogen.GoImportPath]bool),
+		emittedSearchIndexFiles: make(map[string]string),
 	}
 }
 
@@ -53,7 +62,7 @@ func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opt
 			return generateGoMongo(gen, file, opts)
 		case "postgres":
 			if opts.PostgresMode == "search_index" {
-				return generateGoPostgresSearchIndex(gen, file, opts)
+				return gg.generateGoPostgresSearchIndex(gen, file, opts)
 			}
 			return generateGoPostgres(gen, file, opts)
 		default:

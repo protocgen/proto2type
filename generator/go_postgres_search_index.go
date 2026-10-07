@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -19,7 +20,7 @@ import (
 //	  - backend=postgres
 //	  - postgres_mode=search_index
 //	  - postgres_search_params=fhir/r4/search-parameters.json
-func generateGoPostgresSearchIndex(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+func (gg *goGenerator) generateGoPostgresSearchIndex(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_search_index.go")
 	if err != nil {
 		return err
@@ -31,7 +32,23 @@ func generateGoPostgresSearchIndex(gen *protogen.Plugin, file *protogen.File, op
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
-		filename = adjustSubdirFilename(filename, string(file.GoImportPath), importPath)
+		baseName := filepath.Base(filename)
+		if prevSrc, exists := gg.emittedSearchIndexFiles[baseName]; exists && prevSrc != file.Desc.Path() {
+			dir := filepath.Dir(filename)
+			dirPrefix := strings.ReplaceAll(strings.TrimPrefix(dir, "."), string(filepath.Separator), "_")
+			dirPrefix = strings.Trim(dirPrefix, "_")
+			if dirPrefix != "" {
+				filename = dirPrefix + "_" + baseName
+			} else {
+				filename = baseName
+			}
+		} else {
+			filename = baseName
+		}
+		if gg.emittedSearchIndexFiles == nil {
+			gg.emittedSearchIndexFiles = make(map[string]string)
+		}
+		gg.emittedSearchIndexFiles[filename] = file.Desc.Path()
 	}
 	g := gen.NewGeneratedFile(filename, goImportPath)
 
@@ -52,8 +69,20 @@ func generateGoPostgresSearchIndex(gen *protogen.Plugin, file *protogen.File, op
 	g.P(`)`)
 	g.P()
 
-	// Generate the search index row types (shared across all resources)
-	generateSearchIndexTypes(g)
+	// Generate the search index row types (shared across all resources in the same Go package)
+	if !gg.emittedSearchIndexTypes[goImportPath] {
+		gg.emittedSearchIndexTypes[goImportPath] = true
+		generateSearchIndexTypes(g)
+	}
+
+	// Suppress unused import warnings in this file
+	g.P("var (")
+	g.P("	_ = strings.ToLower")
+	g.P("	_ = time.Now")
+	g.P("	_ = proto.Marshal")
+	g.P("	_ = fmt.Sprintf")
+	g.P(")")
+	g.P()
 
 	// Load search params once if configured
 	var spIndex SearchParamIndex
@@ -151,15 +180,6 @@ func generateSearchIndexTypes(g *protogen.GeneratedFile) {
 	g.P("	SpName    string `db:\"sp_name\"`")
 	g.P("	SpValue   string `db:\"sp_value\"`")
 	g.P("}")
-	g.P()
-
-	// Suppress unused import warnings
-	g.P("var (")
-	g.P("	_ = strings.ToLower")
-	g.P("	_ = time.Now")
-	g.P("	_ = proto.Marshal")
-	g.P("	_ = fmt.Sprintf")
-	g.P(")")
 	g.P()
 }
 

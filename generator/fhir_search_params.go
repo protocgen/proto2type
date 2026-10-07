@@ -24,6 +24,7 @@ type SearchParam struct {
 	Type       string   `json:"type"` // token, string, date, reference, quantity, uri, number
 	Expression string   `json:"expression"`
 	Base       []string `json:"base"`
+	Target     []string `json:"target"`
 }
 
 // SearchParamIndex maps resource type → list of SearchParams.
@@ -116,27 +117,22 @@ func CompileFHIRPath(sp SearchParam, resType string) (*CompiledFHIRPath, error) 
 		ResType:     resType,
 	}
 
-	// Handle choice type: (Patient.deceased as dateTime)
+	// Handle choice type syntax:
+	// Pattern 1: (Patient.deceased as dateTime)
+	// Pattern 2: Condition.abatement.as(string) or Observation.component.value.as(CodeableConcept)
 	if strings.HasPrefix(relevantExpr, "(") && strings.Contains(relevantExpr, " as ") {
 		inner := strings.TrimPrefix(strings.TrimSuffix(relevantExpr, ")"), "(")
 		asParts := strings.SplitN(inner, " as ", 2)
 		compiled.IsChoiceType = true
 		compiled.ChoiceType = strings.TrimSpace(asParts[1])
 		relevantExpr = strings.TrimSpace(asParts[0])
-
-		segments := strings.Split(relevantExpr, ".")
-		if len(segments) >= 2 {
-			compiled.ChoiceField = segments[1]
+	} else if idx := strings.Index(relevantExpr, ".as("); idx >= 0 {
+		endIdx := strings.Index(relevantExpr[idx:], ")")
+		if endIdx >= 0 {
+			compiled.IsChoiceType = true
+			compiled.ChoiceType = relevantExpr[idx+4 : idx+endIdx]
+			relevantExpr = relevantExpr[:idx] + relevantExpr[idx+endIdx+1:]
 		}
-		// Build segments from the path (skip resource type)
-		for _, seg := range segments[1:] {
-			snake := toSnakeCase(seg)
-			compiled.Segments = append(compiled.Segments, FHIRPathSegment{
-				Field:    snake,
-				GoGetter: protoFieldToGoGetter(snake),
-			})
-		}
-		return compiled, nil
 	}
 
 	// Handle exists(): "Patient.deceased.exists() and Patient.deceased != false"
@@ -152,6 +148,9 @@ func CompileFHIRPath(sp SearchParam, resType string) (*CompiledFHIRPath, error) 
 				GoGetter: protoFieldToGoGetter(snake),
 			})
 		}
+		if len(compiled.Segments) > 0 {
+			compiled.ChoiceField = compiled.Segments[len(compiled.Segments)-1].Field
+		}
 		return compiled, nil
 	}
 
@@ -160,6 +159,9 @@ func CompileFHIRPath(sp SearchParam, resType string) (*CompiledFHIRPath, error) 
 	segments := splitFHIRPath(path)
 
 	compiled.Segments = append(compiled.Segments, segments...)
+	if len(compiled.Segments) > 0 {
+		compiled.ChoiceField = compiled.Segments[len(compiled.Segments)-1].Field
+	}
 
 	return compiled, nil
 }
