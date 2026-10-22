@@ -97,6 +97,8 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 		return "DATE"
 	case "DATETIMEV2(6)", "DATETIMEV2(3)", "DATETIMEV2":
 		return "DATETIME"
+	case "ARRAY<LARGEINT>":
+		return "ARRAY<BIGINT>"
 	}
 	if strings.HasPrefix(dt, "DECIMALV3(") {
 		rest := strings.TrimPrefix(dt, "DECIMALV3(")
@@ -144,8 +146,8 @@ func sanitizeDorisTenantSlug(tenantSlug string) (string, bool) {
 	return slug, true
 }
 
-// validateDescriptorIdentifiers verifies that all table, column, index, and type
-// strings in t are safe for SQL DDL emission and that all referenced columns exist.
+// validateDescriptorIdentifiers verifies that all table, column, index, default value,
+// and type strings in t are safe for SQL DDL emission and that all referenced columns exist.
 func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 	if !isValidSQLIdentifier(t.TableName) || !isValidDatabaseScope(t.DatabaseScope) || !isValidSyncTier(t.SyncTier) {
 		return false
@@ -155,13 +157,16 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 	}
 	colSet := make(map[string]bool, len(t.Columns))
 	for _, c := range t.Columns {
-		if !isValidSQLIdentifier(c.ColumnName) {
+		if !isValidSQLIdentifier(c.ColumnName) || colSet[c.ColumnName] {
 			return false
 		}
 		if c.DorisType != "" && !isValidSQLTypeSyntax(c.DorisType) {
 			return false
 		}
 		if c.IcebergType != "" && !isValidSQLTypeSyntax(c.IcebergType) {
+			return false
+		}
+		if c.DefaultValue != "" && !isValidDorisDefaultValue(c.DefaultValue) {
 			return false
 		}
 		colSet[c.ColumnName] = true
@@ -187,6 +192,35 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 		}
 	}
 	return true
+}
+
+func reorderDorisDescriptorColumns(cols []DorisColumnDescriptor, uks, dupKeys []string) []DorisColumnDescriptor {
+	keyCols := uks
+	if len(keyCols) == 0 && len(dupKeys) > 0 {
+		keyCols = dupKeys
+	}
+	if len(keyCols) == 0 {
+		return cols
+	}
+	colByName := make(map[string]DorisColumnDescriptor, len(cols))
+	for _, c := range cols {
+		colByName[c.ColumnName] = c
+	}
+	placed := make(map[string]bool, len(keyCols))
+	reordered := make([]DorisColumnDescriptor, 0, len(cols))
+	for _, k := range keyCols {
+		if c, ok := colByName[k]; ok && !placed[k] {
+			placed[k] = true
+			c.Nullable = false
+			reordered = append(reordered, c)
+		}
+	}
+	for _, c := range cols {
+		if !placed[c.ColumnName] {
+			reordered = append(reordered, c)
+		}
+	}
+	return reordered
 }
 
 func isDorisReservedKeyword(colName string) bool {
@@ -257,6 +291,37 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		return ""
 	}
 
+	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, t.DuplicateKeyColumns)
+	if len(uks) == 0 && len(t.DuplicateKeyColumns) == 0 && len(orderedCols) > 0 {
+		cp := make([]DorisColumnDescriptor, len(orderedCols))
+		copy(cp, orderedCols)
+		cp[0].Nullable = false
+		orderedCols = cp
+	}
+
+	colTypes := make(map[string]string, len(orderedCols))
+	for _, c := range orderedCols {
+		colTypes[c.ColumnName] = strings.ToUpper(strings.TrimSpace(c.DorisType))
+	}
+	for _, uk := range uks {
+		if !isDorisKeyEligibleType(colTypes[uk]) {
+			return ""
+		}
+	}
+	for _, dk := range t.DuplicateKeyColumns {
+		if !isDorisKeyEligibleType(colTypes[dk]) {
+			return ""
+		}
+	}
+	if len(uks) == 0 && len(t.DuplicateKeyColumns) == 0 && len(orderedCols) > 0 {
+		if !isDorisKeyEligibleType(orderedCols[0].DorisType) {
+			return ""
+		}
+	}
+	if t.DistributedByColumn != "" && !isDorisKeyEligibleType(colTypes[t.DistributedByColumn]) {
+		return ""
+	}
+
 	slug, ok := sanitizeDorisTenantSlug(tenantSlug)
 	if !ok {
 		return ""
@@ -288,7 +353,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	}
 
 	var bodyLines []string
-	for _, c := range t.Columns {
+	for _, c := range orderedCols {
 		colIdent := formatDorisDDLColumnIdent(c.ColumnName)
 		line := fmt.Sprintf("    %s %s", colIdent, c.DorisType)
 		if !c.Nullable {
@@ -315,11 +380,9 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	}
 
 	// Collect inverted index columns in deterministic order without duplicates.
-	colTypes := make(map[string]string, len(t.Columns))
 	seenInv := make(map[string]bool)
 	var invCols []string
-	for _, c := range t.Columns {
-		colTypes[c.ColumnName] = strings.ToUpper(strings.TrimSpace(c.DorisType))
+	for _, c := range orderedCols {
 		if c.InvertedIndex && !seenInv[c.ColumnName] {
 			seenInv[c.ColumnName] = true
 			invCols = append(invCols, c.ColumnName)
@@ -382,13 +445,13 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		b.WriteString(") BUCKETS ")
 		b.WriteString(bucketStr)
 		b.WriteString("\n")
-	} else if len(t.Columns) > 0 {
+	} else if len(orderedCols) > 0 {
 		b.WriteString("DUPLICATE KEY(")
-		b.WriteString(formatDorisDDLColumnIdent(t.Columns[0].ColumnName))
+		b.WriteString(formatDorisDDLColumnIdent(orderedCols[0].ColumnName))
 		b.WriteString(")\n")
 		distCol := t.DistributedByColumn
 		if distCol == "" {
-			distCol = t.Columns[0].ColumnName
+			distCol = orderedCols[0].ColumnName
 		}
 		b.WriteString("DISTRIBUTED BY HASH(")
 		b.WriteString(formatDorisDDLColumnIdent(distCol))

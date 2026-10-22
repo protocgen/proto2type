@@ -174,8 +174,9 @@ func isValidSQLIdentifier(s string) bool {
 
 // isValidSQLTypeSyntax reports whether s is a safe SQL column type expression
 // matching ^[A-Za-z][A-Za-z0-9_<>, ()]*$ with balanced parentheses/angle brackets,
-// numeric-only parenthesized type parameters, no top-level spaces or commas
-// (preventing injected column constraints like "INT NOT NULL"), and no SQL comments.
+// numeric-only parenthesized type parameters, commas only inside (...) or <...>,
+// spaces only immediately after commas inside (...) or <...> (preventing injected
+// column constraints like "INT NOT NULL" or "ARRAY<INT NOT NULL>"), and no SQL comments.
 func isValidSQLTypeSyntax(s string) bool {
 	s = strings.TrimSpace(s)
 	if len(s) == 0 {
@@ -196,7 +197,7 @@ func isValidSQLTypeSyntax(s string) bool {
 			}
 			parenDepth++
 		case ')':
-			if i > 0 && s[i-1] == '(' {
+			if i > 0 && (s[i-1] == '(' || s[i-1] == ',' || s[i-1] == ' ') {
 				return false
 			}
 			parenDepth--
@@ -209,15 +210,19 @@ func isValidSQLTypeSyntax(s string) bool {
 			}
 			angleDepth++
 		case '>':
-			if parenDepth > 0 || (i > 0 && s[i-1] == '<') {
+			if parenDepth > 0 || (i > 0 && (s[i-1] == '<' || s[i-1] == ',' || s[i-1] == ' ')) {
 				return false
 			}
 			angleDepth--
 			if angleDepth < 0 {
 				return false
 			}
-		case ',', ' ':
-			if parenDepth == 0 {
+		case ',':
+			if (parenDepth == 0 && angleDepth == 0) || i == 0 || s[i-1] == '(' || s[i-1] == '<' || s[i-1] == ',' || s[i-1] == ' ' {
+				return false
+			}
+		case ' ':
+			if (parenDepth == 0 && angleDepth == 0) || i == 0 || s[i-1] != ',' {
 				return false
 			}
 		default:
@@ -237,6 +242,37 @@ func isValidSQLTypeSyntax(s string) bool {
 		}
 	}
 	return parenDepth == 0 && angleDepth == 0
+}
+
+// isValidDorisDefaultValue reports whether s is a safe SQL column default value literal
+// containing only printable ASCII characters without quotes, backslashes, or semicolons.
+func isValidDorisDefaultValue(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < 0x20 || c > 0x7e {
+			return false
+		}
+		switch c {
+		case '"', '\'', '`', '\\', ';':
+			return false
+		}
+	}
+	return true
+}
+
+// isDorisKeyEligibleType reports whether dorisType is permitted by Apache Doris
+// in a UNIQUE KEY, DUPLICATE KEY, or DISTRIBUTED BY HASH clause.
+// Apache Doris forbids FLOAT, DOUBLE, STRING, TEXT, and ARRAY<...> as key or hash distribution columns.
+func isDorisKeyEligibleType(dorisType string) bool {
+	dt := strings.ToUpper(strings.TrimSpace(dorisType))
+	if dt == "" {
+		return false
+	}
+	switch dt {
+	case "FLOAT", "DOUBLE", "STRING", "TEXT":
+		return false
+	}
+	return !strings.HasPrefix(dt, "ARRAY<")
 }
 
 // extractDorisTableMeta extracts Doris/Iceberg table metadata from a message's options.

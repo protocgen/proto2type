@@ -691,6 +691,14 @@ func buildComprehensiveDorisPlugin(t *testing.T) *protogen.Plugin {
 						JsonName: proto.String("statusHistory"),
 						Options:  colOpt(DorisColumnMetaIR{DorisType: "ARRAY<VARCHAR(32)>", IcebergType: "LIST<STRING>"}),
 					},
+					{
+						Name:     proto.String("u64_hashes"),
+						Number:   proto.Int32(25),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_UINT64.Enum(),
+						JsonName: proto.String("u64Hashes"),
+						Options:  colOpt(DorisColumnMetaIR{DorisType: "ARRAY<LARGEINT>", IcebergType: "LIST<LONG>"}),
+					},
 					// Unannotated read-time hydrated field: MUST be skipped!
 					{
 						Name:     proto.String("is_evidence_stale"),
@@ -983,6 +991,7 @@ func TestGenerateGoDoris_CodegenAndDDL(t *testing.T) {
 		"CohortIds DorisInt64Array `db:\"cohort_ids\" doris:\"ARRAY<BIGINT>\"`",
 		"Thresholds DorisFloat64Array `db:\"thresholds\" doris:\"ARRAY<DOUBLE>\"`",
 		"StatusHistory DorisStringArray `db:\"status_history\" doris:\"ARRAY<VARCHAR(32)>\"`",
+		"U64Hashes DorisUint64Array `db:\"u64_hashes\" doris:\"ARRAY<LARGEINT>\"`",
 		"var ClinicalLakehouseDorisTables = []DorisTableDescriptor{",
 	}
 	for _, snippet := range wantGoSnippets {
@@ -1098,6 +1107,70 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 	}
 	if got := dorisColumnIcebergDDLType("", "TIMESTAMPTZ"); got != "DATETIME" {
 		t.Errorf("dorisColumnIcebergDDLType(\"\", \"TIMESTAMPTZ\") = %q, want DATETIME", got)
+	}
+	if got := dorisColumnIcebergDDLType("ARRAY<LARGEINT>", ""); got != "ARRAY<BIGINT>" {
+		t.Errorf("dorisColumnIcebergDDLType(\"ARRAY<LARGEINT>\", \"\") = %q, want ARRAY<BIGINT>", got)
+	}
+
+	// 4. Runtime key-prefix reordering when UniqueKeyColumns is not first in t.Columns
+	unsortedDesc := DorisTableDescriptor{
+		TableName:        "events",
+		DatabaseScope:    "TENANT",
+		SyncTier:         "WHOLE_TABLE",
+		UniqueKeyColumns: []string{"event_id"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "payload", DorisType: "TEXT", Nullable: true},
+			{ColumnName: "event_id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+		},
+	}
+	reorderedSQL := unsortedDesc.BuildDorisCreateTableSQL("akron", 4)
+	eventIdx := strings.Index(reorderedSQL, "event_id VARCHAR(64) NOT NULL")
+	payloadIdx := strings.Index(reorderedSQL, "payload TEXT")
+	if eventIdx < 0 || payloadIdx < 0 || eventIdx > payloadIdx {
+		t.Errorf("expected BuildDorisCreateTableSQL to reorder key column event_id before payload:\n%s", reorderedSQL)
+	}
+
+	// 5. Disallowed Doris key types (FLOAT, DOUBLE, STRING, TEXT, ARRAY) must be rejected in BuildDorisCreateTableSQL
+	for _, badKeyType := range []string{"FLOAT", "DOUBLE", "STRING", "TEXT", "ARRAY<INT>"} {
+		badKeyDesc := DorisTableDescriptor{
+			TableName:     "bad_keys",
+			DatabaseScope: "TENANT",
+			SyncTier:      "WHOLE_TABLE",
+			Columns: []DorisColumnDescriptor{
+				{ColumnName: "k", DorisType: badKeyType},
+			},
+		}
+		if got := badKeyDesc.BuildDorisCreateTableSQL("akron", 4); got != "" {
+			t.Errorf("expected BuildDorisCreateTableSQL with key type %q to return empty string, got:\n%s", badKeyType, got)
+		}
+	}
+
+	// 6. Malicious DefaultValue in runtime descriptor must be rejected
+	for _, badDefault := range []string{`0" COMMENT "injected`, "foo'bar", "foo;bar", "foo\\bar", "foo\x00bar", "foo\nbar"} {
+		badDefDesc := DorisTableDescriptor{
+			TableName:        "patients",
+			DatabaseScope:    "TENANT",
+			SyncTier:         "WHOLE_TABLE",
+			UniqueKeyColumns: []string{"patient_id"},
+			Columns: []DorisColumnDescriptor{
+				{ColumnName: "patient_id", DorisType: "VARCHAR(64)", IsUniqueKey: true, DefaultValue: badDefault},
+			},
+		}
+		if got := badDefDesc.BuildDorisCreateTableSQL("akron", 4); got != "" {
+			t.Errorf("expected BuildDorisCreateTableSQL with DefaultValue %q to return empty string, got:\n%s", badDefault, got)
+		}
+	}
+
+	// 7. Verify isValidSQLTypeSyntax accepts parameterized generic types and rejects injected constraints
+	for _, validType := range []string{"VARCHAR(64)", "DECIMALV3(18, 4)", "ARRAY<DECIMAL(10, 2)>", "MAP<VARCHAR(64), INT>"} {
+		if !isValidSQLTypeSyntax(validType) {
+			t.Errorf("expected isValidSQLTypeSyntax(%q) = true, got false", validType)
+		}
+	}
+	for _, invalidType := range []string{"INT NOT NULL", "ARRAY<INT NOT NULL>", "DECIMAL(10, )", "MAP<STRING, >", "VARCHAR(64) DEFAULT 0"} {
+		if isValidSQLTypeSyntax(invalidType) {
+			t.Errorf("expected isValidSQLTypeSyntax(%q) = false, got true", invalidType)
+		}
 	}
 }
 
@@ -1215,6 +1288,30 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 			name:      "inline_nested on scalar string field",
 			tOpts:     &proto2typepb.TableOptions{TableName: "patients"},
 			cOpts:     &proto2typepb.ColumnOptions{InlineNested: true},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
+		{
+			name:      "Invalid doris_type syntax with constraint inside angle brackets",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients"},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "ARRAY<INT NOT NULL>"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_INT32,
+		},
+		{
+			name:      "Disallowed Doris key type TEXT on UNIQUE KEY column",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", UniqueKeyColumns: []string{"id"}},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "TEXT", IsUniqueKey: true},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
+		{
+			name:      "Disallowed Doris key type DOUBLE on fallback DUPLICATE KEY column",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients"},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "DOUBLE"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_DOUBLE,
+		},
+		{
+			name:      "Invalid default_value with quote injection",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients"},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)", DefaultValue: `active" COMMENT "pwn`},
 			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
 		},
 	}
@@ -1355,6 +1452,7 @@ message EligibilityCriterionResult {
   repeated int64 cohort_ids = 22;
   repeated double thresholds = 23;
   repeated CriterionAiStatus status_history = 24;
+  repeated uint64 u64_hashes = 25;
   bool is_evidence_stale = 30;
   repeated SkillProvenance hydrated_children = 31;
 }
@@ -1484,6 +1582,7 @@ func TestDorisRoundTrip_FullAndNulls(t *testing.T) {
 			CriterionAiStatus_CRITERION_AI_STATUS_MET,
 			CriterionAiStatus_CRITERION_AI_STATUS_EXCLUDED,
 		},
+		U64Hashes: []uint64{0, 42, uint64(math.MaxInt64) + 1, math.MaxUint64},
 	}
 
 	// 1. FromProto -> Values -> ScanRow -> ToProto
@@ -1560,7 +1659,7 @@ func TestDorisRoundTrip_FullAndNulls(t *testing.T) {
 		t.Fatalf("2-level inline_nested mismatch:\norig: %+v\ngot:  %+v", onlyLevel2, gotLvl2)
 	}
 
-	// 4. Test record_status default to "ACTIVE" when UNSPECIFIED on proto
+	// 4. Test record_status default to "ACTIVE" when UNSPECIFIED on proto, and unset NOT NULL date (EventMonth == nil) round-trip
 	unspecStatus := &EligibilityCriterionResult{
 		PatientId: "pat-4004",
 	}
@@ -1569,12 +1668,42 @@ func TestDorisRoundTrip_FullAndNulls(t *testing.T) {
 	if unspecRow.RecordStatus != "ACTIVE" {
 		t.Fatalf("expected unset RecordStatus to default to ACTIVE in FromProto, got %q", unspecRow.RecordStatus)
 	}
+	unspecVals := unspecRow.Values()
+	gotUnspec, err := ScanEligibilityCriterionResultProto(NewDorisValueScanner(unspecVals))
+	if err != nil {
+		t.Fatalf("ScanEligibilityCriterionResultProto(unspecStatus) failed: %v", err)
+	}
+	if gotUnspec.EventMonth != nil {
+		t.Fatalf("expected unset EventMonth to remain nil after Values -> ScanRow -> ToProto, got %+v", gotUnspec.EventMonth)
+	}
 
 	// 5. Test unknown string on optional enum remains nil in ToProto
 	unknownEnum := "BOGUS_UNKNOWN_STATUS"
 	unspecRow.OverrideStatus = &unknownEnum
 	if p := unspecRow.ToProto(); p.OverrideStatus != nil {
 		t.Fatalf("expected unknown OverrideStatus string to remain nil in ToProto, got %v", *p.OverrideStatus)
+	}
+
+	// 6. Test explicit zero-value (UNSPECIFIED) optional enum preserves presence across round-trip
+	zeroEnum := CriterionAiStatus_CRITERION_AI_STATUS_UNSPECIFIED
+	withZeroOptEnum := &EligibilityCriterionResult{
+		PatientId:       "pat-5005",
+		CriterionId:     "crit-zero-enum",
+		EffectiveStatus: CriterionAiStatus_CRITERION_AI_STATUS_MET,
+		OverrideStatus:  &zeroEnum,
+		EventMonth:      &date.Date{Year: 2026, Month: 10, Day: 1},
+		RecordStatus:    ClinicalRecordStatus_CLINICAL_RECORD_STATUS_ACTIVE,
+	}
+	zeroEnumVals := EligibilityCriterionResultProtoValues(withZeroOptEnum)
+	gotZeroEnum, err := ScanEligibilityCriterionResultProto(NewDorisValueScanner(zeroEnumVals))
+	if err != nil {
+		t.Fatalf("Scan(withZeroOptEnum) failed: %v", err)
+	}
+	if gotZeroEnum.OverrideStatus == nil || *gotZeroEnum.OverrideStatus != CriterionAiStatus_CRITERION_AI_STATUS_UNSPECIFIED {
+		t.Fatalf("expected explicit UNSPECIFIED optional enum to preserve presence, got %v", gotZeroEnum.OverrideStatus)
+	}
+	if !proto.Equal(withZeroOptEnum, gotZeroEnum) {
+		t.Fatalf("withZeroOptEnum round-trip mismatch:\norig: %+v\ngot:  %+v", withZeroOptEnum, gotZeroEnum)
 	}
 }
 

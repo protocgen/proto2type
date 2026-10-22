@@ -198,6 +198,10 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 	for _, uk := range meta.UniqueKeyColumns {
 		ukSet[uk] = true
 	}
+	dupSet := make(map[string]bool, len(meta.DuplicateKeyColumns))
+	for _, dk := range meta.DuplicateKeyColumns {
+		dupSet[dk] = true
+	}
 	partSet := make(map[string]bool, len(meta.PartitionByColumns))
 	for _, pk := range meta.PartitionByColumns {
 		partSet[pk] = true
@@ -269,7 +273,7 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 				continue
 			}
 
-			colIR, err := buildDorisColumnIR(field, chain, colMeta, meta, ukSet, partSet, rootGoNames, usedGoNames, usedColNames, opts)
+			colIR, err := buildDorisColumnIR(field, chain, colMeta, meta, ukSet, dupSet, partSet, rootGoNames, usedGoNames, usedColNames, opts)
 			if err != nil {
 				return err
 			}
@@ -371,20 +375,21 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 	// Apache Doris requires UNIQUE KEY and DUPLICATE KEY columns to precede value columns
 	// in configured key order. Move key columns to the schema prefix while preserving
 	// the relative order of all non-key columns.
+	colByName := make(map[string]*dorisColumnIR, len(cols))
+	for _, c := range cols {
+		colByName[c.ColDesc.ColumnName] = c
+	}
 	keyCols := uks
 	if len(keyCols) == 0 && len(meta.DuplicateKeyColumns) > 0 {
 		keyCols = meta.DuplicateKeyColumns
 	}
 	if len(keyCols) > 0 {
-		colByName := make(map[string]*dorisColumnIR, len(cols))
-		for _, c := range cols {
-			colByName[c.ColDesc.ColumnName] = c
-		}
 		placed := make(map[string]bool, len(keyCols))
 		reordered := make([]*dorisColumnIR, 0, len(cols))
 		for _, k := range keyCols {
 			if c, ok := colByName[k]; ok && !placed[k] {
 				placed[k] = true
+				c.ColDesc.Nullable = false
 				reordered = append(reordered, c)
 			}
 		}
@@ -394,6 +399,32 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 			}
 		}
 		cols = reordered
+	}
+
+	isIcebergOnly := meta.SyncTier == "ICEBERG_ONLY" ||
+		(meta.DatabaseScope == "GLOBAL_TERMINOLOGY" && meta.SyncTier == "RELEASE_PARTITIONED" && len(uks) == 0 && len(meta.DuplicateKeyColumns) == 0)
+	if !isIcebergOnly {
+		if len(uks) == 0 && len(meta.DuplicateKeyColumns) == 0 && len(cols) > 0 {
+			cols[0].ColDesc.Nullable = false
+			if !isDorisKeyEligibleType(cols[0].ColDesc.DorisType) {
+				return nil, fmt.Errorf("message %s: fallback DUPLICATE KEY column %q has disallowed Doris key type %q", msg.Desc.FullName(), cols[0].ColDesc.ColumnName, cols[0].ColDesc.DorisType)
+			}
+		}
+		for _, uk := range uks {
+			if c := colByName[uk]; c != nil && !isDorisKeyEligibleType(c.ColDesc.DorisType) {
+				return nil, fmt.Errorf("message %s: UNIQUE KEY column %q has disallowed Doris key type %q", msg.Desc.FullName(), uk, c.ColDesc.DorisType)
+			}
+		}
+		for _, dk := range meta.DuplicateKeyColumns {
+			if c := colByName[dk]; c != nil && !isDorisKeyEligibleType(c.ColDesc.DorisType) {
+				return nil, fmt.Errorf("message %s: DUPLICATE KEY column %q has disallowed Doris key type %q", msg.Desc.FullName(), dk, c.ColDesc.DorisType)
+			}
+		}
+		if meta.DistributedByColumn != "" {
+			if c := colByName[meta.DistributedByColumn]; c != nil && !isDorisKeyEligibleType(c.ColDesc.DorisType) {
+				return nil, fmt.Errorf("message %s: distributed_by_column %q has disallowed Doris hash distribution type %q", msg.Desc.FullName(), meta.DistributedByColumn, c.ColDesc.DorisType)
+			}
+		}
 	}
 
 	colDescs := make([]DorisColumnDescriptor, len(cols))
@@ -435,6 +466,7 @@ func buildDorisColumnIR(
 	colMeta *DorisColumnMetaIR,
 	tableMeta *DorisTableMetaIR,
 	ukSet map[string]bool,
+	dupSet map[string]bool,
 	partSet map[string]bool,
 	rootGoNames map[string]bool,
 	usedGoNames map[string]bool,
@@ -473,6 +505,9 @@ func buildDorisColumnIR(
 	if colMeta.IcebergType != "" && !isValidSQLTypeSyntax(colMeta.IcebergType) {
 		return nil, fmt.Errorf("field %s: invalid iceberg_type %q", field.Desc.FullName(), colMeta.IcebergType)
 	}
+	if colMeta.DefaultValue != "" && !isValidDorisDefaultValue(colMeta.DefaultValue) {
+		return nil, fmt.Errorf("field %s: invalid default_value %q", field.Desc.FullName(), colMeta.DefaultValue)
+	}
 
 	goFieldName := toPascalCase(protoFieldName)
 	if len(chain) > 0 && (usedGoNames[goFieldName] || rootGoNames[goFieldName]) {
@@ -490,6 +525,7 @@ func buildDorisColumnIR(
 	usedGoNames[goFieldName] = true
 
 	isUK := colMeta.IsUniqueKey || ukSet[colName]
+	isDupKey := dupSet[colName]
 	isPK := colMeta.IsPartitionKey || partSet[colName]
 	isSeq := colMeta.IsSequenceCol || (tableMeta.SequenceCol != "" && tableMeta.SequenceCol == colName)
 
@@ -513,7 +549,7 @@ func buildDorisColumnIR(
 		(isEnum && (strings.Contains(upperDoris, "VARCHAR") || strings.Contains(upperDoris, "STRING") || strings.Contains(upperIceberg, "STRING")))
 	isStrEnum := isEnum && (stripPrefix || isEnumAsString(field, opts) || strings.Contains(upperDoris, "VARCHAR") || strings.Contains(upperDoris, "STRING"))
 
-	nullable := isDorisColumnNullable(field, colName, isUK, isPK, isSeq)
+	nullable := isDorisColumnNullable(field, colName, isUK, isDupKey, isPK, isSeq)
 
 	var (
 		goFieldType    string
@@ -546,9 +582,12 @@ func buildDorisColumnIR(
 			goFieldType = "DorisInt32Array"
 			arrayKind = "int32"
 		case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
-			protoreflect.Uint32Kind, protoreflect.Fixed32Kind, protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+			protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
 			goFieldType = "DorisInt64Array"
 			arrayKind = "int64"
+		case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+			goFieldType = "DorisUint64Array"
+			arrayKind = "uint64"
 		case protoreflect.BoolKind:
 			goFieldType = "DorisBoolArray"
 			arrayKind = "bool"
@@ -640,8 +679,8 @@ func buildDorisColumnIR(
 }
 
 // isDorisColumnNullable determines whether a column allows SQL NULLs.
-func isDorisColumnNullable(field *protogen.Field, colName string, isUK, isPK, isSeq bool) bool {
-	if isUK || isPK || isSeq {
+func isDorisColumnNullable(field *protogen.Field, colName string, isUK, isDupKey, isPK, isSeq bool) bool {
+	if isUK || isDupKey || isPK || isSeq {
 		return false
 	}
 	if field.Desc.IsList() {
@@ -678,8 +717,10 @@ func defaultDorisSQLType(field *protogen.Field, colMeta *DorisColumnMetaIR, opts
 		case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
 			return "ARRAY<INT>"
 		case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
-			protoreflect.Uint32Kind, protoreflect.Fixed32Kind, protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+			protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
 			return "ARRAY<BIGINT>"
+		case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+			return "ARRAY<LARGEINT>"
 		case protoreflect.BoolKind:
 			return "ARRAY<BOOLEAN>"
 		default:
@@ -1228,6 +1269,67 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
+	g.P("// DorisUint64Array represents an Apache Doris ARRAY<LARGEINT> column.")
+	g.P("type DorisUint64Array []uint64")
+	g.P()
+	g.P("// Value implements driver.Valuer.")
+	g.P("func (a DorisUint64Array) Value() (", driverValue, ", error) {")
+	g.P("\tif len(a) == 0 {")
+	g.P("\t\treturn \"[]\", nil")
+	g.P("\t}")
+	g.P("\tb, err := ", jsonMarshal, "([]uint64(a))")
+	g.P("\tif err != nil {")
+	g.P("\t\treturn nil, err")
+	g.P("\t}")
+	g.P("\treturn string(b), nil")
+	g.P("}")
+	g.P()
+	g.P("// Scan implements sql.Scanner.")
+	g.P("func (a *DorisUint64Array) Scan(src any) error {")
+	g.P("\tif src == nil {")
+	g.P("\t\t*a = nil")
+	g.P("\t\treturn nil")
+	g.P("\t}")
+	g.P("\tvar s string")
+	g.P("\tswitch v := src.(type) {")
+	g.P("\tcase []byte:")
+	g.P("\t\ts = string(v)")
+	g.P("\tcase string:")
+	g.P("\t\ts = v")
+	g.P("\tcase DorisUint64Array:")
+	g.P("\t\tcp := make(DorisUint64Array, len(v))")
+	g.P("\t\tcopy(cp, v)")
+	g.P("\t\t*a = cp")
+	g.P("\t\treturn nil")
+	g.P("\tcase []uint64:")
+	g.P("\t\tcp := make(DorisUint64Array, len(v))")
+	g.P("\t\tcopy(cp, v)")
+	g.P("\t\t*a = cp")
+	g.P("\t\treturn nil")
+	g.P("\tdefault:")
+	g.P("\t\treturn ", fmtErrorf, "(\"DorisUint64Array.Scan: unsupported type %T\", src)")
+	g.P("\t}")
+	g.P("\ts = ", stringsTrimSpace, "(s)")
+	g.P("\tif s == \"\" || s == \"[]\" || s == \"null\" || s == \"NULL\" {")
+	g.P("\t\t*a = DorisUint64Array{}")
+	g.P("\t\treturn nil")
+	g.P("\t}")
+	g.P("\tvar ptrs []*uint64")
+	g.P("\tif err := ", jsonUnmarshal, "([]byte(s), &ptrs); err != nil {")
+	g.P("\t\treturn err")
+	g.P("\t}")
+	g.P("\tout := make(DorisUint64Array, len(ptrs))")
+	g.P("\tfor i, p := range ptrs {")
+	g.P("\t\tif p == nil {")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"DorisUint64Array.Scan: null element at index %d is not supported\", i)")
+	g.P("\t\t}")
+	g.P("\t\tout[i] = *p")
+	g.P("\t}")
+	g.P("\t*a = out")
+	g.P("\treturn nil")
+	g.P("}")
+	g.P()
+
 	g.P("// DorisBoolArray represents an Apache Doris ARRAY<BOOLEAN> column.")
 	g.P("type DorisBoolArray []bool")
 	g.P()
@@ -1410,7 +1512,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\t\t}")
 	g.P("\t\t\tparenDepth++")
 	g.P("\t\tcase ')':")
-	g.P("\t\t\tif i > 0 && s[i-1] == '(' {")
+	g.P("\t\t\tif i > 0 && (s[i-1] == '(' || s[i-1] == ',' || s[i-1] == ' ') {")
 	g.P("\t\t\t\treturn false")
 	g.P("\t\t\t}")
 	g.P("\t\t\tparenDepth--")
@@ -1423,15 +1525,19 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\t\t}")
 	g.P("\t\t\tangleDepth++")
 	g.P("\t\tcase '>':")
-	g.P("\t\t\tif parenDepth > 0 || (i > 0 && s[i-1] == '<') {")
+	g.P("\t\t\tif parenDepth > 0 || (i > 0 && (s[i-1] == '<' || s[i-1] == ',' || s[i-1] == ' ')) {")
 	g.P("\t\t\t\treturn false")
 	g.P("\t\t\t}")
 	g.P("\t\t\tangleDepth--")
 	g.P("\t\t\tif angleDepth < 0 {")
 	g.P("\t\t\t\treturn false")
 	g.P("\t\t\t}")
-	g.P("\t\tcase ',', ' ':")
-	g.P("\t\t\tif parenDepth == 0 {")
+	g.P("\t\tcase ',':")
+	g.P("\t\t\tif (parenDepth == 0 && angleDepth == 0) || i == 0 || s[i-1] == '(' || s[i-1] == '<' || s[i-1] == ',' || s[i-1] == ' ' {")
+	g.P("\t\t\t\treturn false")
+	g.P("\t\t\t}")
+	g.P("\t\tcase ' ':")
+	g.P("\t\t\tif (parenDepth == 0 && angleDepth == 0) || i == 0 || s[i-1] != ',' {")
 	g.P("\t\t\t\treturn false")
 	g.P("\t\t\t}")
 	g.P("\t\tdefault:")
@@ -1484,6 +1590,64 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
+	g.P("func isValidDorisDefaultValue(s string) bool {")
+	g.P("\tfor i := 0; i < len(s); i++ {")
+	g.P("\t\tc := s[i]")
+	g.P("\t\tif c < 0x20 || c > 0x7e {")
+	g.P("\t\t\treturn false")
+	g.P("\t\t}")
+	g.P("\t\tswitch c {")
+	g.P("\t\tcase '\"', '\\'', '`', '\\\\', ';':")
+	g.P("\t\t\treturn false")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\treturn true")
+	g.P("}")
+	g.P()
+
+	g.P("func isDorisKeyEligibleType(dorisType string) bool {")
+	g.P("\tdt := ", stringsToUpper, "(", stringsTrimSpace, "(dorisType))")
+	g.P("\tif dt == \"\" {")
+	g.P("\t\treturn false")
+	g.P("\t}")
+	g.P("\tswitch dt {")
+	g.P("\tcase \"FLOAT\", \"DOUBLE\", \"STRING\", \"TEXT\":")
+	g.P("\t\treturn false")
+	g.P("\t}")
+	g.P("\treturn !", stringsHasPrefix, "(dt, \"ARRAY<\")")
+	g.P("}")
+	g.P()
+
+	g.P("func reorderDorisDescriptorColumns(cols []DorisColumnDescriptor, uks, dupKeys []string) []DorisColumnDescriptor {")
+	g.P("\tkeyCols := uks")
+	g.P("\tif len(keyCols) == 0 && len(dupKeys) > 0 {")
+	g.P("\t\tkeyCols = dupKeys")
+	g.P("\t}")
+	g.P("\tif len(keyCols) == 0 {")
+	g.P("\t\treturn cols")
+	g.P("\t}")
+	g.P("\tcolByName := make(map[string]DorisColumnDescriptor, len(cols))")
+	g.P("\tfor _, c := range cols {")
+	g.P("\t\tcolByName[c.ColumnName] = c")
+	g.P("\t}")
+	g.P("\tplaced := make(map[string]bool, len(keyCols))")
+	g.P("\treordered := make([]DorisColumnDescriptor, 0, len(cols))")
+	g.P("\tfor _, k := range keyCols {")
+	g.P("\t\tif c, ok := colByName[k]; ok && !placed[k] {")
+	g.P("\t\t\tplaced[k] = true")
+	g.P("\t\t\tc.Nullable = false")
+	g.P("\t\t\treordered = append(reordered, c)")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tfor _, c := range cols {")
+	g.P("\t\tif !placed[c.ColumnName] {")
+	g.P("\t\t\treordered = append(reordered, c)")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\treturn reordered")
+	g.P("}")
+	g.P()
+
 	g.P("func validateDorisDescriptor(t DorisTableDescriptor) bool {")
 	g.P("\tif !isValidDorisSQLIdentifier(t.TableName) || !isValidDorisDatabaseScope(t.DatabaseScope) || !isValidDorisSyncTier(t.SyncTier) {")
 	g.P("\t\treturn false")
@@ -1493,13 +1657,16 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t}")
 	g.P("\tcolSet := make(map[string]bool, len(t.Columns))")
 	g.P("\tfor _, c := range t.Columns {")
-	g.P("\t\tif !isValidDorisSQLIdentifier(c.ColumnName) {")
+	g.P("\t\tif !isValidDorisSQLIdentifier(c.ColumnName) || colSet[c.ColumnName] {")
 	g.P("\t\t\treturn false")
 	g.P("\t\t}")
 	g.P("\t\tif c.DorisType != \"\" && !isValidDorisSQLTypeSyntax(c.DorisType) {")
 	g.P("\t\t\treturn false")
 	g.P("\t\t}")
 	g.P("\t\tif c.IcebergType != \"\" && !isValidDorisSQLTypeSyntax(c.IcebergType) {")
+	g.P("\t\t\treturn false")
+	g.P("\t\t}")
+	g.P("\t\tif c.DefaultValue != \"\" && !isValidDorisDefaultValue(c.DefaultValue) {")
 	g.P("\t\t\treturn false")
 	g.P("\t\t}")
 	g.P("\t\tcolSet[c.ColumnName] = true")
@@ -1570,6 +1737,8 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\treturn \"DATE\"")
 	g.P("\tcase \"DATETIMEV2(6)\", \"DATETIMEV2(3)\", \"DATETIMEV2\":")
 	g.P("\t\treturn \"DATETIME\"")
+	g.P("\tcase \"ARRAY<LARGEINT>\":")
+	g.P("\t\treturn \"ARRAY<BIGINT>\"")
 	g.P("\t}")
 	g.P("\tif ", stringsHasPrefix, "(dt, \"DECIMALV3(\") {")
 	g.P("\t\trest := ", stringsTrimPrefix, "(dt, \"DECIMALV3(\")")
@@ -1622,6 +1791,35 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tif t.DatabaseScope == \"GLOBAL_TERMINOLOGY\" && t.SyncTier == \"RELEASE_PARTITIONED\" && len(uks) == 0 && len(t.DuplicateKeyColumns) == 0 {")
 	g.P("\t\treturn \"\"")
 	g.P("\t}")
+	g.P("\torderedCols := reorderDorisDescriptorColumns(t.Columns, uks, t.DuplicateKeyColumns)")
+	g.P("\tif len(uks) == 0 && len(t.DuplicateKeyColumns) == 0 && len(orderedCols) > 0 {")
+	g.P("\t\tcp := make([]DorisColumnDescriptor, len(orderedCols))")
+	g.P("\t\tcopy(cp, orderedCols)")
+	g.P("\t\tcp[0].Nullable = false")
+	g.P("\t\torderedCols = cp")
+	g.P("\t}")
+	g.P("\tcolTypes := make(map[string]string, len(orderedCols))")
+	g.P("\tfor _, c := range orderedCols {")
+	g.P("\t\tcolTypes[c.ColumnName] = ", stringsToUpper, "(", stringsTrimSpace, "(c.DorisType))")
+	g.P("\t}")
+	g.P("\tfor _, uk := range uks {")
+	g.P("\t\tif !isDorisKeyEligibleType(colTypes[uk]) {")
+	g.P("\t\t\treturn \"\"")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tfor _, dk := range t.DuplicateKeyColumns {")
+	g.P("\t\tif !isDorisKeyEligibleType(colTypes[dk]) {")
+	g.P("\t\t\treturn \"\"")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tif len(uks) == 0 && len(t.DuplicateKeyColumns) == 0 && len(orderedCols) > 0 {")
+	g.P("\t\tif !isDorisKeyEligibleType(orderedCols[0].DorisType) {")
+	g.P("\t\t\treturn \"\"")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tif t.DistributedByColumn != \"\" && !isDorisKeyEligibleType(colTypes[t.DistributedByColumn]) {")
+	g.P("\t\treturn \"\"")
+	g.P("\t}")
 	g.P("\tslug, ok := sanitizeDorisTenantSlug(tenantSlug)")
 	g.P("\tif !ok {")
 	g.P("\t\treturn \"\"")
@@ -1651,7 +1849,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\tfullTableName = \"internal.tenant_\" + slug + \".\" + t.TableName")
 	g.P("\t}")
 	g.P("\tvar bodyLines []string")
-	g.P("\tfor _, c := range t.Columns {")
+	g.P("\tfor _, c := range orderedCols {")
 	g.P("\t\tcolIdent := formatDorisDDLColumnIdent(c.ColumnName)")
 	g.P("\t\tline := ", fmtSprintf, "(\"    %s %s\", colIdent, c.DorisType)")
 	g.P("\t\tif !c.Nullable {")
@@ -1675,11 +1873,9 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\t}")
 	g.P("\t\tbodyLines = append(bodyLines, line)")
 	g.P("\t}")
-	g.P("\tcolTypes := make(map[string]string, len(t.Columns))")
 	g.P("\tseenInv := make(map[string]bool)")
 	g.P("\tvar invCols []string")
-	g.P("\tfor _, c := range t.Columns {")
-	g.P("\t\tcolTypes[c.ColumnName] = ", stringsToUpper, "(", stringsTrimSpace, "(c.DorisType))")
+	g.P("\tfor _, c := range orderedCols {")
 	g.P("\t\tif c.InvertedIndex && !seenInv[c.ColumnName] {")
 	g.P("\t\t\tseenInv[c.ColumnName] = true")
 	g.P("\t\t\tinvCols = append(invCols, c.ColumnName)")
@@ -1740,13 +1936,13 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\tb.WriteString(\") BUCKETS \")")
 	g.P("\t\tb.WriteString(bucketStr)")
 	g.P("\t\tb.WriteString(\"\\n\")")
-	g.P("\t} else if len(t.Columns) > 0 {")
+	g.P("\t} else if len(orderedCols) > 0 {")
 	g.P("\t\tb.WriteString(\"DUPLICATE KEY(\")")
-	g.P("\t\tb.WriteString(formatDorisDDLColumnIdent(t.Columns[0].ColumnName))")
+	g.P("\t\tb.WriteString(formatDorisDDLColumnIdent(orderedCols[0].ColumnName))")
 	g.P("\t\tb.WriteString(\")\\n\")")
 	g.P("\t\tdistCol := t.DistributedByColumn")
 	g.P("\t\tif distCol == \"\" {")
-	g.P("\t\t\tdistCol = t.Columns[0].ColumnName")
+	g.P("\t\t\tdistCol = orderedCols[0].ColumnName")
 	g.P("\t\t}")
 	g.P("\t\tb.WriteString(\"DISTRIBUTED BY HASH(\")")
 	g.P("\t\tb.WriteString(formatDorisDDLColumnIdent(distCol))")
@@ -1995,6 +2191,14 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
+	g.P("func dorisRequiredDateValue(s string) any {")
+	g.P("\tif s == \"\" {")
+	g.P("\t\treturn \"0001-01-01\"")
+	g.P("\t}")
+	g.P("\treturn s")
+	g.P("}")
+	g.P()
+
 	g.P("func dorisNullableTimeValue(t ", timeTime, ") any {")
 	g.P("\tif t.IsZero() {")
 	g.P("\t\treturn ", sqlNullTime, "{}")
@@ -2107,7 +2311,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 
 	g.P("func normalizeDorisDateStr(s string) string {")
 	g.P("\ts = ", stringsTrimSpace, "(s)")
-	g.P("\tif s == \"\" || ", stringsHasPrefix, "(s, \"0000-00-00\") {")
+	g.P("\tif s == \"\" || ", stringsHasPrefix, "(s, \"0000-00-00\") || ", stringsHasPrefix, "(s, \"0001-01-01\") {")
 	g.P("\t\treturn \"\"")
 	g.P("\t}")
 	g.P("\tif len(s) >= 10 && s[4] == '-' && s[7] == '-' {")
@@ -2150,19 +2354,25 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
-	g.P("func lookupProtoEnumValue(valMap map[string]int32, raw, prefix string) int32 {")
+	g.P("func lookupProtoEnumValueOk(valMap map[string]int32, raw, prefix string) (int32, bool) {")
 	g.P("\tif raw == \"\" {")
-	g.P("\t\treturn 0")
+	g.P("\t\treturn 0, false")
 	g.P("\t}")
 	g.P("\tif v, ok := valMap[raw]; ok {")
-	g.P("\t\treturn v")
+	g.P("\t\treturn v, true")
 	g.P("\t}")
 	g.P("\tif prefix != \"\" {")
 	g.P("\t\tif v, ok := valMap[prefix+raw]; ok {")
-	g.P("\t\t\treturn v")
+	g.P("\t\t\treturn v, true")
 	g.P("\t\t}")
 	g.P("\t}")
-	g.P("\treturn 0")
+	g.P("\treturn 0, false")
+	g.P("}")
+	g.P()
+
+	g.P("func lookupProtoEnumValue(valMap map[string]int32, raw, prefix string) int32 {")
+	g.P("\tv, _ := lookupProtoEnumValueOk(valMap, raw, prefix)")
+	g.P("\treturn v")
 	g.P("}")
 	g.P()
 }
@@ -2287,7 +2497,7 @@ func emitDorisTableCode(g *protogen.GeneratedFile, tbl *dorisTableIR) {
 			if c.ColDesc.Nullable {
 				g.P("\t\tdorisNullableDateValue(r.", c.GoFieldName, "),")
 			} else {
-				g.P("\t\tr.", c.GoFieldName, ",")
+				g.P("\t\tdorisRequiredDateValue(r.", c.GoFieldName, "),")
 			}
 		case c.IsTimestamp:
 			if c.IsPointer {
@@ -2619,6 +2829,12 @@ func emitDorisColumnToProto(g *protogen.GeneratedFile, c *dorisColumnIR, targetV
 			g.P("\t\t}")
 		}
 		g.P("\t}")
+	case c.ArrayKind == "uint64":
+		g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
+		markSet("\t\t")
+		g.P("\t\t", targetVar, ".", protoField, " = make([]uint64, len(r.", c.GoFieldName, "))")
+		g.P("\t\tcopy(", targetVar, ".", protoField, ", r.", c.GoFieldName, ")")
+		g.P("\t}")
 	case c.ArrayKind == "bool":
 		g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
 		markSet("\t\t")
@@ -2653,15 +2869,18 @@ func emitDorisColumnToProto(g *protogen.GeneratedFile, c *dorisColumnIR, targetV
 		if c.IsStringEnum {
 			if c.IsPointer {
 				g.P("\tif r.", c.GoFieldName, " != nil && *r.", c.GoFieldName, " != \"\" {")
-				g.P("\t\tif rawVal := lookupProtoEnumValue(", enumIdent, "_value, *r.", c.GoFieldName, ", ", fmt.Sprintf("%q", c.EnumPrefix), "); rawVal != 0 {")
-				markSet("\t\t\t")
 				if c.Field.Desc.HasOptionalKeyword() {
+					g.P("\t\tif rawVal, ok := lookupProtoEnumValueOk(", enumIdent, "_value, *r.", c.GoFieldName, ", ", fmt.Sprintf("%q", c.EnumPrefix), "); ok {")
+					markSet("\t\t\t")
 					g.P("\t\t\tv := ", enumIdent, "(rawVal)")
 					g.P("\t\t\t", targetVar, ".", protoField, " = &v")
+					g.P("\t\t}")
 				} else {
+					g.P("\t\tif rawVal := lookupProtoEnumValue(", enumIdent, "_value, *r.", c.GoFieldName, ", ", fmt.Sprintf("%q", c.EnumPrefix), "); rawVal != 0 {")
+					markSet("\t\t\t")
 					g.P("\t\t\t", targetVar, ".", protoField, " = ", enumIdent, "(rawVal)")
+					g.P("\t\t}")
 				}
-				g.P("\t\t}")
 				g.P("\t}")
 			} else {
 				g.P("\tif r.", c.GoFieldName, " != \"\" {")
@@ -2810,6 +3029,11 @@ func emitDorisColumnFromProto(g *protogen.GeneratedFile, c *dorisColumnIR, srcVa
 			g.P(indent, "\t}")
 		}
 		g.P(indent, "}")
+	case c.ArrayKind == "uint64":
+		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
+		g.P(indent, "\tr.", c.GoFieldName, " = make(DorisUint64Array, len(src))")
+		g.P(indent, "\tcopy(r.", c.GoFieldName, ", src)")
+		g.P(indent, "}")
 	case c.ArrayKind == "bool":
 		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
 		g.P(indent, "\tr.", c.GoFieldName, " = make(DorisBoolArray, len(src))")
@@ -2832,17 +3056,25 @@ func emitDorisColumnFromProto(g *protogen.GeneratedFile, c *dorisColumnIR, srcVa
 		if c.IsStringEnum {
 			if c.IsPointer {
 				if c.Field.Desc.HasOptionalKeyword() {
-					g.P(indent, "if ", srcVar, ".", protoField, " != nil && ", srcVar, ".Get", protoField, "() != 0 {")
+					g.P(indent, "if ", srcVar, ".", protoField, " != nil {")
+					if c.ColDesc.StripEnumPrefix {
+						stringsTrimPrefix := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "TrimPrefix"})
+						g.P(indent, "\tv := ", stringsTrimPrefix, "(", srcVar, ".Get", protoField, "().String(), ", fmt.Sprintf("%q", c.EnumPrefix), ")")
+					} else {
+						g.P(indent, "\tv := ", srcVar, ".Get", protoField, "().String()")
+					}
+					g.P(indent, "\tr.", c.GoFieldName, " = &v")
+					g.P(indent, "}")
 				} else {
 					g.P(indent, "if ", srcVar, ".Get", protoField, "() != 0 {")
+					if c.ColDesc.StripEnumPrefix {
+						g.P(indent, "\tv := stripProtoEnumPrefix(", srcVar, ".Get", protoField, "().String(), ", fmt.Sprintf("%q", c.EnumPrefix), ")")
+					} else {
+						g.P(indent, "\tv := ", srcVar, ".Get", protoField, "().String()")
+					}
+					g.P(indent, "\tr.", c.GoFieldName, " = &v")
+					g.P(indent, "}")
 				}
-				if c.ColDesc.StripEnumPrefix {
-					g.P(indent, "\tv := stripProtoEnumPrefix(", srcVar, ".Get", protoField, "().String(), ", fmt.Sprintf("%q", c.EnumPrefix), ")")
-				} else {
-					g.P(indent, "\tv := ", srcVar, ".Get", protoField, "().String()")
-				}
-				g.P(indent, "\tr.", c.GoFieldName, " = &v")
-				g.P(indent, "}")
 			} else if c.ColDesc.ColumnName == "record_status" {
 				if c.ColDesc.StripEnumPrefix {
 					g.P(indent, "if v := stripProtoEnumPrefix(", srcVar, ".Get", protoField, "().String(), ", fmt.Sprintf("%q", c.EnumPrefix), "); v != \"\" {")
