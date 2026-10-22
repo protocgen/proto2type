@@ -24,7 +24,7 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 - 🔥 **Firestore backend** — `firestore:""` tags, `serverTimestamp` sentinel, document ID exclusion
 - 🍃 **MongoDB backend** — `bson:""` tags, `_id` handling, `,inline` support
 - 🐘 **PostgreSQL backend** — `db:""` tags and HAPI-style FHIR search index extraction (`postgres_mode=search_index`)
-- 🏔️ **Apache Doris 4.x & Iceberg backend** — Go storage structs (`doris:""`, `iceberg:""`), SQL scanners, Stream Load JSON marshalers, and Doris 4.x / Iceberg DDL generation (`doris_mode=go|ddl|both`)
+- 🏔️ **Apache Doris 4.x & Iceberg backend** — Go storage structs (`db:""`, `doris:""`), SQL scanners (`Columns()`, `Values()`, `ScanRow()`), `ToProto()`/`FromProto()` converters, and Doris 4.x / Iceberg DDL generation (`BuildDorisCreateTableSQL`, `BuildIcebergCreateTableSQL`, `doris_mode=go|ddl|both`)
 - 🔄 **Bidirectional converters** — `ToProto()` / `FromProto()`, `ToDomain()` / `FromDomain()` on every struct
 - 🎯 **Field mask helpers** — `ApplyFieldMask()` for partial updates
 - 📋 **Custom proto options** — `document_id`, `server_timestamp`, `skip`, `omitempty`, `inline`, `name`, `table`, `column`

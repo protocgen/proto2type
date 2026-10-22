@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Apache Doris 4.x & Apache Iceberg Lakehouse backend (`backend=doris`)**:
-  - Generates Go `*Doris` storage structs with `doris:""` and `iceberg:""` tags, `ColumnNames()`, `ColumnValues()`, `ScanRow()`, `MarshalDorisStreamLoadJSON()`, table/column descriptors, and `DorisCreateTableSQL` / `IcebergCreateTableSQL` helpers.
+  - Generates Go `*Doris` storage structs with `db:""` and `doris:""` tags, `TableName()`, `Columns()`, `Values()`, `ScanRow()`, `ToProto()`/`FromProto()`, `Scan<Name>Proto()`, `<Name>ProtoValues()`, `<Name>DorisTable()`, `BuildDorisCreateTableSQL`, and `BuildIcebergCreateTableSQL` helpers.
   - Supports `doris_mode=go` (default), `doris_mode=ddl` (`<prefix>_doris.sql` and `<prefix>_iceberg.sql`), and `doris_mode=both`.
   - Added `(proto2type.message).table` (`TableOptions`) and `(proto2type.field).column` (`ColumnOptions`) proto extensions, plus wire-compatible decoding for `azra.common.v1.table_meta` (`50201`) and `column_meta` (`50200`).
   - Supports `google.type.Date` (`YYYY-MM-DD`), enum prefix stripping (`strip_enum_prefix`), and multi-level `inline_nested` message flattening.

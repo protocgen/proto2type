@@ -1182,6 +1182,30 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
 		},
 		{
+			name:      "Invalid doris_type syntax with top-level comma",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients"},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "INT, x STRING"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_INT32,
+		},
+		{
+			name:      "Invalid doris_type syntax with unbalanced parens",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients"},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64))"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
+		{
+			name:      "Unknown column in unique_key_columns",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", UniqueKeyColumns: []string{"nonexistent_col"}},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
+		{
+			name:      "Unknown column in inverted_index_columns",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", InvertedIndexColumns: []string{"nonexistent_col"}},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
+		{
 			name:      "inline_nested on scalar string field",
 			tOpts:     &proto2typepb.TableOptions{TableName: "patients"},
 			cOpts:     &proto2typepb.ColumnOptions{InlineNested: true},
@@ -1213,6 +1237,9 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 func TestGenerateGoDoris_CompileAndRoundTrip(t *testing.T) {
 	if _, err := exec.LookPath("protoc"); err != nil {
 		t.Skip("protoc not found in PATH; skipping compile-and-run test")
+	}
+	if _, err := exec.LookPath("protoc-gen-go"); err != nil {
+		t.Skip("protoc-gen-go not found in PATH; skipping compile-and-run test")
 	}
 
 	gen := buildComprehensiveDorisPlugin(t)
@@ -1844,6 +1871,7 @@ extend google.protobuf.FieldOptions {
 
 	tableCounts := make(map[string]int)
 	colCountsByTable := make(map[string]int)
+	tenantDescsByTable := make(map[string]DorisTableDescriptor)
 	for _, f := range gen.Files {
 		if !f.Generate {
 			continue
@@ -1855,6 +1883,9 @@ extend google.protobuf.FieldOptions {
 		tableCounts[f.Desc.Path()] = len(tables)
 		for _, tbl := range tables {
 			colCountsByTable[tbl.Descriptor.TableName] = len(tbl.Descriptor.Columns)
+			if f.Desc.Path() != "azra/terminology/v1/terminology_tables.proto" {
+				tenantDescsByTable[tbl.Descriptor.TableName] = tbl.Descriptor
+			}
 		}
 		if err := runner.GenerateFile(gen, f, opts); err != nil {
 			t.Fatalf("GenerateFile(%s) failed: %v", f.Desc.Path(), err)
@@ -1876,6 +1907,70 @@ extend google.protobuf.FieldOptions {
 	if got := colCountsByTable["eligibility_evaluations"]; got != 34 {
 		t.Errorf("eligibility_evaluations column count = %d, want 34", got)
 	}
+
+	if len(tenantDescsByTable) != 38 {
+		t.Fatalf("total tenant clinical tables = %d, want 38", len(tenantDescsByTable))
+	}
+	for tblName, desc := range tenantDescsByTable {
+		dorisSQL := desc.BuildDorisCreateTableSQL("", 0)
+		icebergSQL := desc.BuildIcebergCreateTableSQL("")
+		wantDorisHeader := "CREATE TABLE IF NOT EXISTS internal.tenant_${TENANT_SLUG}." + tblName + " ("
+		wantIceHeader := "CREATE TABLE IF NOT EXISTS azra_lake.tenant_${TENANT_SLUG}." + tblName + " ("
+		if !strings.Contains(dorisSQL, wantDorisHeader) {
+			t.Errorf("table %s missing Doris header %q in:\n%s", tblName, wantDorisHeader, dorisSQL)
+		}
+		if !strings.Contains(icebergSQL, wantIceHeader) {
+			t.Errorf("table %s missing Iceberg header %q in:\n%s", tblName, wantIceHeader, icebergSQL)
+		}
+		if tblName == "patient_note_chunks" {
+			wantBM25 := `INDEX idx_chunk_text_bm25 (chunk_text) USING INVERTED PROPERTIES ("parser" = "english", "support_phrase" = "true", "lower_case" = "true")`
+			if !strings.Contains(dorisSQL, wantBM25) {
+				t.Errorf("patient_note_chunks missing BM25 inverted index:\n  want: %s\n  got:\n%s", wantBM25, dorisSQL)
+			}
+		}
+	}
+
+	// If platform/schemas/iceberg/doris_tenant_profile_ddl.sql is present, verify 1:1 column count parity across all 38 tables.
+	schemaDDLPath := filepath.Clean("../../platform/schemas/iceberg/doris_tenant_profile_ddl.sql")
+	if rawDDL, err := os.ReadFile(schemaDDLPath); err == nil {
+		ddlCols := parseDorisDDLColumnCounts(string(rawDDL))
+		for tblName, wantCols := range ddlCols {
+			gotCols, ok := colCountsByTable[tblName]
+			if !ok {
+				t.Errorf("table %s from doris_tenant_profile_ddl.sql missing in proto descriptors", tblName)
+				continue
+			}
+			if gotCols != wantCols {
+				t.Errorf("table %s column count = %d, want %d from doris_tenant_profile_ddl.sql", tblName, gotCols, wantCols)
+			}
+		}
+	}
+}
+
+func parseDorisDDLColumnCounts(sql string) map[string]int {
+	counts := make(map[string]int)
+	prefix := "CREATE TABLE IF NOT EXISTS internal.tenant_${TENANT_SLUG}."
+	for _, block := range strings.Split(sql, prefix)[1:] {
+		openIdx := strings.IndexByte(block, '(')
+		if openIdx < 0 {
+			continue
+		}
+		tableName := strings.TrimSpace(block[:openIdx])
+		body := block[openIdx+1:]
+		colCount := 0
+		for _, line := range strings.Split(body, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, ")") {
+				break
+			}
+			if trimmed == "" || strings.HasPrefix(trimmed, "--") || strings.HasPrefix(trimmed, "INDEX ") || strings.HasPrefix(trimmed, `"`) {
+				continue
+			}
+			colCount++
+		}
+		counts[tableName] = colCount
+	}
+	return counts
 }
 
 func keysOf(m map[string]string) []string {

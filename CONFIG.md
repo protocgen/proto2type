@@ -405,7 +405,7 @@ message PatientRecord {
     unique_key_columns: ["patient_id"]
     colocate_group: "azra_patient_group"
     sequence_col: "publication_generation"
-    inverted_index_columns: ["mrn", "patient_status"]
+    inverted_index_columns: ["mrn"]
   };
 
   string patient_id = 1 [(proto2type.field).column = {
@@ -433,13 +433,13 @@ message PatientRecord {
 | Feature | Support |
 |---|---|
 | Language | Go (`lang=go`) + SQL DDL (`doris_mode=ddl` or `both`) |
-| Struct tags | `doris:"col"` and `iceberg:"col"` |
+| Struct tags | `db:"col"` and `doris:"col[,pk]"` |
 | Struct suffix | `Doris` (e.g. `PatientRecordDoris`) |
 | File suffixes | `_doris.type.go` (Go), `_doris.sql` (Doris 4.x DDL), `_iceberg.sql` (Iceberg DDL) |
-| Row scanning | `ColumnNames()`, `ColumnValues()`, `ScanRow(scanner)`, `MarshalDorisStreamLoadJSON()` |
-| DDL helpers | `<Table>TableDescriptor`, `DorisCreateTableSQL(tenantSlug, buckets)`, `IcebergCreateTableSQL(tenantSlug)` |
+| Row scanning | `TableName()`, `Columns()`, `Values()`, `ScanRow(scanner)`, `Scan<Name>Proto(scanner)`, `<Name>ProtoValues(m)` |
+| DDL helpers | `<Name>DorisTable()`, `DorisTableDescriptor.BuildDorisCreateTableSQL(tenantSlug, buckets)`, `BuildIcebergCreateTableSQL(tenantSlug)` |
 | Inline nested | `inline_nested = true` recursively flattens child message columns |
-| Converters | `ToDomain()` / `FromDomain()`, `ToProto()` / `FromProto()` |
+| Converters | `ToProto()` / `FromProto()` |
 
 ### Firestore
 

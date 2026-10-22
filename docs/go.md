@@ -34,7 +34,7 @@ Then run `buf generate`.
 | `go_package` | _none_ | Override Go package for generated types (e.g. `path/to/pkg;pkgname`). |
 | `go_constructor` | `true` | Generate `NewXxx()` constructors for types with required fields. |
 
-> **Note**: For a full list of general options and proto annotations, see [CONFIG.md](CONFIG.md).
+> **Note**: For a full list of general options and proto annotations, see [CONFIG.md](../CONFIG.md).
 
 ## Generated Code Walkthrough
 
@@ -288,7 +288,7 @@ Well-Known Types are natively mapped into idiomatic Go types for better ergonomi
 Setting `backend=firestore`, `backend=mongo`, `backend=postgres`, or `backend=doris` generates a secondary storage struct (e.g. `UserFirestore`, `UserMongo`, `PatientRecordDoris`) customized for the selected datastore:
 - **Firestore / MongoDB**: Specific struct tags (`firestore:"email"` or `bson:"email"`), flattened nested messages (`bson:",inline"`), omitted Document IDs, and `serverTimestamp` annotations.
 - **Apache Doris 4.x & Iceberg (`backend=doris`)**:
-  - Generates `<name>_doris.type.go` with `doris:""` and `iceberg:""` tags, `ColumnNames()`, `ColumnValues()`, `ScanRow(scanner)`, `MarshalDorisStreamLoadJSON()`, `ToDomain()`/`FromDomain()`, `ToProto()`/`FromProto()`, and runtime DDL helpers (`DorisCreateTableSQL`, `IcebergCreateTableSQL`).
+  - Generates `<name>_doris.type.go` with `db:""` and `doris:""` tags, `TableName()`, `Columns()`, `Values()`, `ScanRow(scanner)`, `Scan<Name>Proto(scanner)`, `<Name>ProtoValues(m)`, `ToProto()`/`FromProto()`, `<Name>DorisTable()`, and runtime DDL helpers (`BuildDorisCreateTableSQL`, `BuildIcebergCreateTableSQL`).
   - With `doris_mode=ddl` or `doris_mode=both`, also emits `<name>_doris.sql` (Doris 4.x `UNIQUE KEY` Merge-on-Write / `DUPLICATE KEY` DDL) and `<name>_iceberg.sql` (Apache Iceberg DDL).
 
 See [CONFIG.md](../CONFIG.md) for more details on backend options.

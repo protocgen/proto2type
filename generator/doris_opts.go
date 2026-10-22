@@ -172,23 +172,51 @@ func isValidSQLIdentifier(s string) bool {
 }
 
 // isValidSQLTypeSyntax reports whether s is a safe SQL column type expression
-// matching ^[A-Za-z0-9_<>, ()]+$ with balanced parentheses/angle brackets and no SQL comments.
+// matching ^[A-Za-z][A-Za-z0-9_<>, ()]*$ with balanced parentheses/angle brackets,
+// no top-level commas, and no SQL comments.
 func isValidSQLTypeSyntax(s string) bool {
 	s = strings.TrimSpace(s)
 	if len(s) == 0 {
 		return false
 	}
+	firstAlpha := (s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z')
+	if !firstAlpha {
+		return false
+	}
+	parenDepth := 0
+	angleDepth := 0
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		ok := (c >= 'a' && c <= 'z') ||
-			(c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') ||
-			c == '_' || c == '<' || c == '>' || c == ',' || c == ' ' || c == '(' || c == ')'
-		if !ok {
-			return false
+		switch c {
+		case '(':
+			parenDepth++
+		case ')':
+			parenDepth--
+			if parenDepth < 0 {
+				return false
+			}
+		case '<':
+			angleDepth++
+		case '>':
+			angleDepth--
+			if angleDepth < 0 {
+				return false
+			}
+		case ',':
+			if parenDepth == 0 && angleDepth == 0 {
+				return false
+			}
+		default:
+			ok := (c >= 'a' && c <= 'z') ||
+				(c >= 'A' && c <= 'Z') ||
+				(c >= '0' && c <= '9') ||
+				c == '_' || c == ' '
+			if !ok {
+				return false
+			}
 		}
 	}
-	return true
+	return parenDepth == 0 && angleDepth == 0
 }
 
 // extractDorisTableMeta extracts Doris/Iceberg table metadata from a message's options.
@@ -200,8 +228,8 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 	}
 
 	// 1. Check typed (proto2type.message).table extension first.
-	if mo := getMessageOptions(msg); mo != nil && mo.Table != nil {
-		t := mo.Table
+	if mo := getMessageOptions(msg); mo.GetTable() != nil {
+		t := mo.GetTable()
 		out := &DorisTableMetaIR{
 			TableName:            t.GetTableName(),
 			DatabaseScope:        normalizeDatabaseScope(t.GetDatabaseScope()),
@@ -452,8 +480,8 @@ func extractDorisColumnMeta(field *protogen.Field) *DorisColumnMetaIR {
 	}
 
 	// 1. Check typed (proto2type.field).column extension first.
-	if fo := getFieldOptions(field); fo != nil && fo.Column != nil {
-		c := fo.Column
+	if fo := getFieldOptions(field); fo.GetColumn() != nil {
+		c := fo.GetColumn()
 		return &DorisColumnMetaIR{
 			DorisType:       c.GetDorisType(),
 			IcebergType:     c.GetIcebergType(),

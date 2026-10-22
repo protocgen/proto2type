@@ -187,11 +187,42 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 	return true
 }
 
+func isDorisReservedKeyword(colName string) bool {
+	switch strings.ToLower(colName) {
+	case "system", "key", "keys", "order", "range", "values", "index", "rank",
+		"group", "table", "tables", "database", "databases", "schema", "schemas",
+		"partition", "partitions", "buckets", "desc", "describe", "asc", "default",
+		"primary", "unique", "duplicate", "aggregate", "check", "references",
+		"foreign", "constraint", "select", "from", "where", "join", "inner",
+		"left", "right", "full", "outer", "cross", "on", "using", "in", "is",
+		"null", "not", "and", "or", "xor", "as", "by", "limit", "offset",
+		"having", "union", "intersect", "except", "all", "distinct", "case",
+		"when", "then", "else", "end", "exists", "between", "like", "ilike",
+		"regexp", "rlike", "div", "mod", "interval", "function", "procedure",
+		"trigger", "view", "grant", "revoke", "show", "explain", "use", "set",
+		"kill", "load", "export", "backup", "restore", "alter", "create", "drop",
+		"truncate", "rename", "replace", "insert", "update", "delete", "merge",
+		"into", "over", "window", "rows", "preceding", "following", "current",
+		"true", "false", "properties", "inverted", "ngram_bf":
+		return true
+	default:
+		return false
+	}
+}
+
 func formatDorisDDLColumnIdent(colName string) string {
-	if colName == "system" {
-		return "`system`"
+	if isDorisReservedKeyword(colName) {
+		return "`" + colName + "`"
 	}
 	return colName
+}
+
+func formatDorisDDLColumnIdentList(cols []string) string {
+	formatted := make([]string, len(cols))
+	for i, c := range cols {
+		formatted[i] = formatDorisDDLColumnIdent(c)
+	}
+	return strings.Join(formatted, ", ")
 }
 
 // BuildDorisCreateTableSQL renders a deterministic Apache Doris 4.x
@@ -282,9 +313,11 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	}
 
 	// Collect inverted index columns in deterministic order without duplicates.
+	colTypes := make(map[string]string, len(t.Columns))
 	seenInv := make(map[string]bool)
 	var invCols []string
 	for _, c := range t.Columns {
+		colTypes[c.ColumnName] = strings.ToUpper(strings.TrimSpace(c.DorisType))
 		if c.InvertedIndex && !seenInv[c.ColumnName] {
 			seenInv[c.ColumnName] = true
 			invCols = append(invCols, c.ColumnName)
@@ -297,13 +330,17 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		}
 	}
 	for _, idxCol := range invCols {
-		bodyLines = append(bodyLines, fmt.Sprintf("    INDEX idx_%s_%s (%s) USING INVERTED", t.TableName, idxCol, idxCol))
+		if colTypes[idxCol] == "TEXT" {
+			bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_bm25 (%s) USING INVERTED PROPERTIES ("parser" = "english", "support_phrase" = "true", "lower_case" = "true")`, idxCol, formatDorisDDLColumnIdent(idxCol)))
+		} else {
+			bodyLines = append(bodyLines, fmt.Sprintf("    INDEX idx_%s_%s (%s) USING INVERTED", t.TableName, idxCol, formatDorisDDLColumnIdent(idxCol)))
+		}
 	}
 	for _, ngCol := range t.NgramBfColumns {
 		if ngCol == "" {
 			continue
 		}
-		bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_%s_ngram (%s) USING NGRAM_BF PROPERTIES ("gram_size" = "3", "bf_size" = "1024")`, t.TableName, ngCol, ngCol))
+		bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_%s_ngram (%s) USING NGRAM_BF PROPERTIES ("gram_size" = "3", "bf_size" = "1024")`, t.TableName, ngCol, formatDorisDDLColumnIdent(ngCol)))
 	}
 
 	var b strings.Builder
@@ -315,7 +352,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 
 	if len(uks) > 0 {
 		b.WriteString("UNIQUE KEY(")
-		b.WriteString(strings.Join(uks, ", "))
+		b.WriteString(formatDorisDDLColumnIdentList(uks))
 		b.WriteString(")\n")
 		distCol := t.DistributedByColumn
 		if distCol == "" {
@@ -326,33 +363,33 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 			}
 		}
 		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(distCol)
+		b.WriteString(formatDorisDDLColumnIdent(distCol))
 		b.WriteString(") BUCKETS ")
 		b.WriteString(bucketStr)
 		b.WriteString("\n")
 	} else if len(t.DuplicateKeyColumns) > 0 {
 		b.WriteString("DUPLICATE KEY(")
-		b.WriteString(strings.Join(t.DuplicateKeyColumns, ", "))
+		b.WriteString(formatDorisDDLColumnIdentList(t.DuplicateKeyColumns))
 		b.WriteString(")\n")
 		distCol := t.DistributedByColumn
 		if distCol == "" {
 			distCol = t.DuplicateKeyColumns[0]
 		}
 		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(distCol)
+		b.WriteString(formatDorisDDLColumnIdent(distCol))
 		b.WriteString(") BUCKETS ")
 		b.WriteString(bucketStr)
 		b.WriteString("\n")
 	} else if len(t.Columns) > 0 {
 		b.WriteString("DUPLICATE KEY(")
-		b.WriteString(t.Columns[0].ColumnName)
+		b.WriteString(formatDorisDDLColumnIdent(t.Columns[0].ColumnName))
 		b.WriteString(")\n")
 		distCol := t.DistributedByColumn
 		if distCol == "" {
 			distCol = t.Columns[0].ColumnName
 		}
 		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(distCol)
+		b.WriteString(formatDorisDDLColumnIdent(distCol))
 		b.WriteString(") BUCKETS ")
 		b.WriteString(bucketStr)
 		b.WriteString("\n")
@@ -472,7 +509,7 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 
 	if len(partCols) > 0 {
 		b.WriteString("PARTITION BY LIST (")
-		b.WriteString(strings.Join(partCols, ", "))
+		b.WriteString(formatDorisDDLColumnIdentList(partCols))
 		b.WriteString(") ()\n")
 	}
 
