@@ -145,7 +145,7 @@ func sanitizeDorisTenantSlug(tenantSlug string) (string, bool) {
 }
 
 // validateDescriptorIdentifiers verifies that all table, column, index, and type
-// strings in t are safe for SQL DDL emission.
+// strings in t are safe for SQL DDL emission and that all referenced columns exist.
 func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 	if !isValidSQLIdentifier(t.TableName) || !isValidDatabaseScope(t.DatabaseScope) || !isValidSyncTier(t.SyncTier) {
 		return false
@@ -153,10 +153,23 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 	if t.ColocateGroup != "" && !isValidSQLIdentifier(t.ColocateGroup) {
 		return false
 	}
-	if t.SequenceCol != "" && !isValidSQLIdentifier(t.SequenceCol) {
+	colSet := make(map[string]bool, len(t.Columns))
+	for _, c := range t.Columns {
+		if !isValidSQLIdentifier(c.ColumnName) {
+			return false
+		}
+		if c.DorisType != "" && !isValidSQLTypeSyntax(c.DorisType) {
+			return false
+		}
+		if c.IcebergType != "" && !isValidSQLTypeSyntax(c.IcebergType) {
+			return false
+		}
+		colSet[c.ColumnName] = true
+	}
+	if t.SequenceCol != "" && (!isValidSQLIdentifier(t.SequenceCol) || !colSet[t.SequenceCol]) {
 		return false
 	}
-	if t.DistributedByColumn != "" && !isValidSQLIdentifier(t.DistributedByColumn) {
+	if t.DistributedByColumn != "" && (!isValidSQLIdentifier(t.DistributedByColumn) || !colSet[t.DistributedByColumn]) {
 		return false
 	}
 	for _, list := range [][]string{
@@ -168,20 +181,9 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 		t.DuplicateKeyColumns,
 	} {
 		for _, id := range list {
-			if id != "" && !isValidSQLIdentifier(id) {
+			if id != "" && (!isValidSQLIdentifier(id) || !colSet[id]) {
 				return false
 			}
-		}
-	}
-	for _, c := range t.Columns {
-		if !isValidSQLIdentifier(c.ColumnName) {
-			return false
-		}
-		if c.DorisType != "" && !isValidSQLTypeSyntax(c.DorisType) {
-			return false
-		}
-		if c.IcebergType != "" && !isValidSQLTypeSyntax(c.IcebergType) {
-			return false
 		}
 	}
 	return true
@@ -340,7 +342,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		if ngCol == "" {
 			continue
 		}
-		bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_%s_ngram (%s) USING NGRAM_BF PROPERTIES ("gram_size" = "3", "bf_size" = "1024")`, t.TableName, ngCol, formatDorisDDLColumnIdent(ngCol)))
+		bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_ngram_%s_%s (%s) USING NGRAM_BF PROPERTIES ("gram_size" = "3", "bf_size" = "1024")`, t.TableName, ngCol, formatDorisDDLColumnIdent(ngCol)))
 	}
 
 	var b strings.Builder

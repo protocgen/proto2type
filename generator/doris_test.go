@@ -1194,6 +1194,12 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
 		},
 		{
+			name:      "Invalid doris_type syntax with NOT NULL constraint",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients"},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "INT NOT NULL"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_INT32,
+		},
+		{
 			name:      "Unknown column in unique_key_columns",
 			tOpts:     &proto2typepb.TableOptions{TableName: "patients", UniqueKeyColumns: []string{"nonexistent_col"}},
 			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},

@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -173,7 +174,8 @@ func isValidSQLIdentifier(s string) bool {
 
 // isValidSQLTypeSyntax reports whether s is a safe SQL column type expression
 // matching ^[A-Za-z][A-Za-z0-9_<>, ()]*$ with balanced parentheses/angle brackets,
-// no top-level commas, and no SQL comments.
+// numeric-only parenthesized type parameters, no top-level spaces or commas
+// (preventing injected column constraints like "INT NOT NULL"), and no SQL comments.
 func isValidSQLTypeSyntax(s string) bool {
 	s = strings.TrimSpace(s)
 	if len(s) == 0 {
@@ -189,30 +191,48 @@ func isValidSQLTypeSyntax(s string) bool {
 		c := s[i]
 		switch c {
 		case '(':
+			if parenDepth > 0 {
+				return false
+			}
 			parenDepth++
 		case ')':
+			if i > 0 && s[i-1] == '(' {
+				return false
+			}
 			parenDepth--
 			if parenDepth < 0 {
 				return false
 			}
 		case '<':
+			if parenDepth > 0 {
+				return false
+			}
 			angleDepth++
 		case '>':
+			if parenDepth > 0 || (i > 0 && s[i-1] == '<') {
+				return false
+			}
 			angleDepth--
 			if angleDepth < 0 {
 				return false
 			}
-		case ',':
-			if parenDepth == 0 && angleDepth == 0 {
+		case ',', ' ':
+			if parenDepth == 0 {
 				return false
 			}
 		default:
-			ok := (c >= 'a' && c <= 'z') ||
-				(c >= 'A' && c <= 'Z') ||
-				(c >= '0' && c <= '9') ||
-				c == '_' || c == ' '
-			if !ok {
-				return false
+			if parenDepth > 0 {
+				if c < '0' || c > '9' {
+					return false
+				}
+			} else {
+				ok := (c >= 'a' && c <= 'z') ||
+					(c >= 'A' && c <= 'Z') ||
+					(c >= '0' && c <= '9') ||
+					c == '_'
+				if !ok {
+					return false
+				}
 			}
 		}
 	}
@@ -456,7 +476,9 @@ func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
 		case 13: // int32 file_cache_ttl_seconds = 13
 			if typ == protowire.VarintType {
 				if v, m := protowire.ConsumeVarint(b); m >= 0 {
-					dst.FileCacheTTLSeconds = int32(v)
+					if v <= math.MaxInt32 {
+						dst.FileCacheTTLSeconds = int32(v)
+					}
 					b = b[m:]
 					continue
 				}
