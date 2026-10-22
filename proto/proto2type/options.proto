@@ -33,6 +33,9 @@ message TableOptions {
   repeated string inverted_index_columns = 8;
   repeated string ngram_bf_columns = 9;
   repeated string bloom_filter_columns = 10;
+  string distributed_by_column = 11;
+  repeated string duplicate_key_columns = 12;
+  int32 file_cache_ttl_seconds = 13;
 }
 
 // Field-level options for proto2type.
@@ -89,6 +92,7 @@ message ColumnOptions {
   bool is_partition_key = 7;
   bool strip_enum_prefix = 8;
   string column_name = 9;
+  string default_value = 10;
 }
 
 // ComputedField defines a derived field that is automatically populated

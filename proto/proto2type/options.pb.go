@@ -139,6 +139,9 @@ type TableOptions struct {
 	InvertedIndexColumns []string               `protobuf:"bytes,8,rep,name=inverted_index_columns,json=invertedIndexColumns,proto3" json:"inverted_index_columns,omitempty"`
 	NgramBfColumns       []string               `protobuf:"bytes,9,rep,name=ngram_bf_columns,json=ngramBfColumns,proto3" json:"ngram_bf_columns,omitempty"`
 	BloomFilterColumns   []string               `protobuf:"bytes,10,rep,name=bloom_filter_columns,json=bloomFilterColumns,proto3" json:"bloom_filter_columns,omitempty"`
+	DistributedByColumn  string                 `protobuf:"bytes,11,opt,name=distributed_by_column,json=distributedByColumn,proto3" json:"distributed_by_column,omitempty"`
+	DuplicateKeyColumns  []string               `protobuf:"bytes,12,rep,name=duplicate_key_columns,json=duplicateKeyColumns,proto3" json:"duplicate_key_columns,omitempty"`
+	FileCacheTtlSeconds  int32                  `protobuf:"varint,13,opt,name=file_cache_ttl_seconds,json=fileCacheTtlSeconds,proto3" json:"file_cache_ttl_seconds,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -241,6 +244,27 @@ func (x *TableOptions) GetBloomFilterColumns() []string {
 		return x.BloomFilterColumns
 	}
 	return nil
+}
+
+func (x *TableOptions) GetDistributedByColumn() string {
+	if x != nil {
+		return x.DistributedByColumn
+	}
+	return ""
+}
+
+func (x *TableOptions) GetDuplicateKeyColumns() []string {
+	if x != nil {
+		return x.DuplicateKeyColumns
+	}
+	return nil
+}
+
+func (x *TableOptions) GetFileCacheTtlSeconds() int32 {
+	if x != nil {
+		return x.FileCacheTtlSeconds
+	}
+	return 0
 }
 
 type FieldOptions struct {
@@ -387,6 +411,7 @@ type ColumnOptions struct {
 	IsPartitionKey  bool                   `protobuf:"varint,7,opt,name=is_partition_key,json=isPartitionKey,proto3" json:"is_partition_key,omitempty"`
 	StripEnumPrefix bool                   `protobuf:"varint,8,opt,name=strip_enum_prefix,json=stripEnumPrefix,proto3" json:"strip_enum_prefix,omitempty"`
 	ColumnName      string                 `protobuf:"bytes,9,opt,name=column_name,json=columnName,proto3" json:"column_name,omitempty"`
+	DefaultValue    string                 `protobuf:"bytes,10,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -480,6 +505,13 @@ func (x *ColumnOptions) GetStripEnumPrefix() bool {
 func (x *ColumnOptions) GetColumnName() string {
 	if x != nil {
 		return x.ColumnName
+	}
+	return ""
+}
+
+func (x *ColumnOptions) GetDefaultValue() string {
+	if x != nil {
+		return x.DefaultValue
 	}
 	return ""
 }
@@ -579,7 +611,7 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"proto2type\x1a google/protobuf/descriptor.proto\"T\n" +
 	"\x0eMessageOptions\x12\x12\n" +
 	"\x04skip\x18\x01 \x01(\bR\x04skip\x12.\n" +
-	"\x05table\x18\x02 \x01(\v2\x18.proto2type.TableOptionsR\x05table\"\xad\x03\n" +
+	"\x05table\x18\x02 \x01(\v2\x18.proto2type.TableOptionsR\x05table\"\xca\x04\n" +
 	"\fTableOptions\x12\x1d\n" +
 	"\n" +
 	"table_name\x18\x01 \x01(\tR\ttableName\x12%\n" +
@@ -592,7 +624,10 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\x16inverted_index_columns\x18\b \x03(\tR\x14invertedIndexColumns\x12(\n" +
 	"\x10ngram_bf_columns\x18\t \x03(\tR\x0engramBfColumns\x120\n" +
 	"\x14bloom_filter_columns\x18\n" +
-	" \x03(\tR\x12bloomFilterColumns\"\x96\x03\n" +
+	" \x03(\tR\x12bloomFilterColumns\x122\n" +
+	"\x15distributed_by_column\x18\v \x01(\tR\x13distributedByColumn\x122\n" +
+	"\x15duplicate_key_columns\x18\f \x03(\tR\x13duplicateKeyColumns\x123\n" +
+	"\x16file_cache_ttl_seconds\x18\r \x01(\x05R\x13fileCacheTtlSeconds\"\x96\x03\n" +
 	"\fFieldOptions\x12\x1f\n" +
 	"\vdocument_id\x18\x01 \x01(\bR\n" +
 	"documentId\x12)\n" +
@@ -605,7 +640,7 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\aencrypt\x18\b \x01(\bR\aencrypt\x125\n" +
 	"\bcomputed\x18\t \x01(\v2\x19.proto2type.ComputedFieldR\bcomputed\x121\n" +
 	"\x06column\x18\n" +
-	" \x01(\v2\x19.proto2type.ColumnOptionsR\x06column\"\xe0\x02\n" +
+	" \x01(\v2\x19.proto2type.ColumnOptionsR\x06column\"\x85\x03\n" +
 	"\rColumnOptions\x12\x1d\n" +
 	"\n" +
 	"doris_type\x18\x01 \x01(\tR\tdorisType\x12!\n" +
@@ -617,7 +652,9 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\x10is_partition_key\x18\a \x01(\bR\x0eisPartitionKey\x12*\n" +
 	"\x11strip_enum_prefix\x18\b \x01(\bR\x0fstripEnumPrefix\x12\x1f\n" +
 	"\vcolumn_name\x18\t \x01(\tR\n" +
-	"columnName\"E\n" +
+	"columnName\x12#\n" +
+	"\rdefault_value\x18\n" +
+	" \x01(\tR\fdefaultValue\"E\n" +
 	"\rComputedField\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x1c\n" +
 	"\ttransform\x18\x02 \x01(\tR\ttransform*^\n" +

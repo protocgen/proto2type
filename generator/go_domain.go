@@ -56,7 +56,10 @@ func newGoGenerator() *goGenerator {
 // generateGo generates Go output files for a proto file.
 func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	// Generate domain types if requested.
-	if opts.Domain {
+	// For the doris backend, <Name>Doris structs live alongside .pb.go by default
+	// and doris_mode=ddl emits SQL only, so only generate domain types when a
+	// separate go_package is configured and doris_mode is not ddl.
+	if opts.Domain && (opts.Backend != "doris" || (opts.GoPackage != "" && opts.DorisMode != "ddl")) {
 		if err := gg.generateGoDomain(gen, file, opts); err != nil {
 			return err
 		}

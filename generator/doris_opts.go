@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"fmt"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -31,6 +32,28 @@ type DorisTableMetaIR struct {
 	InvertedIndexColumns []string
 	NgramBfColumns       []string
 	BloomFilterColumns   []string
+	DistributedByColumn  string
+	DuplicateKeyColumns  []string
+	FileCacheTTLSeconds  int32
+}
+
+func (m *DorisTableMetaIR) isEmpty() bool {
+	if m == nil {
+		return true
+	}
+	return m.TableName == "" &&
+		m.DatabaseScope == "" &&
+		m.SyncTier == "" &&
+		len(m.UniqueKeyColumns) == 0 &&
+		len(m.PartitionByColumns) == 0 &&
+		m.ColocateGroup == "" &&
+		m.SequenceCol == "" &&
+		len(m.InvertedIndexColumns) == 0 &&
+		len(m.NgramBfColumns) == 0 &&
+		len(m.BloomFilterColumns) == 0 &&
+		m.DistributedByColumn == "" &&
+		len(m.DuplicateKeyColumns) == 0 &&
+		m.FileCacheTTLSeconds == 0
 }
 
 // DorisColumnMetaIR holds Apache Doris 4.x and Apache Iceberg column-level
@@ -46,6 +69,7 @@ type DorisColumnMetaIR struct {
 	IsPartitionKey  bool
 	StripEnumPrefix bool
 	ColumnName      string
+	DefaultValue    string
 }
 
 // normalizeDatabaseScope normalizes raw scope strings or enum names to canonical
@@ -62,6 +86,8 @@ func normalizeDatabaseScope(scope string) string {
 // databaseScopeFromEnumNumber maps azra.common.v1.LakehouseDatabaseScope enum numbers.
 func databaseScopeFromEnumNumber(n uint64) string {
 	switch n {
+	case 0:
+		return ""
 	case 1:
 		return "TENANT"
 	case 2:
@@ -71,12 +97,12 @@ func databaseScopeFromEnumNumber(n uint64) string {
 	case 4:
 		return "GLOBAL_TELEMETRY"
 	default:
-		return ""
+		return fmt.Sprintf("INVALID_DATABASE_SCOPE_%d", n)
 	}
 }
 
 // normalizeSyncTier normalizes raw sync tier strings or enum names to canonical
-// short tier names ("WHOLE_TABLE", "MONTHLY_PARTITIONED", "RELEASE_PARTITIONED", "INTERNAL_ONLY").
+// short tier names ("WHOLE_TABLE", "MONTHLY_PARTITIONED", "RELEASE_PARTITIONED", "INTERNAL_ONLY", "ICEBERG_ONLY").
 func normalizeSyncTier(tier string) string {
 	s := strings.TrimSpace(strings.ToUpper(tier))
 	s = strings.TrimPrefix(s, "LAKEHOUSE_SYNC_TIER_")
@@ -89,6 +115,8 @@ func normalizeSyncTier(tier string) string {
 // syncTierFromEnumNumber maps azra.common.v1.LakehouseSyncTier enum numbers.
 func syncTierFromEnumNumber(n uint64) string {
 	switch n {
+	case 0:
+		return ""
 	case 1:
 		return "WHOLE_TABLE"
 	case 2:
@@ -97,9 +125,70 @@ func syncTierFromEnumNumber(n uint64) string {
 		return "RELEASE_PARTITIONED"
 	case 4:
 		return "INTERNAL_ONLY"
+	case 5:
+		return "ICEBERG_ONLY"
 	default:
-		return ""
+		return fmt.Sprintf("INVALID_SYNC_TIER_%d", n)
 	}
+}
+
+// isValidDatabaseScope reports whether scope is a recognized lakehouse database scope.
+func isValidDatabaseScope(scope string) bool {
+	switch scope {
+	case "", "TENANT", "GLOBAL_TERMINOLOGY", "GLOBAL_TERMINOLOGY_RAG", "GLOBAL_TELEMETRY":
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidSyncTier reports whether tier is a recognized lakehouse sync tier.
+func isValidSyncTier(tier string) bool {
+	switch tier {
+	case "", "WHOLE_TABLE", "MONTHLY_PARTITIONED", "RELEASE_PARTITIONED", "INTERNAL_ONLY", "ICEBERG_ONLY":
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidSQLIdentifier reports whether s matches ^[a-zA-Z_][a-zA-Z0-9_]*$.
+func isValidSQLIdentifier(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		isAlpha := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+		isDigit := c >= '0' && c <= '9'
+		if i == 0 && !isAlpha {
+			return false
+		}
+		if !isAlpha && !isDigit {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidSQLTypeSyntax reports whether s is a safe SQL column type expression
+// matching ^[A-Za-z0-9_<>, ()]+$ with balanced parentheses/angle brackets and no SQL comments.
+func isValidSQLTypeSyntax(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) == 0 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		ok := (c >= 'a' && c <= 'z') ||
+			(c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') ||
+			c == '_' || c == '<' || c == '>' || c == ',' || c == ' ' || c == '(' || c == ')'
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // extractDorisTableMeta extracts Doris/Iceberg table metadata from a message's options.
@@ -113,7 +202,7 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 	// 1. Check typed (proto2type.message).table extension first.
 	if mo := getMessageOptions(msg); mo != nil && mo.Table != nil {
 		t := mo.Table
-		return &DorisTableMetaIR{
+		out := &DorisTableMetaIR{
 			TableName:            t.GetTableName(),
 			DatabaseScope:        normalizeDatabaseScope(t.GetDatabaseScope()),
 			SyncTier:             normalizeSyncTier(t.GetSyncTier()),
@@ -124,7 +213,14 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 			InvertedIndexColumns: append([]string(nil), t.GetInvertedIndexColumns()...),
 			NgramBfColumns:       append([]string(nil), t.GetNgramBfColumns()...),
 			BloomFilterColumns:   append([]string(nil), t.GetBloomFilterColumns()...),
+			DistributedByColumn:  t.GetDistributedByColumn(),
+			DuplicateKeyColumns:  append([]string(nil), t.GetDuplicateKeyColumns()...),
+			FileCacheTTLSeconds:  t.GetFileCacheTtlSeconds(),
 		}
+		if out.isEmpty() {
+			return nil
+		}
+		return out
 	}
 
 	// 2. Inspect wire bytes on MessageOptions for extension 50201 (or fallback 1307.2).
@@ -205,8 +301,7 @@ func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
 		}
 		b = b[m:]
 	}
-	if out != nil && out.TableName == "" && out.DatabaseScope == "" && out.SyncTier == "" &&
-		len(out.UniqueKeyColumns) == 0 && len(out.PartitionByColumns) == 0 {
+	if out.isEmpty() {
 		return nil
 	}
 	return out
@@ -314,6 +409,30 @@ func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
 					continue
 				}
 			}
+		case 11: // string distributed_by_column = 11
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					dst.DistributedByColumn = string(v)
+					b = b[m:]
+					continue
+				}
+			}
+		case 12: // repeated string duplicate_key_columns = 12
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					dst.DuplicateKeyColumns = append(dst.DuplicateKeyColumns, string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 13: // int32 file_cache_ttl_seconds = 13
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					dst.FileCacheTTLSeconds = int32(v)
+					b = b[m:]
+					continue
+				}
+			}
 		}
 
 		m := protowire.ConsumeFieldValue(num, typ, b)
@@ -345,6 +464,7 @@ func extractDorisColumnMeta(field *protogen.Field) *DorisColumnMetaIR {
 			IsPartitionKey:  c.GetIsPartitionKey(),
 			StripEnumPrefix: c.GetStripEnumPrefix(),
 			ColumnName:      c.GetColumnName(),
+			DefaultValue:    c.GetDefaultValue(),
 		}
 	}
 
@@ -507,6 +627,14 @@ func parseColumnMetaBytes(b []byte, dst *DorisColumnMetaIR) {
 			if typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
 					dst.ColumnName = string(v)
+					b = b[m:]
+					continue
+				}
+			}
+		case 10: // string default_value = 10
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					dst.DefaultValue = string(v)
 					b = b[m:]
 					continue
 				}
