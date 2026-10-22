@@ -795,7 +795,9 @@ func TestGenerateGoDoris_CompileAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
-	defer os.RemoveAll(tmpPkgDir)
+	defer func() {
+		_ = os.RemoveAll(tmpPkgDir)
+	}()
 
 	protoSrc := `syntax = "proto3";
 package azra.clinical.v1;

@@ -194,9 +194,10 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	if t.ColocateGroup != "" {
 		props = append(props, fmt.Sprintf(`    "colocate_with" = %q`, t.ColocateGroup))
 	}
-	if t.DatabaseScope == "GLOBAL_TERMINOLOGY" {
+	switch t.DatabaseScope {
+	case "GLOBAL_TERMINOLOGY":
 		props = append(props, `    "file_cache_ttl_seconds" = "604800"`)
-	} else if t.DatabaseScope == "TENANT" || t.DatabaseScope == "" {
+	case "TENANT", "":
 		props = append(props, `    "group_commit_interval_ms" = "200"`)
 	}
 	if len(t.BloomFilterColumns) > 0 {
