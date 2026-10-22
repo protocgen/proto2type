@@ -33,6 +33,13 @@ type goGenerator struct {
 	// emittedSearchIndexFiles tracks generated filenames to prevent collisions
 	// when multiple proto files with identical basenames map to the same Go package.
 	emittedSearchIndexFiles map[string]string
+	// emittedDorisTypes tracks Go packages that have already had the shared Doris
+	// runtime helper types (DorisScanner, DorisStringArray, DorisFloat32Array,
+	// DorisColumnDescriptor, DorisTableDescriptor) emitted.
+	emittedDorisTypes map[protogen.GoImportPath]bool
+	// emittedDorisDateHelpers tracks Go packages that have already had the
+	// google.type.Date Doris conversion helpers emitted.
+	emittedDorisDateHelpers map[protogen.GoImportPath]bool
 }
 
 func newGoGenerator() *goGenerator {
@@ -41,6 +48,8 @@ func newGoGenerator() *goGenerator {
 		emittedEncryptor:        make(map[protogen.GoImportPath]bool),
 		emittedSearchIndexTypes: make(map[protogen.GoImportPath]bool),
 		emittedSearchIndexFiles: make(map[string]string),
+		emittedDorisTypes:       make(map[protogen.GoImportPath]bool),
+		emittedDorisDateHelpers: make(map[protogen.GoImportPath]bool),
 	}
 }
 
@@ -65,8 +74,10 @@ func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opt
 				return gg.generateGoPostgresSearchIndex(gen, file, opts)
 			}
 			return generateGoPostgres(gen, file, opts)
+		case "doris":
+			return gg.generateGoDoris(gen, file, opts)
 		default:
-			return fmt.Errorf("proto2type: unsupported Go backend %q (supported: firestore, mongo, postgres)", opts.Backend)
+			return fmt.Errorf("proto2type: unsupported Go backend %q (supported: firestore, mongo, postgres, doris)", opts.Backend)
 		}
 	}
 
