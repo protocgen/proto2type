@@ -429,7 +429,6 @@ func buildDorisColumnIR(
 	isDt := isWellKnownDate(field)
 	isList := field.Desc.IsList()
 	isEnum := field.Desc.Kind() == protoreflect.EnumKind
-	isInlined := len(chain) > 0
 
 	dorisType := colMeta.DorisType
 	if dorisType == "" {
@@ -446,7 +445,7 @@ func buildDorisColumnIR(
 		(isEnum && (strings.Contains(upperDoris, "VARCHAR") || strings.Contains(upperDoris, "STRING") || strings.Contains(upperIceberg, "STRING")))
 	isStrEnum := isEnum && (stripPrefix || isEnumAsString(field, opts) || strings.Contains(upperDoris, "VARCHAR") || strings.Contains(upperDoris, "STRING"))
 
-	nullable := isDorisColumnNullable(field, colName, isUK, isPK, isSeq, isInlined)
+	nullable := isDorisColumnNullable(field, colName, isUK, isPK, isSeq)
 
 	var (
 		goFieldType    string
@@ -461,7 +460,7 @@ func buildDorisColumnIR(
 		enumPrefix = protoEnumPrefix(field.Desc.Enum())
 	}
 
-	usePtrForScalar := field.Desc.HasOptionalKeyword() || (isInlined && nullable)
+	usePtrForScalar := field.Desc.HasOptionalKeyword()
 
 	switch {
 	case isList:
@@ -573,14 +572,14 @@ func buildDorisColumnIR(
 }
 
 // isDorisColumnNullable determines whether a column allows SQL NULLs.
-func isDorisColumnNullable(field *protogen.Field, colName string, isUK, isPK, isSeq, isInlined bool) bool {
+func isDorisColumnNullable(field *protogen.Field, colName string, isUK, isPK, isSeq bool) bool {
 	if isUK || isPK || isSeq {
 		return false
 	}
 	if field.Desc.IsList() {
 		return false
 	}
-	if isInlined || field.Desc.HasOptionalKeyword() {
+	if field.Desc.HasOptionalKeyword() {
 		return true
 	}
 	if field.Desc.Kind() == protoreflect.MessageKind {

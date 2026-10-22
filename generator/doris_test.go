@@ -969,8 +969,8 @@ func TestGenerateGoDoris_CodegenAndDDL(t *testing.T) {
 		"SubwordCount int32 `db:\"token_count\" doris:\"INT\"`",
 		"SkillName *string `db:\"skill_name\" doris:\"VARCHAR(128)\"`",
 		"SkillConfidence *float64 `db:\"skill_confidence\" doris:\"DECIMALV3(5,4)\"`",
-		"SkillVersion *string `db:\"skill_version\" doris:\"VARCHAR(64)\"`",
-		"PageNumber *int32 `db:\"citation_page_number\" doris:\"INT\"`",
+		"SkillVersion string `db:\"skill_version\" doris:\"VARCHAR(64)\"`",
+		"PageNumber int32 `db:\"citation_page_number\" doris:\"INT\"`",
 		"BboxCoords DorisFloat32Array `db:\"citation_bbox_coords\" doris:\"ARRAY<FLOAT>\"`",
 		"AllMrns DorisStringArray `db:\"all_mrns\" doris:\"ARRAY<VARCHAR(64)>\"`",
 		"EventMonth string `db:\"event_month\" doris:\"DATEV2\"`",
@@ -1683,6 +1683,198 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	testCmd := exec.Command("go", "test", "-v", "./"+filepath.Base(tmpPkgDir))
 	if out, err := testCmd.CombinedOutput(); err != nil {
 		t.Fatalf("compiled roundtrip go test failed: %v\n%s", err, out)
+	}
+}
+
+func TestGenerateGoDoris_RealPlatformProtos(t *testing.T) {
+	if _, err := exec.LookPath("protoc"); err != nil {
+		t.Skip("protoc not found in PATH; skipping real platform proto test")
+	}
+	platformProtoDir := filepath.Clean("../../platform/proto")
+	if _, err := os.Stat(filepath.Join(platformProtoDir, "azra/clinical/v1/patient_profile.proto")); err != nil {
+		t.Skipf("platform/proto not found at %s; skipping", platformProtoDir)
+	}
+
+	tmpDir := t.TempDir()
+	// Write minimal google/type/date.proto and buf/validate/validate.proto stubs for protoc.
+	if err := os.MkdirAll(filepath.Join(tmpDir, "google/type"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "buf/validate"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dateProto := `syntax = "proto3";
+package google.type;
+option go_package = "google.golang.org/genproto/googleapis/type/date;date";
+message Date {
+  int32 year = 1;
+  int32 month = 2;
+  int32 day = 3;
+}
+`
+	validateProto := `syntax = "proto3";
+package buf.validate;
+import "google/protobuf/descriptor.proto";
+option go_package = "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate";
+
+message StringRules {
+  optional uint64 len = 19;
+  optional uint64 min_len = 1;
+  optional uint64 max_len = 2;
+  optional string pattern = 6;
+  repeated string in = 10;
+  optional bool uuid = 22;
+}
+message Int32Rules {
+  optional int32 lt = 2;
+  optional int32 lte = 3;
+  optional int32 gt = 4;
+  optional int32 gte = 5;
+  repeated int32 in = 6;
+  repeated int32 not_in = 7;
+}
+message Int64Rules {
+  optional int64 lt = 2;
+  optional int64 lte = 3;
+  optional int64 gt = 4;
+  optional int64 gte = 5;
+  repeated int64 in = 6;
+  repeated int64 not_in = 7;
+}
+message FloatRules {
+  optional float lt = 2;
+  optional float lte = 3;
+  optional float gt = 4;
+  optional float gte = 5;
+}
+message DoubleRules {
+  optional double lt = 2;
+  optional double lte = 3;
+  optional double gt = 4;
+  optional double gte = 5;
+}
+message EnumRules {
+  optional bool defined_only = 2;
+  repeated int32 in = 3;
+  repeated int32 not_in = 4;
+}
+message RepeatedRules {
+  optional uint64 min_items = 1;
+  optional uint64 max_items = 2;
+  optional bool unique = 3;
+  optional FieldConstraints items = 4;
+}
+message Rule {
+  string id = 1;
+  string message = 2;
+  string expression = 3;
+}
+message MessageConstraints {
+  repeated Rule cel = 3;
+}
+message FieldConstraints {
+  bool required = 25;
+  repeated Rule cel = 23;
+  FloatRules float = 1;
+  DoubleRules double = 2;
+  Int32Rules int32 = 3;
+  Int64Rules int64 = 4;
+  StringRules string = 14;
+  EnumRules enum = 16;
+  RepeatedRules repeated = 18;
+}
+extend google.protobuf.MessageOptions {
+  MessageConstraints message = 1159;
+}
+extend google.protobuf.FieldOptions {
+  FieldConstraints field = 1159;
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "google/type/date.proto"), []byte(dateProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "buf/validate/validate.proto"), []byte(validateProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	descPath := filepath.Join(tmpDir, "platform.binpb")
+	targetFiles := []string{
+		"azra/clinical/v1/patient_profile.proto",
+		"azra/clinical/eligibility/v1/eligibility.proto",
+		"azra/terminology/v1/terminology_tables.proto",
+	}
+	args := append([]string{
+		"-I", platformProtoDir,
+		"-I", tmpDir,
+		"--include_imports",
+		"--descriptor_set_out=" + descPath,
+	}, targetFiles...)
+
+	cmd := exec.Command("protoc", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("protoc failed on platform/proto: %v\n%s", err, out)
+	}
+
+	rawBytes, err := os.ReadFile(descPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fds descriptorpb.FileDescriptorSet
+	if err := proto.Unmarshal(rawBytes, &fds); err != nil {
+		t.Fatal(err)
+	}
+	for _, fdp := range fds.File {
+		if fdp.Options == nil {
+			fdp.Options = &descriptorpb.FileOptions{}
+		}
+		if fdp.Options.GetGoPackage() == "" {
+			pkg := strings.ReplaceAll(fdp.GetPackage(), ".", "/")
+			fdp.Options.GoPackage = proto.String("gitlab.com/invenero/engineering/platform/proto/gen/go/" + pkg)
+		}
+	}
+
+	gen := newPlugin(t, &fds, targetFiles)
+	runner := NewRunner()
+	opts := &Options{
+		Lang:      "go",
+		Backend:   "doris",
+		DorisMode: "both",
+		Domain:    true,
+	}
+
+	tableCounts := make(map[string]int)
+	colCountsByTable := make(map[string]int)
+	for _, f := range gen.Files {
+		if !f.Generate {
+			continue
+		}
+		tables, err := buildDorisTablesForFile(f, opts)
+		if err != nil {
+			t.Fatalf("buildDorisTablesForFile(%s) failed: %v", f.Desc.Path(), err)
+		}
+		tableCounts[f.Desc.Path()] = len(tables)
+		for _, tbl := range tables {
+			colCountsByTable[tbl.Descriptor.TableName] = len(tbl.Descriptor.Columns)
+		}
+		if err := runner.GenerateFile(gen, f, opts); err != nil {
+			t.Fatalf("GenerateFile(%s) failed: %v", f.Desc.Path(), err)
+		}
+	}
+
+	if got := tableCounts["azra/clinical/v1/patient_profile.proto"]; got != 36 {
+		t.Errorf("patient_profile.proto table count = %d, want 36", got)
+	}
+	if got := tableCounts["azra/clinical/eligibility/v1/eligibility.proto"]; got != 2 {
+		t.Errorf("eligibility.proto table count = %d, want 2", got)
+	}
+	if got := tableCounts["azra/terminology/v1/terminology_tables.proto"]; got != 41 {
+		t.Errorf("terminology_tables.proto table count = %d, want 41", got)
+	}
+	if got := colCountsByTable["eligibility_criterion_results"]; got != 31 {
+		t.Errorf("eligibility_criterion_results column count = %d, want 31", got)
+	}
+	if got := colCountsByTable["eligibility_evaluations"]; got != 34 {
+		t.Errorf("eligibility_evaluations column count = %d, want 34", got)
 	}
 }
 
