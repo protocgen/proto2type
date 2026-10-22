@@ -23,13 +23,15 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 - 🏗️ **Domain types** — clean native structs with `json:""` tags, `time.Time` instead of `timestamppb.Timestamp`
 - 🔥 **Firestore backend** — `firestore:""` tags, `serverTimestamp` sentinel, document ID exclusion
 - 🍃 **MongoDB backend** — `bson:""` tags, `_id` handling, `,inline` support
+- 🐘 **PostgreSQL backend** — `db:""` tags and HAPI-style FHIR search index extraction (`postgres_mode=search_index`)
+- 🏔️ **Apache Doris 4.x & Iceberg backend** — Go storage structs (`doris:""`, `iceberg:""`), SQL scanners, Stream Load JSON marshalers, and Doris 4.x / Iceberg DDL generation (`doris_mode=go|ddl|both`)
 - 🔄 **Bidirectional converters** — `ToProto()` / `FromProto()`, `ToDomain()` / `FromDomain()` on every struct
 - 🎯 **Field mask helpers** — `ApplyFieldMask()` for partial updates
-- 📋 **Custom proto options** — `document_id`, `server_timestamp`, `skip`, `omitempty`, `inline`, `name`
+- 📋 **Custom proto options** — `document_id`, `server_timestamp`, `skip`, `omitempty`, `inline`, `name`, `table`, `column`
 - 🗄️ **SQLite backend (Rust)** — `Row` structs with `to_domain()` / `from_domain()`, JSON-serialised nested fields
 - 🔌 **Works without a database** — generate domain types only, no backend required
 - 🐍 **Python/Pydantic backend** — Pydantic `BaseModel` classes with `Field()` validation, `google.api.field_behavior` and `buf/validate` support
-- ✅ **Validation** — `buf.validate` constraint checking: Rust via `validator` crate, Kotlin via native `validate()`, Python via Pydantic `Field()`, TypeScript via Zod chains
+- ✅ **Validation** — `buf.validate` constraint checking: Go via `validate=native`, Rust via `validator` crate, Kotlin via native `validate()`, Python via Pydantic `Field()`, TypeScript via Zod chains
 - 🌐 **Multi-language** — Go, Rust, Python, Kotlin, and TypeScript supported
 
 ## Language Docs
@@ -363,13 +365,17 @@ See [CONFIG.md](CONFIG.md) for the full reference, including proto-level annotat
 | Option | Default | Description |
 |---|---|---|
 | `lang` | `go` | Target language (`go`, `rust`, `python`, `kotlin`, `typescript`) |
-| `backend` | _(none)_ | Storage backend (`firestore`, `mongo`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc`) |
+| `backend` | _(none)_ | Storage backend (`firestore`, `mongo`, `postgres`, `doris`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc`) |
+| `doris_mode` | `""` (`go`) | Doris/Iceberg backend mode: `""`/`go` (Go storage structs + SQL scanners), `ddl` (Doris & Iceberg SQL DDL), `both` |
+| `postgres_mode` | `""` | Postgres backend mode: `""` (struct), `search_index` (FHIR search index extraction) |
+| `postgres_search_params` | `""` | Path to FHIR SearchParameter JSON bundle (required for `postgres_mode=search_index`) |
 | `domain` | `true` | Generate domain types + proto converters |
 | `output_file` | _(auto)_ | Override output filename |
 | `enum_as_string` | `false` | Store enums as string names instead of `int32` |
 | `omitempty_default` | `true` | Default `omitempty` for optional / zero-value fields |
 | `validate` | `""` | Validation strategy from `buf.validate` constraints (see below) |
 | `go_package` | _(auto)_ | Override Go package for generated types |
+| `go_constructor` | `true` | Generate `NewXxx()` constructors for types with required fields |
 | `debug` | `false` | Emit IR debug information to stderr |
 
 ### Rust Options
@@ -531,7 +537,9 @@ message User {
 | `(proto2type.field).omitempty` | `OptionalBool` | Force `omitempty` on (`TRUE`) or off (`FALSE`) |
 | `(proto2type.field).inline` | `bool` | Flatten nested message into parent — Mongo: `bson:",inline"` |
 | `(proto2type.field).name` | `string` | Override the storage field name |
+| `(proto2type.field).column` | `ColumnOptions` | Apache Doris 4.x & Iceberg column metadata (`doris_type`, `iceberg_type`, `is_unique_key`, `inverted_index`, `inline_nested`, etc.) |
 | `(proto2type.message).skip` | `bool` | Skip generating types for entire message |
+| `(proto2type.message).table` | `TableOptions` | Apache Doris 4.x & Iceberg table metadata (`table_name`, `database_scope`, `sync_tier`, `unique_key_columns`, `colocate_group`, `sequence_col`, etc.) |
 
 ## Type Mapping
 
@@ -551,6 +559,7 @@ message User {
 | `optional T` | `T` (with `omitempty`) |
 | `google.protobuf.Timestamp` | `time.Time` |
 | `google.protobuf.Duration` | `time.Duration` |
+| `google.type.Date` | `*Date` (or `string` `"YYYY-MM-DD"` in Doris storage structs) |
 | Nested message | `*MessageType` |
 | Enum | `int32` (default) or `string` (`enum_as_string=true`) |
 
