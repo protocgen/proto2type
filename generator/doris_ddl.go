@@ -97,8 +97,10 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 		return "DATE"
 	case "DATETIMEV2(6)", "DATETIMEV2(3)", "DATETIMEV2":
 		return "DATETIME"
+	case "LARGEINT":
+		return "DECIMAL(38, 0)"
 	case "ARRAY<LARGEINT>":
-		return "ARRAY<BIGINT>"
+		return "ARRAY<DECIMAL(38, 0)>"
 	}
 	if strings.HasPrefix(dt, "DECIMALV3(") {
 		rest := strings.TrimPrefix(dt, "DECIMALV3(")
@@ -194,6 +196,9 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 	return true
 }
 
+// reorderDorisDescriptorColumns moves UNIQUE KEY or DUPLICATE KEY columns to the
+// front of cols in key order and marks them non-nullable, preserving the relative
+// order of all remaining columns.
 func reorderDorisDescriptorColumns(cols []DorisColumnDescriptor, uks, dupKeys []string) []DorisColumnDescriptor {
 	keyCols := uks
 	if len(keyCols) == 0 && len(dupKeys) > 0 {
@@ -223,6 +228,8 @@ func reorderDorisDescriptorColumns(cols []DorisColumnDescriptor, uks, dupKeys []
 	return reordered
 }
 
+// isDorisReservedKeyword reports whether colName is a reserved SQL keyword in
+// Apache Doris 4.x that must be backtick-quoted in DDL statements.
 func isDorisReservedKeyword(colName string) bool {
 	switch strings.ToLower(colName) {
 	case "system", "key", "keys", "order", "range", "values", "index", "rank",
@@ -246,6 +253,8 @@ func isDorisReservedKeyword(colName string) bool {
 	}
 }
 
+// formatDorisDDLColumnIdent formats a column identifier for Doris/Iceberg DDL,
+// quoting it with backticks when it collides with a Doris reserved keyword.
 func formatDorisDDLColumnIdent(colName string) string {
 	if isDorisReservedKeyword(colName) {
 		return "`" + colName + "`"
@@ -253,6 +262,8 @@ func formatDorisDDLColumnIdent(colName string) string {
 	return colName
 }
 
+// formatDorisDDLColumnIdentList formats a comma-separated list of column identifiers
+// for Doris/Iceberg DDL, backtick-quoting any reserved keywords.
 func formatDorisDDLColumnIdentList(cols []string) string {
 	formatted := make([]string, len(cols))
 	for i, c := range cols {

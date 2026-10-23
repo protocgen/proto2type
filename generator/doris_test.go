@@ -118,6 +118,9 @@ func buildAzraColumnMetaWire(meta DorisColumnMetaIR) []byte {
 	return buildWireExtension(azraColumnMetaExtensionNumber, b)
 }
 
+// TestExtractDorisOptions_NativeAndWire50200_50201 verifies that table and column
+// metadata can be extracted from both native proto2type extensions (1307) and
+// wire-level Azra extensions (50200 / 50201).
 func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 	// 1. Test native (proto2type.message).table and (proto2type.field).column (extension 1307)
 	msgOptsNative := &descriptorpb.MessageOptions{}
@@ -888,6 +891,8 @@ func buildComprehensiveDorisPlugin(t *testing.T) *protogen.Plugin {
 	return newPlugin(t, fds, []string{"clinical_lakehouse.proto", "secondary_table.proto", "non_table.proto"})
 }
 
+// TestGenerateGoDoris_CodegenAndDDL verifies end-to-end Go struct generation and
+// Doris/Iceberg DDL generation across tenant, global terminology, and internal-only tables.
 func TestGenerateGoDoris_CodegenAndDDL(t *testing.T) {
 	gen := buildComprehensiveDorisPlugin(t)
 	runner := NewRunner()
@@ -1040,6 +1045,8 @@ func TestGenerateGoDoris_CodegenAndDDL(t *testing.T) {
 		"event_month DATE NOT NULL",
 		"verified_at DATETIME",
 		"skill_confidence DECIMAL(5, 4)",
+		"fingerprint_hash DECIMAL(38, 0) NOT NULL",
+		"u64_hashes ARRAY<DECIMAL(38, 0)> NOT NULL",
 		"PARTITION BY LIST (event_month) ()",
 		"CREATE TABLE IF NOT EXISTS azra_lake.terminology.snomed_concepts (",
 		"PARTITION BY LIST (release_id) ()",
@@ -1055,6 +1062,8 @@ func TestGenerateGoDoris_CodegenAndDDL(t *testing.T) {
 	}
 }
 
+// TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection verifies tenant slug
+// normalization, SQL injection rejection, Iceberg DDL type mapping, and key column rules.
 func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T) {
 	desc := DorisTableDescriptor{
 		TableName:        "patients",
@@ -1108,8 +1117,11 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 	if got := dorisColumnIcebergDDLType("", "TIMESTAMPTZ"); got != "DATETIME" {
 		t.Errorf("dorisColumnIcebergDDLType(\"\", \"TIMESTAMPTZ\") = %q, want DATETIME", got)
 	}
-	if got := dorisColumnIcebergDDLType("ARRAY<LARGEINT>", ""); got != "ARRAY<BIGINT>" {
-		t.Errorf("dorisColumnIcebergDDLType(\"ARRAY<LARGEINT>\", \"\") = %q, want ARRAY<BIGINT>", got)
+	if got := dorisColumnIcebergDDLType("LARGEINT", ""); got != "DECIMAL(38, 0)" {
+		t.Errorf("dorisColumnIcebergDDLType(\"LARGEINT\", \"\") = %q, want DECIMAL(38, 0)", got)
+	}
+	if got := dorisColumnIcebergDDLType("ARRAY<LARGEINT>", ""); got != "ARRAY<DECIMAL(38, 0)>" {
+		t.Errorf("dorisColumnIcebergDDLType(\"ARRAY<LARGEINT>\", \"\") = %q, want ARRAY<DECIMAL(38, 0)>", got)
 	}
 
 	// 4. Runtime key-prefix reordering when UniqueKeyColumns is not first in t.Columns
@@ -1130,8 +1142,14 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 		t.Errorf("expected BuildDorisCreateTableSQL to reorder key column event_id before payload:\n%s", reorderedSQL)
 	}
 
-	// 5. Disallowed Doris key types (FLOAT, DOUBLE, STRING, TEXT, ARRAY) must be rejected in BuildDorisCreateTableSQL
-	for _, badKeyType := range []string{"FLOAT", "DOUBLE", "STRING", "TEXT", "ARRAY<INT>"} {
+	// 5. Disallowed Doris key types must be rejected in BuildDorisCreateTableSQL and isDorisKeyEligibleType
+	for _, badKeyType := range []string{
+		"FLOAT", "DOUBLE", "STRING", "TEXT", "JSON", "JSONB", "VARIANT",
+		"HLL", "BITMAP", "QUANTILE_STATE", "ARRAY<INT>", "MAP<VARCHAR(64), INT>", "STRUCT<INT>",
+	} {
+		if isDorisKeyEligibleType(badKeyType) {
+			t.Errorf("expected isDorisKeyEligibleType(%q) = false, got true", badKeyType)
+		}
 		badKeyDesc := DorisTableDescriptor{
 			TableName:     "bad_keys",
 			DatabaseScope: "TENANT",
@@ -1143,6 +1161,9 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 		if got := badKeyDesc.BuildDorisCreateTableSQL("akron", 4); got != "" {
 			t.Errorf("expected BuildDorisCreateTableSQL with key type %q to return empty string, got:\n%s", badKeyType, got)
 		}
+	}
+	if isDorisKeyEligibleType("STRUCT<a:INT>") {
+		t.Error("expected isDorisKeyEligibleType(\"STRUCT<a:INT>\") = false, got true")
 	}
 
 	// 6. Malicious DefaultValue in runtime descriptor must be rejected
@@ -1174,6 +1195,8 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 	}
 }
 
+// TestGenerateGoDoris_OptionIdentifierValidation verifies that invalid SQL identifiers,
+// disallowed key types, and unsafe SQL type or default value strings are rejected at codegen time.
 func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 	makePluginWithTable := func(tOpts *proto2typepb.TableOptions, cOpts *proto2typepb.ColumnOptions, fieldType descriptorpb.FieldDescriptorProto_Type) (*protogen.Plugin, *protogen.File) {
 		mo := &descriptorpb.MessageOptions{}
@@ -1337,6 +1360,8 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 	}
 }
 
+// TestGenerateGoDoris_CompileAndRoundTrip compiles the generated Go Doris code with protoc
+// and runs round-trip value/scan/proto conversion tests in an isolated subpackage.
 func TestGenerateGoDoris_CompileAndRoundTrip(t *testing.T) {
 	if _, err := exec.LookPath("protoc"); err != nil {
 		t.Skip("protoc not found in PATH; skipping compile-and-run test")
@@ -1848,6 +1873,8 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	}
 }
 
+// TestGenerateGoDoris_RealPlatformProtos validates Doris code and DDL generation against
+// the production Azra platform protobuf definitions when present in the workspace.
 func TestGenerateGoDoris_RealPlatformProtos(t *testing.T) {
 	if _, err := exec.LookPath("protoc"); err != nil {
 		t.Skip("protoc not found in PATH; skipping real platform proto test")
@@ -2082,6 +2109,7 @@ extend google.protobuf.FieldOptions {
 	}
 }
 
+// parseDorisDDLColumnCounts counts physical column definitions per table in a Doris SQL DDL file.
 func parseDorisDDLColumnCounts(sql string) map[string]int {
 	counts := make(map[string]int)
 	prefix := "CREATE TABLE IF NOT EXISTS internal.tenant_${TENANT_SLUG}."
@@ -2108,6 +2136,7 @@ func parseDorisDDLColumnCounts(sql string) map[string]int {
 	return counts
 }
 
+// keysOf returns all map keys as a slice for diagnostic test output.
 func keysOf(m map[string]string) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

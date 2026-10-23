@@ -38,6 +38,7 @@ type DorisTableMetaIR struct {
 	FileCacheTTLSeconds  int32
 }
 
+// isEmpty reports whether m is nil or has all zero-valued fields.
 func (m *DorisTableMetaIR) isEmpty() bool {
 	if m == nil {
 		return true
@@ -262,17 +263,20 @@ func isValidDorisDefaultValue(s string) bool {
 
 // isDorisKeyEligibleType reports whether dorisType is permitted by Apache Doris
 // in a UNIQUE KEY, DUPLICATE KEY, or DISTRIBUTED BY HASH clause.
-// Apache Doris forbids FLOAT, DOUBLE, STRING, TEXT, and ARRAY<...> as key or hash distribution columns.
+// Apache Doris forbids FLOAT, DOUBLE, STRING, TEXT, JSON, JSONB, VARIANT, HLL,
+// BITMAP, QUANTILE_STATE, ARRAY<...>, MAP<...>, and STRUCT<...> as key or hash distribution columns.
 func isDorisKeyEligibleType(dorisType string) bool {
 	dt := strings.ToUpper(strings.TrimSpace(dorisType))
 	if dt == "" {
 		return false
 	}
 	switch dt {
-	case "FLOAT", "DOUBLE", "STRING", "TEXT":
+	case "FLOAT", "DOUBLE", "STRING", "TEXT", "JSON", "JSONB", "VARIANT", "HLL", "BITMAP", "QUANTILE_STATE":
 		return false
 	}
-	return !strings.HasPrefix(dt, "ARRAY<")
+	return !strings.HasPrefix(dt, "ARRAY<") &&
+		!strings.HasPrefix(dt, "MAP<") &&
+		!strings.HasPrefix(dt, "STRUCT<")
 }
 
 // extractDorisTableMeta extracts Doris/Iceberg table metadata from a message's options.

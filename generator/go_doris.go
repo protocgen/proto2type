@@ -28,6 +28,7 @@ type dorisColumnIR struct {
 	IsUint64       bool
 }
 
+// isArray reports whether the column represents a Doris ARRAY<T> column.
 func (c *dorisColumnIR) isArray() bool {
 	return c.ArrayKind != ""
 }
@@ -121,6 +122,8 @@ func buildDorisTablesForFile(file *protogen.File, opts *Options) ([]*dorisTableI
 	return tables, nil
 }
 
+// validateDorisTableMeta validates all SQL identifiers, database scopes, and sync tiers
+// on a message's DorisTableMetaIR before code generation.
 func validateDorisTableMeta(msg *protogen.Message, meta *DorisTableMetaIR) error {
 	fullName := msg.Desc.FullName()
 	if !isValidSQLIdentifier(meta.TableName) {
@@ -1611,10 +1614,10 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\treturn false")
 	g.P("\t}")
 	g.P("\tswitch dt {")
-	g.P("\tcase \"FLOAT\", \"DOUBLE\", \"STRING\", \"TEXT\":")
+	g.P("\tcase \"FLOAT\", \"DOUBLE\", \"STRING\", \"TEXT\", \"JSON\", \"JSONB\", \"VARIANT\", \"HLL\", \"BITMAP\", \"QUANTILE_STATE\":")
 	g.P("\t\treturn false")
 	g.P("\t}")
-	g.P("\treturn !", stringsHasPrefix, "(dt, \"ARRAY<\")")
+	g.P("\treturn !", stringsHasPrefix, "(dt, \"ARRAY<\") && !", stringsHasPrefix, "(dt, \"MAP<\") && !", stringsHasPrefix, "(dt, \"STRUCT<\")")
 	g.P("}")
 	g.P()
 
@@ -1737,8 +1740,10 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\treturn \"DATE\"")
 	g.P("\tcase \"DATETIMEV2(6)\", \"DATETIMEV2(3)\", \"DATETIMEV2\":")
 	g.P("\t\treturn \"DATETIME\"")
+	g.P("\tcase \"LARGEINT\":")
+	g.P("\t\treturn \"DECIMAL(38, 0)\"")
 	g.P("\tcase \"ARRAY<LARGEINT>\":")
-	g.P("\t\treturn \"ARRAY<BIGINT>\"")
+	g.P("\t\treturn \"ARRAY<DECIMAL(38, 0)>\"")
 	g.P("\t}")
 	g.P("\tif ", stringsHasPrefix, "(dt, \"DECIMALV3(\") {")
 	g.P("\t\trest := ", stringsTrimPrefix, "(dt, \"DECIMALV3(\")")
@@ -2682,6 +2687,8 @@ type dorisInlineNode struct {
 	byName    map[string]*dorisInlineNode
 }
 
+// buildDorisInlineTree groups flattened inline_nested columns into a tree of
+// nested message nodes so ToProto and FromProto can reconstruct/read nested messages.
 func buildDorisInlineTree(cols []*dorisColumnIR) []*dorisInlineNode {
 	var roots []*dorisInlineNode
 	rootByName := make(map[string]*dorisInlineNode)
@@ -3136,6 +3143,7 @@ func emitDorisColumnFromProto(g *protogen.GeneratedFile, c *dorisColumnIR, srcVa
 	}
 }
 
+// formatGoStringSliceLiteral formats a string slice as a Go []string{...} literal or "nil" if empty.
 func formatGoStringSliceLiteral(items []string) string {
 	if len(items) == 0 {
 		return "nil"
