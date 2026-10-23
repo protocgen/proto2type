@@ -951,6 +951,13 @@ func buildComprehensiveDorisPlugin(t *testing.T) *protogen.Plugin {
 						Type:     descriptorpb.FieldDescriptorProto_TYPE_UINT32.Enum(),
 						JsonName: proto.String("retryCount"),
 					},
+					{
+						Name:     proto.String("table_name"),
+						Number:   proto.Int32(9),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("tableName"),
+					},
 				},
 				OneofDecl: []*descriptorpb.OneofDescriptorProto{
 					{Name: proto.String("result_value")},
@@ -1855,6 +1862,7 @@ message DefaultInferredAuditRecord {
     bytes raw_bytes = 8;
   }
   uint32 retry_count = 7;
+  string table_name = 9;
 }
 `
 	if err := os.WriteFile(filepath.Join(tmpPkgDir, "clinical_lakehouse.proto"), []byte(protoSrc), 0o644); err != nil {
@@ -1903,6 +1911,7 @@ message Date {
 
 import (
 	"database/sql"
+	"fmt"
 	"math"
 	"reflect"
 	"strings"
@@ -1912,6 +1921,7 @@ import (
 	date "google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"hegel.dev/go/hegel"
 )
 
 func TestDorisRoundTrip_FullAndNulls(t *testing.T) {
@@ -2125,6 +2135,16 @@ func TestDorisStringArray_ScanEdgeCases(t *testing.T) {
 			input:   "['unterminated]",
 			wantErr: true,
 		},
+		{
+			name:    "JSON string array with null element",
+			input:   "[\"a\", null, \"b\"]",
+			wantErr: true,
+		},
+		{
+			name:    "Single-quoted string array with null element",
+			input:   "['a', null, 'b']",
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -2198,6 +2218,9 @@ func TestDorisBoolAndUint64Array_WireEdgeCases(t *testing.T) {
 	if err := u64Arr.Scan("['42', '9223372036854775808', '18446744073709551615']"); err != nil || !reflect.DeepEqual([]uint64(u64Arr), wantU64) {
 		t.Fatalf("DorisUint64Array.Scan(single-quoted strings) = (%v, %v)", u64Arr, err)
 	}
+	if err := u64Arr.Scan("[42, \"9223372036854775808\", 18446744073709551615]"); err != nil || !reflect.DeepEqual([]uint64(u64Arr), wantU64) {
+		t.Fatalf("DorisUint64Array.Scan(mixed number and string) = (%v, %v)", u64Arr, err)
+	}
 	if err := u64Arr.Scan("[42, null]"); err == nil {
 		t.Fatal("expected error scanning [42, null] into DorisUint64Array, got nil")
 	}
@@ -2241,6 +2264,15 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	if tm, ok := parseDorisTimeString("2026-10-21 15:30:45.123456"); !ok || tm.Year() != 2026 {
 		t.Errorf("expected valid datetime string to parse, got (%v, %v)", tm, ok)
 	}
+	if tm, ok := parseDorisTimeString("2026-10-21 15:30:45.123456789"); !ok || tm.Nanosecond() != 123456789 {
+		t.Errorf("expected 9-digit nanosecond datetime string to parse, got (%v, %v)", tm, ok)
+	}
+	if _, _, err := scanDorisTime("not-a-valid-timestamp"); err == nil {
+		t.Error("expected scanDorisTime to return error on corrupted timestamp string")
+	}
+	if _, err := scanDorisDateString("2026-02-31"); err == nil {
+		t.Error("expected scanDorisDateString to return error on invalid calendar date")
+	}
 
 	// Verify secondary table in the same Go package compiles and round-trips
 	audit := &AuditEventRecord{
@@ -2265,10 +2297,11 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 		ActorId:    "dr-smith",
 		Meta:       &AuditMetadata{SourceIp: "10.0.0.1"},
 		RetryCount: 3,
+		TableName:  "patients",
 	}
 	defVals := DefaultInferredAuditRecordProtoValues(emptyDef)
-	if len(defVals) != 8 {
-		t.Fatalf("len(DefaultInferredAuditRecordProtoValues) = %d, want 8", len(defVals))
+	if len(defVals) != 9 {
+		t.Fatalf("len(DefaultInferredAuditRecordProtoValues) = %d, want 9", len(defVals))
 	}
 	if defVals[0] != "" {
 		t.Fatalf("expected unset optional NOT NULL record_id to emit empty string, got %#v", defVals[0])
@@ -2280,7 +2313,7 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanDefaultInferredAuditRecordProto failed: %v", err)
 	}
-	if gotDef.GetActorId() != "dr-smith" || gotDef.GetMeta().GetSourceIp() != "10.0.0.1" || gotDef.GetRetryCount() != 3 {
+	if gotDef.GetActorId() != "dr-smith" || gotDef.GetMeta().GetSourceIp() != "10.0.0.1" || gotDef.GetRetryCount() != 3 || gotDef.GetTableName() != "patients" {
 		t.Fatalf("DefaultInferredAuditRecord round-trip mismatch: %+v", gotDef)
 	}
 	if gotDef.RecordId == nil || *gotDef.RecordId != "" || gotDef.SeqHash == nil || *gotDef.SeqHash != 0 {
@@ -2348,6 +2381,127 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	if _, err := ScanDefaultInferredAuditRecordProto(NewDorisValueScanner(badUint32Vals)); err == nil {
 		t.Fatal("expected ScanDefaultInferredAuditRecordProto to reject negative uint32 retry_count")
 	}
+}
+
+func TestProperty_GeneratedDorisRuntime_ArraysDatesAndProtoRoundTrip(t *testing.T) {
+	// 1. Property: DorisStringArray, DorisInt32Array, DorisInt64Array, DorisUint64Array,
+	//    DorisFloat32Array, DorisFloat64Array, and DorisBoolArray Value() <-> Scan() round-trip.
+	hegel.Test(t, func(ht *hegel.T) {
+		n := hegel.Draw(ht, hegel.Integers(0, 6))
+		strs := make(DorisStringArray, n)
+		var sqParts []string
+		for i := 0; i < n; i++ {
+			s := hegel.Draw(ht, hegel.Text().MaxSize(24))
+			strs[i] = s
+			escaped := strings.ReplaceAll(s, "\\", "\\\\")
+			escaped = strings.ReplaceAll(escaped, "'", "\\'")
+			escaped = strings.ReplaceAll(escaped, "\n", "\\n")
+			escaped = strings.ReplaceAll(escaped, "\r", "\\r")
+			escaped = strings.ReplaceAll(escaped, "\t", "\\t")
+			sqParts = append(sqParts, "'"+escaped+"'")
+		}
+		v, err := strs.Value()
+		if err != nil {
+			ht.Fatalf("DorisStringArray.Value failed: %v", err)
+		}
+		var gotJSON DorisStringArray
+		if err := gotJSON.Scan(v); err != nil {
+			ht.Fatalf("DorisStringArray.Scan(JSON) failed: %v", err)
+		}
+		if !reflect.DeepEqual([]string(strs), []string(gotJSON)) {
+			ht.Fatalf("DorisStringArray JSON round-trip mismatch: %#v vs %#v", strs, gotJSON)
+		}
+		sqLiteral := "[" + strings.Join(sqParts, ", ") + "]"
+		var gotSQ DorisStringArray
+		if err := gotSQ.Scan(sqLiteral); err != nil {
+			ht.Fatalf("DorisStringArray.Scan(single-quoted %q) failed: %v", sqLiteral, err)
+		}
+		if !reflect.DeepEqual([]string(strs), []string(gotSQ)) {
+			ht.Fatalf("DorisStringArray single-quoted round-trip mismatch: %#v vs %#v", strs, gotSQ)
+		}
+
+		u64s := make(DorisUint64Array, n)
+		for i := 0; i < n; i++ {
+			lo := uint64(hegel.Draw(ht, hegel.Integers(0, math.MaxInt32)))
+			if hegel.Draw(ht, hegel.Booleans()) {
+				u64s[i] = uint64(math.MaxInt64) + 1 + lo
+			} else {
+				u64s[i] = lo
+			}
+		}
+		uv, err := u64s.Value()
+		if err != nil {
+			ht.Fatalf("DorisUint64Array.Value failed: %v", err)
+		}
+		var gotU64 DorisUint64Array
+		if err := gotU64.Scan(uv); err != nil || !reflect.DeepEqual([]uint64(u64s), []uint64(gotU64)) {
+			ht.Fatalf("DorisUint64Array round-trip mismatch: %v vs %v (err=%v)", u64s, gotU64, err)
+		}
+	})
+
+	// 2. Property: formatDorisDateParts <-> parseDorisDateParts bijection on valid calendar dates.
+	hegel.Test(t, func(ht *hegel.T) {
+		year := int32(hegel.Draw(ht, hegel.Integers(2, 9999)))
+		month := int32(hegel.Draw(ht, hegel.Integers(1, 12)))
+		day := int32(hegel.Draw(ht, hegel.Integers(1, 31)))
+
+		formatted := formatDorisDateParts(year, month, day)
+		ref := time.Date(int(year), time.Month(month), int(day), 0, 0, 0, 0, time.UTC)
+		isValidCalendar := ref.Year() == int(year) && int32(ref.Month()) == month && int32(ref.Day()) == day
+
+		if !isValidCalendar {
+			if formatted != "" {
+				ht.Fatalf("expected invalid calendar date %04d-%02d-%02d to format as empty, got %q", year, month, day, formatted)
+			}
+			return
+		}
+		gy, gm, gd, ok := parseDorisDateParts(formatted)
+		if !ok || gy != year || gm != month || gd != day {
+			ht.Fatalf("date round-trip failed for %04d-%02d-%02d -> %q -> (%d,%d,%d,%v)", year, month, day, formatted, gy, gm, gd, ok)
+		}
+	})
+
+	// 3. Property: Full Proto <-> Doris Row (FromProto -> Values -> ScanRow -> ToProto) round-trip.
+	hegel.Test(t, func(ht *hegel.T) {
+		recID := fmt.Sprintf("rec-%d", hegel.Draw(ht, hegel.Integers(1, 100000)))
+		seqH := uint64(hegel.Draw(ht, hegel.Integers(0, 100000)))
+		if hegel.Draw(ht, hegel.Booleans()) {
+			seqH += uint64(math.MaxInt64)
+		}
+		orig := &DefaultInferredAuditRecord{
+			RecordId:   &recID,
+			SeqHash:    &seqH,
+			ActorId:    hegel.Draw(ht, hegel.Text().MaxSize(20)),
+			RetryCount: uint32(hegel.Draw(ht, hegel.Integers(0, 1000))),
+			TableName:  hegel.Draw(ht, hegel.Text().MaxSize(20)),
+		}
+		if srcIP := hegel.Draw(ht, hegel.Text().MaxSize(16)); srcIP != "" {
+			orig.Meta = &AuditMetadata{SourceIp: srcIP}
+		}
+		switch hegel.Draw(ht, hegel.Integers(0, 3)) {
+		case 1:
+			orig.ResultValue = &DefaultInferredAuditRecord_NumericValue{
+				NumericValue: float64(hegel.Draw(ht, hegel.Integers(-1000, 1000))) / 10.0,
+			}
+		case 2:
+			orig.ResultValue = &DefaultInferredAuditRecord_TextValue{
+				TextValue: hegel.Draw(ht, hegel.Text().MaxSize(20)),
+			}
+		case 3:
+			orig.ResultValue = &DefaultInferredAuditRecord_RawBytes{
+				RawBytes: []byte(hegel.Draw(ht, hegel.Text().MaxSize(20))),
+			}
+		}
+
+		vals := DefaultInferredAuditRecordProtoValues(orig)
+		got, err := ScanDefaultInferredAuditRecordProto(NewDorisValueScanner(vals))
+		if err != nil {
+			ht.Fatalf("ScanDefaultInferredAuditRecordProto failed: %v", err)
+		}
+		if !proto.Equal(orig, got) {
+			ht.Fatalf("property round-trip mismatch:\norig: %+v\ngot:  %+v", orig, got)
+		}
+	})
 }
 `
 	if err := os.WriteFile(filepath.Join(tmpPkgDir, "roundtrip_test.go"), []byte(roundTripTestSrc), 0o644); err != nil {

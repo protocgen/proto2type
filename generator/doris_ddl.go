@@ -413,6 +413,8 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 			} else if upperType == "DOUBLE" && !c.IsUniqueKey && c.ColumnName == "additive_offset" {
 				line += ` DEFAULT "0.0"`
 			}
+		} else if c.DefaultValue != "" {
+			line += fmt.Sprintf(" DEFAULT %q", c.DefaultValue)
 		}
 		bodyLines = append(bodyLines, line)
 	}
@@ -563,6 +565,14 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 	}
 	dupKeys := dedupDorisColumnList(t.DuplicateKeyColumns)
 	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys, t.SyncTier != "ICEBERG_ONLY")
+	if len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 &&
+		t.SyncTier != "ICEBERG_ONLY" &&
+		(t.DatabaseScope != "GLOBAL_TERMINOLOGY" || t.SyncTier != "RELEASE_PARTITIONED") {
+		cp := make([]DorisColumnDescriptor, len(orderedCols))
+		copy(cp, orderedCols)
+		cp[0].Nullable = false
+		orderedCols = cp
+	}
 	bloomCols := dedupDorisColumnList(t.BloomFilterColumns)
 
 	var fullTableName string
@@ -635,7 +645,7 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 		for _, bf := range bloomCols {
 			props = append(props, fmt.Sprintf(`    "write.parquet.bloom-filter-enabled.column.%s" = "true"`, bf))
 		}
-	} else if (t.DatabaseScope == "TENANT" || t.DatabaseScope == "") && len(t.Columns) > 0 && t.Columns[0].ColumnName == "patient_id" {
+	} else if (t.DatabaseScope == "TENANT" || t.DatabaseScope == "") && ((len(t.Columns) > 0 && t.Columns[0].ColumnName == "patient_id") || (len(orderedCols) > 0 && orderedCols[0].ColumnName == "patient_id")) {
 		props = append(props, `    "write.parquet.bloom-filter-enabled.column.patient_id" = "true"`)
 	}
 
