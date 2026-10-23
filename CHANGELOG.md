@@ -7,13 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-23
+
 ### Added
 
 - **Apache Doris 4.x & Apache Iceberg Lakehouse backend (`backend=doris`)**:
-  - Generates Go `*Doris` storage structs with `db:""` and `doris:""` tags, `TableName()`, `Columns()`, `Values()`, `ScanRow()`, `ToProto()`/`FromProto()`, `Scan<Name>Proto()`, `<Name>ProtoValues()`, `<Name>DorisTable()`, `BuildDorisCreateTableSQL`, and `BuildIcebergCreateTableSQL` helpers.
+  - Generates Go `*Doris` storage structs with `db:""` and `doris:""` tags, `TableName()`, `Columns()`, `Values()`, `ScanRow()`, `ToProto()`/`FromProto()`, `Scan<Name>Proto()`, `<Name>ProtoValues()`, `<Name>DorisTable()`, `BuildDorisCreateTableSQL`, and `BuildIcebergCreateTableSQL` helpers (#216, #217, #218).
   - Supports `doris_mode=go` (default), `doris_mode=ddl` (`<prefix>_doris.sql` and `<prefix>_iceberg.sql`), and `doris_mode=both`.
   - Added `(proto2type.message).table` (`TableOptions`) and `(proto2type.field).column` (`ColumnOptions`) proto extensions, plus wire-compatible decoding for `azra.common.v1.table_meta` (`50201`) and `column_meta` (`50200`).
-  - Supports `google.type.Date` (`YYYY-MM-DD`), enum prefix stripping (`strip_enum_prefix`), and multi-level `inline_nested` message flattening.
+  - Supports `google.type.Date` (`YYYY-MM-DD`), enum prefix stripping (`strip_enum_prefix`), real `proto3` `oneof` variants, and multi-level `inline_nested` message flattening with collision-free Go field naming.
+- **PostgreSQL FHIR search index extraction generator (`backend=postgres,postgres_mode=search_index`)**:
+  - Generates HAPI-style FHIR SearchParameter index extraction code for PostgreSQL, supporting choice types, repeated `CodeableConcept` fields, and `Period` date ranges (#210, #212).
+- **Multi-language service/RPC interface generation**: Added service and RPC interface generation across supported language backends (#196, #197, #198).
+- **Rust PostgreSQL storage backend**: Added `backend=postgres` support for Rust (#195).
+- **Python cross-file imports**: Added cross-file Python imports for referenced protobuf message and enum types (#194).
 
 ## [0.8.3] - 2026-08-27
 
