@@ -74,6 +74,23 @@ type DorisColumnMetaIR struct {
 	DefaultValue    string
 }
 
+// isEmpty reports whether m is nil or has all zero-valued fields.
+func (m *DorisColumnMetaIR) isEmpty() bool {
+	if m == nil {
+		return true
+	}
+	return m.DorisType == "" &&
+		m.IcebergType == "" &&
+		!m.InvertedIndex &&
+		!m.IsUniqueKey &&
+		!m.IsSequenceCol &&
+		!m.InlineNested &&
+		!m.IsPartitionKey &&
+		!m.StripEnumPrefix &&
+		m.ColumnName == "" &&
+		m.DefaultValue == ""
+}
+
 // normalizeDatabaseScope normalizes raw scope strings or enum names to canonical
 // short scope names ("TENANT", "GLOBAL_TERMINOLOGY", "GLOBAL_TERMINOLOGY_RAG", "GLOBAL_TELEMETRY").
 func normalizeDatabaseScope(scope string) string {
@@ -305,10 +322,9 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 			DuplicateKeyColumns:  append([]string(nil), t.GetDuplicateKeyColumns()...),
 			FileCacheTTLSeconds:  t.GetFileCacheTtlSeconds(),
 		}
-		if out.isEmpty() {
-			return nil
+		if !out.isEmpty() {
+			return out
 		}
-		return out
 	}
 
 	// 2. Inspect wire bytes on MessageOptions for extension 50201 (or fallback 1307.2).
@@ -516,8 +532,8 @@ func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
 		case 13: // int32 file_cache_ttl_seconds = 13
 			if typ == protowire.VarintType {
 				if v, m := protowire.ConsumeVarint(b); m >= 0 {
-					if v <= math.MaxInt32 {
-						dst.FileCacheTTLSeconds = int32(v)
+					if sv := int64(v); sv >= math.MinInt32 && sv <= math.MaxInt32 {
+						dst.FileCacheTTLSeconds = int32(sv)
 					}
 					b = b[m:]
 					continue
@@ -544,7 +560,7 @@ func extractDorisColumnMeta(field *protogen.Field) *DorisColumnMetaIR {
 	// 1. Check typed (proto2type.field).column extension first.
 	if fo := getFieldOptions(field); fo.GetColumn() != nil {
 		c := fo.GetColumn()
-		return &DorisColumnMetaIR{
+		out := &DorisColumnMetaIR{
 			DorisType:       c.GetDorisType(),
 			IcebergType:     c.GetIcebergType(),
 			InvertedIndex:   c.GetInvertedIndex(),
@@ -555,6 +571,9 @@ func extractDorisColumnMeta(field *protogen.Field) *DorisColumnMetaIR {
 			StripEnumPrefix: c.GetStripEnumPrefix(),
 			ColumnName:      c.GetColumnName(),
 			DefaultValue:    c.GetDefaultValue(),
+		}
+		if !out.isEmpty() {
+			return out
 		}
 	}
 
@@ -635,6 +654,9 @@ func parseDorisColumnMetaFromOptionsWire(raw []byte) *DorisColumnMetaIR {
 			break
 		}
 		b = b[m:]
+	}
+	if out.isEmpty() {
+		return nil
 	}
 	return out
 }
