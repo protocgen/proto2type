@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Apache Doris 4.x & Apache Iceberg Lakehouse backend (`backend=doris`)**:
+  - Generates Go `*Doris` storage structs with `db:""` and `doris:""` tags, `TableName()`, `Columns()`, `Values()`, `ScanRow()`, `ToProto()`/`FromProto()`, `Scan<Name>Proto()`, `<Name>ProtoValues()`, `<Name>DorisTable()`, `BuildDorisCreateTableSQL`, and `BuildIcebergCreateTableSQL` helpers.
+  - Supports `doris_mode=go` (default), `doris_mode=ddl` (`<prefix>_doris.sql` and `<prefix>_iceberg.sql`), and `doris_mode=both`.
+  - Added `(proto2type.message).table` (`TableOptions`) and `(proto2type.field).column` (`ColumnOptions`) proto extensions, plus wire-compatible decoding for `azra.common.v1.table_meta` (`50201`) and `column_meta` (`50200`).
+  - Supports `google.type.Date` (`YYYY-MM-DD`), enum prefix stripping (`strip_enum_prefix`), and multi-level `inline_nested` message flattening.
+
 ## [0.8.3] - 2026-08-27
 
 ### Added

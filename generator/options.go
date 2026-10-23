@@ -19,6 +19,13 @@ type Options struct {
 	// e.g. "fhir/r4/search-parameters.json"
 	PostgresSearchParams string
 
+	// DorisMode controls the Doris/Iceberg lakehouse backend behavior:
+	//   ""     (default) — Go storage structs + SQL row scanners
+	//   "go"             — Go storage structs + SQL row scanners
+	//   "ddl"            — Doris & Iceberg SQL DDL (<prefix>_doris.sql, <prefix>_iceberg.sql)
+	//   "both"           — both Go storage structs + SQL scanners and SQL DDL
+	DorisMode string
+
 	// Domain controls whether domain types and proto converters are generated.
 	Domain bool
 

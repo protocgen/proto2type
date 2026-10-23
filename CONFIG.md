@@ -103,11 +103,27 @@ Storage backend to generate structs for.
 
 | Default | _(none)_ — no storage types generated |
 |---|---|
-| Values | `firestore`, `mongo`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc` |
+| Values | `firestore`, `mongo`, `postgres`, `doris`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc` |
 
-When set, generates a `<Name><Backend>` struct (e.g. `UserFirestore`, `UserMongo`) with backend-specific struct tags and `ToProto()` / `FromProto()` converters.
+When set, generates a `<Name><Backend>` struct (e.g. `UserFirestore`, `UserMongo`, `PatientDoris`) with backend-specific struct tags and `ToProto()` / `FromProto()` converters.
 
 Can be combined with `domain=true` (default) to generate both domain and storage types, or used with `domain=false` to generate storage types only.
+
+### `doris_mode`
+
+Controls the Apache Doris 4.x & Apache Iceberg lakehouse backend output when `backend=doris`.
+
+| Default | `""` (`go`) |
+|---|---|
+| Values | `""` / `go` (Go storage structs + SQL scanners), `ddl` (Doris & Iceberg SQL DDL), `both` (both Go and SQL DDL) |
+
+### `postgres_mode`
+
+Controls the PostgreSQL backend behavior when `backend=postgres`.
+
+| Default | `""` (struct-per-message with `db:""` tags) |
+|---|---|
+| Values | `""`, `tables`, `search_index` (HAPI-style FHIR search index extraction functions; requires `postgres_search_params`) |
 
 ### `domain`
 
@@ -187,12 +203,16 @@ Behavior per language:
 | Option | Default | Description |
 |---|---|---|
 | `lang` | `go` | target language: go, python, kotlin, typescript |
-| `backend` | _(none)_ | storage backend: firestore, mongo, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc |
+| `backend` | _(none)_ | storage backend: firestore, mongo, postgres, doris, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc |
+| `doris_mode` | _(none)_ | doris backend mode: '' / 'go' (Go storage structs + SQL scanners), 'ddl' (Doris & Iceberg SQL DDL), 'both' |
+| `postgres_mode` | _(none)_ | postgres backend mode: '' (struct), 'search_index' (HAPI-style FHIR search index extraction) |
+| `postgres_search_params` | _(none)_ | path to FHIR SearchParameter JSON bundle (required for postgres_mode=search_index) |
 | `domain` | `true` | generate domain types + proto converters |
 | `output_file` | _(none)_ | override output filename |
 | `enum_as_string` | `false` | store enums as string names |
 | `omitempty_default` | `true` | default omitempty for optional fields |
 | `go_package` | _(none)_ | override Go package for generated types (import path;package_name) |
+| `go_constructor` | `true` | generate NewXxx() constructors for types with required fields |
 | `rust_exhaustive` | `false` | generate exhaustive Rust structs (omit #[non_exhaustive]) |
 | `rust_buffa_module` | _(none)_ | Rust module path for buffa proto types (required for backend=buffa) |
 | `validate` | _(none)_ | validation strategy: true (default per lang), validator (Rust), native (Kotlin) |
@@ -372,7 +392,54 @@ message InternalRpcRequest {
 }
 ```
 
+### `(proto2type.message).table` & `(proto2type.field).column`
+
+Defines Apache Doris 4.x and Apache Iceberg lakehouse table and column metadata on messages and fields (also wire-compatible with `azra.common.v1.table_meta` `50201` and `azra.common.v1.column_meta` `50200`).
+
+```protobuf
+message PatientRecord {
+  option (proto2type.message).table = {
+    table_name: "patients"
+    database_scope: "TENANT"
+    sync_tier: "WHOLE_TABLE"
+    unique_key_columns: ["patient_id"]
+    colocate_group: "azra_patient_group"
+    sequence_col: "publication_generation"
+    inverted_index_columns: ["mrn"]
+  };
+
+  string patient_id = 1 [(proto2type.field).column = {
+    doris_type: "VARCHAR(64)"
+    iceberg_type: "STRING"
+    is_unique_key: true
+  }];
+  string mrn = 2 [(proto2type.field).column = {
+    doris_type: "VARCHAR(64)"
+    iceberg_type: "STRING"
+    inverted_index: true
+  }];
+  int64 publication_generation = 3 [(proto2type.field).column = {
+    doris_type: "BIGINT"
+    iceberg_type: "LONG"
+    is_sequence_col: true
+  }];
+}
+```
+
 ## Backend Reference
+
+### Apache Doris 4.x & Iceberg (`backend=doris`)
+
+| Feature | Support |
+|---|---|
+| Language | Go (`lang=go`) + SQL DDL (`doris_mode=ddl` or `both`) |
+| Struct tags | `db:"col"` and `doris:"col[,pk]"` |
+| Struct suffix | `Doris` (e.g. `PatientRecordDoris`) |
+| File suffixes | `_doris.type.go` (Go), `_doris.sql` (Doris 4.x DDL), `_iceberg.sql` (Iceberg DDL) |
+| Row scanning | `TableName()`, `Columns()`, `Values()`, `ScanRow(scanner)`, `Scan<Name>Proto(scanner)`, `<Name>ProtoValues(m)` |
+| DDL helpers | `<Name>DorisTable()`, `DorisTableDescriptor.BuildDorisCreateTableSQL(tenantSlug, buckets)`, `BuildIcebergCreateTableSQL(tenantSlug)` |
+| Inline nested | `inline_nested = true` recursively flattens child message columns |
+| Converters | `ToProto()` / `FromProto()` |
 
 ### Firestore
 

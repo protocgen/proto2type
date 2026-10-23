@@ -49,9 +49,10 @@ func main() {
 	opts := &generator.Options{}
 
 	flags.StringVar(&opts.Lang, "lang", "go", "target language: go, python, kotlin, typescript")
-	flags.StringVar(&opts.Backend, "backend", "", "storage backend: firestore, mongo, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc")
+	flags.StringVar(&opts.Backend, "backend", "", "storage backend: firestore, mongo, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc, postgres, doris")
 	flags.StringVar(&opts.PostgresMode, "postgres_mode", "", "postgres backend mode: '' (struct), 'search_index' (HAPI-style FHIR search index extraction)")
 	flags.StringVar(&opts.PostgresSearchParams, "postgres_search_params", "", "path to FHIR SearchParameter JSON bundle (required for postgres_mode=search_index)")
+	flags.StringVar(&opts.DorisMode, "doris_mode", "", "doris backend mode: '' (go storage structs + SQL scanners), 'ddl' (Doris & Iceberg SQL DDL), 'both' (both Go and SQL DDL)")
 	flags.BoolVar(&opts.Domain, "domain", true, "generate domain types + proto converters")
 	flags.StringVar(&opts.OutputFile, "output_file", "", "override output filename")
 	flags.BoolVar(&opts.EnumAsString, "enum_as_string", false, "store enums as string names")
@@ -116,6 +117,14 @@ func main() {
 			}
 			if opts.PostgresMode == "search_index" && opts.PostgresSearchParams == "" {
 				return fmt.Errorf("postgres_mode=search_index requires postgres_search_params to be specified")
+			}
+		}
+
+		if opts.DorisMode != "" {
+			switch opts.DorisMode {
+			case "go", "ddl", "both":
+			default:
+				return fmt.Errorf("unknown doris_mode: %q (must be '', 'go', 'ddl', or 'both')", opts.DorisMode)
 			}
 		}
 

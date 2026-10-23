@@ -25,13 +25,16 @@ Then run `buf generate`.
 |---|---|---|
 | `lang` | `go` | Target language. Must be set to `go`. |
 | `domain` | `true` | Generate domain types (`User`) and proto converters (`ToProto`/`FromProto`). |
-| `backend` | _none_ | Generate storage types. See [Storage Backends](#storage-backends) below. |
+| `backend` | _none_ | Generate storage types (`firestore`, `mongo`, `postgres`, `doris`). See [Storage Backends](#storage-backends) below. |
+| `doris_mode` | `""` (`go`) | Doris backend mode: `""`/`go` (Go structs + scanners), `ddl` (SQL DDL), `both`. |
+| `postgres_mode` | `""` | Postgres backend mode: `""` (structs), `search_index` (FHIR search index extraction). |
 | `validate` | `""` | `true` (uses `protovalidate` delegation) or `native` (pure Go checks). |
 | `enum_as_string` | `false` | If `true`, enums are mapped to `string`. If `false`, mapped to `int32`. |
 | `omitempty_default`| `true` | If `true`, adds `omitempty` to optional/repeated/map/message json tags. |
 | `go_package` | _none_ | Override Go package for generated types (e.g. `path/to/pkg;pkgname`). |
+| `go_constructor` | `true` | Generate `NewXxx()` constructors for types with required fields. |
 
-> **Note**: For a full list of general options and proto annotations, see [CONFIG.md](CONFIG.md).
+> **Note**: For a full list of general options and proto annotations, see [CONFIG.md](../CONFIG.md).
 
 ## Generated Code Walkthrough
 
@@ -278,16 +281,17 @@ Well-Known Types are natively mapped into idiomatic Go types for better ergonomi
 | `google.protobuf.StringValue` | `*string` |
 | `google.protobuf.Int32Value` | `*int32` |
 | `google.protobuf.BoolValue` | `*bool` |
+| `google.type.Date` | `*Date` (domain) / `string` `"YYYY-MM-DD"` (Doris storage) |
 
 ## Storage Backends
 
-Setting `backend=firestore` or `backend=mongo` generates a secondary struct (e.g. `UserFirestore`) that is fully customized for the selected datastore, including:
-- Specific struct tags (e.g. `firestore:"email"` or `bson:"email"`).
-- Flattened nested message structures (via `bson:",inline"`).
-- Omitted Document ID fields (which are handled externally by firestore paths or MongoDB `_id`).
-- Special timestamp annotations (`serverTimestamp`).
+Setting `backend=firestore`, `backend=mongo`, `backend=postgres`, or `backend=doris` generates a secondary storage struct (e.g. `UserFirestore`, `UserMongo`, `PatientRecordDoris`) customized for the selected datastore:
+- **Firestore / MongoDB**: Specific struct tags (`firestore:"email"` or `bson:"email"`), flattened nested messages (`bson:",inline"`), omitted Document IDs, and `serverTimestamp` annotations.
+- **Apache Doris 4.x & Iceberg (`backend=doris`)**:
+  - Generates `<name>_doris.type.go` with `db:""` and `doris:""` tags, `TableName()`, `Columns()`, `Values()`, `ScanRow(scanner)`, `Scan<Name>Proto(scanner)`, `<Name>ProtoValues(m)`, `ToProto()`/`FromProto()`, `<Name>DorisTable()`, and runtime DDL helpers (`BuildDorisCreateTableSQL`, `BuildIcebergCreateTableSQL`).
+  - With `doris_mode=ddl` or `doris_mode=both`, also emits `<name>_doris.sql` (Doris 4.x `UNIQUE KEY` Merge-on-Write / `DUPLICATE KEY` DDL) and `<name>_iceberg.sql` (Apache Iceberg DDL).
 
-See [CONFIG.md](CONFIG.md) for more details on backend options.
+See [CONFIG.md](../CONFIG.md) for more details on backend options.
 
 ## Known Limitations
 
