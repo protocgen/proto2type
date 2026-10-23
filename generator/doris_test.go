@@ -951,6 +951,13 @@ func buildComprehensiveDorisPlugin(t *testing.T) *protogen.Plugin {
 						Type:     descriptorpb.FieldDescriptorProto_TYPE_UINT32.Enum(),
 						JsonName: proto.String("retryCount"),
 					},
+					{
+						Name:     proto.String("table_name"),
+						Number:   proto.Int32(9),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("tableName"),
+					},
 				},
 				OneofDecl: []*descriptorpb.OneofDescriptorProto{
 					{Name: proto.String("result_value")},
@@ -1855,6 +1862,7 @@ message DefaultInferredAuditRecord {
     bytes raw_bytes = 8;
   }
   uint32 retry_count = 7;
+  string table_name = 9;
 }
 `
 	if err := os.WriteFile(filepath.Join(tmpPkgDir, "clinical_lakehouse.proto"), []byte(protoSrc), 0o644); err != nil {
@@ -2265,10 +2273,11 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 		ActorId:    "dr-smith",
 		Meta:       &AuditMetadata{SourceIp: "10.0.0.1"},
 		RetryCount: 3,
+		TableName:  "patients",
 	}
 	defVals := DefaultInferredAuditRecordProtoValues(emptyDef)
-	if len(defVals) != 8 {
-		t.Fatalf("len(DefaultInferredAuditRecordProtoValues) = %d, want 8", len(defVals))
+	if len(defVals) != 9 {
+		t.Fatalf("len(DefaultInferredAuditRecordProtoValues) = %d, want 9", len(defVals))
 	}
 	if defVals[0] != "" {
 		t.Fatalf("expected unset optional NOT NULL record_id to emit empty string, got %#v", defVals[0])
@@ -2280,7 +2289,7 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanDefaultInferredAuditRecordProto failed: %v", err)
 	}
-	if gotDef.GetActorId() != "dr-smith" || gotDef.GetMeta().GetSourceIp() != "10.0.0.1" || gotDef.GetRetryCount() != 3 {
+	if gotDef.GetActorId() != "dr-smith" || gotDef.GetMeta().GetSourceIp() != "10.0.0.1" || gotDef.GetRetryCount() != 3 || gotDef.GetTableName() != "patients" {
 		t.Fatalf("DefaultInferredAuditRecord round-trip mismatch: %+v", gotDef)
 	}
 	if gotDef.RecordId == nil || *gotDef.RecordId != "" || gotDef.SeqHash == nil || *gotDef.SeqHash != 0 {

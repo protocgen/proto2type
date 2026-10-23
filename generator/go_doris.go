@@ -230,7 +230,17 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 		rootGoNames[toPascalCase(string(f.Desc.Name()))] = true
 	}
 
-	usedGoNames := make(map[string]bool)
+	// Pre-seed usedGoNames with the reserved method names on <Msg>Doris so fields
+	// like table_name, columns, values, or descriptor never collide with methods.
+	usedGoNames := map[string]bool{
+		"TableName":  true,
+		"Columns":    true,
+		"Values":     true,
+		"ScanRow":    true,
+		"ToProto":    true,
+		"FromProto":  true,
+		"Descriptor": true,
+	}
 	usedColNames := make(map[string]bool)
 	var cols []*dorisColumnIR
 
@@ -550,6 +560,9 @@ func buildDorisColumnIR(
 	}
 	if usedGoNames[goFieldName] {
 		goFieldName = toPascalCase(colName)
+	}
+	for usedGoNames[goFieldName] {
+		goFieldName += "Column"
 	}
 	usedGoNames[goFieldName] = true
 
