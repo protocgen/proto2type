@@ -890,7 +890,7 @@ func buildComprehensiveDorisPlugin(t *testing.T) *protogen.Plugin {
 						Label:          descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
 						Type:           descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
 						Proto3Optional: proto.Bool(true),
-						OneofIndex:     proto.Int32(0),
+						OneofIndex:     proto.Int32(1),
 						JsonName:       proto.String("recordId"),
 						Options:        colOpt(DorisColumnMetaIR{IsUniqueKey: true}),
 					},
@@ -900,7 +900,7 @@ func buildComprehensiveDorisPlugin(t *testing.T) *protogen.Plugin {
 						Label:          descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
 						Type:           descriptorpb.FieldDescriptorProto_TYPE_UINT64.Enum(),
 						Proto3Optional: proto.Bool(true),
-						OneofIndex:     proto.Int32(1),
+						OneofIndex:     proto.Int32(2),
 						JsonName:       proto.String("seqHash"),
 						Options:        colOpt(DorisColumnMetaIR{IsSequenceCol: true}),
 					},
@@ -920,8 +920,32 @@ func buildComprehensiveDorisPlugin(t *testing.T) *protogen.Plugin {
 						JsonName: proto.String("meta"),
 						Options:  colOpt(DorisColumnMetaIR{InlineNested: true}),
 					},
+					{
+						Name:       proto.String("numeric_value"),
+						Number:     proto.Int32(5),
+						Label:      descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:       descriptorpb.FieldDescriptorProto_TYPE_DOUBLE.Enum(),
+						OneofIndex: proto.Int32(0),
+						JsonName:   proto.String("numericValue"),
+					},
+					{
+						Name:       proto.String("text_value"),
+						Number:     proto.Int32(6),
+						Label:      descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:       descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						OneofIndex: proto.Int32(0),
+						JsonName:   proto.String("textValue"),
+					},
+					{
+						Name:     proto.String("retry_count"),
+						Number:   proto.Int32(7),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_UINT32.Enum(),
+						JsonName: proto.String("retryCount"),
+					},
 				},
 				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("result_value")},
 					{Name: proto.String("_record_id")},
 					{Name: proto.String("_seq_hash")},
 				},
@@ -1228,6 +1252,45 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 	payloadIdx := strings.Index(reorderedSQL, "payload TEXT")
 	if eventIdx < 0 || payloadIdx < 0 || eventIdx > payloadIdx {
 		t.Errorf("expected BuildDorisCreateTableSQL to reorder key column event_id before payload:\n%s", reorderedSQL)
+	}
+	reorderedIcebergSQL := unsortedDesc.BuildIcebergCreateTableSQL("akron")
+	iceEventIdx := strings.Index(reorderedIcebergSQL, "event_id VARCHAR(64) NOT NULL")
+	icePayloadIdx := strings.Index(reorderedIcebergSQL, "payload TEXT")
+	if iceEventIdx < 0 || icePayloadIdx < 0 || iceEventIdx > icePayloadIdx {
+		t.Errorf("expected BuildIcebergCreateTableSQL to reorder key column event_id before payload:\n%s", reorderedIcebergSQL)
+	}
+
+	// 4b. Deduplication of UniqueKeyColumns, PartitionByColumns, NgramBfColumns, and BloomFilterColumns
+	dupListsDesc := DorisTableDescriptor{
+		TableName:          "events",
+		DatabaseScope:      "TENANT",
+		SyncTier:           "MONTHLY_PARTITIONED",
+		UniqueKeyColumns:   []string{"event_id", "event_id"},
+		PartitionByColumns: []string{"event_month", "event_month"},
+		NgramBfColumns:     []string{"payload", "payload"},
+		BloomFilterColumns: []string{"event_id", "event_id"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "event_id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+			{ColumnName: "event_month", DorisType: "DATEV2", IsPartitionKey: true},
+			{ColumnName: "payload", DorisType: "TEXT", Nullable: true},
+		},
+	}
+	dedupDorisSQL := dupListsDesc.BuildDorisCreateTableSQL("akron", 4)
+	if !strings.Contains(dedupDorisSQL, "UNIQUE KEY(event_id)") {
+		t.Errorf("expected deduplicated UNIQUE KEY(event_id), got:\n%s", dedupDorisSQL)
+	}
+	if strings.Count(dedupDorisSQL, "idx_ngram_events_payload") != 1 {
+		t.Errorf("expected single idx_ngram_events_payload index, got:\n%s", dedupDorisSQL)
+	}
+	if !strings.Contains(dedupDorisSQL, `"bloom_filter_columns" = "event_id"`) {
+		t.Errorf("expected deduplicated bloom_filter_columns, got:\n%s", dedupDorisSQL)
+	}
+	dedupIcebergSQL := dupListsDesc.BuildIcebergCreateTableSQL("akron")
+	if !strings.Contains(dedupIcebergSQL, "PARTITION BY LIST (event_month) ()") {
+		t.Errorf("expected deduplicated PARTITION BY LIST (event_month), got:\n%s", dedupIcebergSQL)
+	}
+	if strings.Count(dedupIcebergSQL, `"write.parquet.bloom-filter-enabled.column.event_id" = "true"`) != 1 {
+		t.Errorf("expected single bloom-filter-enabled property for event_id, got:\n%s", dedupIcebergSQL)
 	}
 
 	// 5. Disallowed Doris key types must be rejected in BuildDorisCreateTableSQL (fallback, explicit UK/DK, and DistributedByColumn) and isDorisKeyEligibleType
@@ -1666,6 +1729,11 @@ message DefaultInferredAuditRecord {
   optional uint64 seq_hash = 2;
   string actor_id = 3;
   AuditMetadata meta = 4;
+  oneof result_value {
+    double numeric_value = 5;
+    string text_value = 6;
+  }
+  uint32 retry_count = 7;
 }
 `
 	if err := os.WriteFile(filepath.Join(tmpPkgDir, "clinical_lakehouse.proto"), []byte(protoSrc), 0o644); err != nil {
@@ -2071,13 +2139,15 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	// Verify DefaultInferredAuditRecord:
 	// 1) Unannotated sibling field ActorId and inline_nested Meta.SourceIp are preserved
 	// 2) Unset proto3 optional NOT NULL columns (record_id, seq_hash) emit non-nil zero values in Values()
+	// 3) Real proto3 oneof (result_value: numeric_value | text_value) and uint32 (retry_count) round-trip cleanly
 	emptyDef := &DefaultInferredAuditRecord{
-		ActorId: "dr-smith",
-		Meta:    &AuditMetadata{SourceIp: "10.0.0.1"},
+		ActorId:    "dr-smith",
+		Meta:       &AuditMetadata{SourceIp: "10.0.0.1"},
+		RetryCount: 3,
 	}
 	defVals := DefaultInferredAuditRecordProtoValues(emptyDef)
-	if len(defVals) != 4 {
-		t.Fatalf("len(DefaultInferredAuditRecordProtoValues) = %d, want 4", len(defVals))
+	if len(defVals) != 7 {
+		t.Fatalf("len(DefaultInferredAuditRecordProtoValues) = %d, want 7", len(defVals))
 	}
 	if defVals[0] != "" {
 		t.Fatalf("expected unset optional NOT NULL record_id to emit empty string, got %#v", defVals[0])
@@ -2089,11 +2159,63 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanDefaultInferredAuditRecordProto failed: %v", err)
 	}
-	if gotDef.GetActorId() != "dr-smith" || gotDef.GetMeta().GetSourceIp() != "10.0.0.1" {
+	if gotDef.GetActorId() != "dr-smith" || gotDef.GetMeta().GetSourceIp() != "10.0.0.1" || gotDef.GetRetryCount() != 3 {
 		t.Fatalf("DefaultInferredAuditRecord round-trip mismatch: %+v", gotDef)
 	}
 	if gotDef.RecordId == nil || *gotDef.RecordId != "" || gotDef.SeqHash == nil || *gotDef.SeqHash != 0 {
 		t.Fatalf("expected NOT NULL optional key/seq columns to scan back non-nil zero values, got %+v", gotDef)
+	}
+	if gotDef.GetResultValue() != nil {
+		t.Fatalf("expected unset oneof ResultValue to remain nil, got %+v", gotDef.GetResultValue())
+	}
+
+	// Test real oneof active numeric_value (including 0.0) and text_value round-trips
+	recID := "rec-100"
+	seqH := uint64(7)
+	for _, oneofCase := range []*DefaultInferredAuditRecord{
+		{
+			RecordId:    &recID,
+			SeqHash:     &seqH,
+			ResultValue: &DefaultInferredAuditRecord_NumericValue{NumericValue: 98.6},
+		},
+		{
+			RecordId:    &recID,
+			SeqHash:     &seqH,
+			ResultValue: &DefaultInferredAuditRecord_NumericValue{NumericValue: 0.0},
+		},
+		{
+			RecordId:    &recID,
+			SeqHash:     &seqH,
+			ResultValue: &DefaultInferredAuditRecord_TextValue{TextValue: "NEGATIVE"},
+		},
+	} {
+		ovVals := DefaultInferredAuditRecordProtoValues(oneofCase)
+		gotOV, err := ScanDefaultInferredAuditRecordProto(NewDorisValueScanner(ovVals))
+		if err != nil {
+			t.Fatalf("ScanDefaultInferredAuditRecordProto(oneofCase) failed: %v", err)
+		}
+		if !proto.Equal(oneofCase, gotOV) {
+			t.Fatalf("oneof round-trip mismatch:\norig: %+v\ngot:  %+v", oneofCase, gotOV)
+		}
+	}
+
+	// Test int32 and uint32 overflow/negative rejection in ScanRow
+	if _, _, err := scanDorisInt32(sql.NullInt64{Int64: math.MaxInt32 + 1, Valid: true}); err == nil {
+		t.Fatal("expected scanDorisInt32(MaxInt32+1) to return overflow error")
+	}
+	if _, _, err := scanDorisInt32(sql.NullInt64{Int64: math.MinInt32 - 1, Valid: true}); err == nil {
+		t.Fatal("expected scanDorisInt32(MinInt32-1) to return overflow error")
+	}
+	if _, _, err := scanDorisUint32(sql.NullInt64{Int64: -1, Valid: true}); err == nil {
+		t.Fatal("expected scanDorisUint32(-1) to return error")
+	}
+	if _, _, err := scanDorisUint32(sql.NullInt64{Int64: math.MaxUint32 + 1, Valid: true}); err == nil {
+		t.Fatal("expected scanDorisUint32(MaxUint32+1) to return overflow error")
+	}
+	badUint32Vals := append([]any(nil), defVals...)
+	badUint32Vals[6] = int64(-5)
+	if _, err := ScanDefaultInferredAuditRecordProto(NewDorisValueScanner(badUint32Vals)); err == nil {
+		t.Fatal("expected ScanDefaultInferredAuditRecordProto to reject negative uint32 retry_count")
 	}
 }
 `

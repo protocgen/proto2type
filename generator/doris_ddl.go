@@ -200,6 +200,23 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 	return true
 }
 
+// dedupDorisColumnList returns a copy of cols with empty strings and duplicate
+// column names removed while preserving first-seen order.
+func dedupDorisColumnList(cols []string) []string {
+	if len(cols) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(cols))
+	out := make([]string, 0, len(cols))
+	for _, c := range cols {
+		if c != "" && !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // reorderDorisDescriptorColumns moves UNIQUE KEY or DUPLICATE KEY columns to the
 // front of cols in key order and marks them non-nullable, preserving the relative
 // order of all remaining columns.
@@ -287,27 +304,31 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		return ""
 	}
 
-	// Determine UNIQUE KEY columns.
+	// Determine UNIQUE KEY and DUPLICATE KEY columns (deduplicated in first-seen order).
 	var uks []string
 	if len(t.UniqueKeyColumns) > 0 {
-		uks = append(uks, t.UniqueKeyColumns...)
+		uks = dedupDorisColumnList(t.UniqueKeyColumns)
 	} else {
 		for _, c := range t.Columns {
 			if c.IsUniqueKey {
 				uks = append(uks, c.ColumnName)
 			}
 		}
+		uks = dedupDorisColumnList(uks)
 	}
+	dupKeys := dedupDorisColumnList(t.DuplicateKeyColumns)
+	ngramCols := dedupDorisColumnList(t.NgramBfColumns)
+	bloomCols := dedupDorisColumnList(t.BloomFilterColumns)
 
 	// Global terminology release-partitioned tables without Doris unique/duplicate keys
 	// live exclusively in the Apache Iceberg catalog (azra_lake.terminology.*).
 	if t.DatabaseScope == "GLOBAL_TERMINOLOGY" && t.SyncTier == "RELEASE_PARTITIONED" &&
-		len(uks) == 0 && len(t.DuplicateKeyColumns) == 0 {
+		len(uks) == 0 && len(dupKeys) == 0 {
 		return ""
 	}
 
-	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, t.DuplicateKeyColumns)
-	if len(uks) == 0 && len(t.DuplicateKeyColumns) == 0 && len(orderedCols) > 0 {
+	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys)
+	if len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {
 		cp := make([]DorisColumnDescriptor, len(orderedCols))
 		copy(cp, orderedCols)
 		cp[0].Nullable = false
@@ -323,12 +344,12 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 			return ""
 		}
 	}
-	for _, dk := range t.DuplicateKeyColumns {
+	for _, dk := range dupKeys {
 		if !isDorisKeyEligibleType(colTypes[dk]) {
 			return ""
 		}
 	}
-	if len(uks) == 0 && len(t.DuplicateKeyColumns) == 0 && len(orderedCols) > 0 {
+	if len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {
 		if !isDorisKeyEligibleType(orderedCols[0].DorisType) {
 			return ""
 		}
@@ -416,10 +437,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 			bodyLines = append(bodyLines, fmt.Sprintf("    INDEX idx_%s_%s (%s) USING INVERTED", t.TableName, idxCol, formatDorisDDLColumnIdent(idxCol)))
 		}
 	}
-	for _, ngCol := range t.NgramBfColumns {
-		if ngCol == "" {
-			continue
-		}
+	for _, ngCol := range ngramCols {
 		bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_ngram_%s_%s (%s) USING NGRAM_BF PROPERTIES ("gram_size" = "3", "bf_size" = "1024")`, t.TableName, ngCol, formatDorisDDLColumnIdent(ngCol)))
 	}
 
@@ -447,13 +465,13 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		b.WriteString(") BUCKETS ")
 		b.WriteString(bucketStr)
 		b.WriteString("\n")
-	} else if len(t.DuplicateKeyColumns) > 0 {
+	} else if len(dupKeys) > 0 {
 		b.WriteString("DUPLICATE KEY(")
-		b.WriteString(formatDorisDDLColumnIdentList(t.DuplicateKeyColumns))
+		b.WriteString(formatDorisDDLColumnIdentList(dupKeys))
 		b.WriteString(")\n")
 		distCol := t.DistributedByColumn
 		if distCol == "" {
-			distCol = t.DuplicateKeyColumns[0]
+			distCol = dupKeys[0]
 		}
 		b.WriteString("DISTRIBUTED BY HASH(")
 		b.WriteString(formatDorisDDLColumnIdent(distCol))
@@ -505,8 +523,8 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	if t.DatabaseScope == "TENANT" || t.DatabaseScope == "" {
 		props = append(props, `    "group_commit_interval_ms" = "200"`)
 	}
-	if len(t.BloomFilterColumns) > 0 {
-		props = append(props, fmt.Sprintf(`    "bloom_filter_columns" = %q`, strings.Join(t.BloomFilterColumns, ", ")))
+	if len(bloomCols) > 0 {
+		props = append(props, fmt.Sprintf(`    "bloom_filter_columns" = %q`, strings.Join(bloomCols, ", ")))
 	}
 
 	b.WriteString("PROPERTIES (\n")
@@ -530,6 +548,21 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 		return ""
 	}
 
+	var uks []string
+	if len(t.UniqueKeyColumns) > 0 {
+		uks = dedupDorisColumnList(t.UniqueKeyColumns)
+	} else {
+		for _, c := range t.Columns {
+			if c.IsUniqueKey {
+				uks = append(uks, c.ColumnName)
+			}
+		}
+		uks = dedupDorisColumnList(uks)
+	}
+	dupKeys := dedupDorisColumnList(t.DuplicateKeyColumns)
+	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys)
+	bloomCols := dedupDorisColumnList(t.BloomFilterColumns)
+
 	var fullTableName string
 	switch t.DatabaseScope {
 	case "GLOBAL_TERMINOLOGY":
@@ -543,7 +576,7 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 	}
 
 	var bodyLines []string
-	for _, c := range t.Columns {
+	for _, c := range orderedCols {
 		colIdent := formatDorisDDLColumnIdent(c.ColumnName)
 		iceType := dorisColumnIcebergDDLType(c.DorisType, c.IcebergType)
 		line := fmt.Sprintf("    %s %s", colIdent, iceType)
@@ -555,16 +588,17 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 
 	var partCols []string
 	if len(t.PartitionByColumns) > 0 {
-		partCols = append(partCols, t.PartitionByColumns...)
+		partCols = dedupDorisColumnList(t.PartitionByColumns)
 	} else {
-		for _, c := range t.Columns {
+		for _, c := range orderedCols {
 			if c.IsPartitionKey {
 				partCols = append(partCols, c.ColumnName)
 			}
 		}
+		partCols = dedupDorisColumnList(partCols)
 	}
 	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
-		for _, c := range t.Columns {
+		for _, c := range orderedCols {
 			if c.ColumnName == "event_month" {
 				partCols = append(partCols, "event_month")
 				break
@@ -572,7 +606,7 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 		}
 	}
 	if len(partCols) == 0 && t.SyncTier == "RELEASE_PARTITIONED" {
-		for _, c := range t.Columns {
+		for _, c := range orderedCols {
 			if c.ColumnName == "release_id" {
 				partCols = append(partCols, "release_id")
 				break
@@ -595,13 +629,11 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 
 	var props []string
 	props = append(props, `    "compression_codec" = "zstd"`)
-	if len(t.BloomFilterColumns) > 0 {
-		for _, bf := range t.BloomFilterColumns {
-			if bf != "" {
-				props = append(props, fmt.Sprintf(`    "write.parquet.bloom-filter-enabled.column.%s" = "true"`, bf))
-			}
+	if len(bloomCols) > 0 {
+		for _, bf := range bloomCols {
+			props = append(props, fmt.Sprintf(`    "write.parquet.bloom-filter-enabled.column.%s" = "true"`, bf))
 		}
-	} else if (t.DatabaseScope == "TENANT" || t.DatabaseScope == "") && len(t.Columns) > 0 && t.Columns[0].ColumnName == "patient_id" {
+	} else if (t.DatabaseScope == "TENANT" || t.DatabaseScope == "") && len(orderedCols) > 0 && orderedCols[0].ColumnName == "patient_id" {
 		props = append(props, `    "write.parquet.bloom-filter-enabled.column.patient_id" = "true"`)
 	}
 
