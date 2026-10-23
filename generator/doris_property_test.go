@@ -235,6 +235,15 @@ func TestProperty_DorisSQLValidators_NeverPanicAndRejectInjection(t *testing.T) 
 		}
 
 		slug, slugOK := sanitizeDorisTenantSlug(s)
+		slug2, slugOK2 := sanitizeDorisTenantSlug(s)
+		if slug != slug2 || slugOK != slugOK2 {
+			ht.Fatalf("sanitizeDorisTenantSlug non-deterministic on %q", s)
+		}
+		if slugOK && slug != "${TENANT_SLUG}" {
+			if !isValidSQLIdentifier(slug) || strings.ContainsAny(slug, ";'\"`\\\n\r\x00") {
+				ht.Fatalf("sanitizeDorisTenantSlug returned unsafe or invalid SQL identifier: %q -> %q", s, slug)
+			}
+		}
 
 		hasInjectionChar := strings.ContainsAny(s, ";'\"`\\\n\r\x00")
 		if hasInjectionChar {
@@ -246,9 +255,6 @@ func TestProperty_DorisSQLValidators_NeverPanicAndRejectInjection(t *testing.T) 
 			}
 			if dv1 {
 				ht.Fatalf("isValidDorisDefaultValue accepted string with injection char: %q", s)
-			}
-			if slugOK && slug != "${TENANT_SLUG}" {
-				ht.Fatalf("sanitizeDorisTenantSlug accepted string with injection char: %q -> %q", s, slug)
 			}
 		}
 	})
