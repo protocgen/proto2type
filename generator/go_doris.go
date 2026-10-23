@@ -173,8 +173,8 @@ func validateDorisTableMeta(msg *protogen.Message, meta *DorisTableMetaIR) error
 	return nil
 }
 
-// messageHasAnnotatedDorisColumns reports whether msg or any of its inline_nested
-// children has at least one field with explicit Doris column_meta.
+// messageHasAnnotatedDorisColumns reports whether msg has at least one non-inline
+// leaf field with an explicit Doris or Iceberg column type annotation.
 func messageHasAnnotatedDorisColumns(msg *protogen.Message, visited map[protoreflect.FullName]bool) bool {
 	if msg == nil || visited[msg.Desc.FullName()] {
 		return false
@@ -184,7 +184,7 @@ func messageHasAnnotatedDorisColumns(msg *protogen.Message, visited map[protoref
 		if isFieldSkipped(f) {
 			continue
 		}
-		if cm := extractDorisColumnMeta(f); cm != nil {
+		if cm := extractDorisColumnMeta(f); cm != nil && !cm.InlineNested && (cm.DorisType != "" || cm.IcebergType != "") {
 			return true
 		}
 	}
@@ -1318,18 +1318,43 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\treturn nil")
 	g.P("\t}")
 	g.P("\tvar ptrs []*uint64")
-	g.P("\tif err := ", jsonUnmarshal, "([]byte(s), &ptrs); err != nil {")
-	g.P("\t\treturn err")
-	g.P("\t}")
-	g.P("\tout := make(DorisUint64Array, len(ptrs))")
-	g.P("\tfor i, p := range ptrs {")
-	g.P("\t\tif p == nil {")
-	g.P("\t\t\treturn ", fmtErrorf, "(\"DorisUint64Array.Scan: null element at index %d is not supported\", i)")
+	g.P("\tif err := ", jsonUnmarshal, "([]byte(s), &ptrs); err == nil {")
+	g.P("\t\tout := make(DorisUint64Array, len(ptrs))")
+	g.P("\t\tfor i, p := range ptrs {")
+	g.P("\t\t\tif p == nil {")
+	g.P("\t\t\t\treturn ", fmtErrorf, "(\"DorisUint64Array.Scan: null element at index %d is not supported\", i)")
+	g.P("\t\t\t}")
+	g.P("\t\t\tout[i] = *p")
 	g.P("\t\t}")
-	g.P("\t\tout[i] = *p")
+	g.P("\t\t*a = out")
+	g.P("\t\treturn nil")
+	g.P("\t} else {")
+	g.P("\t\tvar strElems []string")
+	g.P("\t\tvar strPtrs []*string")
+	g.P("\t\tif err2 := ", jsonUnmarshal, "([]byte(s), &strPtrs); err2 == nil {")
+	g.P("\t\t\tstrElems = make([]string, len(strPtrs))")
+	g.P("\t\t\tfor i, sp := range strPtrs {")
+	g.P("\t\t\t\tif sp == nil {")
+	g.P("\t\t\t\t\treturn ", fmtErrorf, "(\"DorisUint64Array.Scan: null element at index %d is not supported\", i)")
+	g.P("\t\t\t\t}")
+	g.P("\t\t\t\tstrElems[i] = *sp")
+	g.P("\t\t\t}")
+	g.P("\t\t} else if parsed, err3 := parseDorisSingleQuotedArray(s); err3 == nil {")
+	g.P("\t\t\tstrElems = parsed")
+	g.P("\t\t} else {")
+	g.P("\t\t\treturn err")
+	g.P("\t\t}")
+	g.P("\t\tout := make(DorisUint64Array, len(strElems))")
+	g.P("\t\tfor i, se := range strElems {")
+	g.P("\t\t\tu, parseErr := ", strconvParseUint, "(", stringsTrimSpace, "(se), 10, 64)")
+	g.P("\t\t\tif parseErr != nil {")
+	g.P("\t\t\t\treturn parseErr")
+	g.P("\t\t\t}")
+	g.P("\t\t\tout[i] = u")
+	g.P("\t\t}")
+	g.P("\t\t*a = out")
+	g.P("\t\treturn nil")
 	g.P("\t}")
-	g.P("\t*a = out")
-	g.P("\treturn nil")
 	g.P("}")
 	g.P()
 
@@ -1379,18 +1404,34 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\treturn nil")
 	g.P("\t}")
 	g.P("\tvar ptrs []*bool")
-	g.P("\tif err := ", jsonUnmarshal, "([]byte(s), &ptrs); err != nil {")
-	g.P("\t\treturn err")
-	g.P("\t}")
-	g.P("\tout := make(DorisBoolArray, len(ptrs))")
-	g.P("\tfor i, p := range ptrs {")
-	g.P("\t\tif p == nil {")
-	g.P("\t\t\treturn ", fmtErrorf, "(\"DorisBoolArray.Scan: null element at index %d is not supported\", i)")
+	g.P("\tif err := ", jsonUnmarshal, "([]byte(s), &ptrs); err == nil {")
+	g.P("\t\tout := make(DorisBoolArray, len(ptrs))")
+	g.P("\t\tfor i, p := range ptrs {")
+	g.P("\t\t\tif p == nil {")
+	g.P("\t\t\t\treturn ", fmtErrorf, "(\"DorisBoolArray.Scan: null element at index %d is not supported\", i)")
+	g.P("\t\t\t}")
+	g.P("\t\t\tout[i] = *p")
 	g.P("\t\t}")
-	g.P("\t\tout[i] = *p")
+	g.P("\t\t*a = out")
+	g.P("\t\treturn nil")
+	g.P("\t} else {")
+	g.P("\t\tvar intPtrs []*int")
+	g.P("\t\tif err2 := ", jsonUnmarshal, "([]byte(s), &intPtrs); err2 != nil {")
+	g.P("\t\t\treturn err")
+	g.P("\t\t}")
+	g.P("\t\tout := make(DorisBoolArray, len(intPtrs))")
+	g.P("\t\tfor i, p := range intPtrs {")
+	g.P("\t\t\tif p == nil {")
+	g.P("\t\t\t\treturn ", fmtErrorf, "(\"DorisBoolArray.Scan: null element at index %d is not supported\", i)")
+	g.P("\t\t\t}")
+	g.P("\t\t\tif *p != 0 && *p != 1 {")
+	g.P("\t\t\t\treturn err")
+	g.P("\t\t\t}")
+	g.P("\t\t\tout[i] = *p == 1")
+	g.P("\t\t}")
+	g.P("\t\t*a = out")
+	g.P("\t\treturn nil")
 	g.P("\t}")
-	g.P("\t*a = out")
-	g.P("\treturn nil")
 	g.P("}")
 	g.P()
 
@@ -1422,7 +1463,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tswitch dt {")
 	g.P("\tcase \"DATEV2\", \"DATE\":")
 	g.P("\t\treturn \"DATE\"")
-	g.P("\tcase \"DATETIMEV2(6)\", \"DATETIMEV2(3)\", \"DATETIMEV2\", \"DATETIME\":")
+	g.P("\tcase \"DATETIMEV2\", \"DATETIME\":")
 	g.P("\t\treturn \"TIMESTAMPTZ\"")
 	g.P("\tcase \"BIGINT\", \"LARGEINT\":")
 	g.P("\t\treturn \"LONG\"")
@@ -1435,6 +1476,9 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tcase \"DOUBLE\":")
 	g.P("\t\treturn \"DOUBLE\"")
 	g.P("\t}")
+	g.P("\tif ", stringsHasPrefix, "(dt, \"DATETIMEV2(\") && ", stringsHasSuffix, "(dt, \")\") {")
+	g.P("\t\treturn \"TIMESTAMPTZ\"")
+	g.P("\t}")
 	g.P("\tif ", stringsHasPrefix, "(dt, \"VARCHAR\") || dt == \"TEXT\" || dt == \"STRING\" {")
 	g.P("\t\treturn \"STRING\"")
 	g.P("\t}")
@@ -1443,13 +1487,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t}")
 	g.P("\tif ", stringsHasPrefix, "(dt, \"ARRAY<\") && ", stringsHasSuffix, "(dt, \">\") {")
 	g.P("\t\tinner := ", stringsTrimSuffix, "(", stringsTrimPrefix, "(dt, \"ARRAY<\"), \">\")")
-	g.P("\t\tif ", stringsHasPrefix, "(inner, \"VARCHAR\") || inner == \"TEXT\" || inner == \"STRING\" {")
-	g.P("\t\t\treturn \"LIST<STRING>\"")
-	g.P("\t\t}")
-	g.P("\t\tif inner == \"BIGINT\" || inner == \"LARGEINT\" {")
-	g.P("\t\t\treturn \"LIST<LONG>\"")
-	g.P("\t\t}")
-	g.P("\t\treturn \"LIST<\" + inner + \">\"")
+	g.P("\t\treturn \"LIST<\" + (DorisColumnDescriptor{DorisType: inner}).CanonicalIcebergSpecType() + \">\"")
 	g.P("\t}")
 	g.P("\treturn dt")
 	g.P("}")
@@ -1682,7 +1720,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t}")
 	g.P("\tfor _, list := range [][]string{t.UniqueKeyColumns, t.PartitionByColumns, t.InvertedIndexColumns, t.NgramBfColumns, t.BloomFilterColumns, t.DuplicateKeyColumns} {")
 	g.P("\t\tfor _, id := range list {")
-	g.P("\t\t\tif id != \"\" && (!isValidDorisSQLIdentifier(id) || !colSet[id]) {")
+	g.P("\t\t\tif !isValidDorisSQLIdentifier(id) || !colSet[id] {")
 	g.P("\t\t\t\treturn false")
 	g.P("\t\t\t}")
 	g.P("\t\t}")
@@ -1734,22 +1772,29 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 
 	// Emit BuildDorisCreateTableSQL and BuildIcebergCreateTableSQL on DorisTableDescriptor.
 	g.P("func dorisColumnIcebergDDLType(dorisType, icebergType string) string {")
-	g.P("\tdt := ", stringsTrimSpace, "(dorisType)")
+	g.P("\tdt := ", stringsToUpper, "(", stringsTrimSpace, "(dorisType))")
 	g.P("\tswitch dt {")
 	g.P("\tcase \"DATEV2\":")
 	g.P("\t\treturn \"DATE\"")
-	g.P("\tcase \"DATETIMEV2(6)\", \"DATETIMEV2(3)\", \"DATETIMEV2\":")
+	g.P("\tcase \"DATETIMEV2\":")
 	g.P("\t\treturn \"DATETIME\"")
 	g.P("\tcase \"LARGEINT\":")
 	g.P("\t\treturn \"DECIMAL(38, 0)\"")
 	g.P("\tcase \"ARRAY<LARGEINT>\":")
 	g.P("\t\treturn \"ARRAY<DECIMAL(38, 0)>\"")
 	g.P("\t}")
+	g.P("\tif ", stringsHasPrefix, "(dt, \"DATETIMEV2(\") && ", stringsHasSuffix, "(dt, \")\") {")
+	g.P("\t\treturn \"DATETIME\"")
+	g.P("\t}")
 	g.P("\tif ", stringsHasPrefix, "(dt, \"DECIMALV3(\") {")
 	g.P("\t\trest := ", stringsTrimPrefix, "(dt, \"DECIMALV3(\")")
 	g.P("\t\trest = ", stringsReplaceAll, "(rest, \", \", \",\")")
 	g.P("\t\trest = ", stringsReplaceAll, "(rest, \",\", \", \")")
 	g.P("\t\treturn \"DECIMAL(\" + rest")
+	g.P("\t}")
+	g.P("\tif ", stringsHasPrefix, "(dt, \"ARRAY<\") && ", stringsHasSuffix, "(dt, \">\") {")
+	g.P("\t\tinner := ", stringsTrimSuffix, "(", stringsTrimPrefix, "(dt, \"ARRAY<\"), \">\")")
+	g.P("\t\treturn \"ARRAY<\" + dorisColumnIcebergDDLType(inner, \"\") + \">\"")
 	g.P("\t}")
 	g.P("\tif dt != \"\" {")
 	g.P("\t\treturn dt")
@@ -1773,7 +1818,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tcase \"LIST<LONG>\":")
 	g.P("\t\treturn \"ARRAY<BIGINT>\"")
 	g.P("\t}")
-	g.P("\treturn it")
+	g.P("\treturn ", stringsToUpper, "(it)")
 	g.P("}")
 	g.P()
 
@@ -2138,6 +2183,15 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
+	g.P("func dorisRequiredPtrValue[T any](v *T) T {")
+	g.P("\tif v == nil {")
+	g.P("\t\tvar zero T")
+	g.P("\t\treturn zero")
+	g.P("\t}")
+	g.P("\treturn *v")
+	g.P("}")
+	g.P()
+
 	g.P("func dorisUint64Value(v uint64) any {")
 	g.P("\tif v > uint64(", mathMaxInt64, ") {")
 	g.P("\t\treturn ", strconvFormatUint, "(v, 10)")
@@ -2154,6 +2208,14 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
+	g.P("func dorisRequiredPtrUint64Value(v *uint64) any {")
+	g.P("\tif v == nil {")
+	g.P("\t\treturn int64(0)")
+	g.P("\t}")
+	g.P("\treturn dorisUint64Value(*v)")
+	g.P("}")
+	g.P()
+
 	g.P("func scanDorisUint64(raw any) (uint64, bool, error) {")
 	g.P("\tif raw == nil {")
 	g.P("\t\treturn 0, false, nil")
@@ -2162,10 +2224,16 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tcase uint64:")
 	g.P("\t\treturn v, true, nil")
 	g.P("\tcase int64:")
+	g.P("\t\tif v < 0 {")
+	g.P("\t\t\treturn 0, false, ", fmtErrorf, "(\"scanDorisUint64: negative int64 %d cannot be converted to uint64\", v)")
+	g.P("\t\t}")
 	g.P("\t\treturn uint64(v), true, nil")
 	g.P("\tcase ", sqlNullInt64, ":")
 	g.P("\t\tif !v.Valid {")
 	g.P("\t\t\treturn 0, false, nil")
+	g.P("\t\t}")
+	g.P("\t\tif v.Int64 < 0 {")
+	g.P("\t\t\treturn 0, false, ", fmtErrorf, "(\"scanDorisUint64: negative int64 %d cannot be converted to uint64\", v.Int64)")
 	g.P("\t\t}")
 	g.P("\t\treturn uint64(v.Int64), true, nil")
 	g.P("\tcase []byte:")
@@ -2215,6 +2283,14 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("func dorisPtrTimeValue(t *", timeTime, ") any {")
 	g.P("\tif t == nil || t.IsZero() {")
 	g.P("\t\treturn ", sqlNullTime, "{}")
+	g.P("\t}")
+	g.P("\treturn t.UTC()")
+	g.P("}")
+	g.P()
+
+	g.P("func dorisRequiredPtrTimeValue(t *", timeTime, ") any {")
+	g.P("\tif t == nil || t.IsZero() {")
+	g.P("\t\treturn ", timeTime, "{}.UTC()")
 	g.P("\t}")
 	g.P("\treturn t.UTC()")
 	g.P("}")
@@ -2506,7 +2582,11 @@ func emitDorisTableCode(g *protogen.GeneratedFile, tbl *dorisTableIR) {
 			}
 		case c.IsTimestamp:
 			if c.IsPointer {
-				g.P("\t\tdorisPtrTimeValue(r.", c.GoFieldName, "),")
+				if c.ColDesc.Nullable {
+					g.P("\t\tdorisPtrTimeValue(r.", c.GoFieldName, "),")
+				} else {
+					g.P("\t\tdorisRequiredPtrTimeValue(r.", c.GoFieldName, "),")
+				}
 			} else if c.ColDesc.Nullable {
 				g.P("\t\tdorisNullableTimeValue(r.", c.GoFieldName, "),")
 			} else {
@@ -2514,12 +2594,20 @@ func emitDorisTableCode(g *protogen.GeneratedFile, tbl *dorisTableIR) {
 			}
 		case c.IsUint64:
 			if c.IsPointer {
-				g.P("\t\tdorisPtrUint64Value(r.", c.GoFieldName, "),")
+				if c.ColDesc.Nullable {
+					g.P("\t\tdorisPtrUint64Value(r.", c.GoFieldName, "),")
+				} else {
+					g.P("\t\tdorisRequiredPtrUint64Value(r.", c.GoFieldName, "),")
+				}
 			} else {
 				g.P("\t\tdorisUint64Value(r.", c.GoFieldName, "),")
 			}
 		default:
-			g.P("\t\tr.", c.GoFieldName, ",")
+			if c.IsPointer && !c.ColDesc.Nullable {
+				g.P("\t\tdorisRequiredPtrValue(r.", c.GoFieldName, "),")
+			} else {
+				g.P("\t\tr.", c.GoFieldName, ",")
+			}
 		}
 	}
 	g.P("\t}")

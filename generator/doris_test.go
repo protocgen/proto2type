@@ -820,6 +820,18 @@ func buildComprehensiveDorisPlugin(t *testing.T) *protogen.Plugin {
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
 			{
+				Name: proto.String("AuditMetadata"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("source_ip"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("sourceIp"),
+					},
+				},
+			},
+			{
 				Name: proto.String("AuditEventRecord"),
 				Options: tblOpt(
 					"audit_events",
@@ -857,6 +869,61 @@ func buildComprehensiveDorisPlugin(t *testing.T) *protogen.Plugin {
 						JsonName: proto.String("eventDate"),
 						Options:  colOpt(DorisColumnMetaIR{DorisType: "DATEV2"}),
 					},
+				},
+			},
+			{
+				Name: proto.String("DefaultInferredAuditRecord"),
+				Options: tblOpt(
+					"default_inferred_audits",
+					1, // TENANT
+					1, // WHOLE_TABLE
+					[]string{"record_id"},
+					nil,
+					"",
+					"seq_hash",
+					nil,
+				),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:           proto.String("record_id"),
+						Number:         proto.Int32(1),
+						Label:          descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:           descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						Proto3Optional: proto.Bool(true),
+						OneofIndex:     proto.Int32(0),
+						JsonName:       proto.String("recordId"),
+						Options:        colOpt(DorisColumnMetaIR{IsUniqueKey: true}),
+					},
+					{
+						Name:           proto.String("seq_hash"),
+						Number:         proto.Int32(2),
+						Label:          descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:           descriptorpb.FieldDescriptorProto_TYPE_UINT64.Enum(),
+						Proto3Optional: proto.Bool(true),
+						OneofIndex:     proto.Int32(1),
+						JsonName:       proto.String("seqHash"),
+						Options:        colOpt(DorisColumnMetaIR{IsSequenceCol: true}),
+					},
+					{
+						Name:     proto.String("actor_id"),
+						Number:   proto.Int32(3),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("actorId"),
+					},
+					{
+						Name:     proto.String("meta"),
+						Number:   proto.Int32(4),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+						TypeName: proto.String(".azra.clinical.v1.AuditMetadata"),
+						JsonName: proto.String("meta"),
+						Options:  colOpt(DorisColumnMetaIR{InlineNested: true}),
+					},
+				},
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("_record_id")},
+					{Name: proto.String("_seq_hash")},
 				},
 			},
 		},
@@ -1120,8 +1187,29 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 	if got := dorisColumnIcebergDDLType("LARGEINT", ""); got != "DECIMAL(38, 0)" {
 		t.Errorf("dorisColumnIcebergDDLType(\"LARGEINT\", \"\") = %q, want DECIMAL(38, 0)", got)
 	}
+	if got := dorisColumnIcebergDDLType("largeint", ""); got != "DECIMAL(38, 0)" {
+		t.Errorf("dorisColumnIcebergDDLType(\"largeint\", \"\") = %q, want DECIMAL(38, 0)", got)
+	}
 	if got := dorisColumnIcebergDDLType("ARRAY<LARGEINT>", ""); got != "ARRAY<DECIMAL(38, 0)>" {
 		t.Errorf("dorisColumnIcebergDDLType(\"ARRAY<LARGEINT>\", \"\") = %q, want ARRAY<DECIMAL(38, 0)>", got)
+	}
+	if got := dorisColumnIcebergDDLType("array<largeint>", ""); got != "ARRAY<DECIMAL(38, 0)>" {
+		t.Errorf("dorisColumnIcebergDDLType(\"array<largeint>\", \"\") = %q, want ARRAY<DECIMAL(38, 0)>", got)
+	}
+	if got := dorisColumnIcebergDDLType("datetimev2(0)", ""); got != "DATETIME" {
+		t.Errorf("dorisColumnIcebergDDLType(\"datetimev2(0)\", \"\") = %q, want DATETIME", got)
+	}
+	if got := dorisColumnIcebergDDLType("ARRAY<DATEV2>", ""); got != "ARRAY<DATE>" {
+		t.Errorf("dorisColumnIcebergDDLType(\"ARRAY<DATEV2>\", \"\") = %q, want ARRAY<DATE>", got)
+	}
+	if got := dorisColumnIcebergDDLType("ARRAY<DECIMALV3(10,2)>", ""); got != "ARRAY<DECIMAL(10, 2)>" {
+		t.Errorf("dorisColumnIcebergDDLType(\"ARRAY<DECIMALV3(10,2)>\", \"\") = %q, want ARRAY<DECIMAL(10, 2)>", got)
+	}
+	if got := (DorisColumnDescriptor{DorisType: "DATETIMEV2(0)"}).CanonicalIcebergSpecType(); got != "TIMESTAMPTZ" {
+		t.Errorf("CanonicalIcebergSpecType(DATETIMEV2(0)) = %q, want TIMESTAMPTZ", got)
+	}
+	if got := (DorisColumnDescriptor{DorisType: "ARRAY<DATEV2>"}).CanonicalIcebergSpecType(); got != "LIST<DATE>" {
+		t.Errorf("CanonicalIcebergSpecType(ARRAY<DATEV2>) = %q, want LIST<DATE>", got)
 	}
 
 	// 4. Runtime key-prefix reordering when UniqueKeyColumns is not first in t.Columns
@@ -1142,7 +1230,7 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 		t.Errorf("expected BuildDorisCreateTableSQL to reorder key column event_id before payload:\n%s", reorderedSQL)
 	}
 
-	// 5. Disallowed Doris key types must be rejected in BuildDorisCreateTableSQL and isDorisKeyEligibleType
+	// 5. Disallowed Doris key types must be rejected in BuildDorisCreateTableSQL (fallback, explicit UK/DK, and DistributedByColumn) and isDorisKeyEligibleType
 	for _, badKeyType := range []string{
 		"FLOAT", "DOUBLE", "STRING", "TEXT", "JSON", "JSONB", "VARIANT",
 		"HLL", "BITMAP", "QUANTILE_STATE", "ARRAY<INT>", "MAP<VARCHAR(64), INT>", "STRUCT<INT>",
@@ -1150,7 +1238,8 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 		if isDorisKeyEligibleType(badKeyType) {
 			t.Errorf("expected isDorisKeyEligibleType(%q) = false, got true", badKeyType)
 		}
-		badKeyDesc := DorisTableDescriptor{
+		// 5a. Fallback key (Columns[0])
+		badFallbackDesc := DorisTableDescriptor{
 			TableName:     "bad_keys",
 			DatabaseScope: "TENANT",
 			SyncTier:      "WHOLE_TABLE",
@@ -1158,12 +1247,73 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 				{ColumnName: "k", DorisType: badKeyType},
 			},
 		}
-		if got := badKeyDesc.BuildDorisCreateTableSQL("akron", 4); got != "" {
-			t.Errorf("expected BuildDorisCreateTableSQL with key type %q to return empty string, got:\n%s", badKeyType, got)
+		if got := badFallbackDesc.BuildDorisCreateTableSQL("akron", 4); got != "" {
+			t.Errorf("expected BuildDorisCreateTableSQL with fallback key type %q to return empty string, got:\n%s", badKeyType, got)
+		}
+		// 5b. Explicit UniqueKeyColumns
+		badUKDesc := DorisTableDescriptor{
+			TableName:        "bad_keys",
+			DatabaseScope:    "TENANT",
+			SyncTier:         "WHOLE_TABLE",
+			UniqueKeyColumns: []string{"id", "k"},
+			Columns: []DorisColumnDescriptor{
+				{ColumnName: "id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+				{ColumnName: "k", DorisType: badKeyType, IsUniqueKey: true},
+			},
+		}
+		if got := badUKDesc.BuildDorisCreateTableSQL("akron", 4); got != "" {
+			t.Errorf("expected BuildDorisCreateTableSQL with UNIQUE KEY type %q to return empty string, got:\n%s", badKeyType, got)
+		}
+		// 5c. Explicit DuplicateKeyColumns
+		badDKDesc := DorisTableDescriptor{
+			TableName:           "bad_keys",
+			DatabaseScope:       "TENANT",
+			SyncTier:            "WHOLE_TABLE",
+			DuplicateKeyColumns: []string{"id", "k"},
+			Columns: []DorisColumnDescriptor{
+				{ColumnName: "id", DorisType: "VARCHAR(64)"},
+				{ColumnName: "k", DorisType: badKeyType},
+			},
+		}
+		if got := badDKDesc.BuildDorisCreateTableSQL("akron", 4); got != "" {
+			t.Errorf("expected BuildDorisCreateTableSQL with DUPLICATE KEY type %q to return empty string, got:\n%s", badKeyType, got)
+		}
+		// 5d. Explicit DistributedByColumn
+		badDistDesc := DorisTableDescriptor{
+			TableName:           "bad_keys",
+			DatabaseScope:       "TENANT",
+			SyncTier:            "WHOLE_TABLE",
+			UniqueKeyColumns:    []string{"id"},
+			DistributedByColumn: "k",
+			Columns: []DorisColumnDescriptor{
+				{ColumnName: "id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+				{ColumnName: "k", DorisType: badKeyType},
+			},
+		}
+		if got := badDistDesc.BuildDorisCreateTableSQL("akron", 4); got != "" {
+			t.Errorf("expected BuildDorisCreateTableSQL with DistributedByColumn type %q to return empty string, got:\n%s", badKeyType, got)
 		}
 	}
 	if isDorisKeyEligibleType("STRUCT<a:INT>") {
 		t.Error("expected isDorisKeyEligibleType(\"STRUCT<a:INT>\") = false, got true")
+	}
+
+	// 5e. Empty string elements in column slices must be rejected by BuildDorisCreateTableSQL and BuildIcebergCreateTableSQL
+	emptySliceElemDesc := DorisTableDescriptor{
+		TableName:          "patients",
+		DatabaseScope:      "TENANT",
+		SyncTier:           "WHOLE_TABLE",
+		UniqueKeyColumns:   []string{"patient_id"},
+		PartitionByColumns: []string{"patient_id", ""},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "patient_id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+		},
+	}
+	if got := emptySliceElemDesc.BuildDorisCreateTableSQL("akron", 4); got != "" {
+		t.Errorf("expected BuildDorisCreateTableSQL to reject empty element in PartitionByColumns, got:\n%s", got)
+	}
+	if got := emptySliceElemDesc.BuildIcebergCreateTableSQL("akron"); got != "" {
+		t.Errorf("expected BuildIcebergCreateTableSQL to reject empty element in PartitionByColumns, got:\n%s", got)
 	}
 
 	// 6. Malicious DefaultValue in runtime descriptor must be rejected
@@ -1501,10 +1651,21 @@ import "google/type/date.proto";
 
 option go_package = "example.com/lakehouse/clinicalv1;clinicalv1";
 
+message AuditMetadata {
+  string source_ip = 1;
+}
+
 message AuditEventRecord {
   string tenant_id = 1;
   string event_id = 2;
   google.type.Date event_date = 3;
+}
+
+message DefaultInferredAuditRecord {
+  optional string record_id = 1;
+  optional uint64 seq_hash = 2;
+  string actor_id = 3;
+  AuditMetadata meta = 4;
 }
 `
 	if err := os.WriteFile(filepath.Join(tmpPkgDir, "clinical_lakehouse.proto"), []byte(protoSrc), 0o644); err != nil {
@@ -1552,6 +1713,7 @@ message Date {
 	roundTripTestSrc := `package clinicalv1
 
 import (
+	"database/sql"
 	"math"
 	"reflect"
 	"strings"
@@ -1819,6 +1981,50 @@ func TestDorisFloat32Array_ValueAndScanEdgeCases(t *testing.T) {
 	}
 }
 
+func TestDorisBoolAndUint64Array_WireEdgeCases(t *testing.T) {
+	// 1. DorisBoolArray: JSON booleans, Doris TINYINT(1) [1, 0, 1], null element error, and out-of-range int error
+	var boolArr DorisBoolArray
+	if err := boolArr.Scan("[true, false, true]"); err != nil || !reflect.DeepEqual([]bool(boolArr), []bool{true, false, true}) {
+		t.Fatalf("DorisBoolArray.Scan([true, false, true]) = (%v, %v)", boolArr, err)
+	}
+	if err := boolArr.Scan("[1, 0, 1]"); err != nil || !reflect.DeepEqual([]bool(boolArr), []bool{true, false, true}) {
+		t.Fatalf("DorisBoolArray.Scan([1, 0, 1]) = (%v, %v)", boolArr, err)
+	}
+	if err := boolArr.Scan("[1, null, 0]"); err == nil {
+		t.Fatal("expected error scanning [1, null, 0] into DorisBoolArray, got nil")
+	}
+	if err := boolArr.Scan("[1, 2, 0]"); err == nil {
+		t.Fatal("expected error scanning [1, 2, 0] into DorisBoolArray, got nil")
+	}
+
+	// 2. DorisUint64Array: unquoted numbers, JSON string numbers, Doris single-quoted numbers, null error, negative error
+	var u64Arr DorisUint64Array
+	wantU64 := []uint64{42, uint64(math.MaxInt64) + 1, math.MaxUint64}
+	if err := u64Arr.Scan("[42, 9223372036854775808, 18446744073709551615]"); err != nil || !reflect.DeepEqual([]uint64(u64Arr), wantU64) {
+		t.Fatalf("DorisUint64Array.Scan(unquoted) = (%v, %v)", u64Arr, err)
+	}
+	if err := u64Arr.Scan("[\"42\", \"9223372036854775808\", \"18446744073709551615\"]"); err != nil || !reflect.DeepEqual([]uint64(u64Arr), wantU64) {
+		t.Fatalf("DorisUint64Array.Scan(json strings) = (%v, %v)", u64Arr, err)
+	}
+	if err := u64Arr.Scan("['42', '9223372036854775808', '18446744073709551615']"); err != nil || !reflect.DeepEqual([]uint64(u64Arr), wantU64) {
+		t.Fatalf("DorisUint64Array.Scan(single-quoted strings) = (%v, %v)", u64Arr, err)
+	}
+	if err := u64Arr.Scan("[42, null]"); err == nil {
+		t.Fatal("expected error scanning [42, null] into DorisUint64Array, got nil")
+	}
+	if err := u64Arr.Scan("[\"-1\"]"); err == nil {
+		t.Fatal("expected error scanning [\"-1\"] into DorisUint64Array, got nil")
+	}
+
+	// 3. scanDorisUint64 must reject negative int64 and sql.NullInt64 values
+	if _, _, err := scanDorisUint64(int64(-1)); err == nil {
+		t.Fatal("expected scanDorisUint64(int64(-1)) to return error, got nil")
+	}
+	if _, _, err := scanDorisUint64(sql.NullInt64{Int64: -42, Valid: true}); err == nil {
+		t.Fatal("expected scanDorisUint64(sql.NullInt64{-42}) to return error, got nil")
+	}
+}
+
 func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	invalidDates := []string{
 		"2026-02-31",
@@ -1860,6 +2066,34 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	}
 	if !strings.Contains(AuditEventRecordDorisTable().BuildDorisCreateTableSQL("", 0), "DISTRIBUTED BY HASH(event_id)") {
 		t.Fatal("expected AuditEventRecordDorisTable() to distribute by event_id")
+	}
+
+	// Verify DefaultInferredAuditRecord:
+	// 1) Unannotated sibling field ActorId and inline_nested Meta.SourceIp are preserved
+	// 2) Unset proto3 optional NOT NULL columns (record_id, seq_hash) emit non-nil zero values in Values()
+	emptyDef := &DefaultInferredAuditRecord{
+		ActorId: "dr-smith",
+		Meta:    &AuditMetadata{SourceIp: "10.0.0.1"},
+	}
+	defVals := DefaultInferredAuditRecordProtoValues(emptyDef)
+	if len(defVals) != 4 {
+		t.Fatalf("len(DefaultInferredAuditRecordProtoValues) = %d, want 4", len(defVals))
+	}
+	if defVals[0] != "" {
+		t.Fatalf("expected unset optional NOT NULL record_id to emit empty string, got %#v", defVals[0])
+	}
+	if defVals[1] != int64(0) {
+		t.Fatalf("expected unset optional NOT NULL seq_hash to emit int64(0), got %#v", defVals[1])
+	}
+	gotDef, err := ScanDefaultInferredAuditRecordProto(NewDorisValueScanner(defVals))
+	if err != nil {
+		t.Fatalf("ScanDefaultInferredAuditRecordProto failed: %v", err)
+	}
+	if gotDef.GetActorId() != "dr-smith" || gotDef.GetMeta().GetSourceIp() != "10.0.0.1" {
+		t.Fatalf("DefaultInferredAuditRecord round-trip mismatch: %+v", gotDef)
+	}
+	if gotDef.RecordId == nil || *gotDef.RecordId != "" || gotDef.SeqHash == nil || *gotDef.SeqHash != 0 {
+		t.Fatalf("expected NOT NULL optional key/seq columns to scan back non-nil zero values, got %+v", gotDef)
 	}
 }
 `
@@ -2054,8 +2288,8 @@ extend google.protobuf.FieldOptions {
 		}
 	}
 
-	if got := tableCounts["azra/clinical/v1/patient_profile.proto"]; got != 36 {
-		t.Errorf("patient_profile.proto table count = %d, want 36", got)
+	if got := tableCounts["azra/clinical/v1/patient_profile.proto"]; got != 52 {
+		t.Errorf("patient_profile.proto table count = %d, want 52", got)
 	}
 	if got := tableCounts["azra/clinical/eligibility/v1/eligibility.proto"]; got != 2 {
 		t.Errorf("eligibility.proto table count = %d, want 2", got)
@@ -2070,8 +2304,8 @@ extend google.protobuf.FieldOptions {
 		t.Errorf("eligibility_evaluations column count = %d, want 34", got)
 	}
 
-	if len(tenantDescsByTable) != 38 {
-		t.Fatalf("total tenant clinical tables = %d, want 38", len(tenantDescsByTable))
+	if len(tenantDescsByTable) != 54 {
+		t.Fatalf("total tenant clinical tables = %d, want 54", len(tenantDescsByTable))
 	}
 	for tblName, desc := range tenantDescsByTable {
 		dorisSQL := desc.BuildDorisCreateTableSQL("", 0)

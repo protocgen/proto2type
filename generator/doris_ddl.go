@@ -36,7 +36,7 @@ func (c DorisColumnDescriptor) CanonicalIcebergSpecType() string {
 	switch dt {
 	case "DATEV2", "DATE":
 		return "DATE"
-	case "DATETIMEV2(6)", "DATETIMEV2(3)", "DATETIMEV2", "DATETIME":
+	case "DATETIMEV2", "DATETIME":
 		return "TIMESTAMPTZ"
 	case "BIGINT", "LARGEINT":
 		return "LONG"
@@ -49,6 +49,9 @@ func (c DorisColumnDescriptor) CanonicalIcebergSpecType() string {
 	case "DOUBLE":
 		return "DOUBLE"
 	}
+	if strings.HasPrefix(dt, "DATETIMEV2(") && strings.HasSuffix(dt, ")") {
+		return "TIMESTAMPTZ"
+	}
 	if strings.HasPrefix(dt, "VARCHAR") || dt == "TEXT" || dt == "STRING" {
 		return "STRING"
 	}
@@ -57,13 +60,7 @@ func (c DorisColumnDescriptor) CanonicalIcebergSpecType() string {
 	}
 	if strings.HasPrefix(dt, "ARRAY<") && strings.HasSuffix(dt, ">") {
 		inner := strings.TrimSuffix(strings.TrimPrefix(dt, "ARRAY<"), ">")
-		if strings.HasPrefix(inner, "VARCHAR") || inner == "TEXT" || inner == "STRING" {
-			return "LIST<STRING>"
-		}
-		if inner == "BIGINT" || inner == "LARGEINT" {
-			return "LIST<LONG>"
-		}
-		return "LIST<" + inner + ">"
+		return "LIST<" + (DorisColumnDescriptor{DorisType: inner}).CanonicalIcebergSpecType() + ">"
 	}
 	return dt
 }
@@ -91,22 +88,29 @@ type DorisTableDescriptor struct {
 // dorisColumnIcebergDDLType maps a column's Doris/Iceberg type metadata to the
 // SQL column type used in Doris's Iceberg catalog CREATE TABLE DDL.
 func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
-	dt := strings.TrimSpace(dorisType)
+	dt := strings.ToUpper(strings.TrimSpace(dorisType))
 	switch dt {
 	case "DATEV2":
 		return "DATE"
-	case "DATETIMEV2(6)", "DATETIMEV2(3)", "DATETIMEV2":
+	case "DATETIMEV2":
 		return "DATETIME"
 	case "LARGEINT":
 		return "DECIMAL(38, 0)"
 	case "ARRAY<LARGEINT>":
 		return "ARRAY<DECIMAL(38, 0)>"
 	}
+	if strings.HasPrefix(dt, "DATETIMEV2(") && strings.HasSuffix(dt, ")") {
+		return "DATETIME"
+	}
 	if strings.HasPrefix(dt, "DECIMALV3(") {
 		rest := strings.TrimPrefix(dt, "DECIMALV3(")
 		rest = strings.ReplaceAll(rest, ", ", ",")
 		rest = strings.ReplaceAll(rest, ",", ", ")
 		return "DECIMAL(" + rest
+	}
+	if strings.HasPrefix(dt, "ARRAY<") && strings.HasSuffix(dt, ">") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(dt, "ARRAY<"), ">")
+		return "ARRAY<" + dorisColumnIcebergDDLType(inner, "") + ">"
 	}
 	if dt != "" {
 		return dt
@@ -130,7 +134,7 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 	case "LIST<LONG>":
 		return "ARRAY<BIGINT>"
 	}
-	return it
+	return strings.ToUpper(it)
 }
 
 // sanitizeDorisTenantSlug normalizes and validates a tenant slug for SQL DDL interpolation.
@@ -188,7 +192,7 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 		t.DuplicateKeyColumns,
 	} {
 		for _, id := range list {
-			if id != "" && (!isValidSQLIdentifier(id) || !colSet[id]) {
+			if !isValidSQLIdentifier(id) || !colSet[id] {
 				return false
 			}
 		}
