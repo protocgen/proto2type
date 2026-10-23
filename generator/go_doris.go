@@ -381,6 +381,9 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 		return nil, err
 	}
 
+	isIcebergOnly := meta.SyncTier == "ICEBERG_ONLY" ||
+		(meta.DatabaseScope == "GLOBAL_TERMINOLOGY" && meta.SyncTier == "RELEASE_PARTITIONED" && len(uks) == 0 && len(dupKeys) == 0)
+
 	// Apache Doris requires UNIQUE KEY and DUPLICATE KEY columns to precede value columns
 	// in configured key order. Move key columns to the schema prefix while preserving
 	// the relative order of all non-key columns.
@@ -398,7 +401,9 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 		for _, k := range keyCols {
 			if c, ok := colByName[k]; ok && !placed[k] {
 				placed[k] = true
-				c.ColDesc.Nullable = false
+				if !isIcebergOnly {
+					c.ColDesc.Nullable = false
+				}
 				reordered = append(reordered, c)
 			}
 		}
@@ -410,10 +415,25 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 		cols = reordered
 	}
 
-	isIcebergOnly := meta.SyncTier == "ICEBERG_ONLY" ||
-		(meta.DatabaseScope == "GLOBAL_TERMINOLOGY" && meta.SyncTier == "RELEASE_PARTITIONED" && len(uks) == 0 && len(dupKeys) == 0)
 	if !isIcebergOnly {
 		if len(uks) == 0 && len(dupKeys) == 0 && len(cols) > 0 {
+			fallbackIdx := -1
+			for i, c := range cols {
+				if !c.IsOneofVariant {
+					fallbackIdx = i
+					break
+				}
+			}
+			if fallbackIdx < 0 {
+				return nil, fmt.Errorf("message %s: fallback DUPLICATE KEY column %q cannot be a oneof variant", msg.Desc.FullName(), cols[0].ColDesc.ColumnName)
+			}
+			if fallbackIdx > 0 {
+				reordered := make([]*dorisColumnIR, 0, len(cols))
+				reordered = append(reordered, cols[fallbackIdx])
+				reordered = append(reordered, cols[:fallbackIdx]...)
+				reordered = append(reordered, cols[fallbackIdx+1:]...)
+				cols = reordered
+			}
 			cols[0].ColDesc.Nullable = false
 			if !isDorisKeyEligibleType(cols[0].ColDesc.DorisType) {
 				return nil, fmt.Errorf("message %s: fallback DUPLICATE KEY column %q has disallowed Doris key type %q", msg.Desc.FullName(), cols[0].ColDesc.ColumnName, cols[0].ColDesc.DorisType)
@@ -558,7 +578,7 @@ func buildDorisColumnIR(
 		(isEnum && (strings.Contains(upperDoris, "VARCHAR") || strings.Contains(upperDoris, "STRING") || strings.Contains(upperIceberg, "STRING")))
 	isStrEnum := isEnum && (stripPrefix || isEnumAsString(field, opts) || strings.Contains(upperDoris, "VARCHAR") || strings.Contains(upperDoris, "STRING"))
 
-	nullable := isDorisColumnNullable(field, colName, isUK, isDupKey, isPK, isSeq)
+	nullable := isDorisColumnNullable(field, colName, isUK && tableMeta.SyncTier != "ICEBERG_ONLY", isDupKey && tableMeta.SyncTier != "ICEBERG_ONLY", isPK, isSeq)
 
 	var (
 		goFieldType    string
@@ -1686,7 +1706,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
-	g.P("func reorderDorisDescriptorColumns(cols []DorisColumnDescriptor, uks, dupKeys []string) []DorisColumnDescriptor {")
+	g.P("func reorderDorisDescriptorColumns(cols []DorisColumnDescriptor, uks, dupKeys []string, forceKeyNonNull bool) []DorisColumnDescriptor {")
 	g.P("\tkeyCols := uks")
 	g.P("\tif len(keyCols) == 0 && len(dupKeys) > 0 {")
 	g.P("\t\tkeyCols = dupKeys")
@@ -1703,7 +1723,9 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tfor _, k := range keyCols {")
 	g.P("\t\tif c, ok := colByName[k]; ok && !placed[k] {")
 	g.P("\t\t\tplaced[k] = true")
-	g.P("\t\t\tc.Nullable = false")
+	g.P("\t\t\tif forceKeyNonNull {")
+	g.P("\t\t\t\tc.Nullable = false")
+	g.P("\t\t\t}")
 	g.P("\t\t\treordered = append(reordered, c)")
 	g.P("\t\t}")
 	g.P("\t}")
@@ -1872,7 +1894,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tif t.DatabaseScope == \"GLOBAL_TERMINOLOGY\" && t.SyncTier == \"RELEASE_PARTITIONED\" && len(uks) == 0 && len(dupKeys) == 0 {")
 	g.P("\t\treturn \"\"")
 	g.P("\t}")
-	g.P("\torderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys)")
+	g.P("\torderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys, true)")
 	g.P("\tif len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {")
 	g.P("\t\tcp := make([]DorisColumnDescriptor, len(orderedCols))")
 	g.P("\t\tcopy(cp, orderedCols)")
@@ -2090,7 +2112,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\tuks = dedupDorisColumnList(uks)")
 	g.P("\t}")
 	g.P("\tdupKeys := dedupDorisColumnList(t.DuplicateKeyColumns)")
-	g.P("\torderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys)")
+	g.P("\torderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys, t.SyncTier != \"ICEBERG_ONLY\")")
 	g.P("\tbloomCols := dedupDorisColumnList(t.BloomFilterColumns)")
 	g.P("\tvar fullTableName string")
 	g.P("\tswitch t.DatabaseScope {")
@@ -2157,7 +2179,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\tfor _, bf := range bloomCols {")
 	g.P("\t\t\tprops = append(props, ", fmtSprintf, "(`    \"write.parquet.bloom-filter-enabled.column.%s\" = \"true\"`, bf))")
 	g.P("\t\t}")
-	g.P("\t} else if (t.DatabaseScope == \"TENANT\" || t.DatabaseScope == \"\") && len(orderedCols) > 0 && orderedCols[0].ColumnName == \"patient_id\" {")
+	g.P("\t} else if (t.DatabaseScope == \"TENANT\" || t.DatabaseScope == \"\") && len(t.Columns) > 0 && t.Columns[0].ColumnName == \"patient_id\" {")
 	g.P("\t\tprops = append(props, `    \"write.parquet.bloom-filter-enabled.column.patient_id\" = \"true\"`)")
 	g.P("\t}")
 	g.P("\tb.WriteString(\"PROPERTIES (\\n\")")
@@ -2208,9 +2230,13 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\t\tif dv == nil {")
 	g.P("\t\t\t\t*ptr = nil")
 	g.P("\t\t\t} else if b, ok := dv.([]byte); ok {")
-	g.P("\t\t\t\tcp := make([]byte, len(b))")
-	g.P("\t\t\t\tcopy(cp, b)")
-	g.P("\t\t\t\t*ptr = cp")
+	g.P("\t\t\t\tif b == nil {")
+	g.P("\t\t\t\t\t*ptr = nil")
+	g.P("\t\t\t\t} else {")
+	g.P("\t\t\t\t\tcp := make([]byte, len(b))")
+	g.P("\t\t\t\t\tcopy(cp, b)")
+	g.P("\t\t\t\t\t*ptr = cp")
+	g.P("\t\t\t\t}")
 	g.P("\t\t\t} else if str, ok := dv.(string); ok {")
 	g.P("\t\t\t\t*ptr = []byte(str)")
 	g.P("\t\t\t} else {")
@@ -2806,7 +2832,11 @@ func emitDorisScanRow(g *protogen.GeneratedFile, tbl *dorisTableIR, structName s
 			}
 			g.P("\t}")
 		case c.Field.Desc.Kind() == protoreflect.BytesKind:
-			g.P("\tif len(", varName, ") > 0 {")
+			if c.IsOneofVariant {
+				g.P("\tif ", varName, " != nil {")
+			} else {
+				g.P("\tif len(", varName, ") > 0 {")
+			}
 			g.P("\t\tb := make([]byte, len(", varName, "))")
 			g.P("\t\tcopy(b, ", varName, ")")
 			g.P("\t\tr.", c.GoFieldName, " = b")
@@ -3131,17 +3161,22 @@ func emitDorisColumnToProto(g *protogen.GeneratedFile, c *dorisColumnIR, targetV
 		}
 		g.P("\t}")
 	case c.Field.Desc.Kind() == protoreflect.BytesKind:
-		g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
-		markSet("\t\t")
-		g.P("\t\tb := make([]byte, len(r.", c.GoFieldName, "))")
-		g.P("\t\tcopy(b, r.", c.GoFieldName, ")")
 		if c.IsOneofVariant {
+			g.P("\tif r.", c.GoFieldName, " != nil {")
+			markSet("\t\t")
+			g.P("\t\tb := make([]byte, len(r.", c.GoFieldName, "))")
+			g.P("\t\tcopy(b, r.", c.GoFieldName, ")")
 			oneofWrapper := g.QualifiedGoIdent(c.Field.GoIdent)
 			g.P("\t\t", targetVar, ".", c.Field.Oneof.GoName, " = &", oneofWrapper, "{", protoField, ": b}")
+			g.P("\t}")
 		} else {
+			g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
+			markSet("\t\t")
+			g.P("\t\tb := make([]byte, len(r.", c.GoFieldName, "))")
+			g.P("\t\tcopy(b, r.", c.GoFieldName, ")")
 			g.P("\t\t", targetVar, ".", protoField, " = b")
+			g.P("\t}")
 		}
-		g.P("\t}")
 	default:
 		if hasFlagVar != "" {
 			zeroVal := goZeroValue(c.Field.Desc.Kind())
@@ -3362,11 +3397,20 @@ func emitDorisColumnFromProto(g *protogen.GeneratedFile, c *dorisColumnIR, srcVa
 			g.P(indent, "}")
 		}
 	case c.Field.Desc.Kind() == protoreflect.BytesKind:
-		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
-		g.P(indent, "\tb := make([]byte, len(src))")
-		g.P(indent, "\tcopy(b, src)")
-		g.P(indent, "\tr.", c.GoFieldName, " = b")
-		g.P(indent, "}")
+		if c.IsOneofVariant {
+			oneofWrapper := g.QualifiedGoIdent(c.Field.GoIdent)
+			g.P(indent, "if ov, ok := ", srcVar, ".Get", c.Field.Oneof.GoName, "().(*", oneofWrapper, "); ok && ov != nil {")
+			g.P(indent, "\tb := make([]byte, len(ov.", protoField, "))")
+			g.P(indent, "\tcopy(b, ov.", protoField, ")")
+			g.P(indent, "\tr.", c.GoFieldName, " = b")
+			g.P(indent, "}")
+		} else {
+			g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
+			g.P(indent, "\tb := make([]byte, len(src))")
+			g.P(indent, "\tcopy(b, src)")
+			g.P(indent, "\tr.", c.GoFieldName, " = b")
+			g.P(indent, "}")
+		}
 	default:
 		g.P(indent, "r.", c.GoFieldName, " = ", srcVar, ".Get", protoField, "()")
 	}

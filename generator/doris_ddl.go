@@ -218,9 +218,9 @@ func dedupDorisColumnList(cols []string) []string {
 }
 
 // reorderDorisDescriptorColumns moves UNIQUE KEY or DUPLICATE KEY columns to the
-// front of cols in key order and marks them non-nullable, preserving the relative
-// order of all remaining columns.
-func reorderDorisDescriptorColumns(cols []DorisColumnDescriptor, uks, dupKeys []string) []DorisColumnDescriptor {
+// front of cols in key order and, when forceKeyNonNull is true, marks them
+// non-nullable, preserving the relative order of all remaining columns.
+func reorderDorisDescriptorColumns(cols []DorisColumnDescriptor, uks, dupKeys []string, forceKeyNonNull bool) []DorisColumnDescriptor {
 	keyCols := uks
 	if len(keyCols) == 0 && len(dupKeys) > 0 {
 		keyCols = dupKeys
@@ -237,7 +237,9 @@ func reorderDorisDescriptorColumns(cols []DorisColumnDescriptor, uks, dupKeys []
 	for _, k := range keyCols {
 		if c, ok := colByName[k]; ok && !placed[k] {
 			placed[k] = true
-			c.Nullable = false
+			if forceKeyNonNull {
+				c.Nullable = false
+			}
 			reordered = append(reordered, c)
 		}
 	}
@@ -327,7 +329,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		return ""
 	}
 
-	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys)
+	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys, true)
 	if len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {
 		cp := make([]DorisColumnDescriptor, len(orderedCols))
 		copy(cp, orderedCols)
@@ -560,7 +562,7 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 		uks = dedupDorisColumnList(uks)
 	}
 	dupKeys := dedupDorisColumnList(t.DuplicateKeyColumns)
-	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys)
+	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys, t.SyncTier != "ICEBERG_ONLY")
 	bloomCols := dedupDorisColumnList(t.BloomFilterColumns)
 
 	var fullTableName string
@@ -633,7 +635,7 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 		for _, bf := range bloomCols {
 			props = append(props, fmt.Sprintf(`    "write.parquet.bloom-filter-enabled.column.%s" = "true"`, bf))
 		}
-	} else if (t.DatabaseScope == "TENANT" || t.DatabaseScope == "") && len(orderedCols) > 0 && orderedCols[0].ColumnName == "patient_id" {
+	} else if (t.DatabaseScope == "TENANT" || t.DatabaseScope == "") && len(t.Columns) > 0 && t.Columns[0].ColumnName == "patient_id" {
 		props = append(props, `    "write.parquet.bloom-filter-enabled.column.patient_id" = "true"`)
 	}
 

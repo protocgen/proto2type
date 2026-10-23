@@ -937,6 +937,14 @@ func buildComprehensiveDorisPlugin(t *testing.T) *protogen.Plugin {
 						JsonName:   proto.String("textValue"),
 					},
 					{
+						Name:       proto.String("raw_bytes"),
+						Number:     proto.Int32(8),
+						Label:      descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:       descriptorpb.FieldDescriptorProto_TYPE_BYTES.Enum(),
+						OneofIndex: proto.Int32(0),
+						JsonName:   proto.String("rawBytes"),
+					},
+					{
 						Name:     proto.String("retry_count"),
 						Number:   proto.Int32(7),
 						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
@@ -1293,6 +1301,38 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 		t.Errorf("expected single bloom-filter-enabled property for event_id, got:\n%s", dedupIcebergSQL)
 	}
 
+	// 4c. ICEBERG_ONLY table preserves Nullable: true on key columns after reordering
+	icebergOnlyNullableKeyDesc := DorisTableDescriptor{
+		TableName:        "staging_events",
+		DatabaseScope:    "TENANT",
+		SyncTier:         "ICEBERG_ONLY",
+		UniqueKeyColumns: []string{"event_id"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "payload", DorisType: "TEXT", Nullable: true},
+			{ColumnName: "event_id", DorisType: "VARCHAR(64)", Nullable: true, IsUniqueKey: true},
+		},
+	}
+	icebergOnlySQL := icebergOnlyNullableKeyDesc.BuildIcebergCreateTableSQL("akron")
+	if strings.Contains(icebergOnlySQL, "event_id VARCHAR(64) NOT NULL") || !strings.Contains(icebergOnlySQL, "event_id VARCHAR(64),") {
+		t.Errorf("expected ICEBERG_ONLY BuildIcebergCreateTableSQL to keep nullable key column nullable after reordering, got:\n%s", icebergOnlySQL)
+	}
+
+	// 4d. Tenant table where t.Columns[0] is patient_id preserves patient_id bloom-filter fallback even when another key column moves ahead of it
+	reorderedPatientDesc := DorisTableDescriptor{
+		TableName:        "patient_events",
+		DatabaseScope:    "TENANT",
+		SyncTier:         "WHOLE_TABLE",
+		UniqueKeyColumns: []string{"tenant_id", "patient_id"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "patient_id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+			{ColumnName: "tenant_id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+		},
+	}
+	reorderedPatientIceSQL := reorderedPatientDesc.BuildIcebergCreateTableSQL("akron")
+	if !strings.Contains(reorderedPatientIceSQL, `"write.parquet.bloom-filter-enabled.column.patient_id" = "true"`) {
+		t.Errorf("expected BuildIcebergCreateTableSQL to preserve patient_id bloom-filter fallback after key reordering, got:\n%s", reorderedPatientIceSQL)
+	}
+
 	// 5. Disallowed Doris key types must be rejected in BuildDorisCreateTableSQL (fallback, explicit UK/DK, and DistributedByColumn) and isDorisKeyEligibleType
 	for _, badKeyType := range []string{
 		"FLOAT", "DOUBLE", "STRING", "TEXT", "JSON", "JSONB", "VARIANT",
@@ -1571,6 +1611,86 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 	if err := runner.GenerateFile(gen, f, badModeOpts); err == nil {
 		t.Error("expected error for invalid doris_mode, got nil")
 	}
+
+	// Verify fallback key selection rejects a table whose only columns are real oneof variants,
+	// and promotes the first non-oneof column when a real oneof variant appears first.
+	mo := &descriptorpb.MessageOptions{}
+	proto.SetExtension(mo, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{TableName: "oneof_only"},
+	})
+	oneofOnlyFDP := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("oneof_only.proto"),
+		Package: proto.String("test.v1"),
+		Options: &descriptorpb.FileOptions{GoPackage: proto.String("example.com/test/v1;testv1")},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("OneofOnlyRecord"),
+				Options: mo,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:       proto.String("variant_a"),
+						Number:     proto.Int32(1),
+						Label:      descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:       descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+						OneofIndex: proto.Int32(0),
+						JsonName:   proto.String("variantA"),
+					},
+				},
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("choice")},
+				},
+			},
+		},
+	}
+	genOneofOnly := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{oneofOnlyFDP}}, []string{"oneof_only.proto"})
+	if err := runner.GenerateFile(genOneofOnly, genOneofOnly.Files[0], opts); err == nil {
+		t.Error("expected error when all columns are oneof variants and no keys are configured, got nil")
+	}
+
+	oneofFirstFDP := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("oneof_first.proto"),
+		Package: proto.String("test.v1"),
+		Options: &descriptorpb.FileOptions{GoPackage: proto.String("example.com/test/v1;testv1")},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("OneofFirstRecord"),
+				Options: mo,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:       proto.String("variant_a"),
+						Number:     proto.Int32(1),
+						Label:      descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:       descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+						OneofIndex: proto.Int32(0),
+						JsonName:   proto.String("variantA"),
+					},
+					{
+						Name:     proto.String("record_id"),
+						Number:   proto.Int32(2),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum(),
+						JsonName: proto.String("recordId"),
+					},
+				},
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("choice")},
+				},
+			},
+		},
+	}
+	genOneofFirst := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{oneofFirstFDP}}, []string{"oneof_first.proto"})
+	tables, err := buildDorisTablesForFile(genOneofFirst.Files[0], opts)
+	if err != nil {
+		t.Fatalf("expected OneofFirstRecord to succeed by promoting record_id to fallback key, got: %v", err)
+	}
+	if len(tables) != 1 || tables[0].Descriptor.Columns[0].ColumnName != "record_id" || tables[0].Descriptor.Columns[0].Nullable {
+		t.Fatalf("expected record_id to be promoted to non-null cols[0] fallback key, got %+v", tables[0].Descriptor.Columns)
+	}
+	if !tables[0].Descriptor.Columns[1].Nullable {
+		t.Fatalf("expected oneof variant_a to remain nullable after fallback key promotion, got %+v", tables[0].Descriptor.Columns[1])
+	}
 }
 
 // TestGenerateGoDoris_CompileAndRoundTrip compiles the generated Go Doris code with protoc
@@ -1732,6 +1852,7 @@ message DefaultInferredAuditRecord {
   oneof result_value {
     double numeric_value = 5;
     string text_value = 6;
+    bytes raw_bytes = 8;
   }
   uint32 retry_count = 7;
 }
@@ -2146,8 +2267,8 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 		RetryCount: 3,
 	}
 	defVals := DefaultInferredAuditRecordProtoValues(emptyDef)
-	if len(defVals) != 7 {
-		t.Fatalf("len(DefaultInferredAuditRecordProtoValues) = %d, want 7", len(defVals))
+	if len(defVals) != 8 {
+		t.Fatalf("len(DefaultInferredAuditRecordProtoValues) = %d, want 8", len(defVals))
 	}
 	if defVals[0] != "" {
 		t.Fatalf("expected unset optional NOT NULL record_id to emit empty string, got %#v", defVals[0])
@@ -2169,7 +2290,7 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 		t.Fatalf("expected unset oneof ResultValue to remain nil, got %+v", gotDef.GetResultValue())
 	}
 
-	// Test real oneof active numeric_value (including 0.0) and text_value round-trips
+	// Test real oneof active numeric_value (including 0.0), text_value, and raw_bytes (including empty []byte{}) round-trips
 	recID := "rec-100"
 	seqH := uint64(7)
 	for _, oneofCase := range []*DefaultInferredAuditRecord{
@@ -2187,6 +2308,16 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 			RecordId:    &recID,
 			SeqHash:     &seqH,
 			ResultValue: &DefaultInferredAuditRecord_TextValue{TextValue: "NEGATIVE"},
+		},
+		{
+			RecordId:    &recID,
+			SeqHash:     &seqH,
+			ResultValue: &DefaultInferredAuditRecord_RawBytes{RawBytes: []byte{0xca, 0xfe}},
+		},
+		{
+			RecordId:    &recID,
+			SeqHash:     &seqH,
+			ResultValue: &DefaultInferredAuditRecord_RawBytes{RawBytes: []byte{}},
 		},
 	} {
 		ovVals := DefaultInferredAuditRecordProtoValues(oneofCase)
@@ -2213,7 +2344,7 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 		t.Fatal("expected scanDorisUint32(MaxUint32+1) to return overflow error")
 	}
 	badUint32Vals := append([]any(nil), defVals...)
-	badUint32Vals[6] = int64(-5)
+	badUint32Vals[7] = int64(-5)
 	if _, err := ScanDefaultInferredAuditRecordProto(NewDorisValueScanner(badUint32Vals)); err == nil {
 		t.Fatal("expected ScanDefaultInferredAuditRecordProto to reject negative uint32 retry_count")
 	}
