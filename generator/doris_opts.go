@@ -532,8 +532,12 @@ func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
 		case 13: // int32 file_cache_ttl_seconds = 13
 			if typ == protowire.VarintType {
 				if v, m := protowire.ConsumeVarint(b); m >= 0 {
-					if sv := int64(v); sv >= math.MinInt32 && sv <= math.MaxInt32 {
-						dst.FileCacheTTLSeconds = int32(sv)
+					if v <= math.MaxInt32 {
+						dst.FileCacheTTLSeconds = int32(v)
+					} else if negMag := ^v + 1; negMag <= math.MaxInt32 {
+						dst.FileCacheTTLSeconds = -int32(negMag) // #nosec G115 -- bounded by negMag <= math.MaxInt32
+					} else if ^v+1 == 1<<31 {
+						dst.FileCacheTTLSeconds = math.MinInt32
 					}
 					b = b[m:]
 					continue
