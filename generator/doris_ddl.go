@@ -82,6 +82,7 @@ type DorisTableDescriptor struct {
 	DistributedByColumn  string
 	DuplicateKeyColumns  []string
 	FileCacheTTLSeconds  int32
+	EmbeddingDimension   int32
 	Columns              []DorisColumnDescriptor
 }
 
@@ -161,6 +162,9 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 		return false
 	}
 	if t.ColocateGroup != "" && !isValidSQLIdentifier(t.ColocateGroup) {
+		return false
+	}
+	if t.EmbeddingDimension < 0 {
 		return false
 	}
 	colSet := make(map[string]bool, len(t.Columns))
@@ -295,6 +299,19 @@ func formatDorisDDLColumnIdentList(cols []string) string {
 		formatted[i] = formatDorisDDLColumnIdent(c)
 	}
 	return strings.Join(formatted, ", ")
+}
+
+// resolveDorisEmbeddingDimension returns the validated HNSW vector dimension for t.
+// When t.EmbeddingDimension > 0, that explicit dimension is returned; when unset (0),
+// only clinical_concept_search (guaranteed to use 768-element vectors) defaults to 768.
+func resolveDorisEmbeddingDimension(t DorisTableDescriptor) (int32, bool) {
+	if t.EmbeddingDimension > 0 {
+		return t.EmbeddingDimension, true
+	}
+	if t.EmbeddingDimension == 0 && t.TableName == "clinical_concept_search" {
+		return 768, true
+	}
+	return 0, false
 }
 
 // BuildDorisCreateTableSQL renders a deterministic Apache Doris 4.x
@@ -446,10 +463,12 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	for _, ngCol := range ngramCols {
 		bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_ngram_%s_%s (%s) USING NGRAM_BF PROPERTIES ("gram_size" = "3", "bf_size" = "1024")`, t.TableName, ngCol, formatDorisDDLColumnIdent(ngCol)))
 	}
-	if len(uks) == 0 && t.TableName == "clinical_concept_search" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "embedding" && !c.Nullable && colTypes[c.ColumnName] == "ARRAY<FLOAT>" {
-				bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_hnsw (%s) USING ANN PROPERTIES ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "768")`, c.ColumnName, formatDorisDDLColumnIdent(c.ColumnName)))
+	if len(uks) == 0 {
+		if embDim, ok := resolveDorisEmbeddingDimension(t); ok {
+			for _, c := range orderedCols {
+				if c.ColumnName == "embedding" && !c.Nullable && colTypes[c.ColumnName] == "ARRAY<FLOAT>" {
+					bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_hnsw (%s) USING ANN PROPERTIES ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "%d")`, c.ColumnName, formatDorisDDLColumnIdent(c.ColumnName), embDim))
+				}
 			}
 		}
 	}

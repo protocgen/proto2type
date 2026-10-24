@@ -1290,6 +1290,15 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 	if strings.Contains(arbitraryDupEmbeddingDDL, "USING ANN") || strings.Contains(arbitraryDupEmbeddingDDL, `"dim" = "768"`) {
 		t.Errorf("expected non-clinical_concept_search DUPLICATE KEY table with embedding ARRAY<FLOAT> not to emit hardcoded dim=768 HNSW index:\n%s", arbitraryDupEmbeddingDDL)
 	}
+	arbitraryDupEmbeddingDesc.EmbeddingDimension = 384
+	want384ANN := `INDEX idx_embedding_hnsw (embedding) USING ANN PROPERTIES ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "384")`
+	if got384DDL := arbitraryDupEmbeddingDesc.BuildDorisCreateTableSQL("", 0); !strings.Contains(got384DDL, want384ANN) {
+		t.Errorf("expected DUPLICATE KEY table with explicit EmbeddingDimension=384 to emit dim=384 HNSW index:\n  want: %s\n  got:\n%s", want384ANN, got384DDL)
+	}
+	arbitraryDupEmbeddingDesc.EmbeddingDimension = -1
+	if gotNegDDL := arbitraryDupEmbeddingDesc.BuildDorisCreateTableSQL("", 0); gotNegDDL != "" {
+		t.Errorf("expected negative EmbeddingDimension to fail validation and return empty DDL, got:\n%s", gotNegDDL)
+	}
 
 	// 4. Runtime key-prefix reordering when UniqueKeyColumns is not first in t.Columns
 	unsortedDesc := DorisTableDescriptor{
@@ -2353,6 +2362,14 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	nonConceptRagDesc.TableName = "custom_vector_events"
 	if strings.Contains(nonConceptRagDesc.BuildDorisCreateTableSQL("", 0), "USING ANN") {
 		t.Fatalf("generated BuildDorisCreateTableSQL should not emit hardcoded dim=768 USING ANN index on non-clinical_concept_search table:\n%s", nonConceptRagDesc.BuildDorisCreateTableSQL("", 0))
+	}
+	nonConceptRagDesc.EmbeddingDimension = 384
+	if !strings.Contains(nonConceptRagDesc.BuildDorisCreateTableSQL("", 0), "\"dim\" = \"384\"") {
+		t.Fatalf("generated BuildDorisCreateTableSQL should emit explicit EmbeddingDimension=384 HNSW index:\n%s", nonConceptRagDesc.BuildDorisCreateTableSQL("", 0))
+	}
+	nonConceptRagDesc.EmbeddingDimension = -1
+	if nonConceptRagDesc.BuildDorisCreateTableSQL("", 0) != "" {
+		t.Fatal("generated BuildDorisCreateTableSQL should reject negative EmbeddingDimension")
 	}
 
 	// Verify DefaultInferredAuditRecord:

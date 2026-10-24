@@ -104,11 +104,31 @@ assert('empty string for required field', () => {
   return !result.success;
 });
 
-// Prototype pollution: test a map field with own-enumerable __proto__ / constructor keys
-assert('prototype pollution rejected', () => {
+// Prototype pollution: test a map field with own-enumerable __proto__ / constructor / prototype keys independently
+assert('prototype pollution neutralizes __proto__', () => {
   const poisoned = Object.create(null);
   poisoned['__proto__'] = { hacked: true };
+  const result = UserSchema.safeParse({
+    metadata: poisoned
+  });
+  return !result.success || (
+    !Object.prototype.hasOwnProperty.call(result.data.metadata, '__proto__') &&
+    (result.data.metadata as Record<string, unknown>)['hacked'] === undefined
+  );
+});
+
+assert('prototype pollution rejects constructor', () => {
+  const poisoned = Object.create(null);
   poisoned['constructor'] = 'polluted';
+  const result = UserSchema.safeParse({
+    metadata: poisoned
+  });
+  return !result.success;
+});
+
+assert('prototype pollution rejects prototype', () => {
+  const poisoned = Object.create(null);
+  poisoned['prototype'] = 'polluted';
   const result = UserSchema.safeParse({
     metadata: poisoned
   });
