@@ -8,6 +8,7 @@ import (
 	"hegel.dev/go/hegel"
 )
 
+// baseLinterTestTable constructs a canonical DorisTableDescriptor fixture for schema evolution linter tests.
 func baseLinterTestTable() DorisTableDescriptor {
 	return DorisTableDescriptor{
 		TableName:           "eligibility_criterion_results",
@@ -29,6 +30,7 @@ func baseLinterTestTable() DorisTableDescriptor {
 	}
 }
 
+// TestLintDorisTableEvolution_ValidEvolution verifies that allowed schema widenings and safe column additions produce zero violations.
 func TestLintDorisTableEvolution_ValidEvolution(t *testing.T) {
 	before := baseLinterTestTable()
 	after := baseLinterTestTable()
@@ -65,6 +67,7 @@ func TestLintDorisTableEvolution_ValidEvolution(t *testing.T) {
 	}
 }
 
+// TestLintDorisTableEvolution_DORIS001_ImmutableKey verifies that mutating UNIQUE KEY or DUPLICATE KEY column tuples triggers DORIS001_IMMUTABLE_KEY.
 func TestLintDorisTableEvolution_DORIS001_ImmutableKey(t *testing.T) {
 	// 1. Mutating UniqueKeyColumns
 	beforeUK := baseLinterTestTable()
@@ -119,6 +122,7 @@ func TestLintDorisTableEvolution_DORIS001_ImmutableKey(t *testing.T) {
 	}
 }
 
+// TestLintDorisTableEvolution_DORIS002_ImmutableSequence verifies that mutating or removing function_column.sequence_col triggers DORIS002_IMMUTABLE_SEQUENCE.
 func TestLintDorisTableEvolution_DORIS002_ImmutableSequence(t *testing.T) {
 	before := baseLinterTestTable()
 	after := baseLinterTestTable()
@@ -142,6 +146,7 @@ func TestLintDorisTableEvolution_DORIS002_ImmutableSequence(t *testing.T) {
 	}
 }
 
+// TestLintDorisTableEvolution_DORIS003_ImmutableDistribution verifies that mutating DISTRIBUTED BY HASH or colocate_with triggers DORIS003_IMMUTABLE_DISTRIBUTION.
 func TestLintDorisTableEvolution_DORIS003_ImmutableDistribution(t *testing.T) {
 	// 1. Mutating DistributedByColumn
 	before := baseLinterTestTable()
@@ -172,6 +177,7 @@ func TestLintDorisTableEvolution_DORIS003_ImmutableDistribution(t *testing.T) {
 	}
 }
 
+// TestLintDorisTableEvolution_DORIS004_NoColumnDrop verifies that dropping an existing column triggers DORIS004_NO_COLUMN_DROP.
 func TestLintDorisTableEvolution_DORIS004_NoColumnDrop(t *testing.T) {
 	before := baseLinterTestTable()
 	after := baseLinterTestTable()
@@ -185,6 +191,7 @@ func TestLintDorisTableEvolution_DORIS004_NoColumnDrop(t *testing.T) {
 	}
 }
 
+// TestLintDorisTableEvolution_DORIS005_NonNullScalarDefault verifies that adding a non-nullable scalar column without an explicit default value triggers DORIS005_NON_NULL_SCALAR_DEFAULT.
 func TestLintDorisTableEvolution_DORIS005_NonNullScalarDefault(t *testing.T) {
 	before := baseLinterTestTable()
 	after := baseLinterTestTable()
@@ -210,11 +217,13 @@ func TestLintDorisTableEvolution_DORIS005_NonNullScalarDefault(t *testing.T) {
 	}
 }
 
+// TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution verifies safe widening transitions and rejects narrowing or incompatible type changes under DORIS006_SAFE_TYPE_EVOLUTION.
 func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 	allowedCases := []struct {
 		before string
 		after  string
 	}{
+		{"", ""},
 		{"VARCHAR(32)", "VARCHAR(32)"},
 		{"VARCHAR(32)", "VARCHAR(64)"},
 		{"varchar(64)", "VARCHAR(256)"},
@@ -280,6 +289,7 @@ func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 	}
 }
 
+// TestLintDorisSchemaEvolution_MultiTableSlice verifies multi-table schema evolution linting and error aggregation across table slices.
 func TestLintDorisSchemaEvolution_MultiTableSlice(t *testing.T) {
 	t1Before := baseLinterTestTable()
 	t2Before := DorisTableDescriptor{
@@ -327,6 +337,7 @@ func TestLintDorisSchemaEvolution_MultiTableSlice(t *testing.T) {
 	}
 }
 
+// TestProperty_DorisLinter_DeterminismAndReflexivity verifies reflexivity, determinism, and widening partial-order properties of the Doris schema evolution linter.
 func TestProperty_DorisLinter_DeterminismAndReflexivity(t *testing.T) {
 	intLadder := []string{"TINYINT", "SMALLINT", "INT", "BIGINT"}
 
@@ -367,6 +378,7 @@ func TestProperty_DorisLinter_DeterminismAndReflexivity(t *testing.T) {
 	})
 }
 
+// strconvItoaTest formats a non-negative integer as a decimal string for property tests.
 func strconvItoaTest(n int) string {
 	var b strings.Builder
 	if n == 0 {

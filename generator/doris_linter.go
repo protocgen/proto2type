@@ -252,11 +252,11 @@ func ValidateDorisSchemaEvolution(before, after []DorisTableDescriptor) error {
 func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 	bt := strings.ToUpper(strings.TrimSpace(beforeType))
 	at := strings.ToUpper(strings.TrimSpace(afterType))
-	if bt == "" || at == "" {
-		return false
-	}
 	if bt == at {
 		return true
+	}
+	if bt == "" || at == "" {
+		return false
 	}
 
 	if m, okB := parseDorisVarcharLength(bt); okB {
