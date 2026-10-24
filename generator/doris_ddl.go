@@ -52,7 +52,7 @@ func (c DorisColumnDescriptor) CanonicalIcebergSpecType() string {
 	if strings.HasPrefix(dt, "DATETIMEV2(") && strings.HasSuffix(dt, ")") {
 		return "TIMESTAMPTZ"
 	}
-	if strings.HasPrefix(dt, "VARCHAR") || dt == "TEXT" || dt == "STRING" {
+	if strings.HasPrefix(dt, "VARCHAR") || dt == "TEXT" || dt == "STRING" || dt == "JSON" || dt == "JSONB" || dt == "VARIANT" {
 		return "STRING"
 	}
 	if strings.HasPrefix(dt, "DECIMALV3(") {
@@ -98,6 +98,8 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 		return "DECIMAL(38, 0)"
 	case "ARRAY<LARGEINT>":
 		return "ARRAY<DECIMAL(38, 0)>"
+	case "JSON", "JSONB", "VARIANT":
+		return "STRING"
 	}
 	if strings.HasPrefix(dt, "DATETIMEV2(") && strings.HasSuffix(dt, ")") {
 		return "DATETIME"
@@ -443,6 +445,13 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	}
 	for _, ngCol := range ngramCols {
 		bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_ngram_%s_%s (%s) USING NGRAM_BF PROPERTIES ("gram_size" = "3", "bf_size" = "1024")`, t.TableName, ngCol, formatDorisDDLColumnIdent(ngCol)))
+	}
+	if len(uks) == 0 {
+		for _, c := range orderedCols {
+			if c.ColumnName == "embedding" && !c.Nullable && colTypes[c.ColumnName] == "ARRAY<FLOAT>" {
+				bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_hnsw (%s) USING ANN PROPERTIES ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "768")`, c.ColumnName, formatDorisDDLColumnIdent(c.ColumnName)))
+			}
+		}
 	}
 
 	var b strings.Builder
