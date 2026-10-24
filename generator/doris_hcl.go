@@ -200,7 +200,11 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 	case "GLOBAL_TELEMETRY":
 		schemaRef = "schema.telemetry"
 	default:
-		schemaRef = "schema.tenant_" + slug
+		if slug == "${TENANT_SLUG}" {
+			schemaRef = `"schema.tenant_` + slug + `"`
+		} else {
+			schemaRef = "schema.tenant_" + slug
+		}
 	}
 
 	var bucketsExpr string
@@ -395,13 +399,10 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 		b.WriteString("  }\n")
 	}
 
-	vault := t.StorageVaultName
-	if vault == "" {
-		vault = "azra_lakehouse_vault"
-	}
 	b.WriteString("  properties = {\n")
-	fmt.Fprintf(&b, "    storage_vault_name = %q\n", vault)
-	b.WriteString("    replication_num = \"1\"\n")
+	if t.StorageVaultName != "" {
+		fmt.Fprintf(&b, "    storage_vault_name = %q\n", t.StorageVaultName)
+	}
 	b.WriteString("    compression = \"zstd\"\n")
 	if len(uks) > 0 || t.EnableMoW {
 		b.WriteString("    enable_unique_key_merge_on_write = \"true\"\n")
@@ -463,7 +464,7 @@ func (t DorisTableDescriptor) BuildIcebergAtlasHCL(tenantSlug string) string {
 
 	catalog := t.IcebergCatalog
 	if catalog == "" {
-		catalog = "azra_lake"
+		catalog = "iceberg"
 	}
 	if !isValidSQLIdentifier(catalog) {
 		return ""
@@ -478,7 +479,11 @@ func (t DorisTableDescriptor) BuildIcebergAtlasHCL(tenantSlug string) string {
 	case "GLOBAL_TERMINOLOGY_RAG":
 		schemaRef = "schema.terminology_rag"
 	default:
-		schemaRef = "schema.tenant_" + slug
+		if slug == "${TENANT_SLUG}" {
+			schemaRef = `"schema.tenant_` + slug + `"`
+		} else {
+			schemaRef = "schema.tenant_" + slug
+		}
 	}
 
 	var partCols []string
@@ -610,6 +615,32 @@ func stripAtlasHCLComments(src string) (string, error) {
 	return b.String(), nil
 }
 
+// indexUnquotedHCLBrace returns the byte index of the first '{' in s that is
+// outside double-quoted string literals, or -1 if none exists.
+func indexUnquotedHCLBrace(s string) int {
+	inQuotes := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inQuotes {
+			if ch == '\\' && i+1 < len(s) {
+				i++
+				continue
+			}
+			if ch == '"' {
+				inQuotes = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inQuotes = true
+		case '{':
+			return i
+		}
+	}
+	return -1
+}
+
 // findMatchingHCLBrace returns the index of the closing '}' matching the opening '{' at openIdx.
 func findMatchingHCLBrace(s string, openIdx int) (int, error) {
 	depth := 0
@@ -718,7 +749,7 @@ func ParseDorisAtlasHCL(hclContent string) ([]DorisTableDescriptor, error) {
 			break
 		}
 
-		openIdx := strings.IndexByte(cleaned[pos:], '{')
+		openIdx := indexUnquotedHCLBrace(cleaned[pos:])
 		if openIdx < 0 {
 			return nil, fmt.Errorf("unexpected trailing content in Atlas HCL: %q", strings.TrimSpace(cleaned[pos:]))
 		}
@@ -792,7 +823,7 @@ func parseDorisAtlasTableBlock(tableName, body string) (DorisTableDescriptor, er
 			continue
 		}
 
-		if !strings.Contains(trimmedLine, "{") {
+		if indexUnquotedHCLBrace(trimmedLine) < 0 {
 			eqIdx := strings.IndexByte(trimmedLine, '=')
 			if eqIdx <= 0 {
 				return desc, fmt.Errorf("unexpected statement %q", trimmedLine)
@@ -825,7 +856,7 @@ func parseDorisAtlasTableBlock(tableName, body string) (DorisTableDescriptor, er
 			continue
 		}
 
-		openRel := strings.IndexByte(body[i:], '{')
+		openRel := indexUnquotedHCLBrace(body[i:])
 		openAbs := i + openRel
 		blockHeader := strings.TrimSpace(body[i:openAbs])
 		closeAbs, err := findMatchingHCLBrace(body, openAbs)
@@ -1139,8 +1170,8 @@ func parseDorisAtlasIndexBlock(idxName, body string) (DorisIndexDescriptor, erro
 			line = body[i : i+lineEnd]
 		}
 		trimmed := strings.TrimSpace(line)
-		if strings.Contains(trimmed, "{") {
-			openRel := strings.IndexByte(body[i:], '{')
+		if indexUnquotedHCLBrace(trimmed) >= 0 {
+			openRel := indexUnquotedHCLBrace(body[i:])
 			openAbs := i + openRel
 			subHeader := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(body[i:openAbs]), "="))
 			closeAbs, err := findMatchingHCLBrace(body, openAbs)
@@ -1264,7 +1295,6 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	strconvParseInt := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strconv", GoName: "ParseInt"})
 	strconvUnquote := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strconv", GoName: "Unquote"})
 	stringsBuilder := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "Builder"})
-	stringsContains := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "Contains"})
 	stringsEqualFold := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "EqualFold"})
 	stringsHasPrefix := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "HasPrefix"})
 	stringsHasSuffix := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "HasSuffix"})
@@ -1437,7 +1467,11 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\tcase \"GLOBAL_TELEMETRY\":")
 	g.P("\t\tschemaRef = \"schema.telemetry\"")
 	g.P("\tdefault:")
-	g.P("\t\tschemaRef = \"schema.tenant_\" + slug")
+	g.P("\t\tif slug == \"${TENANT_SLUG}\" {")
+	g.P("\t\t\tschemaRef = `\"schema.tenant_` + slug + `\"`")
+	g.P("\t\t} else {")
+	g.P("\t\t\tschemaRef = \"schema.tenant_\" + slug")
+	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tvar bucketsExpr string")
 	g.P("\tif buckets > 0 {")
@@ -1622,13 +1656,10 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t}")
 	g.P("\t\tb.WriteString(\"  }\\n\")")
 	g.P("\t}")
-	g.P("\tvault := t.StorageVaultName")
-	g.P("\tif vault == \"\" {")
-	g.P("\t\tvault = \"azra_lakehouse_vault\"")
-	g.P("\t}")
 	g.P("\tb.WriteString(\"  properties = {\\n\")")
-	g.P("\tb.WriteString(", fmtSprintf, "(\"    storage_vault_name = %q\\n\", vault))")
-	g.P("\tb.WriteString(\"    replication_num = \\\"1\\\"\\n\")")
+	g.P("\tif t.StorageVaultName != \"\" {")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    storage_vault_name = %q\\n\", t.StorageVaultName))")
+	g.P("\t}")
 	g.P("\tb.WriteString(\"    compression = \\\"zstd\\\"\\n\")")
 	g.P("\tif len(uks) > 0 || t.EnableMoW {")
 	g.P("\t\tb.WriteString(\"    enable_unique_key_merge_on_write = \\\"true\\\"\\n\")")
@@ -1688,7 +1719,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\tbloomCols := dedupDorisColumnList(t.BloomFilterColumns)")
 	g.P("\tcatalog := t.IcebergCatalog")
 	g.P("\tif catalog == \"\" {")
-	g.P("\t\tcatalog = \"azra_lake\"")
+	g.P("\t\tcatalog = \"iceberg\"")
 	g.P("\t}")
 	g.P("\tif !isValidDorisSQLIdentifier(catalog) {")
 	g.P("\t\treturn \"\"")
@@ -1702,7 +1733,11 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\tcase \"GLOBAL_TERMINOLOGY_RAG\":")
 	g.P("\t\tschemaRef = \"schema.terminology_rag\"")
 	g.P("\tdefault:")
-	g.P("\t\tschemaRef = \"schema.tenant_\" + slug")
+	g.P("\t\tif slug == \"${TENANT_SLUG}\" {")
+	g.P("\t\t\tschemaRef = `\"schema.tenant_` + slug + `\"`")
+	g.P("\t\t} else {")
+	g.P("\t\t\tschemaRef = \"schema.tenant_\" + slug")
+	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tvar partCols []string")
 	g.P("\tif len(t.PartitionByColumns) > 0 {")
@@ -1842,6 +1877,31 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
+	g.P("func indexUnquotedHCLBrace(s string) int {")
+	g.P("\tinQuotes := false")
+	g.P("\tfor i := 0; i < len(s); i++ {")
+	g.P("\t\tch := s[i]")
+	g.P("\t\tif inQuotes {")
+	g.P("\t\t\tif ch == '\\\\' && i+1 < len(s) {")
+	g.P("\t\t\t\ti++")
+	g.P("\t\t\t\tcontinue")
+	g.P("\t\t\t}")
+	g.P("\t\t\tif ch == '\"' {")
+	g.P("\t\t\t\tinQuotes = false")
+	g.P("\t\t\t}")
+	g.P("\t\t\tcontinue")
+	g.P("\t\t}")
+	g.P("\t\tswitch ch {")
+	g.P("\t\tcase '\"':")
+	g.P("\t\t\tinQuotes = true")
+	g.P("\t\tcase '{':")
+	g.P("\t\t\treturn i")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\treturn -1")
+	g.P("}")
+	g.P()
+
 	g.P("func findMatchingHCLBrace(s string, openIdx int) (int, error) {")
 	g.P("\tdepth := 0")
 	g.P("\tinQuotes := false")
@@ -1947,7 +2007,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tif pos >= len(cleaned) {")
 	g.P("\t\t\tbreak")
 	g.P("\t\t}")
-	g.P("\t\topenIdx := ", stringsIndexByte, "(cleaned[pos:], '{')")
+	g.P("\t\topenIdx := indexUnquotedHCLBrace(cleaned[pos:])")
 	g.P("\t\tif openIdx < 0 {")
 	g.P("\t\t\treturn nil, ", fmtErrorf, "(\"unexpected trailing content in Atlas HCL: %q\", ", stringsTrimSpace, "(cleaned[pos:]))")
 	g.P("\t\t}")
@@ -2009,7 +2069,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t\ti += lineEnd + 1")
 	g.P("\t\t\tcontinue")
 	g.P("\t\t}")
-	g.P("\t\tif !", stringsContains, "(trimmedLine, \"{\") {")
+	g.P("\t\tif indexUnquotedHCLBrace(trimmedLine) < 0 {")
 	g.P("\t\t\teqIdx := ", stringsIndexByte, "(trimmedLine, '=')")
 	g.P("\t\t\tif eqIdx <= 0 {")
 	g.P("\t\t\t\treturn desc, ", fmtErrorf, "(\"unexpected statement %q\", trimmedLine)")
@@ -2039,7 +2099,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t\ti += lineEnd + 1")
 	g.P("\t\t\tcontinue")
 	g.P("\t\t}")
-	g.P("\t\topenRel := ", stringsIndexByte, "(body[i:], '{')")
+	g.P("\t\topenRel := indexUnquotedHCLBrace(body[i:])")
 	g.P("\t\topenAbs := i + openRel")
 	g.P("\t\tblockHeader := ", stringsTrimSpace, "(body[i:openAbs])")
 	g.P("\t\tcloseAbs, err := findMatchingHCLBrace(body, openAbs)")
@@ -2328,8 +2388,8 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t\tline = body[i : i+lineEnd]")
 	g.P("\t\t}")
 	g.P("\t\ttrimmed := ", stringsTrimSpace, "(line)")
-	g.P("\t\tif ", stringsContains, "(trimmed, \"{\") {")
-	g.P("\t\t\topenRel := ", stringsIndexByte, "(body[i:], '{')")
+	g.P("\t\tif indexUnquotedHCLBrace(trimmed) >= 0 {")
+	g.P("\t\t\topenRel := indexUnquotedHCLBrace(body[i:])")
 	g.P("\t\t\topenAbs := i + openRel")
 	g.P("\t\t\tsubHeader := ", stringsTrimSpace, "(", stringsTrimSuffix, "(", stringsTrimSpace, "(body[i:openAbs]), \"=\"))")
 	g.P("\t\t\tcloseAbs, err := findMatchingHCLBrace(body, openAbs)")

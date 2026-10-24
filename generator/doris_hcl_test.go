@@ -116,12 +116,17 @@ func TestBuildDorisAtlasHCL_DuplicateKeyAndANNIndex(t *testing.T) {
 		`index_type = "hnsw"`,
 		`metric_type = "l2_distance"`,
 		`dim = "768"`,
-		`storage_vault_name = "azra_lakehouse_vault"`,
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(hcl, want) {
 			t.Errorf("clinical_concept_search HCL missing %q in:\n%s", want, hcl)
 		}
+	}
+	if strings.Contains(hcl, "storage_vault_name") {
+		t.Errorf("expected storage_vault_name to be omitted when StorageVaultName is empty, got:\n%s", hcl)
+	}
+	if strings.Contains(hcl, "replication_num") {
+		t.Errorf("expected replication_num to be omitted, got:\n%s", hcl)
 	}
 
 	// Verify explicit EmbeddingDimension override.
@@ -156,7 +161,7 @@ func TestBuildIcebergAtlasHCL_TypeMappingsAndPartitions(t *testing.T) {
 	hcl := desc.BuildIcebergAtlasHCL("acme")
 	wantSnippets := []string{
 		`table "patient_encounters" {`,
-		`catalog = "azra_lake"`,
+		`catalog = "iceberg"`,
 		`schema = schema.tenant_acme`,
 		"column \"seq_hash\" {\n    type = decimal(38, 0)\n    null = false\n  }",
 		"column \"raw_json\" {\n    type = string\n    null = true\n  }",
@@ -172,6 +177,12 @@ func TestBuildIcebergAtlasHCL_TypeMappingsAndPartitions(t *testing.T) {
 		if !strings.Contains(hcl, want) {
 			t.Errorf("BuildIcebergAtlasHCL missing %q in:\n%s", want, hcl)
 		}
+	}
+
+	customCatalog := desc
+	customCatalog.IcebergCatalog = "azra_lake"
+	if got := customCatalog.BuildIcebergAtlasHCL("acme"); !strings.Contains(got, `catalog = "azra_lake"`) {
+		t.Errorf("expected custom catalog = \"azra_lake\", got:\n%s", got)
 	}
 
 	// Verify INTERNAL_ONLY tables return empty Iceberg HCL, and ICEBERG_ONLY tables return empty Doris HCL.
@@ -192,6 +203,7 @@ func TestBuildIcebergAtlasHCL_TypeMappingsAndPartitions(t *testing.T) {
 // (DORIS001..006).
 func TestParseDorisAtlasHCL_RoundTripAndEvolutionLinting(t *testing.T) {
 	t1 := baseLinterTestTable()
+	t1.StorageVaultName = "azra_lakehouse_vault"
 	t1.Columns = append(t1.Columns, DorisColumnDescriptor{
 		ColumnName:     "event_month",
 		DorisType:      "VARCHAR(7)",
@@ -258,6 +270,19 @@ func TestParseDorisAtlasHCL_RoundTripAndEvolutionLinting(t *testing.T) {
 	}
 	if err := ValidateDorisEvolution(parsed, parsed); err != nil {
 		t.Fatalf("expected nil error from ValidateDorisEvolution on identical HCL, got %v", err)
+	}
+
+	// Verify round-trip with empty tenantSlug (${TENANT_SLUG} placeholder in schema reference).
+	placeholderHCL := t1.BuildDorisAtlasHCL("", 0)
+	if !strings.Contains(placeholderHCL, `schema = "schema.tenant_${TENANT_SLUG}"`) {
+		t.Fatalf("expected quoted ${TENANT_SLUG} schema reference, got:\n%s", placeholderHCL)
+	}
+	placeholderParsed, err := ParseDorisAtlasHCL(placeholderHCL)
+	if err != nil || len(placeholderParsed) != 1 || placeholderParsed[0].DatabaseScope != "TENANT" {
+		t.Fatalf("ParseDorisAtlasHCL(placeholderHCL) failed: err=%v, parsed=%+v", err, placeholderParsed)
+	}
+	if v := LintDorisEvolution([]DorisTableDescriptor{t1}, placeholderParsed); len(v) != 0 {
+		t.Fatalf("expected 0 violations on ${TENANT_SLUG} round-trip, got %v", v)
 	}
 
 	// Mutate HCL to trigger DORIS001..006 and verify LintDorisEvolution catches every rule!
