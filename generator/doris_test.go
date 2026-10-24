@@ -1262,7 +1262,8 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 		}
 	}
 
-	// 3b. Verify Faiss HNSW USING ANN index emission on DUPLICATE KEY table with non-null embedding ARRAY<FLOAT>
+	// 3b. Verify Faiss HNSW USING ANN index emission on clinical_concept_search (guaranteed 768-dim)
+	// and verify that arbitrary DUPLICATE KEY tables with embedding ARRAY<FLOAT> do NOT get a hardcoded dim="768" HNSW index.
 	conceptSearchDesc := DorisTableDescriptor{
 		TableName:            "clinical_concept_search",
 		MessageName:          "ClinicalConceptSearchRecord",
@@ -1282,6 +1283,12 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 	wantANN := `INDEX idx_embedding_hnsw (embedding) USING ANN PROPERTIES ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "768")`
 	if !strings.Contains(conceptSearchDDL, wantANN) {
 		t.Errorf("expected clinical_concept_search BuildDorisCreateTableSQL to emit Faiss HNSW USING ANN index:\n  want: %s\n  got:\n%s", wantANN, conceptSearchDDL)
+	}
+	arbitraryDupEmbeddingDesc := conceptSearchDesc
+	arbitraryDupEmbeddingDesc.TableName = "custom_vector_events"
+	arbitraryDupEmbeddingDDL := arbitraryDupEmbeddingDesc.BuildDorisCreateTableSQL("", 0)
+	if strings.Contains(arbitraryDupEmbeddingDDL, "USING ANN") || strings.Contains(arbitraryDupEmbeddingDDL, `"dim" = "768"`) {
+		t.Errorf("expected non-clinical_concept_search DUPLICATE KEY table with embedding ARRAY<FLOAT> not to emit hardcoded dim=768 HNSW index:\n%s", arbitraryDupEmbeddingDDL)
 	}
 
 	// 4. Runtime key-prefix reordering when UniqueKeyColumns is not first in t.Columns
@@ -2341,6 +2348,11 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	}
 	if !strings.Contains(ragDesc.BuildDorisCreateTableSQL("", 0), "INDEX idx_embedding_hnsw (embedding) USING ANN PROPERTIES (\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"768\")") {
 		t.Fatalf("generated BuildDorisCreateTableSQL missing USING ANN index:\n%s", ragDesc.BuildDorisCreateTableSQL("", 0))
+	}
+	nonConceptRagDesc := ragDesc
+	nonConceptRagDesc.TableName = "custom_vector_events"
+	if strings.Contains(nonConceptRagDesc.BuildDorisCreateTableSQL("", 0), "USING ANN") {
+		t.Fatalf("generated BuildDorisCreateTableSQL should not emit hardcoded dim=768 USING ANN index on non-clinical_concept_search table:\n%s", nonConceptRagDesc.BuildDorisCreateTableSQL("", 0))
 	}
 
 	// Verify DefaultInferredAuditRecord:

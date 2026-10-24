@@ -2047,7 +2047,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tfor _, ngCol := range ngramCols {")
 	g.P("\t\tbodyLines = append(bodyLines, ", fmtSprintf, "(`    INDEX idx_ngram_%s_%s (%s) USING NGRAM_BF PROPERTIES (\"gram_size\" = \"3\", \"bf_size\" = \"1024\")`, t.TableName, ngCol, formatDorisDDLColumnIdent(ngCol)))")
 	g.P("\t}")
-	g.P("\tif len(uks) == 0 {")
+	g.P("\tif len(uks) == 0 && t.TableName == \"clinical_concept_search\" {")
 	g.P("\t\tfor _, c := range orderedCols {")
 	g.P("\t\t\tif c.ColumnName == \"embedding\" && !c.Nullable && colTypes[c.ColumnName] == \"ARRAY<FLOAT>\" {")
 	g.P("\t\t\t\tbodyLines = append(bodyLines, ", fmtSprintf, "(`    INDEX idx_%s_hnsw (%s) USING ANN PROPERTIES (\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"768\")`, c.ColumnName, formatDorisDDLColumnIdent(c.ColumnName)))")
