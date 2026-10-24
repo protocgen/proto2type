@@ -1250,6 +1250,55 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 	if got := (DorisColumnDescriptor{DorisType: "ARRAY<DATEV2>"}).CanonicalIcebergSpecType(); got != "LIST<DATE>" {
 		t.Errorf("CanonicalIcebergSpecType(ARRAY<DATEV2>) = %q, want LIST<DATE>", got)
 	}
+	for _, jsonType := range []string{"JSON", "JSONB", "VARIANT", "json", "jsonb", "variant"} {
+		if got := dorisColumnIcebergDDLType(jsonType, ""); got != "STRING" {
+			t.Errorf("dorisColumnIcebergDDLType(%q, \"\") = %q, want STRING", jsonType, got)
+		}
+		if got := dorisColumnIcebergDDLType("ARRAY<"+jsonType+">", ""); got != "ARRAY<STRING>" {
+			t.Errorf("dorisColumnIcebergDDLType(\"ARRAY<%s>\", \"\") = %q, want ARRAY<STRING>", jsonType, got)
+		}
+		if got := (DorisColumnDescriptor{DorisType: jsonType}).CanonicalIcebergSpecType(); got != "STRING" {
+			t.Errorf("CanonicalIcebergSpecType(%q) = %q, want STRING", jsonType, got)
+		}
+	}
+
+	// 3b. Verify Faiss HNSW USING ANN index emission on clinical_concept_search (guaranteed 768-dim)
+	// and verify that arbitrary DUPLICATE KEY tables with embedding ARRAY<FLOAT> do NOT get a hardcoded dim="768" HNSW index.
+	conceptSearchDesc := DorisTableDescriptor{
+		TableName:            "clinical_concept_search",
+		MessageName:          "ClinicalConceptSearchRecord",
+		DatabaseScope:        "GLOBAL_TERMINOLOGY_RAG",
+		SyncTier:             "INTERNAL_ONLY",
+		DuplicateKeyColumns:  []string{"concept_id", "code_system"},
+		InvertedIndexColumns: []string{"preferred_term", "synonyms_text"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "concept_id", DorisType: "VARCHAR(64)", Nullable: false},
+			{ColumnName: "code_system", DorisType: "VARCHAR(32)", Nullable: false},
+			{ColumnName: "preferred_term", DorisType: "TEXT", Nullable: false, InvertedIndex: true},
+			{ColumnName: "synonyms_text", DorisType: "TEXT", Nullable: true, InvertedIndex: true},
+			{ColumnName: "embedding", DorisType: "ARRAY<FLOAT>", Nullable: false},
+		},
+	}
+	conceptSearchDDL := conceptSearchDesc.BuildDorisCreateTableSQL("", 0)
+	wantANN := `INDEX idx_embedding_hnsw (embedding) USING ANN PROPERTIES ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "768")`
+	if !strings.Contains(conceptSearchDDL, wantANN) {
+		t.Errorf("expected clinical_concept_search BuildDorisCreateTableSQL to emit Faiss HNSW USING ANN index:\n  want: %s\n  got:\n%s", wantANN, conceptSearchDDL)
+	}
+	arbitraryDupEmbeddingDesc := conceptSearchDesc
+	arbitraryDupEmbeddingDesc.TableName = "custom_vector_events"
+	arbitraryDupEmbeddingDDL := arbitraryDupEmbeddingDesc.BuildDorisCreateTableSQL("", 0)
+	if strings.Contains(arbitraryDupEmbeddingDDL, "USING ANN") || strings.Contains(arbitraryDupEmbeddingDDL, `"dim" = "768"`) {
+		t.Errorf("expected non-clinical_concept_search DUPLICATE KEY table with embedding ARRAY<FLOAT> not to emit hardcoded dim=768 HNSW index:\n%s", arbitraryDupEmbeddingDDL)
+	}
+	arbitraryDupEmbeddingDesc.EmbeddingDimension = 384
+	want384ANN := `INDEX idx_embedding_hnsw (embedding) USING ANN PROPERTIES ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "384")`
+	if got384DDL := arbitraryDupEmbeddingDesc.BuildDorisCreateTableSQL("", 0); !strings.Contains(got384DDL, want384ANN) {
+		t.Errorf("expected DUPLICATE KEY table with explicit EmbeddingDimension=384 to emit dim=384 HNSW index:\n  want: %s\n  got:\n%s", want384ANN, got384DDL)
+	}
+	arbitraryDupEmbeddingDesc.EmbeddingDimension = -1
+	if gotNegDDL := arbitraryDupEmbeddingDesc.BuildDorisCreateTableSQL("", 0); gotNegDDL != "" {
+		t.Errorf("expected negative EmbeddingDimension to fail validation and return empty DDL, got:\n%s", gotNegDDL)
+	}
 
 	// 4. Runtime key-prefix reordering when UniqueKeyColumns is not first in t.Columns
 	unsortedDesc := DorisTableDescriptor{
@@ -2289,6 +2338,40 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 		t.Fatal("expected AuditEventRecordDorisTable() to distribute by event_id")
 	}
 
+	// Verify generated dorisColumnIcebergDDLType maps JSON/JSONB/VARIANT -> STRING and BuildDorisCreateTableSQL emits USING ANN on DUPLICATE KEY embedding
+	for _, jt := range []string{"JSON", "JSONB", "VARIANT"} {
+		if got := dorisColumnIcebergDDLType(jt, ""); got != "STRING" {
+			t.Fatalf("generated dorisColumnIcebergDDLType(%q, \"\") = %q, want STRING", jt, got)
+		}
+	}
+	ragDesc := DorisTableDescriptor{
+		TableName:           "clinical_concept_search",
+		DatabaseScope:       "GLOBAL_TERMINOLOGY_RAG",
+		SyncTier:            "INTERNAL_ONLY",
+		DuplicateKeyColumns: []string{"concept_id", "code_system"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "concept_id", DorisType: "VARCHAR(64)", Nullable: false},
+			{ColumnName: "code_system", DorisType: "VARCHAR(32)", Nullable: false},
+			{ColumnName: "embedding", DorisType: "ARRAY<FLOAT>", Nullable: false},
+		},
+	}
+	if !strings.Contains(ragDesc.BuildDorisCreateTableSQL("", 0), "INDEX idx_embedding_hnsw (embedding) USING ANN PROPERTIES (\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"768\")") {
+		t.Fatalf("generated BuildDorisCreateTableSQL missing USING ANN index:\n%s", ragDesc.BuildDorisCreateTableSQL("", 0))
+	}
+	nonConceptRagDesc := ragDesc
+	nonConceptRagDesc.TableName = "custom_vector_events"
+	if strings.Contains(nonConceptRagDesc.BuildDorisCreateTableSQL("", 0), "USING ANN") {
+		t.Fatalf("generated BuildDorisCreateTableSQL should not emit hardcoded dim=768 USING ANN index on non-clinical_concept_search table:\n%s", nonConceptRagDesc.BuildDorisCreateTableSQL("", 0))
+	}
+	nonConceptRagDesc.EmbeddingDimension = 384
+	if !strings.Contains(nonConceptRagDesc.BuildDorisCreateTableSQL("", 0), "\"dim\" = \"384\"") {
+		t.Fatalf("generated BuildDorisCreateTableSQL should emit explicit EmbeddingDimension=384 HNSW index:\n%s", nonConceptRagDesc.BuildDorisCreateTableSQL("", 0))
+	}
+	nonConceptRagDesc.EmbeddingDimension = -1
+	if nonConceptRagDesc.BuildDorisCreateTableSQL("", 0) != "" {
+		t.Fatal("generated BuildDorisCreateTableSQL should reject negative EmbeddingDimension")
+	}
+
 	// Verify DefaultInferredAuditRecord:
 	// 1) Unannotated sibling field ActorId and inline_nested Meta.SourceIp are preserved
 	// 2) Unset proto3 optional NOT NULL columns (record_id, seq_hash) emit non-nil zero values in Values()
@@ -2675,6 +2758,7 @@ extend google.protobuf.FieldOptions {
 	tableCounts := make(map[string]int)
 	colCountsByTable := make(map[string]int)
 	tenantDescsByTable := make(map[string]DorisTableDescriptor)
+	terminologyDescsByTable := make(map[string]DorisTableDescriptor)
 	for _, f := range gen.Files {
 		if !f.Generate {
 			continue
@@ -2688,10 +2772,22 @@ extend google.protobuf.FieldOptions {
 			colCountsByTable[tbl.Descriptor.TableName] = len(tbl.Descriptor.Columns)
 			if f.Desc.Path() != "azra/terminology/v1/terminology_tables.proto" {
 				tenantDescsByTable[tbl.Descriptor.TableName] = tbl.Descriptor
+			} else {
+				terminologyDescsByTable[tbl.Descriptor.TableName] = tbl.Descriptor
 			}
 		}
 		if err := runner.GenerateFile(gen, f, opts); err != nil {
 			t.Fatalf("GenerateFile(%s) failed: %v", f.Desc.Path(), err)
+		}
+	}
+
+	if conceptSearch, ok := terminologyDescsByTable["clinical_concept_search"]; !ok {
+		t.Errorf("missing clinical_concept_search in terminology_tables.proto")
+	} else {
+		conceptSQL := conceptSearch.BuildDorisCreateTableSQL("", 0)
+		wantANN := `INDEX idx_embedding_hnsw (embedding) USING ANN PROPERTIES ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "768")`
+		if !strings.Contains(conceptSQL, wantANN) {
+			t.Errorf("clinical_concept_search missing Faiss HNSW USING ANN index:\n  want: %s\n  got:\n%s", wantANN, conceptSQL)
 		}
 	}
 
