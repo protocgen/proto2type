@@ -21,7 +21,7 @@ message MessageOptions {
 }
 
 // TableOptions defines Apache Doris 4.x and Apache Iceberg lakehouse table
-// metadata on a message. Wire-compatible with azra.common.v1.TableMeta (50201).
+// metadata on a message. Wire-compatible with legacy table metadata extension 50201.
 message TableOptions {
   string table_name = 1;
   string database_scope = 2;
@@ -36,6 +36,8 @@ message TableOptions {
   string distributed_by_column = 11;
   repeated string duplicate_key_columns = 12;
   int32 file_cache_ttl_seconds = 13;
+  string storage_vault_name = 14;
+  string iceberg_catalog = 15;
 }
 
 // Field-level options for proto2type.
@@ -81,7 +83,7 @@ message FieldOptions {
 }
 
 // ColumnOptions defines Apache Doris 4.x and Apache Iceberg lakehouse column
-// metadata on a field. Wire-compatible with azra.common.v1.ColumnMeta (50200).
+// metadata on a field. Wire-compatible with legacy column metadata extension 50200.
 message ColumnOptions {
   string doris_type = 1;
   string iceberg_type = 2;

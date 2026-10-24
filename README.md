@@ -24,7 +24,7 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 - 🔥 **Firestore backend** — `firestore:""` tags, `serverTimestamp` sentinel, document ID exclusion
 - 🍃 **MongoDB backend** — `bson:""` tags, `_id` handling, `,inline` support
 - 🐘 **PostgreSQL backend** — `db:""` tags and HAPI-style FHIR search index extraction (`postgres_mode=search_index`)
-- 🏔️ **Apache Doris 4.x & Iceberg backend** — Go storage structs (`db:""`, `doris:""`), SQL scanners (`Columns()`, `Values()`, `ScanRow()`), `ToProto()`/`FromProto()` converters, and Doris 4.x / Iceberg DDL generation (`BuildDorisCreateTableSQL`, `BuildIcebergCreateTableSQL`, `doris_mode=go|ddl|both`)
+- 🏔️ **Apache Doris 4.x & Iceberg backend** — Go storage structs (`db:""`, `doris:""`), SQL scanners (`Columns()`, `Values()`, `ScanRow()`), `ToProto()`/`FromProto()` converters, Doris 4.x / Iceberg DDL generation (`BuildDorisCreateTableSQL`, `BuildIcebergCreateTableSQL`, `doris_mode=go|ddl|both`), and schema evolution linting (`LintEvolution`, `LintDorisTableEvolution`)
 - 🔄 **Bidirectional converters** — `ToProto()` / `FromProto()`, `ToDomain()` / `FromDomain()` on every struct
 - 🎯 **Field mask helpers** — `ApplyFieldMask()` for partial updates
 - 📋 **Custom proto options** — `document_id`, `server_timestamp`, `skip`, `omitempty`, `inline`, `name`, `table`, `column`
@@ -367,6 +367,8 @@ See [CONFIG.md](CONFIG.md) for the full reference, including proto-level annotat
 | `lang` | `go` | Target language (`go`, `rust`, `python`, `kotlin`, `typescript`) |
 | `backend` | _(none)_ | Storage backend (`firestore`, `mongo`, `postgres`, `doris`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc`) |
 | `doris_mode` | `""` (`go`) | Doris/Iceberg backend mode: `""`/`go` (Go storage structs + SQL scanners), `ddl` (Doris & Iceberg SQL DDL), `both` |
+| `doris_storage_vault` | `""` | Default Apache Doris storage vault name for DDL properties (omitted when empty) |
+| `iceberg_catalog` | `""` (`iceberg`) | Default Apache Iceberg catalog prefix for DDL (renders `iceberg` when empty) |
 | `postgres_mode` | `""` | Postgres backend mode: `""` (struct), `search_index` (FHIR search index extraction) |
 | `postgres_search_params` | `""` | Path to FHIR SearchParameter JSON bundle (required for `postgres_mode=search_index`) |
 | `domain` | `true` | Generate domain types + proto converters |
@@ -539,7 +541,7 @@ message User {
 | `(proto2type.field).name` | `string` | Override the storage field name |
 | `(proto2type.field).column` | `ColumnOptions` | Apache Doris 4.x & Iceberg column metadata (`doris_type`, `iceberg_type`, `is_unique_key`, `inverted_index`, `inline_nested`, etc.) |
 | `(proto2type.message).skip` | `bool` | Skip generating types for entire message |
-| `(proto2type.message).table` | `TableOptions` | Apache Doris 4.x & Iceberg table metadata (`table_name`, `database_scope`, `sync_tier`, `unique_key_columns`, `colocate_group`, `sequence_col`, etc.) |
+| `(proto2type.message).table` | `TableOptions` | Apache Doris 4.x & Iceberg table metadata (`table_name`, `database_scope`, `sync_tier`, `unique_key_columns`, `colocate_group`, `sequence_col`, `storage_vault_name`, `iceberg_catalog`, etc.) |
 
 ## Type Mapping
 

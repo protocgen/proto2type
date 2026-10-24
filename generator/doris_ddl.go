@@ -83,6 +83,8 @@ type DorisTableDescriptor struct {
 	DuplicateKeyColumns  []string
 	FileCacheTTLSeconds  int32
 	EmbeddingDimension   int32
+	StorageVaultName     string
+	IcebergCatalog       string
 	Columns              []DorisColumnDescriptor
 }
 
@@ -162,6 +164,12 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 		return false
 	}
 	if t.ColocateGroup != "" && !isValidSQLIdentifier(t.ColocateGroup) {
+		return false
+	}
+	if t.StorageVaultName != "" && !isValidSQLIdentifier(t.StorageVaultName) {
+		return false
+	}
+	if t.IcebergCatalog != "" && !isValidSQLIdentifier(t.IcebergCatalog) {
 		return false
 	}
 	if t.EmbeddingDimension < 0 {
@@ -342,7 +350,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	bloomCols := dedupDorisColumnList(t.BloomFilterColumns)
 
 	// Global terminology release-partitioned tables without Doris unique/duplicate keys
-	// live exclusively in the Apache Iceberg catalog (azra_lake.terminology.*).
+	// live exclusively in the Apache Iceberg catalog (<catalog>.terminology.*).
 	if t.DatabaseScope == "GLOBAL_TERMINOLOGY" && t.SyncTier == "RELEASE_PARTITIONED" &&
 		len(uks) == 0 && len(dupKeys) == 0 {
 		return ""
@@ -526,7 +534,9 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	}
 
 	var props []string
-	props = append(props, `    "storage_vault_name" = "azra_lakehouse_vault"`)
+	if t.StorageVaultName != "" {
+		props = append(props, fmt.Sprintf(`    "storage_vault_name" = %q`, t.StorageVaultName))
+	}
 	props = append(props, `    "compression" = "zstd"`)
 	if len(uks) > 0 {
 		props = append(props, `    "enable_unique_key_merge_on_write" = "true"`)
@@ -603,16 +613,24 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 	}
 	bloomCols := dedupDorisColumnList(t.BloomFilterColumns)
 
+	catalog := t.IcebergCatalog
+	if catalog == "" {
+		catalog = "iceberg"
+	}
+	if !isValidSQLIdentifier(catalog) {
+		return ""
+	}
+
 	var fullTableName string
 	switch t.DatabaseScope {
 	case "GLOBAL_TERMINOLOGY":
-		fullTableName = "azra_lake.terminology." + t.TableName
+		fullTableName = catalog + ".terminology." + t.TableName
 	case "GLOBAL_TELEMETRY":
-		fullTableName = "azra_lake.telemetry." + t.TableName
+		fullTableName = catalog + ".telemetry." + t.TableName
 	case "GLOBAL_TERMINOLOGY_RAG":
-		fullTableName = "azra_lake.terminology_rag." + t.TableName
+		fullTableName = catalog + ".terminology_rag." + t.TableName
 	default:
-		fullTableName = "azra_lake.tenant_" + slug + "." + t.TableName
+		fullTableName = catalog + ".tenant_" + slug + "." + t.TableName
 	}
 
 	var bodyLines []string

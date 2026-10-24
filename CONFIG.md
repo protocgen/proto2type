@@ -117,6 +117,20 @@ Controls the Apache Doris 4.x & Apache Iceberg lakehouse backend output when `ba
 |---|---|
 | Values | `""` / `go` (Go storage structs + SQL scanners), `ddl` (Doris & Iceberg SQL DDL), `both` (both Go and SQL DDL) |
 
+### `doris_storage_vault`
+
+Default Apache Doris 4.x storage vault name for shared-nothing / decoupled compute-storage `PROPERTIES` (when not specified per-table via `(proto2type.message).table.storage_vault_name`). When empty (the default), `"storage_vault_name"` is omitted from Doris table properties.
+
+| Default | `""` (omitted) |
+|---|---|
+
+### `iceberg_catalog`
+
+Default Apache Iceberg catalog prefix for `CREATE TABLE IF NOT EXISTS <catalog>.<db>.<table>` DDL (when not specified per-table via `(proto2type.message).table.iceberg_catalog`).
+
+| Default | `""` (renders `"iceberg"`) |
+|---|---|
+
 ### `postgres_mode`
 
 Controls the PostgreSQL backend behavior when `backend=postgres`.
@@ -205,6 +219,8 @@ Behavior per language:
 | `lang` | `go` | target language: go, python, kotlin, typescript |
 | `backend` | _(none)_ | storage backend: firestore, mongo, postgres, doris, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc |
 | `doris_mode` | _(none)_ | doris backend mode: '' / 'go' (Go storage structs + SQL scanners), 'ddl' (Doris & Iceberg SQL DDL), 'both' |
+| `doris_storage_vault` | _(none)_ | default Apache Doris storage vault name for DDL properties (omitted when empty) |
+| `iceberg_catalog` | _(none)_ | default Apache Iceberg catalog prefix for DDL (defaults to 'iceberg' when empty) |
 | `postgres_mode` | _(none)_ | postgres backend mode: '' (struct), 'search_index' (HAPI-style FHIR search index extraction) |
 | `postgres_search_params` | _(none)_ | path to FHIR SearchParameter JSON bundle (required for postgres_mode=search_index) |
 | `domain` | `true` | generate domain types + proto converters |
@@ -394,7 +410,7 @@ message InternalRpcRequest {
 
 ### `(proto2type.message).table` & `(proto2type.field).column`
 
-Defines Apache Doris 4.x and Apache Iceberg lakehouse table and column metadata on messages and fields (also wire-compatible with `azra.common.v1.table_meta` `50201` and `azra.common.v1.column_meta` `50200`).
+Defines Apache Doris 4.x and Apache Iceberg lakehouse table and column metadata on messages and fields (also wire-compatible with legacy extension numbers `50201` and `50200`).
 
 ```protobuf
 message PatientRecord {
@@ -403,9 +419,11 @@ message PatientRecord {
     database_scope: "TENANT"
     sync_tier: "WHOLE_TABLE"
     unique_key_columns: ["patient_id"]
-    colocate_group: "azra_patient_group"
+    colocate_group: "patient_group"
     sequence_col: "publication_generation"
     inverted_index_columns: ["mrn"]
+    storage_vault_name: "lakehouse_vault"
+    iceberg_catalog: "lakehouse_catalog"
   };
 
   string patient_id = 1 [(proto2type.field).column = {
@@ -438,6 +456,7 @@ message PatientRecord {
 | File suffixes | `_doris.type.go` (Go), `_doris.sql` (Doris 4.x DDL), `_iceberg.sql` (Iceberg DDL) |
 | Row scanning | `TableName()`, `Columns()`, `Values()`, `ScanRow(scanner)`, `Scan<Name>Proto(scanner)`, `<Name>ProtoValues(m)` |
 | DDL helpers | `<Name>DorisTable()`, `DorisTableDescriptor.BuildDorisCreateTableSQL(tenantSlug, buckets)`, `BuildIcebergCreateTableSQL(tenantSlug)` |
+| Evolution linter | `LintDorisTableEvolution(oldTable, newTable)`, `LintEvolution(oldTable, newTable)` |
 | Inline nested | `inline_nested = true` recursively flattens child message columns |
 | Converters | `ToProto()` / `FromProto()` |
 

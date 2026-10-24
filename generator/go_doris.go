@@ -74,6 +74,12 @@ func (gg *goGenerator) generateGoDoris(gen *protogen.Plugin, file *protogen.File
 	default:
 		return fmt.Errorf("unknown doris_mode: %q (must be '', 'go', 'ddl', or 'both')", opts.DorisMode)
 	}
+	if opts.DorisStorageVault != "" && !isValidSQLIdentifier(opts.DorisStorageVault) {
+		return fmt.Errorf("invalid doris_storage_vault %q (must match ^[a-zA-Z_][a-zA-Z0-9_]*$)", opts.DorisStorageVault)
+	}
+	if opts.IcebergCatalog != "" && !isValidSQLIdentifier(opts.IcebergCatalog) {
+		return fmt.Errorf("invalid iceberg_catalog %q (must match ^[a-zA-Z_][a-zA-Z0-9_]*$)", opts.IcebergCatalog)
+	}
 
 	tables, err := buildDorisTablesForFile(file, opts)
 	if err != nil {
@@ -145,6 +151,12 @@ func validateDorisTableMeta(msg *protogen.Message, meta *DorisTableMetaIR) error
 	if meta.DistributedByColumn != "" && !isValidSQLIdentifier(meta.DistributedByColumn) {
 		return fmt.Errorf("message %s: invalid SQL identifier for distributed_by_column %q", fullName, meta.DistributedByColumn)
 	}
+	if meta.StorageVaultName != "" && !isValidSQLIdentifier(meta.StorageVaultName) {
+		return fmt.Errorf("message %s: invalid SQL identifier for storage_vault_name %q", fullName, meta.StorageVaultName)
+	}
+	if meta.IcebergCatalog != "" && !isValidSQLIdentifier(meta.IcebergCatalog) {
+		return fmt.Errorf("message %s: invalid SQL identifier for iceberg_catalog %q", fullName, meta.IcebergCatalog)
+	}
 	checkList := func(label string, items []string) error {
 		for _, item := range items {
 			if !isValidSQLIdentifier(item) {
@@ -202,6 +214,12 @@ func messageHasAnnotatedDorisColumns(msg *protogen.Message, visited map[protoref
 
 // buildDorisTableIR constructs the flattened column list and DorisTableDescriptor for msg.
 func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Options) (*dorisTableIR, error) {
+	if meta.StorageVaultName == "" && opts != nil && opts.DorisStorageVault != "" {
+		meta.StorageVaultName = opts.DorisStorageVault
+	}
+	if meta.IcebergCatalog == "" && opts != nil && opts.IcebergCatalog != "" {
+		meta.IcebergCatalog = opts.IcebergCatalog
+	}
 	if err := validateDorisTableMeta(msg, meta); err != nil {
 		return nil, err
 	}
@@ -503,6 +521,8 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 		DistributedByColumn:  meta.DistributedByColumn,
 		DuplicateKeyColumns:  dupKeys,
 		FileCacheTTLSeconds:  meta.FileCacheTTLSeconds,
+		StorageVaultName:     meta.StorageVaultName,
+		IcebergCatalog:       meta.IcebergCatalog,
 		Columns:              colDescs,
 	}
 
@@ -1585,6 +1605,8 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tDuplicateKeyColumns  []string")
 	g.P("\tFileCacheTTLSeconds  int32")
 	g.P("\tEmbeddingDimension   int32")
+	g.P("\tStorageVaultName     string")
+	g.P("\tIcebergCatalog       string")
 	g.P("\tColumns              []DorisColumnDescriptor")
 	g.P("}")
 	g.P()
@@ -1787,6 +1809,12 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\treturn false")
 	g.P("\t}")
 	g.P("\tif t.ColocateGroup != \"\" && !isValidDorisSQLIdentifier(t.ColocateGroup) {")
+	g.P("\t\treturn false")
+	g.P("\t}")
+	g.P("\tif t.StorageVaultName != \"\" && !isValidDorisSQLIdentifier(t.StorageVaultName) {")
+	g.P("\t\treturn false")
+	g.P("\t}")
+	g.P("\tif t.IcebergCatalog != \"\" && !isValidDorisSQLIdentifier(t.IcebergCatalog) {")
 	g.P("\t\treturn false")
 	g.P("\t}")
 	g.P("\tif t.EmbeddingDimension < 0 {")
@@ -2122,7 +2150,9 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\tb.WriteString(\"\\n\")")
 	g.P("\t}")
 	g.P("\tvar props []string")
-	g.P("\tprops = append(props, `    \"storage_vault_name\" = \"azra_lakehouse_vault\"`)")
+	g.P("\tif t.StorageVaultName != \"\" {")
+	g.P("\t\tprops = append(props, ", fmtSprintf, "(`    \"storage_vault_name\" = %q`, t.StorageVaultName))")
+	g.P("\t}")
 	g.P("\tprops = append(props, `    \"compression\" = \"zstd\"`)")
 	g.P("\tif len(uks) > 0 {")
 	g.P("\t\tprops = append(props, `    \"enable_unique_key_merge_on_write\" = \"true\"`)")
@@ -2191,16 +2221,23 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\torderedCols = cp")
 	g.P("\t}")
 	g.P("\tbloomCols := dedupDorisColumnList(t.BloomFilterColumns)")
+	g.P("\tcatalog := t.IcebergCatalog")
+	g.P("\tif catalog == \"\" {")
+	g.P("\t\tcatalog = \"iceberg\"")
+	g.P("\t}")
+	g.P("\tif !isValidDorisSQLIdentifier(catalog) {")
+	g.P("\t\treturn \"\"")
+	g.P("\t}")
 	g.P("\tvar fullTableName string")
 	g.P("\tswitch t.DatabaseScope {")
 	g.P("\tcase \"GLOBAL_TERMINOLOGY\":")
-	g.P("\t\tfullTableName = \"azra_lake.terminology.\" + t.TableName")
+	g.P("\t\tfullTableName = catalog + \".terminology.\" + t.TableName")
 	g.P("\tcase \"GLOBAL_TELEMETRY\":")
-	g.P("\t\tfullTableName = \"azra_lake.telemetry.\" + t.TableName")
+	g.P("\t\tfullTableName = catalog + \".telemetry.\" + t.TableName")
 	g.P("\tcase \"GLOBAL_TERMINOLOGY_RAG\":")
-	g.P("\t\tfullTableName = \"azra_lake.terminology_rag.\" + t.TableName")
+	g.P("\t\tfullTableName = catalog + \".terminology_rag.\" + t.TableName")
 	g.P("\tdefault:")
-	g.P("\t\tfullTableName = \"azra_lake.tenant_\" + slug + \".\" + t.TableName")
+	g.P("\t\tfullTableName = catalog + \".tenant_\" + slug + \".\" + t.TableName")
 	g.P("\t}")
 	g.P("\tvar bodyLines []string")
 	g.P("\tfor _, c := range orderedCols {")
@@ -2706,6 +2743,8 @@ func emitDorisTableCode(g *protogen.GeneratedFile, tbl *dorisTableIR) {
 	g.P("\t\tDistributedByColumn:  ", fmt.Sprintf("%q", d.DistributedByColumn), ",")
 	g.P("\t\tDuplicateKeyColumns:  ", formatGoStringSliceLiteral(d.DuplicateKeyColumns), ",")
 	g.P("\t\tFileCacheTTLSeconds:  ", d.FileCacheTTLSeconds, ",")
+	g.P("\t\tStorageVaultName:     ", fmt.Sprintf("%q", d.StorageVaultName), ",")
+	g.P("\t\tIcebergCatalog:       ", fmt.Sprintf("%q", d.IcebergCatalog), ",")
 	g.P("\t\tColumns: []DorisColumnDescriptor{")
 	for _, c := range d.Columns {
 		g.P("\t\t\t{")
