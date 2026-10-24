@@ -26,11 +26,15 @@ import (
 	"github.com/protocgen/proto2type/generator"
 )
 
+// presetFlag implements flag.Value for the ts_preset flag.
 type presetFlag struct {
 	opts *generator.Options
 }
 
+// String returns the current TypeScript preset value.
 func (p presetFlag) String() string { return p.opts.TSPreset }
+
+// Set applies the TypeScript preset configuration to the underlying Options.
 func (p presetFlag) Set(val string) error {
 	p.opts.TSPreset = val
 	switch val {
@@ -44,6 +48,7 @@ func (p presetFlag) Set(val string) error {
 	return nil
 }
 
+// main is the entry point for the protoc-gen-proto2type plugin.
 func main() {
 	var flags flag.FlagSet
 	opts := &generator.Options{}
@@ -52,7 +57,7 @@ func main() {
 	flags.StringVar(&opts.Backend, "backend", "", "storage backend: firestore, mongo, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc, postgres, doris")
 	flags.StringVar(&opts.PostgresMode, "postgres_mode", "", "postgres backend mode: '' (struct), 'search_index' (HAPI-style FHIR search index extraction)")
 	flags.StringVar(&opts.PostgresSearchParams, "postgres_search_params", "", "path to FHIR SearchParameter JSON bundle (required for postgres_mode=search_index)")
-	flags.StringVar(&opts.DorisMode, "doris_mode", "", "doris backend mode: '' (go storage structs + SQL scanners), 'ddl' (Doris & Iceberg SQL DDL), 'both' (both Go and SQL DDL)")
+	flags.StringVar(&opts.DorisMode, "doris_mode", "", "doris backend mode: '' (go storage structs + SQL scanners), 'ddl' (Doris & Iceberg SQL DDL), 'hcl' (Atlas Doris & Iceberg HCL), 'both' (Go and SQL DDL), 'all' (Go, SQL DDL, and Atlas HCL)")
 	flags.StringVar(&opts.DorisStorageVault, "doris_storage_vault", "", "storage vault name for Doris PROPERTIES (\"storage_vault_name\" = ...)")
 	flags.StringVar(&opts.IcebergCatalog, "iceberg_catalog", "", "catalog name for Iceberg DDL (<catalog>.<db>.<table>, default \"iceberg\")")
 	flags.BoolVar(&opts.Domain, "domain", true, "generate domain types + proto converters")
@@ -124,9 +129,9 @@ func main() {
 
 		if opts.DorisMode != "" {
 			switch opts.DorisMode {
-			case "go", "ddl", "both":
+			case "go", "ddl", "hcl", "both", "all":
 			default:
-				return fmt.Errorf("unknown doris_mode: %q (must be '', 'go', 'ddl', or 'both')", opts.DorisMode)
+				return fmt.Errorf("unknown doris_mode: %q (must be '', 'go', 'ddl', 'hcl', 'both', or 'all')", opts.DorisMode)
 			}
 		}
 

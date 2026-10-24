@@ -107,19 +107,21 @@ func LintDorisTableEvolution(before, after DorisTableDescriptor) []DorisEvolutio
 		})
 	}
 
-	// DORIS003_IMMUTABLE_DISTRIBUTION: Block changes to DistributedByColumn or ColocateGroup.
-	beforeDist := strings.TrimSpace(before.DistributedByColumn)
-	afterDist := strings.TrimSpace(after.DistributedByColumn)
-	if beforeDist != afterDist {
-		distCol := afterDist
+	// DORIS003_IMMUTABLE_DISTRIBUTION: Block changes to DistributedByColumn/DistributionColumns or ColocateGroup.
+	beforeDist := effectiveDorisDistributionCols(before)
+	afterDist := effectiveDorisDistributionCols(after)
+	if !dorisStringSlicesEqual(beforeDist, afterDist) {
+		beforeDistStr := strings.Join(beforeDist, ", ")
+		afterDistStr := strings.Join(afterDist, ", ")
+		distCol := afterDistStr
 		if distCol == "" {
-			distCol = beforeDist
+			distCol = beforeDistStr
 		}
 		violations = append(violations, DorisEvolutionViolation{
 			Rule:       DORIS003_IMMUTABLE_DISTRIBUTION,
 			TableName:  tableName,
 			ColumnName: distCol,
-			Message:    fmt.Sprintf("distributed_by_column cannot be mutated on existing table (before=%q, after=%q)", beforeDist, afterDist),
+			Message:    fmt.Sprintf("distributed_by_column cannot be mutated on existing table (before=%q, after=%q)", beforeDistStr, afterDistStr),
 		})
 	}
 	beforeColocate := strings.TrimSpace(before.ColocateGroup)
@@ -241,6 +243,18 @@ func ValidateDorisSchemaEvolution(before, after []DorisTableDescriptor) error {
 	return errors.Join(errs...)
 }
 
+// LintDorisEvolution is an alias for LintDorisSchemaEvolution that validates
+// evolving a slice of before table descriptors into after table descriptors.
+func LintDorisEvolution(before, after []DorisTableDescriptor) []DorisEvolutionViolation {
+	return LintDorisSchemaEvolution(before, after)
+}
+
+// ValidateDorisEvolution is an alias for ValidateDorisSchemaEvolution that returns
+// an error joining all schema evolution violations, or nil if safe.
+func ValidateDorisEvolution(before, after []DorisTableDescriptor) error {
+	return ValidateDorisSchemaEvolution(before, after)
+}
+
 // IsSafeDorisTypeEvolution reports whether evolving a column from beforeType to
 // afterType is either a no-op or a safe widening type change supported by both
 // Apache Doris 4.x Light Schema Change (LSC) and Apache Iceberg v2:
@@ -325,12 +339,41 @@ func effectiveDorisUniqueKeys(t DorisTableDescriptor) []string {
 
 // effectiveDorisDuplicateKeys resolves the deduplicated DUPLICATE KEY column list for t.
 func effectiveDorisDuplicateKeys(t DorisTableDescriptor) []string {
-	return dedupDorisColumnList(t.DuplicateKeyColumns)
+	if len(t.DuplicateKeyColumns) > 0 {
+		return dedupDorisColumnList(t.DuplicateKeyColumns)
+	}
+	if len(effectiveDorisUniqueKeys(t)) == 0 && len(t.Columns) > 0 && t.Columns[0].ColumnName != "" {
+		return []string{t.Columns[0].ColumnName}
+	}
+	return nil
+}
+
+// effectiveDorisDistributionCols resolves the hash distribution column list for t.
+func effectiveDorisDistributionCols(t DorisTableDescriptor) []string {
+	if len(t.DistributionColumns) > 0 {
+		return dedupDorisColumnList(t.DistributionColumns)
+	}
+	if s := strings.TrimSpace(t.DistributedByColumn); s != "" {
+		return []string{s}
+	}
+	if uks := effectiveDorisUniqueKeys(t); len(uks) > 0 {
+		if len(uks) > 1 && uks[0] == "tenant_id" {
+			return []string{uks[1]}
+		}
+		return []string{uks[0]}
+	}
+	if dks := effectiveDorisDuplicateKeys(t); len(dks) > 0 {
+		return []string{dks[0]}
+	}
+	return nil
 }
 
 // effectiveDorisSequenceCol resolves the sequence column name for t.
 func effectiveDorisSequenceCol(t DorisTableDescriptor) string {
 	if s := strings.TrimSpace(t.SequenceCol); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(t.SequenceColumn); s != "" {
 		return s
 	}
 	for _, c := range t.Columns {
