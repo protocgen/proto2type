@@ -69,7 +69,7 @@ func buildAzraTableMetaWire(
 		b = protowire.AppendTag(b, 8, protowire.BytesType)
 		b = protowire.AppendString(b, ic)
 	}
-	return buildWireExtension(azraTableMetaExtensionNumber, b)
+	return buildWireExtension(legacyTableMetaExtensionNumber, b)
 }
 
 // buildAzraColumnMetaWire encodes an azra.common.v1.ColumnMeta wire payload (extension 50200).
@@ -115,12 +115,12 @@ func buildAzraColumnMetaWire(meta DorisColumnMetaIR) []byte {
 		b = protowire.AppendTag(b, 10, protowire.BytesType)
 		b = protowire.AppendString(b, meta.DefaultValue)
 	}
-	return buildWireExtension(azraColumnMetaExtensionNumber, b)
+	return buildWireExtension(legacyColumnMetaExtensionNumber, b)
 }
 
 // TestExtractDorisOptions_NativeAndWire50200_50201 verifies that table and column
 // metadata can be extracted from both native proto2type extensions (1307) and
-// wire-level Azra extensions (50200 / 50201).
+// wire-level extensions (50200 / 50201).
 func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 	// 1. Test native (proto2type.message).table and (proto2type.field).column (extension 1307)
 	msgOptsNative := &descriptorpb.MessageOptions{}
@@ -136,6 +136,8 @@ func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 			DistributedByColumn:  "patient_id",
 			DuplicateKeyColumns:  []string{"patient_id"},
 			FileCacheTtlSeconds:  604800,
+			StorageVaultName:     "custom_vault",
+			IcebergCatalog:       "custom_catalog",
 		},
 	})
 
@@ -238,7 +240,7 @@ func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 	if tMeta1.TableName != "patients" || tMeta1.DatabaseScope != "TENANT" || tMeta1.SyncTier != "WHOLE_TABLE" {
 		t.Errorf("unexpected NativeRecord table meta: %+v", tMeta1)
 	}
-	if tMeta1.DistributedByColumn != "patient_id" || tMeta1.FileCacheTTLSeconds != 604800 || len(tMeta1.DuplicateKeyColumns) != 1 {
+	if tMeta1.DistributedByColumn != "patient_id" || tMeta1.FileCacheTTLSeconds != 604800 || len(tMeta1.DuplicateKeyColumns) != 1 || tMeta1.StorageVaultName != "custom_vault" || tMeta1.IcebergCatalog != "custom_catalog" {
 		t.Errorf("unexpected NativeRecord extended table meta: %+v", tMeta1)
 	}
 
@@ -1005,10 +1007,12 @@ func TestGenerateGoDoris_CodegenAndDDL(t *testing.T) {
 	// Verify default CLI behavior: Domain is true by default, Backend is "doris", DorisMode is "both".
 	// Should NOT generate conflicting .type.go domain files when GoPackage is empty.
 	opts := &Options{
-		Lang:      "go",
-		Backend:   "doris",
-		DorisMode: "both",
-		Domain:    true,
+		Lang:              "go",
+		Backend:           "doris",
+		DorisMode:         "both",
+		Domain:            true,
+		DorisStorageVault: "azra_lakehouse_vault",
+		IcebergCatalog:    "azra_lake",
 	}
 
 	for _, f := range gen.Files {
@@ -1128,6 +1132,7 @@ func TestGenerateGoDoris_CodegenAndDDL(t *testing.T) {
 		"INDEX idx_eligibility_criterion_results_effective_status (effective_status) USING INVERTED",
 		"UNIQUE KEY(patient_id, criterion_id)",
 		"DISTRIBUTED BY HASH(patient_id) BUCKETS ${TENANT_BUCKETS}",
+		`"storage_vault_name" = "azra_lakehouse_vault"`,
 		`"function_column.sequence_col" = "publication_generation"`,
 		`"colocate_with" = "azra_patient_group"`,
 		"CREATE TABLE IF NOT EXISTS internal.terminology.anatomic_site_normalization (",
@@ -1188,8 +1193,34 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 		t.Errorf("expected akron-general to normalize to akron_general, got:\n%s", sqlValid)
 	}
 	iceValid := desc.BuildIcebergCreateTableSQL("akron-general")
-	if !strings.Contains(iceValid, "azra_lake.tenant_akron_general.patients") {
-		t.Errorf("expected akron-general to normalize to akron_general in Iceberg DDL, got:\n%s", iceValid)
+	if !strings.Contains(iceValid, "iceberg.tenant_akron_general.patients") {
+		t.Errorf("expected akron-general to normalize to akron_general in default Iceberg catalog DDL, got:\n%s", iceValid)
+	}
+
+	// 1b. Neutral defaults vs custom StorageVaultName and IcebergCatalog
+	if strings.Contains(sqlValid, "storage_vault_name") {
+		t.Errorf("expected BuildDorisCreateTableSQL with empty StorageVaultName to omit storage_vault_name, got:\n%s", sqlValid)
+	}
+	customDesc := desc
+	customDesc.StorageVaultName = "custom_vault"
+	customDesc.IcebergCatalog = "custom_lake"
+	sqlCustom := customDesc.BuildDorisCreateTableSQL("akron-general", 4)
+	if !strings.Contains(sqlCustom, `"storage_vault_name" = "custom_vault"`) {
+		t.Errorf("expected BuildDorisCreateTableSQL with custom StorageVaultName to emit storage_vault_name, got:\n%s", sqlCustom)
+	}
+	iceCustom := customDesc.BuildIcebergCreateTableSQL("akron-general")
+	if !strings.Contains(iceCustom, "custom_lake.tenant_akron_general.patients") {
+		t.Errorf("expected BuildIcebergCreateTableSQL with custom IcebergCatalog to emit custom_lake, got:\n%s", iceCustom)
+	}
+	badVaultDesc := desc
+	badVaultDesc.StorageVaultName = "bad\"vault"
+	if got := badVaultDesc.BuildDorisCreateTableSQL("akron", 4); got != "" {
+		t.Errorf("expected BuildDorisCreateTableSQL with invalid StorageVaultName to return empty string, got:\n%s", got)
+	}
+	badCatDesc := desc
+	badCatDesc.IcebergCatalog = "bad;catalog"
+	if got := badCatDesc.BuildIcebergCreateTableSQL("akron"); got != "" {
+		t.Errorf("expected BuildIcebergCreateTableSQL with invalid IcebergCatalog to return empty string, got:\n%s", got)
 	}
 
 	// 2. Malicious SQL injection payloads in tenantSlug must be rejected (return "")
@@ -1646,6 +1677,18 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)", DefaultValue: `active" COMMENT "pwn`},
 			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
 		},
+		{
+			name:      "Invalid storage_vault_name with quote injection",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", StorageVaultName: `vault" = "pwn`},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
+		{
+			name:      "Invalid iceberg_catalog with semicolon injection",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", IcebergCatalog: "cat; DROP TABLE x"},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
 	}
 
 	for _, tc := range cases {
@@ -1666,6 +1709,38 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 	badModeOpts := &Options{Lang: "go", Backend: "doris", DorisMode: "invalid_mode"}
 	if err := runner.GenerateFile(gen, f, badModeOpts); err == nil {
 		t.Error("expected error for invalid doris_mode, got nil")
+	}
+	badVaultOpts := &Options{Lang: "go", Backend: "doris", DorisMode: "ddl", DorisStorageVault: "bad;vault"}
+	if err := runner.GenerateFile(gen, f, badVaultOpts); err == nil {
+		t.Error("expected error for invalid doris_storage_vault, got nil")
+	}
+	badCatalogOpts := &Options{Lang: "go", Backend: "doris", DorisMode: "ddl", IcebergCatalog: "bad;catalog"}
+	if err := runner.GenerateFile(gen, f, badCatalogOpts); err == nil {
+		t.Error("expected error for invalid iceberg_catalog, got nil")
+	}
+
+	// Verify neutral defaults via GenerateFile (IcebergCatalog defaults to "iceberg" and StorageVaultName is omitted when empty)
+	genNeutral, fNeutral := makePluginWithTable(
+		&proto2typepb.TableOptions{TableName: "patients", UniqueKeyColumns: []string{"id"}},
+		&proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)", IsUniqueKey: true},
+		descriptorpb.FieldDescriptorProto_TYPE_STRING,
+	)
+	neutralOpts := &Options{Lang: "go", Backend: "doris", DorisMode: "ddl"}
+	if err := runner.GenerateFile(genNeutral, fNeutral, neutralOpts); err != nil {
+		t.Fatalf("GenerateFile(neutral) failed: %v", err)
+	}
+	for _, gf := range genNeutral.Response().File {
+		content := gf.GetContent()
+		switch filepath.Base(gf.GetName()) {
+		case "bad_doris.sql":
+			if strings.Contains(content, "storage_vault_name") {
+				t.Errorf("expected neutral Doris DDL to omit storage_vault_name, got:\n%s", content)
+			}
+		case "bad_iceberg.sql":
+			if !strings.Contains(content, "CREATE TABLE IF NOT EXISTS iceberg.tenant_${TENANT_SLUG}.patients (") {
+				t.Errorf("expected neutral Iceberg DDL to default to iceberg catalog, got:\n%s", content)
+			}
+		}
 	}
 
 	// Verify fallback key selection rejects a table whose only columns are real oneof variants,
@@ -2592,6 +2667,7 @@ func TestProperty_GeneratedDorisRuntime_ArraysDatesAndProtoRoundTrip(t *testing.
 	}
 
 	testCmd := exec.Command("go", "test", "-v", "./"+filepath.Base(tmpPkgDir))
+	testCmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := testCmd.CombinedOutput(); err != nil {
 		t.Fatalf("compiled roundtrip go test failed: %v\n%s", err, out)
 	}
@@ -2749,10 +2825,12 @@ extend google.protobuf.FieldOptions {
 	gen := newPlugin(t, &fds, targetFiles)
 	runner := NewRunner()
 	opts := &Options{
-		Lang:      "go",
-		Backend:   "doris",
-		DorisMode: "both",
-		Domain:    true,
+		Lang:              "go",
+		Backend:           "doris",
+		DorisMode:         "both",
+		Domain:            true,
+		DorisStorageVault: "azra_lakehouse_vault",
+		IcebergCatalog:    "azra_lake",
 	}
 
 	tableCounts := make(map[string]int)

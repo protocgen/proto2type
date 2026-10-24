@@ -126,7 +126,7 @@ func (x *MessageOptions) GetTable() *TableOptions {
 }
 
 // TableOptions defines Apache Doris 4.x and Apache Iceberg lakehouse table
-// metadata on a message. Wire-compatible with azra.common.v1.TableMeta (50201).
+// metadata on a message. Wire-compatible with legacy table metadata extension 50201.
 type TableOptions struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	TableName            string                 `protobuf:"bytes,1,opt,name=table_name,json=tableName,proto3" json:"table_name,omitempty"`
@@ -142,6 +142,8 @@ type TableOptions struct {
 	DistributedByColumn  string                 `protobuf:"bytes,11,opt,name=distributed_by_column,json=distributedByColumn,proto3" json:"distributed_by_column,omitempty"`
 	DuplicateKeyColumns  []string               `protobuf:"bytes,12,rep,name=duplicate_key_columns,json=duplicateKeyColumns,proto3" json:"duplicate_key_columns,omitempty"`
 	FileCacheTtlSeconds  int32                  `protobuf:"varint,13,opt,name=file_cache_ttl_seconds,json=fileCacheTtlSeconds,proto3" json:"file_cache_ttl_seconds,omitempty"`
+	StorageVaultName     string                 `protobuf:"bytes,14,opt,name=storage_vault_name,json=storageVaultName,proto3" json:"storage_vault_name,omitempty"`
+	IcebergCatalog       string                 `protobuf:"bytes,15,opt,name=iceberg_catalog,json=icebergCatalog,proto3" json:"iceberg_catalog,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -265,6 +267,20 @@ func (x *TableOptions) GetFileCacheTtlSeconds() int32 {
 		return x.FileCacheTtlSeconds
 	}
 	return 0
+}
+
+func (x *TableOptions) GetStorageVaultName() string {
+	if x != nil {
+		return x.StorageVaultName
+	}
+	return ""
+}
+
+func (x *TableOptions) GetIcebergCatalog() string {
+	if x != nil {
+		return x.IcebergCatalog
+	}
+	return ""
 }
 
 type FieldOptions struct {
@@ -399,7 +415,7 @@ func (x *FieldOptions) GetColumn() *ColumnOptions {
 }
 
 // ColumnOptions defines Apache Doris 4.x and Apache Iceberg lakehouse column
-// metadata on a field. Wire-compatible with azra.common.v1.ColumnMeta (50200).
+// metadata on a field. Wire-compatible with legacy column metadata extension 50200.
 type ColumnOptions struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	DorisType       string                 `protobuf:"bytes,1,opt,name=doris_type,json=dorisType,proto3" json:"doris_type,omitempty"`
@@ -611,7 +627,7 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"proto2type\x1a google/protobuf/descriptor.proto\"T\n" +
 	"\x0eMessageOptions\x12\x12\n" +
 	"\x04skip\x18\x01 \x01(\bR\x04skip\x12.\n" +
-	"\x05table\x18\x02 \x01(\v2\x18.proto2type.TableOptionsR\x05table\"\xca\x04\n" +
+	"\x05table\x18\x02 \x01(\v2\x18.proto2type.TableOptionsR\x05table\"\xa1\x05\n" +
 	"\fTableOptions\x12\x1d\n" +
 	"\n" +
 	"table_name\x18\x01 \x01(\tR\ttableName\x12%\n" +
@@ -627,7 +643,9 @@ const file_proto2type_options_proto_rawDesc = "" +
 	" \x03(\tR\x12bloomFilterColumns\x122\n" +
 	"\x15distributed_by_column\x18\v \x01(\tR\x13distributedByColumn\x122\n" +
 	"\x15duplicate_key_columns\x18\f \x03(\tR\x13duplicateKeyColumns\x123\n" +
-	"\x16file_cache_ttl_seconds\x18\r \x01(\x05R\x13fileCacheTtlSeconds\"\x96\x03\n" +
+	"\x16file_cache_ttl_seconds\x18\r \x01(\x05R\x13fileCacheTtlSeconds\x12,\n" +
+	"\x12storage_vault_name\x18\x0e \x01(\tR\x10storageVaultName\x12'\n" +
+	"\x0ficeberg_catalog\x18\x0f \x01(\tR\x0eicebergCatalog\"\x96\x03\n" +
 	"\fFieldOptions\x12\x1f\n" +
 	"\vdocument_id\x18\x01 \x01(\bR\n" +
 	"documentId\x12)\n" +

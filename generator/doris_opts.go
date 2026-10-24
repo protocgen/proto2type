@@ -13,15 +13,15 @@ import (
 const (
 	// proto2typeExtensionNumber is the permanent proto2type option extension (1307).
 	proto2typeExtensionNumber protowire.Number = 1307
-	// azraColumnMetaExtensionNumber is azra.common.v1.column_meta on FieldOptions (50200).
-	azraColumnMetaExtensionNumber protowire.Number = 50200
-	// azraTableMetaExtensionNumber is azra.common.v1.table_meta on MessageOptions (50201).
-	azraTableMetaExtensionNumber protowire.Number = 50201
+	// legacyColumnMetaExtensionNumber is the wire-compatible legacy column_meta extension on FieldOptions (50200).
+	legacyColumnMetaExtensionNumber protowire.Number = 50200
+	// legacyTableMetaExtensionNumber is the wire-compatible legacy table_meta extension on MessageOptions (50201).
+	legacyTableMetaExtensionNumber protowire.Number = 50201
 )
 
 // DorisTableMetaIR holds Apache Doris 4.x and Apache Iceberg table-level
 // metadata extracted from either (proto2type.message).table (extension 1307)
-// or (azra.common.v1.table_meta) (extension 50201).
+// or legacy table_meta (extension 50201).
 type DorisTableMetaIR struct {
 	TableName            string
 	DatabaseScope        string
@@ -36,6 +36,8 @@ type DorisTableMetaIR struct {
 	DistributedByColumn  string
 	DuplicateKeyColumns  []string
 	FileCacheTTLSeconds  int32
+	StorageVaultName     string
+	IcebergCatalog       string
 }
 
 // isEmpty reports whether m is nil or has all zero-valued fields.
@@ -55,12 +57,14 @@ func (m *DorisTableMetaIR) isEmpty() bool {
 		len(m.BloomFilterColumns) == 0 &&
 		m.DistributedByColumn == "" &&
 		len(m.DuplicateKeyColumns) == 0 &&
-		m.FileCacheTTLSeconds == 0
+		m.FileCacheTTLSeconds == 0 &&
+		m.StorageVaultName == "" &&
+		m.IcebergCatalog == ""
 }
 
 // DorisColumnMetaIR holds Apache Doris 4.x and Apache Iceberg column-level
 // metadata extracted from either (proto2type.field).column (extension 1307)
-// or (azra.common.v1.column_meta) (extension 50200).
+// or legacy column_meta (extension 50200).
 type DorisColumnMetaIR struct {
 	DorisType       string
 	IcebergType     string
@@ -102,7 +106,7 @@ func normalizeDatabaseScope(scope string) string {
 	return s
 }
 
-// databaseScopeFromEnumNumber maps azra.common.v1.LakehouseDatabaseScope enum numbers.
+// databaseScopeFromEnumNumber maps LakehouseDatabaseScope enum numbers.
 func databaseScopeFromEnumNumber(n uint64) string {
 	switch n {
 	case 0:
@@ -131,7 +135,7 @@ func normalizeSyncTier(tier string) string {
 	return s
 }
 
-// syncTierFromEnumNumber maps azra.common.v1.LakehouseSyncTier enum numbers.
+// syncTierFromEnumNumber maps LakehouseSyncTier enum numbers.
 func syncTierFromEnumNumber(n uint64) string {
 	switch n {
 	case 0:
@@ -196,7 +200,6 @@ func isValidSQLIdentifier(s string) bool {
 // spaces only immediately after commas inside (...) or <...> (preventing injected
 // column constraints like "INT NOT NULL" or "ARRAY<INT NOT NULL>"), and no SQL comments.
 func isValidSQLTypeSyntax(s string) bool {
-	s = strings.TrimSpace(s)
 	if len(s) == 0 {
 		return false
 	}
@@ -298,7 +301,7 @@ func isDorisKeyEligibleType(dorisType string) bool {
 
 // extractDorisTableMeta extracts Doris/Iceberg table metadata from a message's options.
 // It inspects both native (proto2type.message).table (extension 1307) and
-// wire-level extension 50201 (azra.common.v1.table_meta). Returns nil if neither is set.
+// wire-level legacy extension 50201 (table_meta). Returns nil if neither is set.
 func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 	if msg == nil || msg.Desc == nil {
 		return nil
@@ -321,6 +324,8 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 			DistributedByColumn:  t.GetDistributedByColumn(),
 			DuplicateKeyColumns:  append([]string(nil), t.GetDuplicateKeyColumns()...),
 			FileCacheTTLSeconds:  t.GetFileCacheTtlSeconds(),
+			StorageVaultName:     t.GetStorageVaultName(),
+			IcebergCatalog:       t.GetIcebergCatalog(),
 		}
 		if !out.isEmpty() {
 			return out
@@ -340,7 +345,7 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 }
 
 // parseDorisTableMetaFromOptionsWire scans marshaled MessageOptions wire bytes
-// for tag 50201 (azra.common.v1.table_meta) or tag 1307 field 2 ((proto2type.message).table).
+// for tag 50201 (legacy table_meta) or tag 1307 field 2 ((proto2type.message).table).
 func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
 	var out *DorisTableMetaIR
 	b := raw
@@ -351,7 +356,7 @@ func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
 		}
 		b = b[n:]
 
-		if typ == protowire.BytesType && num == azraTableMetaExtensionNumber {
+		if typ == protowire.BytesType && num == legacyTableMetaExtensionNumber {
 			val, m := protowire.ConsumeBytes(b)
 			if m < 0 {
 				break
@@ -429,7 +434,7 @@ func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
 					continue
 				}
 			}
-		case 2: // database_scope = 2 (enum varint in azra.common.v1.TableMeta, or string in proto2type.TableOptions)
+		case 2: // database_scope = 2 (enum varint in legacy TableMeta, or string in proto2type.TableOptions)
 			if typ == protowire.VarintType {
 				if v, m := protowire.ConsumeVarint(b); m >= 0 {
 					dst.DatabaseScope = databaseScopeFromEnumNumber(v)
@@ -443,7 +448,7 @@ func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
 					continue
 				}
 			}
-		case 3: // sync_tier = 3 (enum varint in azra.common.v1.TableMeta, or string in proto2type.TableOptions)
+		case 3: // sync_tier = 3 (enum varint in legacy TableMeta, or string in proto2type.TableOptions)
 			if typ == protowire.VarintType {
 				if v, m := protowire.ConsumeVarint(b); m >= 0 {
 					dst.SyncTier = syncTierFromEnumNumber(v)
@@ -543,6 +548,22 @@ func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
 					continue
 				}
 			}
+		case 14: // string storage_vault_name = 14
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					dst.StorageVaultName = string(v)
+					b = b[m:]
+					continue
+				}
+			}
+		case 15: // string iceberg_catalog = 15
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					dst.IcebergCatalog = string(v)
+					b = b[m:]
+					continue
+				}
+			}
 		}
 
 		m := protowire.ConsumeFieldValue(num, typ, b)
@@ -555,7 +576,7 @@ func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
 
 // extractDorisColumnMeta extracts Doris/Iceberg column metadata from a field's options.
 // It inspects both native (proto2type.field).column (extension 1307) and
-// wire-level extension 50200 (azra.common.v1.column_meta). Returns nil if neither is set.
+// wire-level legacy extension 50200 (column_meta). Returns nil if neither is set.
 func extractDorisColumnMeta(field *protogen.Field) *DorisColumnMetaIR {
 	if field == nil || field.Desc == nil {
 		return nil
@@ -594,7 +615,7 @@ func extractDorisColumnMeta(field *protogen.Field) *DorisColumnMetaIR {
 }
 
 // parseDorisColumnMetaFromOptionsWire scans marshaled FieldOptions wire bytes
-// for tag 50200 (azra.common.v1.column_meta) or tag 1307 field 10 ((proto2type.field).column).
+// for tag 50200 (legacy column_meta) or tag 1307 field 10 ((proto2type.field).column).
 func parseDorisColumnMetaFromOptionsWire(raw []byte) *DorisColumnMetaIR {
 	var out *DorisColumnMetaIR
 	b := raw
@@ -605,7 +626,7 @@ func parseDorisColumnMetaFromOptionsWire(raw []byte) *DorisColumnMetaIR {
 		}
 		b = b[n:]
 
-		if typ == protowire.BytesType && num == azraColumnMetaExtensionNumber {
+		if typ == protowire.BytesType && num == legacyColumnMetaExtensionNumber {
 			val, m := protowire.ConsumeBytes(b)
 			if m < 0 {
 				break

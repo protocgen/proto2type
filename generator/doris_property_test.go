@@ -104,6 +104,14 @@ func encodeFullTableMetaWire(extNum protowire.Number, m DorisTableMetaIR, useEnu
 		b = protowire.AppendTag(b, 13, protowire.VarintType)
 		b = protowire.AppendVarint(b, uint64(int64(m.FileCacheTTLSeconds)))
 	}
+	if m.StorageVaultName != "" {
+		b = protowire.AppendTag(b, 14, protowire.BytesType)
+		b = protowire.AppendString(b, m.StorageVaultName)
+	}
+	if m.IcebergCatalog != "" {
+		b = protowire.AppendTag(b, 15, protowire.BytesType)
+		b = protowire.AppendString(b, m.IcebergCatalog)
+	}
 	return buildWireExtension(extNum, b)
 }
 
@@ -170,9 +178,11 @@ func TestProperty_DorisWireOptions_RoundTrip(t *testing.T) {
 			DistributedByColumn:  hegel.Draw(ht, hegel.Text().MaxSize(16)),
 			DuplicateKeyColumns:  drawStringSlice(ht, 2),
 			FileCacheTTLSeconds:  int32(hegel.Draw(ht, hegel.Integers(-86400, 604800))),
+			StorageVaultName:     hegel.Draw(ht, hegel.Text().MaxSize(16)),
+			IcebergCatalog:       hegel.Draw(ht, hegel.Text().MaxSize(16)),
 		}
 		useEnumVarints := hegel.Draw(ht, hegel.Booleans())
-		wireBytes := encodeFullTableMetaWire(azraTableMetaExtensionNumber, tm, useEnumVarints)
+		wireBytes := encodeFullTableMetaWire(legacyTableMetaExtensionNumber, tm, useEnumVarints)
 		gotTM := parseDorisTableMetaFromOptionsWire(wireBytes)
 		if tm.isEmpty() {
 			if gotTM != nil {

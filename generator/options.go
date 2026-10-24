@@ -26,6 +26,16 @@ type Options struct {
 	//   "both"           — both Go storage structs + SQL scanners and SQL DDL
 	DorisMode string
 
+	// DorisStorageVault sets the default Apache Doris storage_vault_name property
+	// when not explicitly set on (proto2type.message).table.storage_vault_name.
+	// When empty, "storage_vault_name" is omitted from Doris CREATE TABLE PROPERTIES.
+	DorisStorageVault string
+
+	// IcebergCatalog sets the default Apache Iceberg catalog prefix (<catalog>.<db>.<table>)
+	// when not explicitly set on (proto2type.message).table.iceberg_catalog.
+	// Defaults to "iceberg" in DDL generation when empty.
+	IcebergCatalog string
+
 	// Domain controls whether domain types and proto converters are generated.
 	Domain bool
 
