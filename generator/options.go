@@ -23,7 +23,9 @@ type Options struct {
 	//   ""     (default) — Go storage structs + SQL row scanners
 	//   "go"             — Go storage structs + SQL row scanners
 	//   "ddl"            — Doris & Iceberg SQL DDL (<prefix>_doris.sql, <prefix>_iceberg.sql)
+	//   "hcl"            — Atlas Doris & Iceberg HCL (<prefix>_doris.hcl, <prefix>_iceberg.hcl)
 	//   "both"           — both Go storage structs + SQL scanners and SQL DDL
+	//   "all"            — Go storage structs + SQL scanners, SQL DDL, and Atlas HCL
 	DorisMode string
 
 	// DorisStorageVault sets the default Apache Doris storage_vault_name property

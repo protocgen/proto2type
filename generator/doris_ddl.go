@@ -22,6 +22,16 @@ type DorisColumnDescriptor struct {
 	IsPartitionKey  bool
 	StripEnumPrefix bool
 	DefaultValue    string
+	Comment         string
+}
+
+// DorisIndexDescriptor describes a physical index on an Apache Doris table
+// (INVERTED, NGRAM_BF, or ANN).
+type DorisIndexDescriptor struct {
+	Name       string
+	Columns    []string
+	Using      string
+	Properties map[string]string
 }
 
 // CanonicalIcebergSpecType returns the canonical Apache Iceberg specification
@@ -76,15 +86,22 @@ type DorisTableDescriptor struct {
 	PartitionByColumns   []string
 	ColocateGroup        string
 	SequenceCol          string
+	SequenceColumn       string
 	InvertedIndexColumns []string
 	NgramBfColumns       []string
 	BloomFilterColumns   []string
 	DistributedByColumn  string
+	DistributionColumns  []string
 	DuplicateKeyColumns  []string
 	FileCacheTTLSeconds  int32
 	EmbeddingDimension   int32
 	StorageVaultName     string
 	IcebergCatalog       string
+	IcebergPartitionSpec string
+	Buckets              int
+	AutoBuckets          bool
+	EnableMoW            bool
+	Indexes              []DorisIndexDescriptor
 	Columns              []DorisColumnDescriptor
 }
 
@@ -194,6 +211,9 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 	if t.SequenceCol != "" && (!isValidSQLIdentifier(t.SequenceCol) || !colSet[t.SequenceCol]) {
 		return false
 	}
+	if t.SequenceColumn != "" && (!isValidSQLIdentifier(t.SequenceColumn) || !colSet[t.SequenceColumn]) {
+		return false
+	}
 	if t.DistributedByColumn != "" && (!isValidSQLIdentifier(t.DistributedByColumn) || !colSet[t.DistributedByColumn]) {
 		return false
 	}
@@ -204,8 +224,19 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 		t.NgramBfColumns,
 		t.BloomFilterColumns,
 		t.DuplicateKeyColumns,
+		t.DistributionColumns,
 	} {
 		for _, id := range list {
+			if !isValidSQLIdentifier(id) || !colSet[id] {
+				return false
+			}
+		}
+	}
+	for _, idx := range t.Indexes {
+		if idx.Name != "" && !isValidSQLIdentifier(idx.Name) {
+			return false
+		}
+		for _, id := range idx.Columns {
 			if !isValidSQLIdentifier(id) || !colSet[id] {
 				return false
 			}

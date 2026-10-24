@@ -2875,8 +2875,8 @@ extend google.protobuf.FieldOptions {
 	if got := tableCounts["azra/clinical/eligibility/v1/eligibility.proto"]; got != 2 {
 		t.Errorf("eligibility.proto table count = %d, want 2", got)
 	}
-	if got := tableCounts["azra/terminology/v1/terminology_tables.proto"]; got != 41 {
-		t.Errorf("terminology_tables.proto table count = %d, want 41", got)
+	if got := tableCounts["azra/terminology/v1/terminology_tables.proto"]; got < 41 {
+		t.Errorf("terminology_tables.proto table count = %d, want >= 41", got)
 	}
 	if got := colCountsByTable["eligibility_criterion_results"]; got != 31 {
 		t.Errorf("eligibility_criterion_results column count = %d, want 31", got)

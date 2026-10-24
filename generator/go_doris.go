@@ -67,12 +67,12 @@ func protoEnumPrefix(ed protoreflect.EnumDescriptor) string {
 }
 
 // generateGoDoris generates Go Doris storage structs, SQL scanners, proto
-// converters, and/or Doris & Iceberg SQL DDL files for a proto file.
+// converters, Doris & Iceberg SQL DDL files, and/or Atlas HCL files for a proto file.
 func (gg *goGenerator) generateGoDoris(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	switch opts.DorisMode {
-	case "", "go", "ddl", "both":
+	case "", "go", "ddl", "hcl", "both", "all":
 	default:
-		return fmt.Errorf("unknown doris_mode: %q (must be '', 'go', 'ddl', or 'both')", opts.DorisMode)
+		return fmt.Errorf("unknown doris_mode: %q (must be '', 'go', 'ddl', 'hcl', 'both', or 'all')", opts.DorisMode)
 	}
 	if opts.DorisStorageVault != "" && !isValidSQLIdentifier(opts.DorisStorageVault) {
 		return fmt.Errorf("invalid doris_storage_vault %q (must match ^[a-zA-Z_][a-zA-Z0-9_]*$)", opts.DorisStorageVault)
@@ -90,8 +90,9 @@ func (gg *goGenerator) generateGoDoris(gen *protogen.Plugin, file *protogen.File
 		return nil
 	}
 
-	emitGo := opts.DorisMode == "" || opts.DorisMode == "go" || opts.DorisMode == "both"
-	emitDDL := opts.DorisMode == "ddl" || opts.DorisMode == "both"
+	emitGo := opts.DorisMode == "" || opts.DorisMode == "go" || opts.DorisMode == "both" || opts.DorisMode == "all"
+	emitDDL := opts.DorisMode == "ddl" || opts.DorisMode == "both" || opts.DorisMode == "all"
+	emitHCL := opts.DorisMode == "hcl" || opts.DorisMode == "all"
 
 	if emitGo {
 		if err := gg.generateGoDorisFile(gen, file, opts, tables); err != nil {
@@ -100,6 +101,11 @@ func (gg *goGenerator) generateGoDoris(gen *protogen.Plugin, file *protogen.File
 	}
 	if emitDDL {
 		if err := generateDorisDDLFiles(gen, file, tables); err != nil {
+			return err
+		}
+	}
+	if emitHCL {
+		if err := generateDorisHCLFiles(gen, file, tables); err != nil {
 			return err
 		}
 	}
@@ -1543,6 +1549,17 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tIsPartitionKey  bool")
 	g.P("\tStripEnumPrefix bool")
 	g.P("\tDefaultValue    string")
+	g.P("\tComment         string")
+	g.P("}")
+	g.P()
+
+	g.P("// DorisIndexDescriptor describes a physical index on an Apache Doris table")
+	g.P("// (INVERTED, NGRAM_BF, or ANN).")
+	g.P("type DorisIndexDescriptor struct {")
+	g.P("\tName       string")
+	g.P("\tColumns    []string")
+	g.P("\tUsing      string")
+	g.P("\tProperties map[string]string")
 	g.P("}")
 	g.P()
 
@@ -1598,15 +1615,22 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tPartitionByColumns   []string")
 	g.P("\tColocateGroup        string")
 	g.P("\tSequenceCol          string")
+	g.P("\tSequenceColumn       string")
 	g.P("\tInvertedIndexColumns []string")
 	g.P("\tNgramBfColumns       []string")
 	g.P("\tBloomFilterColumns   []string")
 	g.P("\tDistributedByColumn  string")
+	g.P("\tDistributionColumns  []string")
 	g.P("\tDuplicateKeyColumns  []string")
 	g.P("\tFileCacheTTLSeconds  int32")
 	g.P("\tEmbeddingDimension   int32")
 	g.P("\tStorageVaultName     string")
 	g.P("\tIcebergCatalog       string")
+	g.P("\tIcebergPartitionSpec string")
+	g.P("\tBuckets              int")
+	g.P("\tAutoBuckets          bool")
+	g.P("\tEnableMoW            bool")
+	g.P("\tIndexes              []DorisIndexDescriptor")
 	g.P("\tColumns              []DorisColumnDescriptor")
 	g.P("}")
 	g.P()
@@ -1839,11 +1863,24 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tif t.SequenceCol != \"\" && (!isValidDorisSQLIdentifier(t.SequenceCol) || !colSet[t.SequenceCol]) {")
 	g.P("\t\treturn false")
 	g.P("\t}")
+	g.P("\tif t.SequenceColumn != \"\" && (!isValidDorisSQLIdentifier(t.SequenceColumn) || !colSet[t.SequenceColumn]) {")
+	g.P("\t\treturn false")
+	g.P("\t}")
 	g.P("\tif t.DistributedByColumn != \"\" && (!isValidDorisSQLIdentifier(t.DistributedByColumn) || !colSet[t.DistributedByColumn]) {")
 	g.P("\t\treturn false")
 	g.P("\t}")
-	g.P("\tfor _, list := range [][]string{t.UniqueKeyColumns, t.PartitionByColumns, t.InvertedIndexColumns, t.NgramBfColumns, t.BloomFilterColumns, t.DuplicateKeyColumns} {")
+	g.P("\tfor _, list := range [][]string{t.UniqueKeyColumns, t.PartitionByColumns, t.InvertedIndexColumns, t.NgramBfColumns, t.BloomFilterColumns, t.DuplicateKeyColumns, t.DistributionColumns} {")
 	g.P("\t\tfor _, id := range list {")
+	g.P("\t\t\tif !isValidDorisSQLIdentifier(id) || !colSet[id] {")
+	g.P("\t\t\t\treturn false")
+	g.P("\t\t\t}")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tfor _, idx := range t.Indexes {")
+	g.P("\t\tif idx.Name != \"\" && !isValidDorisSQLIdentifier(idx.Name) {")
+	g.P("\t\t\treturn false")
+	g.P("\t\t}")
+	g.P("\t\tfor _, id := range idx.Columns {")
 	g.P("\t\t\tif !isValidDorisSQLIdentifier(id) || !colSet[id] {")
 	g.P("\t\t\t\treturn false")
 	g.P("\t\t\t}")
@@ -2303,6 +2340,8 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
+	emitDorisAtlasHCLRuntimeHelpers(g)
+
 	// Emit value/scan/enum/date/time/uint64 helpers.
 	g.P("type dorisValueScanner struct {")
 	g.P("\tvalues []any")
@@ -2647,6 +2686,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tif err != nil || t.Year() < 1 || t.Year() > 9999 {")
 	g.P("\t\treturn 0, 0, 0, false")
 	g.P("\t}")
+	g.P("\t// #nosec G115 -- year [1,9999], month [1,12], day [1,31]")
 	g.P("\treturn int32(t.Year()), int32(t.Month()), int32(t.Day()), true")
 	g.P("}")
 	g.P()
@@ -2656,7 +2696,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\treturn \"\"")
 	g.P("\t}")
 	g.P("\tt := ", timeDate, "(int(year), ", timeMonth, "(month), int(day), 0, 0, 0, 0, ", timeUTC, ")")
-	g.P("\tif t.Year() != int(year) || int32(t.Month()) != month || int32(t.Day()) != day {")
+	g.P("\tif t.Year() != int(year) || t.Month() != ", timeMonth, "(month) || t.Day() != int(day) {")
 	g.P("\t\treturn \"\"")
 	g.P("\t}")
 	g.P("\treturn ", fmtSprintf, "(\"%04d-%02d-%02d\", year, month, day)")
