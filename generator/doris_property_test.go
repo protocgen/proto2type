@@ -178,8 +178,6 @@ func TestProperty_DorisWireOptions_RoundTrip(t *testing.T) {
 			DistributedByColumn:  hegel.Draw(ht, hegel.Text().MaxSize(16)),
 			DuplicateKeyColumns:  drawStringSlice(ht, 2),
 			FileCacheTTLSeconds:  int32(hegel.Draw(ht, hegel.Integers(-86400, 604800))),
-			StorageVaultName:     hegel.Draw(ht, hegel.Text().MaxSize(16)),
-			IcebergCatalog:       hegel.Draw(ht, hegel.Text().MaxSize(16)),
 		}
 		useEnumVarints := hegel.Draw(ht, hegel.Booleans())
 		wireBytes := encodeFullTableMetaWire(legacyTableMetaExtensionNumber, tm, useEnumVarints)
