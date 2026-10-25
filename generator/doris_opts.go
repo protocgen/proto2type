@@ -365,7 +365,7 @@ func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
 			if out == nil {
 				out = &DorisTableMetaIR{}
 			}
-			parseTableMetaBytes(val, out)
+			parseTableMetaBytesWithVault(val, out, false)
 			continue
 		}
 
@@ -392,7 +392,7 @@ func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
 					if out == nil {
 						out = &DorisTableMetaIR{}
 					}
-					parseTableMetaBytes(tval, out)
+					parseTableMetaBytesWithVault(tval, out, true)
 				} else {
 					im := protowire.ConsumeFieldValue(inum, ityp, inner)
 					if im < 0 {
@@ -418,6 +418,14 @@ func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
 
 // parseTableMetaBytes decodes a serialized TableMeta / TableOptions message into dst.
 func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
+	parseTableMetaBytesWithVault(b, dst, true)
+}
+
+// parseTableMetaBytesWithVault decodes a serialized TableMeta / TableOptions message into dst.
+// When includeVaultAndCatalog is false (legacy extension 50201), fields 14 and 15
+// (writer_service / reader_services) are ignored so CLI/plugin options supply
+// DorisStorageVault and IcebergCatalog.
+func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultAndCatalog bool) {
 	for len(b) > 0 {
 		num, typ, n := protowire.ConsumeTag(b)
 		if n < 0 {
@@ -548,16 +556,16 @@ func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
 					continue
 				}
 			}
-		case 14: // string storage_vault_name = 14
-			if typ == protowire.BytesType {
+		case 14: // string storage_vault_name = 14 (TableOptions 1307 only)
+			if includeVaultAndCatalog && typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
 					dst.StorageVaultName = string(v)
 					b = b[m:]
 					continue
 				}
 			}
-		case 15: // string iceberg_catalog = 15
-			if typ == protowire.BytesType {
+		case 15: // string iceberg_catalog = 15 (TableOptions 1307 only)
+			if includeVaultAndCatalog && typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
 					dst.IcebergCatalog = string(v)
 					b = b[m:]
