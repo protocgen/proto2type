@@ -103,7 +103,7 @@ Storage backend to generate structs for.
 
 | Default | _(none)_ — no storage types generated |
 |---|---|
-| Values | `firestore`, `mongo`, `postgres`, `doris`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc` |
+| Values | `firestore`, `mongo`, `postgres`, `doris`, `starrocks`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc` |
 
 When set, generates a `<Name><Backend>` struct (e.g. `UserFirestore`, `UserMongo`, `PatientDoris`) with backend-specific struct tags and `ToProto()` / `FromProto()` converters.
 
@@ -111,11 +111,11 @@ Can be combined with `domain=true` (default) to generate both domain and storage
 
 ### `doris_mode`
 
-Controls the Apache Doris 4.x & Apache Iceberg lakehouse backend output when `backend=doris`.
+Controls the Apache Doris 4.x, StarRocks 4.x & Apache Iceberg lakehouse backend output when `backend=doris` or `backend=starrocks`.
 
-| Default | `""` (`go`) |
+| Default | `""` (`go` for `backend=doris`; `starrocks` for `backend=starrocks`) |
 |---|---|
-| Values | `""` / `go` (Go storage structs + SQL scanners), `ddl` (Doris & Iceberg SQL DDL), `both` (both Go and SQL DDL) |
+| Values | `""` / `go` (Go storage structs + SQL scanners), `ddl` (Doris, StarRocks & Iceberg SQL DDL), `hcl` (Doris, StarRocks & Iceberg Atlas HCL), `both` (`go` + `ddl`), `all` (`go` + `ddl` + `hcl`), `starrocks` (`*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_ddl` (`*_starrocks.sql`), `starrocks_hcl` (`*_starrocks.hcl`) |
 
 ### `doris_storage_vault`
 
@@ -217,8 +217,8 @@ Behavior per language:
 | Option | Default | Description |
 |---|---|---|
 | `lang` | `go` | target language: go, python, kotlin, typescript |
-| `backend` | _(none)_ | storage backend: firestore, mongo, postgres, doris, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc |
-| `doris_mode` | _(none)_ | doris backend mode: '' / 'go' (Go storage structs + SQL scanners), 'ddl' (Doris & Iceberg SQL DDL), 'both' |
+| `backend` | _(none)_ | storage backend: firestore, mongo, postgres, doris, starrocks, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc |
+| `doris_mode` | _(none)_ | doris/starrocks backend mode: '' / 'go' (Go storage structs + SQL scanners), 'ddl', 'hcl', 'both', 'all', 'starrocks', 'starrocks_ddl', 'starrocks_hcl' |
 | `doris_storage_vault` | _(none)_ | default Apache Doris storage vault name for DDL properties (omitted when empty) |
 | `iceberg_catalog` | _(none)_ | default Apache Iceberg catalog prefix for DDL (defaults to 'iceberg' when empty) |
 | `postgres_mode` | _(none)_ | postgres backend mode: '' (struct), 'search_index' (HAPI-style FHIR search index extraction) |
@@ -446,16 +446,16 @@ message PatientRecord {
 
 ## Backend Reference
 
-### Apache Doris 4.x & Iceberg (`backend=doris`)
+### Apache Doris 4.x, StarRocks 4.x & Iceberg (`backend=doris` / `backend=starrocks`)
 
 | Feature | Support |
 |---|---|
-| Language | Go (`lang=go`) + SQL DDL (`doris_mode=ddl` or `both`) |
+| Language | Go (`lang=go`), SQL DDL (`doris_mode=ddl`, `both`, `all`, `starrocks`, `starrocks_ddl`), and Atlas HCL (`doris_mode=hcl`, `all`, `starrocks`, `starrocks_hcl`) |
 | Struct tags | `db:"col"` and `doris:"col[,pk]"` |
 | Struct suffix | `Doris` (e.g. `PatientRecordDoris`) |
-| File suffixes | `_doris.type.go` (Go), `_doris.sql` (Doris 4.x DDL), `_iceberg.sql` (Iceberg DDL) |
+| File suffixes | `_doris.type.go` (Go), `_doris.sql` / `_doris.hcl` (Doris 4.x DDL & HCL), `_starrocks.sql` / `_starrocks.hcl` (StarRocks 4.x DDL & HCL), `_iceberg.sql` / `_iceberg.hcl` (Iceberg DDL & HCL) |
 | Row scanning | `TableName()`, `Columns()`, `Values()`, `ScanRow(scanner)`, `Scan<Name>Proto(scanner)`, `<Name>ProtoValues(m)` |
-| DDL helpers | `<Name>DorisTable()`, `DorisTableDescriptor.BuildDorisCreateTableSQL(tenantSlug, buckets)`, `BuildIcebergCreateTableSQL(tenantSlug)` |
+| DDL & HCL helpers | `<Name>DorisTable()`, `DorisTableDescriptor.BuildDorisCreateTableSQL(tenantSlug, buckets)`, `BuildStarRocksCreateTableSQL(tenantSlug, buckets)`, `BuildIcebergCreateTableSQL(tenantSlug)`, `BuildDorisAtlasHCL(tenantSlug, buckets)`, `BuildStarRocksAtlasHCL(tenantSlug, buckets)`, `BuildIcebergAtlasHCL(tenantSlug)`, `ParseDorisAtlasHCL(hclContent)` |
 | Evolution linter | `LintDorisTableEvolution(oldTable, newTable)`, `LintEvolution(oldTable, newTable)` |
 | Inline nested | `inline_nested = true` recursively flattens child message columns |
 | Converters | `ToProto()` / `FromProto()` |
