@@ -56,10 +56,13 @@ func newGoGenerator() *goGenerator {
 // generateGo generates Go output files for a proto file.
 func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	// Generate domain types if requested.
-	// For the doris backend, <Name>Doris structs live alongside .pb.go by default
-	// and doris_mode=ddl emits SQL only, so only generate domain types when a
-	// separate go_package is configured and doris_mode is not ddl.
-	if opts.Domain && (opts.Backend != "doris" || (opts.GoPackage != "" && opts.DorisMode != "ddl")) {
+	// For the doris/starrocks backend, <Name>Doris structs live alongside .pb.go by default
+	// and doris_mode=ddl/hcl/starrocks* emits SQL/HCL only, so only generate domain types when a
+	// separate go_package is configured and doris_mode is not DDL/HCL-only.
+	isLakehouseBackend := opts.Backend == "doris" || opts.Backend == "starrocks"
+	isSchemaOnlyMode := opts.DorisMode == "ddl" || opts.DorisMode == "hcl" ||
+		opts.DorisMode == "starrocks" || opts.DorisMode == "starrocks_ddl" || opts.DorisMode == "starrocks_hcl"
+	if opts.Domain && (!isLakehouseBackend || (opts.GoPackage != "" && !isSchemaOnlyMode)) {
 		if err := gg.generateGoDomain(gen, file, opts); err != nil {
 			return err
 		}
@@ -77,10 +80,10 @@ func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opt
 				return gg.generateGoPostgresSearchIndex(gen, file, opts)
 			}
 			return generateGoPostgres(gen, file, opts)
-		case "doris":
+		case "doris", "starrocks":
 			return gg.generateGoDoris(gen, file, opts)
 		default:
-			return fmt.Errorf("proto2type: unsupported Go backend %q (supported: firestore, mongo, postgres, doris)", opts.Backend)
+			return fmt.Errorf("proto2type: unsupported Go backend %q (supported: firestore, mongo, postgres, doris, starrocks)", opts.Backend)
 		}
 	}
 

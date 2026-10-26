@@ -40,9 +40,22 @@ func dorisColumnIcebergHCLType(dorisType, icebergType string) string {
 	return lower
 }
 
-// normalizeParsedDorisHCLType converts a parsed Atlas HCL column type expression
-// back into canonical uppercase Apache Doris SQL type syntax.
-func normalizeParsedDorisHCLType(rawType string) string {
+// dorisColumnStarRocksHCLType maps a column's Doris/Iceberg type metadata to the
+// canonical Atlas HCL column type for a StarRocks 4.x table.
+func dorisColumnStarRocksHCLType(dorisType, icebergType string) string {
+	ddlType := dorisColumnStarRocksDDLType(dorisType, icebergType)
+	if ddlType == "" {
+		return "varchar(256)"
+	}
+	lower := strings.ToLower(strings.TrimSpace(ddlType))
+	lower = strings.ReplaceAll(lower, ", ", ",")
+	lower = strings.ReplaceAll(lower, ",", ", ")
+	return lower
+}
+
+// hclAttrTypeToDorisType normalizes an Atlas HCL type expression (Doris or
+// StarRocks dialect) into canonical uppercase SQL type syntax.
+func hclAttrTypeToDorisType(rawType string) string {
 	t := strings.TrimSpace(rawType)
 	if len(t) >= 2 && t[0] == '"' && t[len(t)-1] == '"' {
 		t = strings.TrimSpace(t[1 : len(t)-1])
@@ -51,6 +64,12 @@ func normalizeParsedDorisHCLType(rawType string) string {
 	upper = strings.ReplaceAll(upper, ", ", ",")
 	upper = strings.ReplaceAll(upper, ",", ", ")
 	return upper
+}
+
+// normalizeParsedDorisHCLType converts a parsed Atlas HCL column type expression
+// back into canonical uppercase Apache Doris / StarRocks SQL type syntax.
+func normalizeParsedDorisHCLType(rawType string) string {
+	return hclAttrTypeToDorisType(rawType)
 }
 
 // resolveDorisColumnDefaultValue determines the effective SQL/HCL default value
@@ -320,7 +339,7 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 		}
 	}
 	for _, idxCol := range invCols {
-		if colTypes[idxCol] == "TEXT" {
+		if colTypes[idxCol] == "TEXT" || colTypes[idxCol] == "STRING" {
 			idxName := fmt.Sprintf("idx_%s_bm25", idxCol)
 			emittedIdx[idxName] = true
 			fmt.Fprintf(&b, "  index %q {\n", idxName)
@@ -420,6 +439,333 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 	}
 	if t.DatabaseScope == "TENANT" || t.DatabaseScope == "" {
 		b.WriteString("    group_commit_interval_ms = \"200\"\n")
+	}
+	if len(bloomCols) > 0 {
+		fmt.Fprintf(&b, "    bloom_filter_columns = %q\n", strings.Join(bloomCols, ", "))
+	}
+	b.WriteString("  }\n")
+	b.WriteString("}")
+	return b.String()
+}
+
+// BuildStarRocksAtlasHCL renders a deterministic Atlas HCL table block for this
+// StarRocks 4.x table descriptor.
+//
+// If tenantSlug is empty, "${TENANT_SLUG}" is interpolated for TENANT-scoped
+// tables. If buckets <= 0, the descriptor's Buckets/AutoBuckets or scope-appropriate
+// default ("auto" for TENANT, 1 for GLOBAL_TERMINOLOGY, 8 for RAG/TELEMETRY) is used.
+// Returns an empty string if SyncTier == "ICEBERG_ONLY" or identifier validation fails.
+func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets int) string {
+	if !validateDescriptorIdentifiers(t) || t.SyncTier == "ICEBERG_ONLY" {
+		return ""
+	}
+	var uks []string
+	if len(t.UniqueKeyColumns) > 0 {
+		uks = dedupDorisColumnList(t.UniqueKeyColumns)
+	} else {
+		for _, c := range t.Columns {
+			if c.IsUniqueKey {
+				uks = append(uks, c.ColumnName)
+			}
+		}
+		uks = dedupDorisColumnList(uks)
+	}
+	dupKeys := dedupDorisColumnList(t.DuplicateKeyColumns)
+	ngramCols := dedupDorisColumnList(t.NgramBfColumns)
+	bloomCols := dedupDorisColumnList(t.BloomFilterColumns)
+
+	if t.DatabaseScope == "GLOBAL_TERMINOLOGY" && t.SyncTier == "RELEASE_PARTITIONED" && len(uks) == 0 && len(dupKeys) == 0 {
+		return ""
+	}
+
+	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys, true)
+	if len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {
+		cp := make([]DorisColumnDescriptor, len(orderedCols))
+		copy(cp, orderedCols)
+		cp[0].Nullable = false
+		orderedCols = cp
+	}
+
+	colTypes := make(map[string]string, len(orderedCols))
+	for _, c := range orderedCols {
+		colTypes[c.ColumnName] = strings.ToUpper(strings.TrimSpace(c.DorisType))
+	}
+	for _, uk := range uks {
+		if !isDorisKeyEligibleType(colTypes[uk]) {
+			return ""
+		}
+	}
+	for _, dk := range dupKeys {
+		if !isDorisKeyEligibleType(colTypes[dk]) {
+			return ""
+		}
+	}
+	if len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {
+		if !isDorisKeyEligibleType(orderedCols[0].DorisType) {
+			return ""
+		}
+	}
+
+	var distCols []string
+	if len(t.DistributionColumns) > 0 {
+		distCols = dedupDorisColumnList(t.DistributionColumns)
+	} else if t.DistributedByColumn != "" {
+		distCols = []string{t.DistributedByColumn}
+	} else if len(uks) > 0 {
+		if len(uks) > 1 && uks[0] == "tenant_id" {
+			distCols = []string{uks[1]}
+		} else {
+			distCols = []string{uks[0]}
+		}
+	} else if len(dupKeys) > 0 {
+		distCols = []string{dupKeys[0]}
+	} else if len(orderedCols) > 0 {
+		distCols = []string{orderedCols[0].ColumnName}
+	}
+	for _, dc := range distCols {
+		if !isDorisKeyEligibleType(colTypes[dc]) {
+			return ""
+		}
+	}
+
+	slug, ok := sanitizeDorisTenantSlug(tenantSlug)
+	if !ok {
+		return ""
+	}
+
+	var schemaRef string
+	switch t.DatabaseScope {
+	case "GLOBAL_TERMINOLOGY":
+		schemaRef = "schema.terminology"
+	case "GLOBAL_TERMINOLOGY_RAG":
+		schemaRef = "schema.terminology_rag"
+	case "GLOBAL_TELEMETRY":
+		schemaRef = "schema.telemetry"
+	default:
+		if slug == "${TENANT_SLUG}" {
+			schemaRef = `"schema.tenant_` + slug + `"`
+		} else {
+			schemaRef = "schema.tenant_" + slug
+		}
+	}
+
+	var bucketsExpr string
+	if buckets > 0 {
+		bucketsExpr = strconv.Itoa(buckets)
+	} else if t.Buckets > 0 {
+		bucketsExpr = strconv.Itoa(t.Buckets)
+	} else if t.AutoBuckets {
+		bucketsExpr = `"auto"`
+	} else {
+		switch t.DatabaseScope {
+		case "GLOBAL_TERMINOLOGY":
+			bucketsExpr = "1"
+		case "GLOBAL_TERMINOLOGY_RAG", "GLOBAL_TELEMETRY":
+			bucketsExpr = "8"
+		default:
+			bucketsExpr = `"auto"`
+		}
+	}
+
+	seqCol := strings.TrimSpace(t.SequenceCol)
+	if seqCol == "" {
+		seqCol = strings.TrimSpace(t.SequenceColumn)
+	}
+	if seqCol == "" {
+		for _, c := range orderedCols {
+			if c.IsSequenceCol {
+				seqCol = c.ColumnName
+				break
+			}
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "table %q {\n", t.TableName)
+	fmt.Fprintf(&b, "  schema = %s\n", schemaRef)
+
+	for _, c := range orderedCols {
+		fmt.Fprintf(&b, "  column %q {\n", c.ColumnName)
+		fmt.Fprintf(&b, "    type = %s\n", dorisColumnStarRocksHCLType(c.DorisType, c.IcebergType))
+		fmt.Fprintf(&b, "    null = %t\n", c.Nullable)
+		if defVal, hasDef := resolveDorisColumnDefaultValue(c); hasDef {
+			fmt.Fprintf(&b, "    default = %q\n", defVal)
+		}
+		if c.Comment != "" {
+			fmt.Fprintf(&b, "    comment = %q\n", c.Comment)
+		}
+		b.WriteString("  }\n")
+	}
+
+	if len(uks) > 0 {
+		b.WriteString("  primary_key {\n")
+		fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(uks))
+		if seqCol != "" {
+			fmt.Fprintf(&b, "    sequence_col = column.%s\n", seqCol)
+		}
+		b.WriteString("  }\n")
+	} else {
+		dkCols := dupKeys
+		if len(dkCols) == 0 && len(orderedCols) > 0 {
+			dkCols = []string{orderedCols[0].ColumnName}
+		}
+		if len(dkCols) > 0 {
+			b.WriteString("  duplicate_key {\n")
+			fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(dkCols))
+			b.WriteString("  }\n")
+		}
+	}
+
+	if len(distCols) > 0 {
+		b.WriteString("  distributed_by_hash {\n")
+		fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(distCols))
+		fmt.Fprintf(&b, "    buckets = %s\n", bucketsExpr)
+		b.WriteString("  }\n")
+	}
+
+	var partCols []string
+	if len(t.PartitionByColumns) > 0 {
+		partCols = dedupDorisColumnList(t.PartitionByColumns)
+	} else {
+		for _, c := range orderedCols {
+			if c.IsPartitionKey {
+				partCols = append(partCols, c.ColumnName)
+			}
+		}
+		partCols = dedupDorisColumnList(partCols)
+	}
+	if len(partCols) > 0 {
+		partBlock := "partition_by_list"
+		if strings.HasPrefix(colTypes[partCols[0]], "DATE") {
+			partBlock = "partition_by_range"
+		}
+		fmt.Fprintf(&b, "  %s {\n", partBlock)
+		fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(partCols))
+		b.WriteString("  }\n")
+	}
+
+	emittedIdx := make(map[string]bool)
+	seenInv := make(map[string]bool)
+	var invCols []string
+	for _, c := range orderedCols {
+		if c.InvertedIndex && !seenInv[c.ColumnName] {
+			seenInv[c.ColumnName] = true
+			invCols = append(invCols, c.ColumnName)
+		}
+	}
+	for _, colName := range t.InvertedIndexColumns {
+		if colName != "" && !seenInv[colName] {
+			seenInv[colName] = true
+			invCols = append(invCols, colName)
+		}
+	}
+	for _, idxCol := range invCols {
+		if colTypes[idxCol] == "TEXT" || colTypes[idxCol] == "STRING" {
+			idxName := fmt.Sprintf("idx_%s_bm25", idxCol)
+			emittedIdx[idxName] = true
+			fmt.Fprintf(&b, "  index %q {\n", idxName)
+			fmt.Fprintf(&b, "    columns = [column.%s]\n", idxCol)
+			b.WriteString("    using = \"GIN\"\n")
+			b.WriteString("    properties = {\n")
+			b.WriteString("      parser = \"english\"\n")
+			b.WriteString("    }\n")
+			b.WriteString("  }\n")
+		} else {
+			idxName := fmt.Sprintf("idx_%s_%s", t.TableName, idxCol)
+			emittedIdx[idxName] = true
+			fmt.Fprintf(&b, "  index %q {\n", idxName)
+			fmt.Fprintf(&b, "    columns = [column.%s]\n", idxCol)
+			b.WriteString("    using = \"BITMAP\"\n")
+			b.WriteString("  }\n")
+		}
+	}
+	for _, ngCol := range ngramCols {
+		idxName := fmt.Sprintf("idx_ngram_%s_%s", t.TableName, ngCol)
+		emittedIdx[idxName] = true
+		fmt.Fprintf(&b, "  index %q {\n", idxName)
+		fmt.Fprintf(&b, "    columns = [column.%s]\n", ngCol)
+		b.WriteString("    using = \"NGRAM_BF\"\n")
+		b.WriteString("    properties = {\n")
+		b.WriteString("      gram_size = \"3\"\n")
+		b.WriteString("      bf_size = \"1024\"\n")
+		b.WriteString("    }\n")
+		b.WriteString("  }\n")
+	}
+	if len(uks) == 0 {
+		if embDim, hasEmb := resolveDorisEmbeddingDimension(t); hasEmb {
+			for _, c := range orderedCols {
+				if c.ColumnName == "embedding" && !c.Nullable && colTypes[c.ColumnName] == "ARRAY<FLOAT>" {
+					idxName := fmt.Sprintf("idx_%s_hnsw", c.ColumnName)
+					emittedIdx[idxName] = true
+					fmt.Fprintf(&b, "  index %q {\n", idxName)
+					fmt.Fprintf(&b, "    columns = [column.%s]\n", c.ColumnName)
+					b.WriteString("    using = \"VECTOR\"\n")
+					b.WriteString("    properties = {\n")
+					b.WriteString("      index_type = \"hnsw\"\n")
+					b.WriteString("      metric_type = \"l2_distance\"\n")
+					fmt.Fprintf(&b, "      dim = \"%d\"\n", embDim)
+					b.WriteString("    }\n")
+					b.WriteString("  }\n")
+				}
+			}
+		}
+	}
+	for _, idx := range t.Indexes {
+		if idx.Name == "" || emittedIdx[idx.Name] || len(idx.Columns) == 0 {
+			continue
+		}
+		emittedIdx[idx.Name] = true
+		using := strings.ToUpper(strings.TrimSpace(idx.Using))
+		switch using {
+		case "", "INVERTED":
+			if (len(idx.Columns) == 1 && (colTypes[idx.Columns[0]] == "TEXT" || colTypes[idx.Columns[0]] == "STRING")) || idx.Properties["parser"] != "" {
+				using = "GIN"
+			} else {
+				using = "BITMAP"
+			}
+		case "ANN":
+			using = "VECTOR"
+		}
+		fmt.Fprintf(&b, "  index %q {\n", idx.Name)
+		fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
+		fmt.Fprintf(&b, "    using = %q\n", using)
+		if using == "GIN" {
+			parser := idx.Properties["parser"]
+			if parser == "" {
+				parser = "english"
+			}
+			b.WriteString("    properties = {\n")
+			fmt.Fprintf(&b, "      parser = %q\n", parser)
+			b.WriteString("    }\n")
+		} else if using != "BITMAP" && len(idx.Properties) > 0 {
+			keys := make([]string, 0, len(idx.Properties))
+			for k := range idx.Properties {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			b.WriteString("    properties = {\n")
+			for _, k := range keys {
+				fmt.Fprintf(&b, "      %s = %q\n", formatAtlasHCLPropKey(k), idx.Properties[k])
+			}
+			b.WriteString("    }\n")
+		}
+		b.WriteString("  }\n")
+	}
+
+	b.WriteString("  properties = {\n")
+	if t.StorageVaultName != "" {
+		fmt.Fprintf(&b, "    storage_volume = %q\n", t.StorageVaultName)
+		b.WriteString("    \"datacache.enable\" = \"true\"\n")
+	}
+	b.WriteString("    compression = \"zstd\"\n")
+	if len(uks) > 0 || t.EnableMoW {
+		b.WriteString("    enable_persistent_index = \"true\"\n")
+	}
+	if seqCol != "" {
+		fmt.Fprintf(&b, "    \"function_column.sequence_col\" = %q\n", seqCol)
+	}
+	if t.ColocateGroup != "" {
+		fmt.Fprintf(&b, "    colocate_with = %q\n", t.ColocateGroup)
 	}
 	if len(bloomCols) > 0 {
 		fmt.Fprintf(&b, "    bloom_filter_columns = %q\n", strings.Join(bloomCols, ", "))
@@ -976,51 +1322,96 @@ func applyDorisAtlasSubBlock(
 		colMap[colName] = colDesc
 		return nil
 
-	case header == "unique_key":
+	case header == "unique_key" || header == "primary_key":
 		kv, err := parseHCLKeyValueAssignments(blockBody)
 		if err != nil {
-			return fmt.Errorf("unique_key: %w", err)
+			return fmt.Errorf("%s: %w", header, err)
 		}
 		colsRaw, ok := kv["columns"]
 		if !ok {
-			return fmt.Errorf("unique_key missing columns attribute")
+			return fmt.Errorf("%s missing columns attribute", header)
 		}
 		uks, err := parseHCLColumnRefList(colsRaw)
 		if err != nil {
-			return fmt.Errorf("unique_key: %w", err)
+			return fmt.Errorf("%s: %w", header, err)
 		}
 		desc.UniqueKeyColumns = uks
+		if header == "primary_key" {
+			desc.EnableMoW = true
+		}
 		if mowStr, hasMoW := kv["merge_on_write"]; hasMoW {
 			mow, bErr := strconv.ParseBool(unquoteHCLString(mowStr))
 			if bErr != nil {
-				return fmt.Errorf("unique_key invalid merge_on_write %q", mowStr)
+				return fmt.Errorf("%s invalid merge_on_write %q", header, mowStr)
 			}
 			desc.EnableMoW = mow
 		}
 		if seqRaw, hasSeq := kv["sequence_col"]; hasSeq {
 			seqCol := strings.TrimPrefix(unquoteHCLString(seqRaw), "column.")
 			if !isValidSQLIdentifier(seqCol) {
-				return fmt.Errorf("unique_key invalid sequence_col %q", seqRaw)
+				return fmt.Errorf("%s invalid sequence_col %q", header, seqRaw)
 			}
 			desc.SequenceCol = seqCol
 			desc.SequenceColumn = seqCol
 		}
 		return nil
 
-	case header == "duplicate_key":
+	case header == "duplicate_key" || header == "aggregate_key":
 		kv, err := parseHCLKeyValueAssignments(blockBody)
 		if err != nil {
-			return fmt.Errorf("duplicate_key: %w", err)
+			return fmt.Errorf("%s: %w", header, err)
 		}
 		colsRaw, ok := kv["columns"]
 		if !ok {
-			return fmt.Errorf("duplicate_key missing columns attribute")
+			return fmt.Errorf("%s missing columns attribute", header)
 		}
 		dks, err := parseHCLColumnRefList(colsRaw)
 		if err != nil {
-			return fmt.Errorf("duplicate_key: %w", err)
+			return fmt.Errorf("%s: %w", header, err)
 		}
 		desc.DuplicateKeyColumns = dks
+		return nil
+
+	case strings.HasPrefix(header, "key "):
+		keyType := strings.ToUpper(unquoteHCLString(strings.TrimSpace(strings.TrimPrefix(header, "key"))))
+		kv, err := parseHCLKeyValueAssignments(blockBody)
+		if err != nil {
+			return fmt.Errorf("key %q: %w", keyType, err)
+		}
+		colsRaw, ok := kv["columns"]
+		if !ok {
+			return fmt.Errorf("key %q missing columns attribute", keyType)
+		}
+		cols, err := parseHCLColumnRefList(colsRaw)
+		if err != nil {
+			return fmt.Errorf("key %q: %w", keyType, err)
+		}
+		switch keyType {
+		case "PRIMARY":
+			desc.UniqueKeyColumns = cols
+			desc.EnableMoW = true
+		case "UNIQUE":
+			desc.UniqueKeyColumns = cols
+		case "DUPLICATE", "AGGREGATE":
+			desc.DuplicateKeyColumns = cols
+		default:
+			return fmt.Errorf("unsupported key type %q", keyType)
+		}
+		if mowStr, hasMoW := kv["merge_on_write"]; hasMoW {
+			mow, bErr := strconv.ParseBool(unquoteHCLString(mowStr))
+			if bErr != nil {
+				return fmt.Errorf("key %q invalid merge_on_write %q", keyType, mowStr)
+			}
+			desc.EnableMoW = mow
+		}
+		if seqRaw, hasSeq := kv["sequence_col"]; hasSeq {
+			seqCol := strings.TrimPrefix(unquoteHCLString(seqRaw), "column.")
+			if !isValidSQLIdentifier(seqCol) {
+				return fmt.Errorf("key %q invalid sequence_col %q", keyType, seqRaw)
+			}
+			desc.SequenceCol = seqCol
+			desc.SequenceColumn = seqCol
+		}
 		return nil
 
 	case header == "distributed_by_hash":
@@ -1089,11 +1480,11 @@ func applyDorisAtlasSubBlock(
 		}
 		desc.Indexes = append(desc.Indexes, idxDesc)
 		switch strings.ToUpper(idxDesc.Using) {
-		case "INVERTED":
+		case "INVERTED", "GIN", "BITMAP":
 			desc.InvertedIndexColumns = dedupDorisColumnList(append(desc.InvertedIndexColumns, idxDesc.Columns...))
 		case "NGRAM_BF":
 			desc.NgramBfColumns = dedupDorisColumnList(append(desc.NgramBfColumns, idxDesc.Columns...))
-		case "ANN":
+		case "ANN", "VECTOR":
 			if dimStr, hasDim := idxDesc.Properties["dim"]; hasDim {
 				dim64, dErr := strconv.ParseInt(dimStr, 10, 32)
 				if dErr == nil && dim64 > 0 && dim64 <= math.MaxInt32 {
@@ -1111,11 +1502,11 @@ func applyDorisAtlasSubBlock(
 		for k, rawV := range kv {
 			v := unquoteHCLString(rawV)
 			switch k {
-			case "storage_vault_name":
+			case "storage_vault_name", "storage_volume":
 				desc.StorageVaultName = v
 			case "colocate_with":
 				desc.ColocateGroup = v
-			case "enable_unique_key_merge_on_write":
+			case "enable_unique_key_merge_on_write", "enable_persistent_index":
 				if strings.EqualFold(v, "true") {
 					desc.EnableMoW = true
 				}
@@ -1216,8 +1607,8 @@ func parseDorisAtlasIndexBlock(idxName, body string) (DorisIndexDescriptor, erro
 	return idx, nil
 }
 
-// generateDorisHCLFiles emits <prefix>_doris.hcl and <prefix>_iceberg.hcl
-// for all Doris/Iceberg tables in the proto file when doris_mode is "hcl" or "all".
+// generateDorisHCLFiles emits <prefix>_doris.hcl, <prefix>_starrocks.hcl, and <prefix>_iceberg.hcl
+// for all Doris/StarRocks/Iceberg tables in the proto file when doris_mode is "hcl" or "all".
 func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, tables []*dorisTableIR) error {
 	var dorisBlocks []ddlBlock
 	var icebergBlocks []ddlBlock
@@ -1259,6 +1650,10 @@ func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 		}
 	}
 
+	if err := generateStarRocksHCLFile(gen, file, tables); err != nil {
+		return err
+	}
+
 	if len(icebergBlocks) > 0 {
 		icebergFilename, err := outputFilename(file.GeneratedFilenamePrefix, "_iceberg.hcl")
 		if err != nil {
@@ -1279,6 +1674,41 @@ func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 		}
 	}
 
+	return nil
+}
+
+// generateStarRocksHCLFile emits <prefix>_starrocks.hcl for all StarRocks tables in the proto file.
+func generateStarRocksHCLFile(gen *protogen.Plugin, file *protogen.File, tables []*dorisTableIR) error {
+	var srBlocks []ddlBlock
+	for _, tbl := range tables {
+		if hcl := tbl.Descriptor.BuildStarRocksAtlasHCL("", 0); hcl != "" {
+			srBlocks = append(srBlocks, ddlBlock{
+				goName:    tbl.GoName,
+				tableName: tbl.Descriptor.TableName,
+				sql:       hcl,
+			})
+		}
+	}
+	if len(srBlocks) == 0 {
+		return nil
+	}
+	srFilename, err := outputFilename(file.GeneratedFilenamePrefix, "_starrocks.hcl")
+	if err != nil {
+		return err
+	}
+	sg := gen.NewGeneratedFile(srFilename, "")
+	sg.P("# Code generated by proto2type. DO NOT EDIT.")
+	sg.P("# source: ", file.Desc.Path())
+	sg.P("# backend: starrocks (hcl)")
+	sg.P()
+
+	for i, blk := range srBlocks {
+		if i > 0 {
+			sg.P()
+		}
+		sg.P("# ", blk.goName, " (", blk.tableName, ")")
+		sg.P(blk.sql)
+	}
 	return nil
 }
 
@@ -1327,6 +1757,18 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\treturn \"string\"")
 	g.P("\t}")
 	g.P("\tddlType := dorisColumnIcebergDDLType(dorisType, icebergType)")
+	g.P("\tlower := ", stringsToLower, "(", stringsTrimSpace, "(ddlType))")
+	g.P("\tlower = ", stringsReplaceAll, "(lower, \", \", \",\")")
+	g.P("\tlower = ", stringsReplaceAll, "(lower, \",\", \", \")")
+	g.P("\treturn lower")
+	g.P("}")
+	g.P()
+
+	g.P("func dorisColumnStarRocksHCLType(dorisType, icebergType string) string {")
+	g.P("\tddlType := dorisColumnStarRocksDDLType(dorisType, icebergType)")
+	g.P("\tif ddlType == \"\" {")
+	g.P("\t\treturn \"varchar(256)\"")
+	g.P("\t}")
 	g.P("\tlower := ", stringsToLower, "(", stringsTrimSpace, "(ddlType))")
 	g.P("\tlower = ", stringsReplaceAll, "(lower, \", \", \",\")")
 	g.P("\tlower = ", stringsReplaceAll, "(lower, \",\", \", \")")
@@ -1578,7 +2020,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tfor _, idxCol := range invCols {")
-	g.P("\t\tif colTypes[idxCol] == \"TEXT\" {")
+	g.P("\t\tif colTypes[idxCol] == \"TEXT\" || colTypes[idxCol] == \"STRING\" {")
 	g.P("\t\t\tidxName := ", fmtSprintf, "(\"idx_%s_bm25\", idxCol)")
 	g.P("\t\t\temittedIdx[idxName] = true")
 	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"  index %q {\\n\", idxName))")
@@ -1677,6 +2119,314 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t}")
 	g.P("\tif t.DatabaseScope == \"TENANT\" || t.DatabaseScope == \"\" {")
 	g.P("\t\tb.WriteString(\"    group_commit_interval_ms = \\\"200\\\"\\n\")")
+	g.P("\t}")
+	g.P("\tif len(bloomCols) > 0 {")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    bloom_filter_columns = %q\\n\", ", stringsJoin, "(bloomCols, \", \")))")
+	g.P("\t}")
+	g.P("\tb.WriteString(\"  }\\n\")")
+	g.P("\tb.WriteString(\"}\")")
+	g.P("\treturn b.String()")
+	g.P("}")
+	g.P()
+
+	g.P("// BuildStarRocksAtlasHCL renders a deterministic Atlas HCL table block for this")
+	g.P("// StarRocks 4.x table descriptor.")
+	g.P("func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets int) string {")
+	g.P("\tif !validateDorisDescriptor(t) || t.SyncTier == \"ICEBERG_ONLY\" {")
+	g.P("\t\treturn \"\"")
+	g.P("\t}")
+	g.P("\tvar uks []string")
+	g.P("\tif len(t.UniqueKeyColumns) > 0 {")
+	g.P("\t\tuks = dedupDorisColumnList(t.UniqueKeyColumns)")
+	g.P("\t} else {")
+	g.P("\t\tfor _, c := range t.Columns {")
+	g.P("\t\t\tif c.IsUniqueKey {")
+	g.P("\t\t\t\tuks = append(uks, c.ColumnName)")
+	g.P("\t\t\t}")
+	g.P("\t\t}")
+	g.P("\t\tuks = dedupDorisColumnList(uks)")
+	g.P("\t}")
+	g.P("\tdupKeys := dedupDorisColumnList(t.DuplicateKeyColumns)")
+	g.P("\tngramCols := dedupDorisColumnList(t.NgramBfColumns)")
+	g.P("\tbloomCols := dedupDorisColumnList(t.BloomFilterColumns)")
+	g.P("\tif t.DatabaseScope == \"GLOBAL_TERMINOLOGY\" && t.SyncTier == \"RELEASE_PARTITIONED\" && len(uks) == 0 && len(dupKeys) == 0 {")
+	g.P("\t\treturn \"\"")
+	g.P("\t}")
+	g.P("\torderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys, true)")
+	g.P("\tif len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {")
+	g.P("\t\tcp := make([]DorisColumnDescriptor, len(orderedCols))")
+	g.P("\t\tcopy(cp, orderedCols)")
+	g.P("\t\tcp[0].Nullable = false")
+	g.P("\t\torderedCols = cp")
+	g.P("\t}")
+	g.P("\tcolTypes := make(map[string]string, len(orderedCols))")
+	g.P("\tfor _, c := range orderedCols {")
+	g.P("\t\tcolTypes[c.ColumnName] = ", stringsToUpper, "(", stringsTrimSpace, "(c.DorisType))")
+	g.P("\t}")
+	g.P("\tfor _, uk := range uks {")
+	g.P("\t\tif !isDorisKeyEligibleType(colTypes[uk]) {")
+	g.P("\t\t\treturn \"\"")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tfor _, dk := range dupKeys {")
+	g.P("\t\tif !isDorisKeyEligibleType(colTypes[dk]) {")
+	g.P("\t\t\treturn \"\"")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tif len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {")
+	g.P("\t\tif !isDorisKeyEligibleType(orderedCols[0].DorisType) {")
+	g.P("\t\t\treturn \"\"")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tvar distCols []string")
+	g.P("\tif len(t.DistributionColumns) > 0 {")
+	g.P("\t\tdistCols = dedupDorisColumnList(t.DistributionColumns)")
+	g.P("\t} else if t.DistributedByColumn != \"\" {")
+	g.P("\t\tdistCols = []string{t.DistributedByColumn}")
+	g.P("\t} else if len(uks) > 0 {")
+	g.P("\t\tif len(uks) > 1 && uks[0] == \"tenant_id\" {")
+	g.P("\t\t\tdistCols = []string{uks[1]}")
+	g.P("\t\t} else {")
+	g.P("\t\t\tdistCols = []string{uks[0]}")
+	g.P("\t\t}")
+	g.P("\t} else if len(dupKeys) > 0 {")
+	g.P("\t\tdistCols = []string{dupKeys[0]}")
+	g.P("\t} else if len(orderedCols) > 0 {")
+	g.P("\t\tdistCols = []string{orderedCols[0].ColumnName}")
+	g.P("\t}")
+	g.P("\tfor _, dc := range distCols {")
+	g.P("\t\tif !isDorisKeyEligibleType(colTypes[dc]) {")
+	g.P("\t\t\treturn \"\"")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tslug, ok := sanitizeDorisTenantSlug(tenantSlug)")
+	g.P("\tif !ok {")
+	g.P("\t\treturn \"\"")
+	g.P("\t}")
+	g.P("\tvar schemaRef string")
+	g.P("\tswitch t.DatabaseScope {")
+	g.P("\tcase \"GLOBAL_TERMINOLOGY\":")
+	g.P("\t\tschemaRef = \"schema.terminology\"")
+	g.P("\tcase \"GLOBAL_TERMINOLOGY_RAG\":")
+	g.P("\t\tschemaRef = \"schema.terminology_rag\"")
+	g.P("\tcase \"GLOBAL_TELEMETRY\":")
+	g.P("\t\tschemaRef = \"schema.telemetry\"")
+	g.P("\tdefault:")
+	g.P("\t\tif slug == \"${TENANT_SLUG}\" {")
+	g.P("\t\t\tschemaRef = `\"schema.tenant_` + slug + `\"`")
+	g.P("\t\t} else {")
+	g.P("\t\t\tschemaRef = \"schema.tenant_\" + slug")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tvar bucketsExpr string")
+	g.P("\tif buckets > 0 {")
+	g.P("\t\tbucketsExpr = ", strconvItoa, "(buckets)")
+	g.P("\t} else if t.Buckets > 0 {")
+	g.P("\t\tbucketsExpr = ", strconvItoa, "(t.Buckets)")
+	g.P("\t} else if t.AutoBuckets {")
+	g.P("\t\tbucketsExpr = `\"auto\"`")
+	g.P("\t} else {")
+	g.P("\t\tswitch t.DatabaseScope {")
+	g.P("\t\tcase \"GLOBAL_TERMINOLOGY\":")
+	g.P("\t\t\tbucketsExpr = \"1\"")
+	g.P("\t\tcase \"GLOBAL_TERMINOLOGY_RAG\", \"GLOBAL_TELEMETRY\":")
+	g.P("\t\t\tbucketsExpr = \"8\"")
+	g.P("\t\tdefault:")
+	g.P("\t\t\tbucketsExpr = `\"auto\"`")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tseqCol := ", stringsTrimSpace, "(t.SequenceCol)")
+	g.P("\tif seqCol == \"\" {")
+	g.P("\t\tseqCol = ", stringsTrimSpace, "(t.SequenceColumn)")
+	g.P("\t}")
+	g.P("\tif seqCol == \"\" {")
+	g.P("\t\tfor _, c := range orderedCols {")
+	g.P("\t\t\tif c.IsSequenceCol {")
+	g.P("\t\t\t\tseqCol = c.ColumnName")
+	g.P("\t\t\t\tbreak")
+	g.P("\t\t\t}")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tvar b ", stringsBuilder)
+	g.P("\tb.WriteString(", fmtSprintf, "(\"table %q {\\n\", t.TableName))")
+	g.P("\tb.WriteString(", fmtSprintf, "(\"  schema = %s\\n\", schemaRef))")
+	g.P("\tfor _, c := range orderedCols {")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"  column %q {\\n\", c.ColumnName))")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    type = %s\\n\", dorisColumnStarRocksHCLType(c.DorisType, c.IcebergType)))")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    null = %t\\n\", c.Nullable))")
+	g.P("\t\tif defVal, hasDef := resolveDorisColumnDefaultValue(c); hasDef {")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    default = %q\\n\", defVal))")
+	g.P("\t\t}")
+	g.P("\t\tif c.Comment != \"\" {")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    comment = %q\\n\", c.Comment))")
+	g.P("\t\t}")
+	g.P("\t\tb.WriteString(\"  }\\n\")")
+	g.P("\t}")
+	g.P("\tif len(uks) > 0 {")
+	g.P("\t\tb.WriteString(\"  primary_key {\\n\")")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    columns = %s\\n\", formatAtlasHCLColRefList(uks)))")
+	g.P("\t\tif seqCol != \"\" {")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    sequence_col = column.%s\\n\", seqCol))")
+	g.P("\t\t}")
+	g.P("\t\tb.WriteString(\"  }\\n\")")
+	g.P("\t} else {")
+	g.P("\t\tdkCols := dupKeys")
+	g.P("\t\tif len(dkCols) == 0 && len(orderedCols) > 0 {")
+	g.P("\t\t\tdkCols = []string{orderedCols[0].ColumnName}")
+	g.P("\t\t}")
+	g.P("\t\tif len(dkCols) > 0 {")
+	g.P("\t\t\tb.WriteString(\"  duplicate_key {\\n\")")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    columns = %s\\n\", formatAtlasHCLColRefList(dkCols)))")
+	g.P("\t\t\tb.WriteString(\"  }\\n\")")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tif len(distCols) > 0 {")
+	g.P("\t\tb.WriteString(\"  distributed_by_hash {\\n\")")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    columns = %s\\n\", formatAtlasHCLColRefList(distCols)))")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    buckets = %s\\n\", bucketsExpr))")
+	g.P("\t\tb.WriteString(\"  }\\n\")")
+	g.P("\t}")
+	g.P("\tvar partCols []string")
+	g.P("\tif len(t.PartitionByColumns) > 0 {")
+	g.P("\t\tpartCols = dedupDorisColumnList(t.PartitionByColumns)")
+	g.P("\t} else {")
+	g.P("\t\tfor _, c := range orderedCols {")
+	g.P("\t\t\tif c.IsPartitionKey {")
+	g.P("\t\t\t\tpartCols = append(partCols, c.ColumnName)")
+	g.P("\t\t\t}")
+	g.P("\t\t}")
+	g.P("\t\tpartCols = dedupDorisColumnList(partCols)")
+	g.P("\t}")
+	g.P("\tif len(partCols) > 0 {")
+	g.P("\t\tpartBlock := \"partition_by_list\"")
+	g.P("\t\tif ", stringsHasPrefix, "(colTypes[partCols[0]], \"DATE\") {")
+	g.P("\t\t\tpartBlock = \"partition_by_range\"")
+	g.P("\t\t}")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"  %s {\\n\", partBlock))")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    columns = %s\\n\", formatAtlasHCLColRefList(partCols)))")
+	g.P("\t\tb.WriteString(\"  }\\n\")")
+	g.P("\t}")
+	g.P("\temittedIdx := make(map[string]bool)")
+	g.P("\tseenInv := make(map[string]bool)")
+	g.P("\tvar invCols []string")
+	g.P("\tfor _, c := range orderedCols {")
+	g.P("\t\tif c.InvertedIndex && !seenInv[c.ColumnName] {")
+	g.P("\t\t\tseenInv[c.ColumnName] = true")
+	g.P("\t\t\tinvCols = append(invCols, c.ColumnName)")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tfor _, colName := range t.InvertedIndexColumns {")
+	g.P("\t\tif colName != \"\" && !seenInv[colName] {")
+	g.P("\t\t\tseenInv[colName] = true")
+	g.P("\t\t\tinvCols = append(invCols, colName)")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tfor _, idxCol := range invCols {")
+	g.P("\t\tif colTypes[idxCol] == \"TEXT\" || colTypes[idxCol] == \"STRING\" {")
+	g.P("\t\t\tidxName := ", fmtSprintf, "(\"idx_%s_bm25\", idxCol)")
+	g.P("\t\t\temittedIdx[idxName] = true")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"  index %q {\\n\", idxName))")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    columns = [column.%s]\\n\", idxCol))")
+	g.P("\t\t\tb.WriteString(\"    using = \\\"GIN\\\"\\n\")")
+	g.P("\t\t\tb.WriteString(\"    properties = {\\n\")")
+	g.P("\t\t\tb.WriteString(\"      parser = \\\"english\\\"\\n\")")
+	g.P("\t\t\tb.WriteString(\"    }\\n\")")
+	g.P("\t\t\tb.WriteString(\"  }\\n\")")
+	g.P("\t\t} else {")
+	g.P("\t\t\tidxName := ", fmtSprintf, "(\"idx_%s_%s\", t.TableName, idxCol)")
+	g.P("\t\t\temittedIdx[idxName] = true")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"  index %q {\\n\", idxName))")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    columns = [column.%s]\\n\", idxCol))")
+	g.P("\t\t\tb.WriteString(\"    using = \\\"BITMAP\\\"\\n\")")
+	g.P("\t\t\tb.WriteString(\"  }\\n\")")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tfor _, ngCol := range ngramCols {")
+	g.P("\t\tidxName := ", fmtSprintf, "(\"idx_ngram_%s_%s\", t.TableName, ngCol)")
+	g.P("\t\temittedIdx[idxName] = true")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"  index %q {\\n\", idxName))")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    columns = [column.%s]\\n\", ngCol))")
+	g.P("\t\tb.WriteString(\"    using = \\\"NGRAM_BF\\\"\\n\")")
+	g.P("\t\tb.WriteString(\"    properties = {\\n\")")
+	g.P("\t\tb.WriteString(\"      gram_size = \\\"3\\\"\\n\")")
+	g.P("\t\tb.WriteString(\"      bf_size = \\\"1024\\\"\\n\")")
+	g.P("\t\tb.WriteString(\"    }\\n\")")
+	g.P("\t\tb.WriteString(\"  }\\n\")")
+	g.P("\t}")
+	g.P("\tif len(uks) == 0 {")
+	g.P("\t\tif embDim, hasEmb := resolveDorisEmbeddingDimension(t); hasEmb {")
+	g.P("\t\t\tfor _, c := range orderedCols {")
+	g.P("\t\t\t\tif c.ColumnName == \"embedding\" && !c.Nullable && colTypes[c.ColumnName] == \"ARRAY<FLOAT>\" {")
+	g.P("\t\t\t\t\tidxName := ", fmtSprintf, "(\"idx_%s_hnsw\", c.ColumnName)")
+	g.P("\t\t\t\t\temittedIdx[idxName] = true")
+	g.P("\t\t\t\t\tb.WriteString(", fmtSprintf, "(\"  index %q {\\n\", idxName))")
+	g.P("\t\t\t\t\tb.WriteString(", fmtSprintf, "(\"    columns = [column.%s]\\n\", c.ColumnName))")
+	g.P("\t\t\t\t\tb.WriteString(\"    using = \\\"VECTOR\\\"\\n\")")
+	g.P("\t\t\t\t\tb.WriteString(\"    properties = {\\n\")")
+	g.P("\t\t\t\t\tb.WriteString(\"      index_type = \\\"hnsw\\\"\\n\")")
+	g.P("\t\t\t\t\tb.WriteString(\"      metric_type = \\\"l2_distance\\\"\\n\")")
+	g.P("\t\t\t\t\tb.WriteString(", fmtSprintf, "(\"      dim = \\\"%d\\\"\\n\", embDim))")
+	g.P("\t\t\t\t\tb.WriteString(\"    }\\n\")")
+	g.P("\t\t\t\t\tb.WriteString(\"  }\\n\")")
+	g.P("\t\t\t\t}")
+	g.P("\t\t\t}")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tfor _, idx := range t.Indexes {")
+	g.P("\t\tif idx.Name == \"\" || emittedIdx[idx.Name] || len(idx.Columns) == 0 {")
+	g.P("\t\t\tcontinue")
+	g.P("\t\t}")
+	g.P("\t\temittedIdx[idx.Name] = true")
+	g.P("\t\tusing := ", stringsToUpper, "(", stringsTrimSpace, "(idx.Using))")
+	g.P("\t\tswitch using {")
+	g.P("\t\tcase \"\", \"INVERTED\":")
+	g.P("\t\t\tif (len(idx.Columns) == 1 && (colTypes[idx.Columns[0]] == \"TEXT\" || colTypes[idx.Columns[0]] == \"STRING\")) || idx.Properties[\"parser\"] != \"\" {")
+	g.P("\t\t\t\tusing = \"GIN\"")
+	g.P("\t\t\t} else {")
+	g.P("\t\t\t\tusing = \"BITMAP\"")
+	g.P("\t\t\t}")
+	g.P("\t\tcase \"ANN\":")
+	g.P("\t\t\tusing = \"VECTOR\"")
+	g.P("\t\t}")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"  index %q {\\n\", idx.Name))")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    columns = %s\\n\", formatAtlasHCLColRefList(idx.Columns)))")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    using = %q\\n\", using))")
+	g.P("\t\tif using == \"GIN\" {")
+	g.P("\t\t\tparser := idx.Properties[\"parser\"]")
+	g.P("\t\t\tif parser == \"\" {")
+	g.P("\t\t\t\tparser = \"english\"")
+	g.P("\t\t\t}")
+	g.P("\t\t\tb.WriteString(\"    properties = {\\n\")")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"      parser = %q\\n\", parser))")
+	g.P("\t\t\tb.WriteString(\"    }\\n\")")
+	g.P("\t\t} else if using != \"BITMAP\" && len(idx.Properties) > 0 {")
+	g.P("\t\t\tkeys := make([]string, 0, len(idx.Properties))")
+	g.P("\t\t\tfor k := range idx.Properties {")
+	g.P("\t\t\t\tkeys = append(keys, k)")
+	g.P("\t\t\t}")
+	g.P("\t\t\t", sortStrings, "(keys)")
+	g.P("\t\t\tb.WriteString(\"    properties = {\\n\")")
+	g.P("\t\t\tfor _, k := range keys {")
+	g.P("\t\t\t\tb.WriteString(", fmtSprintf, "(\"      %s = %q\\n\", formatAtlasHCLPropKey(k), idx.Properties[k]))")
+	g.P("\t\t\t}")
+	g.P("\t\t\tb.WriteString(\"    }\\n\")")
+	g.P("\t\t}")
+	g.P("\t\tb.WriteString(\"  }\\n\")")
+	g.P("\t}")
+	g.P("\tb.WriteString(\"  properties = {\\n\")")
+	g.P("\tif t.StorageVaultName != \"\" {")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    storage_volume = %q\\n\", t.StorageVaultName))")
+	g.P("\t\tb.WriteString(\"    \\\"datacache.enable\\\" = \\\"true\\\"\\n\")")
+	g.P("\t}")
+	g.P("\tb.WriteString(\"    compression = \\\"zstd\\\"\\n\")")
+	g.P("\tif len(uks) > 0 || t.EnableMoW {")
+	g.P("\t\tb.WriteString(\"    enable_persistent_index = \\\"true\\\"\\n\")")
+	g.P("\t}")
+	g.P("\tif seqCol != \"\" {")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    \\\"function_column.sequence_col\\\" = %q\\n\", seqCol))")
+	g.P("\t}")
+	g.P("\tif t.ColocateGroup != \"\" {")
+	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    colocate_with = %q\\n\", t.ColocateGroup))")
 	g.P("\t}")
 	g.P("\tif len(bloomCols) > 0 {")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    bloom_filter_columns = %q\\n\", ", stringsJoin, "(bloomCols, \", \")))")
@@ -1805,7 +2555,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
-	g.P("func normalizeParsedDorisHCLType(rawType string) string {")
+	g.P("func hclAttrTypeToDorisType(rawType string) string {")
 	g.P("\tt := ", stringsTrimSpace, "(rawType)")
 	g.P("\tif len(t) >= 2 && t[0] == '\"' && t[len(t)-1] == '\"' {")
 	g.P("\t\tt = ", stringsTrimSpace, "(t[1 : len(t)-1])")
@@ -1814,6 +2564,11 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\tupper = ", stringsReplaceAll, "(upper, \", \", \",\")")
 	g.P("\tupper = ", stringsReplaceAll, "(upper, \",\", \", \")")
 	g.P("\treturn upper")
+	g.P("}")
+	g.P()
+
+	g.P("func normalizeParsedDorisHCLType(rawType string) string {")
+	g.P("\treturn hclAttrTypeToDorisType(rawType)")
 	g.P("}")
 	g.P()
 
@@ -2199,50 +2954,94 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t*colOrder = append(*colOrder, colName)")
 	g.P("\t\tcolMap[colName] = colDesc")
 	g.P("\t\treturn nil")
-	g.P("\tcase header == \"unique_key\":")
+	g.P("\tcase header == \"unique_key\" || header == \"primary_key\":")
 	g.P("\t\tkv, err := parseHCLKeyValueAssignments(blockBody)")
 	g.P("\t\tif err != nil {")
-	g.P("\t\t\treturn ", fmtErrorf, "(\"unique_key: %w\", err)")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"%s: %w\", header, err)")
 	g.P("\t\t}")
 	g.P("\t\tcolsRaw, ok := kv[\"columns\"]")
 	g.P("\t\tif !ok {")
-	g.P("\t\t\treturn ", fmtErrorf, "(\"unique_key missing columns attribute\")")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"%s missing columns attribute\", header)")
 	g.P("\t\t}")
 	g.P("\t\tuks, err := parseHCLColumnRefList(colsRaw)")
 	g.P("\t\tif err != nil {")
-	g.P("\t\t\treturn ", fmtErrorf, "(\"unique_key: %w\", err)")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"%s: %w\", header, err)")
 	g.P("\t\t}")
 	g.P("\t\tdesc.UniqueKeyColumns = uks")
+	g.P("\t\tif header == \"primary_key\" {")
+	g.P("\t\t\tdesc.EnableMoW = true")
+	g.P("\t\t}")
 	g.P("\t\tif mowStr, hasMoW := kv[\"merge_on_write\"]; hasMoW {")
 	g.P("\t\t\tmow, bErr := ", strconvParseBool, "(unquoteHCLString(mowStr))")
 	g.P("\t\t\tif bErr != nil {")
-	g.P("\t\t\t\treturn ", fmtErrorf, "(\"unique_key invalid merge_on_write %q\", mowStr)")
+	g.P("\t\t\t\treturn ", fmtErrorf, "(\"%s invalid merge_on_write %q\", header, mowStr)")
 	g.P("\t\t\t}")
 	g.P("\t\t\tdesc.EnableMoW = mow")
 	g.P("\t\t}")
 	g.P("\t\tif seqRaw, hasSeq := kv[\"sequence_col\"]; hasSeq {")
 	g.P("\t\t\tseqCol := ", stringsTrimPrefix, "(unquoteHCLString(seqRaw), \"column.\")")
 	g.P("\t\t\tif !isValidDorisSQLIdentifier(seqCol) {")
-	g.P("\t\t\t\treturn ", fmtErrorf, "(\"unique_key invalid sequence_col %q\", seqRaw)")
+	g.P("\t\t\t\treturn ", fmtErrorf, "(\"%s invalid sequence_col %q\", header, seqRaw)")
 	g.P("\t\t\t}")
 	g.P("\t\t\tdesc.SequenceCol = seqCol")
 	g.P("\t\t\tdesc.SequenceColumn = seqCol")
 	g.P("\t\t}")
 	g.P("\t\treturn nil")
-	g.P("\tcase header == \"duplicate_key\":")
+	g.P("\tcase header == \"duplicate_key\" || header == \"aggregate_key\":")
 	g.P("\t\tkv, err := parseHCLKeyValueAssignments(blockBody)")
 	g.P("\t\tif err != nil {")
-	g.P("\t\t\treturn ", fmtErrorf, "(\"duplicate_key: %w\", err)")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"%s: %w\", header, err)")
 	g.P("\t\t}")
 	g.P("\t\tcolsRaw, ok := kv[\"columns\"]")
 	g.P("\t\tif !ok {")
-	g.P("\t\t\treturn ", fmtErrorf, "(\"duplicate_key missing columns attribute\")")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"%s missing columns attribute\", header)")
 	g.P("\t\t}")
 	g.P("\t\tdks, err := parseHCLColumnRefList(colsRaw)")
 	g.P("\t\tif err != nil {")
-	g.P("\t\t\treturn ", fmtErrorf, "(\"duplicate_key: %w\", err)")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"%s: %w\", header, err)")
 	g.P("\t\t}")
 	g.P("\t\tdesc.DuplicateKeyColumns = dks")
+	g.P("\t\treturn nil")
+	g.P("\tcase ", stringsHasPrefix, "(header, \"key \"):")
+	g.P("\t\tkeyType := ", stringsToUpper, "(unquoteHCLString(", stringsTrimSpace, "(", stringsTrimPrefix, "(header, \"key\"))))")
+	g.P("\t\tkv, err := parseHCLKeyValueAssignments(blockBody)")
+	g.P("\t\tif err != nil {")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"key %q: %w\", keyType, err)")
+	g.P("\t\t}")
+	g.P("\t\tcolsRaw, ok := kv[\"columns\"]")
+	g.P("\t\tif !ok {")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"key %q missing columns attribute\", keyType)")
+	g.P("\t\t}")
+	g.P("\t\tcols, err := parseHCLColumnRefList(colsRaw)")
+	g.P("\t\tif err != nil {")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"key %q: %w\", keyType, err)")
+	g.P("\t\t}")
+	g.P("\t\tswitch keyType {")
+	g.P("\t\tcase \"PRIMARY\":")
+	g.P("\t\t\tdesc.UniqueKeyColumns = cols")
+	g.P("\t\t\tdesc.EnableMoW = true")
+	g.P("\t\tcase \"UNIQUE\":")
+	g.P("\t\t\tdesc.UniqueKeyColumns = cols")
+	g.P("\t\tcase \"DUPLICATE\", \"AGGREGATE\":")
+	g.P("\t\t\tdesc.DuplicateKeyColumns = cols")
+	g.P("\t\tdefault:")
+	g.P("\t\t\treturn ", fmtErrorf, "(\"unsupported key type %q\", keyType)")
+	g.P("\t\t}")
+	g.P("\t\tif mowStr, hasMoW := kv[\"merge_on_write\"]; hasMoW {")
+	g.P("\t\t\tmow, bErr := ", strconvParseBool, "(unquoteHCLString(mowStr))")
+	g.P("\t\t\tif bErr != nil {")
+	g.P("\t\t\t\treturn ", fmtErrorf, "(\"key %q invalid merge_on_write %q\", keyType, mowStr)")
+	g.P("\t\t\t}")
+	g.P("\t\t\tdesc.EnableMoW = mow")
+	g.P("\t\t}")
+	g.P("\t\tif seqRaw, hasSeq := kv[\"sequence_col\"]; hasSeq {")
+	g.P("\t\t\tseqCol := ", stringsTrimPrefix, "(unquoteHCLString(seqRaw), \"column.\")")
+	g.P("\t\t\tif !isValidDorisSQLIdentifier(seqCol) {")
+	g.P("\t\t\t\treturn ", fmtErrorf, "(\"key %q invalid sequence_col %q\", keyType, seqRaw)")
+	g.P("\t\t\t}")
+	g.P("\t\t\tdesc.SequenceCol = seqCol")
+	g.P("\t\t\tdesc.SequenceColumn = seqCol")
+	g.P("\t\t}")
 	g.P("\t\treturn nil")
 	g.P("\tcase header == \"distributed_by_hash\":")
 	g.P("\t\tkv, err := parseHCLKeyValueAssignments(blockBody)")
@@ -2307,11 +3106,11 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t}")
 	g.P("\t\tdesc.Indexes = append(desc.Indexes, idxDesc)")
 	g.P("\t\tswitch ", stringsToUpper, "(idxDesc.Using) {")
-	g.P("\t\tcase \"INVERTED\":")
+	g.P("\t\tcase \"INVERTED\", \"GIN\", \"BITMAP\":")
 	g.P("\t\t\tdesc.InvertedIndexColumns = dedupDorisColumnList(append(desc.InvertedIndexColumns, idxDesc.Columns...))")
 	g.P("\t\tcase \"NGRAM_BF\":")
 	g.P("\t\t\tdesc.NgramBfColumns = dedupDorisColumnList(append(desc.NgramBfColumns, idxDesc.Columns...))")
-	g.P("\t\tcase \"ANN\":")
+	g.P("\t\tcase \"ANN\", \"VECTOR\":")
 	g.P("\t\t\tif dimStr, hasDim := idxDesc.Properties[\"dim\"]; hasDim {")
 	g.P("\t\t\t\tdim64, dErr := ", strconvParseInt, "(dimStr, 10, 32)")
 	g.P("\t\t\t\tif dErr == nil && dim64 > 0 && dim64 <= ", mathMaxInt32, " {")
@@ -2328,11 +3127,11 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tfor k, rawV := range kv {")
 	g.P("\t\t\tv := unquoteHCLString(rawV)")
 	g.P("\t\t\tswitch k {")
-	g.P("\t\t\tcase \"storage_vault_name\":")
+	g.P("\t\t\tcase \"storage_vault_name\", \"storage_volume\":")
 	g.P("\t\t\t\tdesc.StorageVaultName = v")
 	g.P("\t\t\tcase \"colocate_with\":")
 	g.P("\t\t\t\tdesc.ColocateGroup = v")
-	g.P("\t\t\tcase \"enable_unique_key_merge_on_write\":")
+	g.P("\t\t\tcase \"enable_unique_key_merge_on_write\", \"enable_persistent_index\":")
 	g.P("\t\t\t\tif ", stringsEqualFold, "(v, \"true\") {")
 	g.P("\t\t\t\t\tdesc.EnableMoW = true")
 	g.P("\t\t\t\t}")

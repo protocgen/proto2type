@@ -256,9 +256,13 @@ func ValidateDorisEvolution(before, after []DorisTableDescriptor) error {
 }
 
 // IsSafeDorisTypeEvolution reports whether evolving a column from beforeType to
-// afterType is either a no-op or a safe widening type change supported by both
-// Apache Doris 4.x Light Schema Change (LSC) and Apache Iceberg v2:
+// afterType is either a no-op (including Doris <-> StarRocks type aliases such as
+// DATEV2 <-> DATE, DATETIMEV2(p) <-> DATETIME, DECIMALV3(p,s) <-> DECIMAL(p,s),
+// and TEXT <-> STRING) or a safe widening type change supported by
+// Apache Doris 4.x Light Schema Change (LSC), StarRocks 4.x, and Apache Iceberg v2:
 //   - VARCHAR(m) -> VARCHAR(n) where n > m
+//   - DECIMAL(p1, s) / DECIMALV3(p1, s) -> DECIMAL(p2, s) / DECIMALV3(p2, s) where p2 >= p1
+//   - ARRAY<T1> -> ARRAY<T2> where T1 -> T2 is a safe type evolution
 //   - TINYINT -> SMALLINT, INT, or BIGINT
 //   - SMALLINT -> INT or BIGINT
 //   - INT -> BIGINT
@@ -273,25 +277,70 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 		return false
 	}
 
-	if m, okB := parseDorisVarcharLength(bt); okB {
-		if n, okA := parseDorisVarcharLength(at); okA {
+	canonBefore := dorisColumnStarRocksDDLType(bt, "")
+	canonAfter := dorisColumnStarRocksDDLType(at, "")
+	if canonBefore == canonAfter {
+		return true
+	}
+
+	if strings.HasPrefix(canonBefore, "ARRAY<") && strings.HasSuffix(canonBefore, ">") {
+		if strings.HasPrefix(canonAfter, "ARRAY<") && strings.HasSuffix(canonAfter, ">") {
+			innerB := strings.TrimSuffix(strings.TrimPrefix(canonBefore, "ARRAY<"), ">")
+			innerA := strings.TrimSuffix(strings.TrimPrefix(canonAfter, "ARRAY<"), ">")
+			return IsSafeDorisTypeEvolution(innerB, innerA)
+		}
+		return false
+	}
+
+	if m, okB := parseDorisVarcharLength(canonBefore); okB {
+		if n, okA := parseDorisVarcharLength(canonAfter); okA {
 			return n > m
 		}
 		return false
 	}
 
-	switch bt {
+	if p1, s1, okB := parseDorisDecimalParams(canonBefore); okB {
+		if p2, s2, okA := parseDorisDecimalParams(canonAfter); okA {
+			return p2 >= p1 && s1 == s2
+		}
+		return false
+	}
+
+	switch canonBefore {
 	case "TINYINT":
-		return at == "SMALLINT" || at == "INT" || at == "BIGINT"
+		return canonAfter == "SMALLINT" || canonAfter == "INT" || canonAfter == "BIGINT"
 	case "SMALLINT":
-		return at == "INT" || at == "BIGINT"
+		return canonAfter == "INT" || canonAfter == "BIGINT"
 	case "INT":
-		return at == "BIGINT"
+		return canonAfter == "BIGINT"
 	case "FLOAT":
-		return at == "DOUBLE"
+		return canonAfter == "DOUBLE"
 	default:
 		return false
 	}
+}
+
+// parseDorisDecimalParams extracts precision P and scale S from "DECIMAL(P, S)" or "DECIMALV3(P, S)".
+func parseDorisDecimalParams(upperType string) (int, int, bool) {
+	var inner string
+	switch {
+	case strings.HasPrefix(upperType, "DECIMAL(") && strings.HasSuffix(upperType, ")"):
+		inner = strings.TrimSuffix(strings.TrimPrefix(upperType, "DECIMAL("), ")")
+	case strings.HasPrefix(upperType, "DECIMALV3(") && strings.HasSuffix(upperType, ")"):
+		inner = strings.TrimSuffix(strings.TrimPrefix(upperType, "DECIMALV3("), ")")
+	default:
+		return 0, 0, false
+	}
+	parts := strings.Split(inner, ",")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	p, errP := strconv.Atoi(strings.TrimSpace(parts[0]))
+	s, errS := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if errP != nil || errS != nil || p <= 0 || s < 0 || s > p {
+		return 0, 0, false
+	}
+	return p, s, true
 }
 
 // parseDorisVarcharLength extracts the positive integer length N from "VARCHAR(N)".

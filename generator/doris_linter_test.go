@@ -235,8 +235,23 @@ func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 		{"INT", "BIGINT"},
 		{"FLOAT", "DOUBLE"},
 		{"DATEV2", "DATEV2"},
+		{"DATEV2", "DATE"},
+		{"DATE", "DATEV2"},
 		{"DATETIMEV2(6)", "DATETIMEV2(6)"},
+		{"DATETIMEV2(6)", "DATETIME"},
+		{"DATETIME", "DATETIMEV2(6)"},
+		{"DECIMALV3(10, 2)", "DECIMAL(10, 2)"},
+		{"DECIMAL(10, 2)", "DECIMALV3(10, 2)"},
+		{"DECIMAL(10, 2)", "DECIMAL(18, 2)"},
+		{"DECIMALV3(10, 2)", "DECIMAL(18, 2)"},
+		{"DECIMALV3(10, 2)", "DECIMALV3(18, 2)"},
+		{"TEXT", "STRING"},
+		{"STRING", "TEXT"},
 		{"ARRAY<FLOAT>", "ARRAY<FLOAT>"},
+		{"ARRAY<VARCHAR(32)>", "ARRAY<VARCHAR(64)>"},
+		{"ARRAY<TEXT>", "ARRAY<STRING>"},
+		{"ARRAY<STRING>", "ARRAY<TEXT>"},
+		{"ARRAY<DATEV2>", "ARRAY<DATE>"},
 	}
 	for _, tc := range allowedCases {
 		if !IsSafeDorisTypeEvolution(tc.before, tc.after) {
@@ -248,23 +263,28 @@ func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 		before string
 		after  string
 	}{
-		{"VARCHAR(64)", "VARCHAR(32)"}, // Narrowing VARCHAR
-		{"VARCHAR(64)", "TEXT"},        // Incompatible with LSC / key rules
-		{"VARCHAR(64)", "INT"},         // Incompatible type family
-		{"BIGINT", "INT"},              // Narrowing integer
-		{"BIGINT", "SMALLINT"},         // Narrowing integer
-		{"BIGINT", "TINYINT"},          // Narrowing integer
-		{"BIGINT", "LARGEINT"},         // Incompatible in Iceberg v2 (LONG -> DECIMAL(38,0))
-		{"INT", "SMALLINT"},            // Narrowing integer
-		{"INT", "TINYINT"},             // Narrowing integer
-		{"SMALLINT", "TINYINT"},        // Narrowing integer
-		{"DOUBLE", "FLOAT"},            // Narrowing float
-		{"FLOAT", "INT"},               // Float to int
-		{"INT", "DOUBLE"},              // Int to double
-		{"DATEV2", "DATETIMEV2(6)"},    // Date to datetime
-		{"BOOLEAN", "INT"},             // Boolean to int
-		{"", "INT"},                    // Empty before type
-		{"INT", ""},                    // Empty after type
+		{"VARCHAR(64)", "VARCHAR(32)"},               // Narrowing VARCHAR
+		{"VARCHAR(64)", "TEXT"},                      // Incompatible with LSC / key rules
+		{"VARCHAR(64)", "INT"},                       // Incompatible type family
+		{"BIGINT", "INT"},                            // Narrowing integer
+		{"BIGINT", "SMALLINT"},                       // Narrowing integer
+		{"BIGINT", "TINYINT"},                        // Narrowing integer
+		{"BIGINT", "LARGEINT"},                       // Incompatible in Iceberg v2 (LONG -> DECIMAL(38,0))
+		{"INT", "SMALLINT"},                          // Narrowing integer
+		{"INT", "TINYINT"},                           // Narrowing integer
+		{"SMALLINT", "TINYINT"},                      // Narrowing integer
+		{"DOUBLE", "FLOAT"},                          // Narrowing float
+		{"FLOAT", "INT"},                             // Float to int
+		{"INT", "DOUBLE"},                            // Int to double
+		{"DATEV2", "DATETIMEV2(6)"},                  // Date to datetime
+		{"DECIMAL(10, 2)", "DECIMAL(10, 4)"},         // Scale change
+		{"DECIMALV3(10, 2)", "DECIMAL(18, 4)"},       // Scale change
+		{"DECIMAL(10, 2)", "DECIMAL(8, 2)"},          // Precision narrowing
+		{"DECIMALV3(10, 2)", "DECIMAL(8, 2)"},        // Precision narrowing
+		{"ARRAY<VARCHAR(64)>", "ARRAY<VARCHAR(32)>"}, // Array element narrowing
+		{"BOOLEAN", "INT"},                           // Boolean to int
+		{"", "INT"},                                  // Empty before type
+		{"INT", ""},                                  // Empty after type
 	}
 	for _, tc := range rejectedCases {
 		if IsSafeDorisTypeEvolution(tc.before, tc.after) {
