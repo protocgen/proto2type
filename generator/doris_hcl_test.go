@@ -511,3 +511,605 @@ func TestProperty_DorisAtlasHCL_RoundTripAndReflexivity(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildStarRocksCreateTableSQL_And_AtlasHCL(t *testing.T) {
+	pp := DorisTableDescriptor{
+		TableName:            "patient_profiles",
+		MessageName:          "PatientProfile",
+		DatabaseScope:        "TENANT",
+		SyncTier:             "WHOLE_TABLE",
+		UniqueKeyColumns:     []string{"tenant_id", "patient_id"},
+		ColocateGroup:        "patient_group",
+		SequenceCol:          "updated_at",
+		InvertedIndexColumns: []string{"mrn", "allergy_codes", "clinical_note"},
+		NgramBfColumns:       []string{"full_name"},
+		BloomFilterColumns:   []string{"mrn"},
+		StorageVaultName:     "s3_lakehouse_vault",
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "tenant_id", DorisType: "VARCHAR(64)", Nullable: false, IsUniqueKey: true},
+			{ColumnName: "patient_id", DorisType: "VARCHAR(64)", Nullable: false, IsUniqueKey: true},
+			{ColumnName: "mrn", DorisType: "VARCHAR(64)", Nullable: false, InvertedIndex: true},
+			{ColumnName: "full_name", DorisType: "VARCHAR(256)", Nullable: false},
+			{ColumnName: "birth_date", DorisType: "DATEV2", Nullable: true},
+			{ColumnName: "total_charge", DorisType: "DECIMALV3(18, 4)", Nullable: false, DefaultValue: "0.0000"},
+			{ColumnName: "allergy_codes", DorisType: "ARRAY<VARCHAR(64)>", Nullable: false, InvertedIndex: true},
+			{ColumnName: "clinical_note", DorisType: "TEXT", Nullable: false, InvertedIndex: true},
+			{ColumnName: "updated_at", DorisType: "DATETIMEV2(6)", Nullable: false, IsSequenceCol: true},
+		},
+	}
+
+	ppSQL := pp.BuildStarRocksCreateTableSQL("", 0)
+	ppHCL := pp.BuildStarRocksAtlasHCL("", 0)
+
+	for _, wantSQL := range []string{
+		"CREATE TABLE IF NOT EXISTS internal.tenant_${TENANT_SLUG}.patient_profiles (",
+		"birth_date DATE",
+		"total_charge DECIMAL(18, 4) NOT NULL",
+		"clinical_note STRING NOT NULL",
+		"updated_at DATETIME NOT NULL",
+		`INDEX idx_patient_profiles_mrn (mrn) USING BITMAP`,
+		`INDEX idx_patient_profiles_allergy_codes (allergy_codes) USING BITMAP`,
+		`INDEX idx_clinical_note_bm25 (clinical_note) USING GIN("parser" = "english")`,
+		`INDEX idx_ngram_patient_profiles_full_name (full_name) USING NGRAMBF ("gram_num" = "3", "bloom_filter_fpp" = "0.05")`,
+		"PRIMARY KEY(tenant_id, patient_id)",
+		"DISTRIBUTED BY HASH(patient_id) BUCKETS ${TENANT_BUCKETS}",
+		`"storage_volume" = "s3_lakehouse_vault"`,
+		`"datacache.enable" = "true"`,
+		`"compression" = "zstd"`,
+		`"enable_persistent_index" = "true"`,
+		`"function_column.sequence_col" = "updated_at"`,
+		`"colocate_with" = "patient_group"`,
+		`"bloom_filter_columns" = "mrn"`,
+	} {
+		if !strings.Contains(ppSQL, wantSQL) {
+			t.Errorf("patient_profiles StarRocks SQL missing %q in:\n%s", wantSQL, ppSQL)
+		}
+	}
+	for _, forbiddenSQL := range []string{
+		"UNIQUE KEY(",
+		"DATEV2",
+		"DATETIMEV2",
+		"DECIMALV3",
+		"USING INVERTED",
+		"USING NGRAM_BF",
+		"enable_unique_key_merge_on_write",
+		"storage_vault_name",
+	} {
+		if strings.Contains(ppSQL, forbiddenSQL) {
+			t.Errorf("patient_profiles StarRocks SQL must not contain %q in:\n%s", forbiddenSQL, ppSQL)
+		}
+	}
+
+	for _, wantHCL := range []string{
+		`table "patient_profiles" {`,
+		`type = date`,
+		`type = decimal(18, 4)`,
+		`type = string`,
+		`type = datetime`,
+		"  primary_key {\n    columns = [column.tenant_id, column.patient_id]\n    sequence_col = column.updated_at\n  }",
+		"  index \"idx_clinical_note_bm25\" {\n    columns = [column.clinical_note]\n    using = \"GIN\"\n    properties = {\n      parser = \"english\"\n    }\n  }",
+		"  index \"idx_patient_profiles_mrn\" {\n    columns = [column.mrn]\n    using = \"BITMAP\"\n  }",
+		"  index \"idx_ngram_patient_profiles_full_name\" {\n    columns = [column.full_name]\n    using = \"NGRAMBF\"\n    properties = {\n      gram_num = \"3\"\n      bloom_filter_fpp = \"0.05\"\n    }\n  }",
+		`storage_volume = "s3_lakehouse_vault"`,
+		`"datacache.enable" = "true"`,
+		`enable_persistent_index = "true"`,
+		`"function_column.sequence_col" = "updated_at"`,
+		`colocate_with = "patient_group"`,
+		`bloom_filter_columns = "mrn"`,
+	} {
+		if !strings.Contains(ppHCL, wantHCL) {
+			t.Errorf("patient_profiles StarRocks HCL missing %q in:\n%s", wantHCL, ppHCL)
+		}
+	}
+	for _, forbiddenHCL := range []string{
+		"unique_key {",
+		"datev2",
+		"datetimev2",
+		"decimalv3",
+		`using = "INVERTED"`,
+		`using = "NGRAM_BF"`,
+		"enable_unique_key_merge_on_write",
+		"storage_vault_name",
+	} {
+		if strings.Contains(ppHCL, forbiddenHCL) {
+			t.Errorf("patient_profiles StarRocks HCL must not contain %q in:\n%s", forbiddenHCL, ppHCL)
+		}
+	}
+
+	// 2. Verify DUPLICATE KEY + VECTOR index table (clinical_concept_search)
+	ccs := DorisTableDescriptor{
+		TableName:           "clinical_concept_search",
+		DatabaseScope:       "GLOBAL_TERMINOLOGY_RAG",
+		SyncTier:            "WHOLE_TABLE",
+		DuplicateKeyColumns: []string{"concept_id", "release_id"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "concept_id", DorisType: "VARCHAR(64)", Nullable: false},
+			{ColumnName: "release_id", DorisType: "VARCHAR(64)", Nullable: false},
+			{ColumnName: "embedding", DorisType: "ARRAY<FLOAT>", Nullable: false},
+		},
+	}
+	ccsSQL := ccs.BuildStarRocksCreateTableSQL("", 0)
+	ccsHCL := ccs.BuildStarRocksAtlasHCL("", 0)
+
+	wantVecSQL := `INDEX idx_embedding_hnsw (embedding) USING VECTOR ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "768")`
+	if !strings.Contains(ccsSQL, wantVecSQL) {
+		t.Errorf("clinical_concept_search StarRocks SQL missing VECTOR index:\n  want: %s\n  got:\n%s", wantVecSQL, ccsSQL)
+	}
+	if !strings.Contains(ccsSQL, "DUPLICATE KEY(concept_id, release_id)") {
+		t.Errorf("clinical_concept_search StarRocks SQL missing DUPLICATE KEY(concept_id, release_id) in:\n%s", ccsSQL)
+	}
+
+	wantVecHCL := "  index \"idx_embedding_hnsw\" {\n    columns = [column.embedding]\n    using = \"VECTOR\"\n    properties = {\n      index_type = \"hnsw\"\n      metric_type = \"l2_distance\"\n      dim = \"768\"\n    }\n  }"
+	if !strings.Contains(ccsHCL, wantVecHCL) {
+		t.Errorf("clinical_concept_search StarRocks HCL missing VECTOR index:\n  want:\n%s\n  got:\n%s", wantVecHCL, ccsHCL)
+	}
+	if !strings.Contains(ccsHCL, "  duplicate_key {\n    columns = [column.concept_id, column.release_id]\n  }") {
+		t.Errorf("clinical_concept_search StarRocks HCL missing duplicate_key in:\n%s", ccsHCL)
+	}
+
+	// 3. Verify ICEBERG_ONLY table returns empty StarRocks SQL & HCL
+	ar := pp
+	ar.SyncTier = "ICEBERG_ONLY"
+	if got := ar.BuildStarRocksCreateTableSQL("", 0); got != "" {
+		t.Errorf("ICEBERG_ONLY BuildStarRocksCreateTableSQL = %q, want empty", got)
+	}
+	if got := ar.BuildStarRocksAtlasHCL("", 0); got != "" {
+		t.Errorf("ICEBERG_ONLY BuildStarRocksAtlasHCL = %q, want empty", got)
+	}
+}
+
+func TestStarRocksPluginModes_And_RuntimeParity(t *testing.T) {
+	msgOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(msgOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			TableName:        "patients",
+			DatabaseScope:    "TENANT",
+			SyncTier:         "WHOLE_TABLE",
+			UniqueKeyColumns: []string{"patient_id"},
+		},
+	})
+	col1Opts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(col1Opts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		Column: &proto2typepb.ColumnOptions{
+			DorisType:   "VARCHAR(64)",
+			IcebergType: "STRING",
+			IsUniqueKey: true,
+		},
+	})
+	col2Opts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(col2Opts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		Column: &proto2typepb.ColumnOptions{
+			DorisType:     "TEXT",
+			IcebergType:   "STRING",
+			InvertedIndex: true,
+		},
+	})
+
+	fds := &descriptorpb.FileDescriptorSet{
+		File: []*descriptorpb.FileDescriptorProto{
+			{
+				Name:    proto.String("clinical/patient.proto"),
+				Package: proto.String("clinical.v1"),
+				Syntax:  proto.String("proto3"),
+				Options: &descriptorpb.FileOptions{
+					GoPackage: proto.String("example.com/clinical/v1;clinicalv1"),
+				},
+				MessageType: []*descriptorpb.DescriptorProto{
+					{
+						Name:    proto.String("PatientRecord"),
+						Options: msgOpts,
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:    proto.String("patient_id"),
+								Number:  proto.Int32(1),
+								Label:   descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:    descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+								Options: col1Opts,
+							},
+							{
+								Name:    proto.String("clinical_note"),
+								Number:  proto.Int32(2),
+								Label:   descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:    descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+								Options: col2Opts,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	modeTests := []struct {
+		backend   string
+		dorisMode string
+		wantFiles []string
+		noFiles   []string
+	}{
+		{
+			backend:   "doris",
+			dorisMode: "starrocks",
+			wantFiles: []string{"example.com/clinical/v1/patient_starrocks.sql", "example.com/clinical/v1/patient_starrocks.hcl"},
+			noFiles:   []string{"example.com/clinical/v1/patient_doris.type.go", "example.com/clinical/v1/patient_doris.sql", "example.com/clinical/v1/patient_doris.hcl", "example.com/clinical/v1/patient_iceberg.sql", "example.com/clinical/v1/patient_iceberg.hcl"},
+		},
+		{
+			backend:   "doris",
+			dorisMode: "starrocks_both",
+			wantFiles: []string{"example.com/clinical/v1/patient_doris.type.go", "example.com/clinical/v1/patient_starrocks.sql", "example.com/clinical/v1/patient_starrocks.hcl"},
+			noFiles:   []string{"example.com/clinical/v1/patient_doris.sql", "example.com/clinical/v1/patient_doris.hcl", "example.com/clinical/v1/patient_iceberg.sql", "example.com/clinical/v1/patient_iceberg.hcl"},
+		},
+		{
+			backend:   "doris",
+			dorisMode: "starrocks_ddl",
+			wantFiles: []string{"example.com/clinical/v1/patient_starrocks.sql"},
+			noFiles:   []string{"example.com/clinical/v1/patient_doris.type.go", "example.com/clinical/v1/patient_starrocks.hcl", "example.com/clinical/v1/patient_doris.sql"},
+		},
+		{
+			backend:   "doris",
+			dorisMode: "starrocks_hcl",
+			wantFiles: []string{"example.com/clinical/v1/patient_starrocks.hcl"},
+			noFiles:   []string{"example.com/clinical/v1/patient_doris.type.go", "example.com/clinical/v1/patient_starrocks.sql", "example.com/clinical/v1/patient_doris.hcl"},
+		},
+		{
+			backend:   "starrocks",
+			dorisMode: "",
+			wantFiles: []string{"example.com/clinical/v1/patient_doris.type.go", "example.com/clinical/v1/patient_starrocks.sql", "example.com/clinical/v1/patient_starrocks.hcl"},
+			noFiles:   []string{"example.com/clinical/v1/patient_doris.sql", "example.com/clinical/v1/patient_doris.hcl"},
+		},
+		{
+			backend:   "doris",
+			dorisMode: "all",
+			wantFiles: []string{
+				"example.com/clinical/v1/patient_doris.type.go",
+				"example.com/clinical/v1/patient_doris.sql",
+				"example.com/clinical/v1/patient_starrocks.sql",
+				"example.com/clinical/v1/patient_iceberg.sql",
+				"example.com/clinical/v1/patient_doris.hcl",
+				"example.com/clinical/v1/patient_starrocks.hcl",
+				"example.com/clinical/v1/patient_iceberg.hcl",
+			},
+		},
+	}
+
+	for _, tc := range modeTests {
+		gen := newPlugin(t, fds, []string{"clinical/patient.proto"})
+		runner := NewRunner()
+		opts := &Options{
+			Lang:              "go",
+			Backend:           tc.backend,
+			DorisMode:         tc.dorisMode,
+			DorisStorageVault: "s3_vault",
+			IcebergCatalog:    "azra_lake",
+		}
+		for _, f := range gen.Files {
+			if f.Generate {
+				if err := runner.GenerateFile(gen, f, opts); err != nil {
+					t.Fatalf("GenerateFile(backend=%q, doris_mode=%q) failed: %v", tc.backend, tc.dorisMode, err)
+				}
+			}
+		}
+		resp := gen.Response()
+		byName := make(map[string]string)
+		for _, gf := range resp.File {
+			byName[gf.GetName()] = gf.GetContent()
+		}
+		for _, wf := range tc.wantFiles {
+			content, ok := byName[wf]
+			if !ok {
+				t.Errorf("backend=%q doris_mode=%q: missing expected file %q (got %v)", tc.backend, tc.dorisMode, wf, keysOf(byName))
+				continue
+			}
+			if strings.HasSuffix(wf, "_starrocks.sql") && !strings.Contains(content, "-- backend: starrocks (ddl)") {
+				t.Errorf("file %s missing '-- backend: starrocks (ddl)' header", wf)
+			}
+			if strings.HasSuffix(wf, "_starrocks.hcl") && !strings.Contains(content, "# backend: starrocks (hcl)") {
+				t.Errorf("file %s missing '# backend: starrocks (hcl)' header", wf)
+			}
+		}
+		for _, nf := range tc.noFiles {
+			if _, ok := byName[nf]; ok {
+				t.Errorf("backend=%q doris_mode=%q: unexpected file %q emitted", tc.backend, tc.dorisMode, nf)
+			}
+		}
+	}
+}
+
+func TestParseDorisAtlasHCL_StarRocksDialect_And_PropertyRoundTrip(t *testing.T) {
+	srHCL := `
+schema "tenant_acme" {}
+
+table "sr_orders" {
+  schema = schema.tenant_acme
+  column "tenant_id" {
+    type = varchar(64)
+    null = false
+  }
+  column "order_id" {
+    type = bigint
+    null = false
+  }
+  column "order_date" {
+    type = date
+    null = false
+  }
+  column "updated_at" {
+    type = datetime
+    null = false
+  }
+  column "amount" {
+    type = decimal(18, 4)
+    null = false
+  }
+  column "notes" {
+    type = string
+    null = true
+  }
+  column "status_code" {
+    type = varchar(32)
+    null = false
+  }
+  primary_key {
+    columns = [column.tenant_id, column.order_id]
+    sequence_col = column.updated_at
+  }
+  distributed_by_hash {
+    columns = [column.order_id]
+    buckets = 8
+  }
+  index "idx_notes_bm25" {
+    columns = [column.notes]
+    using = "GIN"
+    properties = {
+      parser = "english"
+    }
+  }
+  index "idx_sr_orders_status_code" {
+    columns = [column.status_code]
+    using = "BITMAP"
+  }
+  index "idx_ngram_sr_orders_notes" {
+    columns = [column.notes]
+    using = "NGRAMBF"
+    gram_num = "3"
+    bloom_filter_fpp = "0.05"
+  }
+  properties = {
+    storage_volume = "s3_shared_vol"
+    "datacache.enable" = "true"
+    compression = "zstd"
+    enable_persistent_index = "true"
+    "function_column.sequence_col" = "updated_at"
+  }
+}
+
+table "sr_vectors" {
+  schema = schema.terminology_rag
+  column "doc_id" {
+    type = varchar(64)
+    null = false
+  }
+  column "embedding" {
+    type = array<float>
+    null = false
+  }
+  key "DUPLICATE" {
+    columns = [column.doc_id]
+  }
+  distributed_by_hash {
+    columns = [column.doc_id]
+    buckets = 8
+  }
+  index "idx_embedding_hnsw" {
+    columns = [column.embedding]
+    using = "VECTOR"
+    properties = {
+      index_type = "hnsw"
+      metric_type = "l2_distance"
+      dim = "768"
+    }
+  }
+}
+
+table "sr_key_primary" {
+  schema = schema.tenant_acme
+  column "id" {
+    type = varchar(64)
+    null = false
+  }
+  key "PRIMARY" {
+    columns = [column.id]
+  }
+}
+
+table "sr_agg" {
+  schema = schema.tenant_acme
+  column "metric_id" {
+    type = varchar(64)
+    null = false
+  }
+  aggregate_key {
+    columns = [column.metric_id]
+  }
+}
+`
+	parsed, err := ParseDorisAtlasHCL(srHCL)
+	if err != nil {
+		t.Fatalf("ParseDorisAtlasHCL(srHCL) failed: %v", err)
+	}
+	if len(parsed) != 4 {
+		t.Fatalf("parsed %d tables, want 4", len(parsed))
+	}
+
+	orders := parsed[0]
+	if !reflect.DeepEqual(orders.UniqueKeyColumns, []string{"tenant_id", "order_id"}) {
+		t.Errorf("orders.UniqueKeyColumns = %v, want [tenant_id order_id]", orders.UniqueKeyColumns)
+	}
+	if !orders.EnableMoW {
+		t.Errorf("orders.EnableMoW = false, want true")
+	}
+	if orders.SequenceCol != "updated_at" {
+		t.Errorf("orders.SequenceCol = %q, want updated_at", orders.SequenceCol)
+	}
+	if orders.StorageVaultName != "s3_shared_vol" {
+		t.Errorf("orders.StorageVaultName = %q, want s3_shared_vol", orders.StorageVaultName)
+	}
+	if !reflect.DeepEqual(orders.InvertedIndexColumns, []string{"notes", "status_code"}) {
+		t.Errorf("orders.InvertedIndexColumns = %v, want [notes status_code]", orders.InvertedIndexColumns)
+	}
+	if !reflect.DeepEqual(orders.NgramBfColumns, []string{"notes"}) {
+		t.Errorf("orders.NgramBfColumns = %v, want [notes]", orders.NgramBfColumns)
+	}
+
+	vecs := parsed[1]
+	if !reflect.DeepEqual(vecs.DuplicateKeyColumns, []string{"doc_id"}) {
+		t.Errorf("vecs.DuplicateKeyColumns = %v, want [doc_id]", vecs.DuplicateKeyColumns)
+	}
+	if vecs.EmbeddingDimension != 768 {
+		t.Errorf("vecs.EmbeddingDimension = %d, want 768", vecs.EmbeddingDimension)
+	}
+
+	kp := parsed[2]
+	if !reflect.DeepEqual(kp.UniqueKeyColumns, []string{"id"}) || !kp.EnableMoW {
+		t.Errorf("sr_key_primary UniqueKeyColumns=%v EnableMoW=%v, want [id], true", kp.UniqueKeyColumns, kp.EnableMoW)
+	}
+
+	agg := parsed[3]
+	if !reflect.DeepEqual(agg.DuplicateKeyColumns, []string{"metric_id"}) {
+		t.Errorf("sr_agg DuplicateKeyColumns = %v, want [metric_id]", agg.DuplicateKeyColumns)
+	}
+
+	// Property-based test: DorisTableDescriptor -> BuildStarRocksAtlasHCL -> ParseDorisAtlasHCL -> LintDorisEvolution & idempotency
+	scopes := []string{"TENANT", "GLOBAL_TERMINOLOGY", "GLOBAL_TELEMETRY"}
+	vaults := []string{"", "s3_vault"}
+	colocates := []string{"", "cg_group"}
+	keyTypes := []string{"VARCHAR(64)", "BIGINT", "INT", "DATEV2", "DATETIMEV2(6)", "DECIMALV3(18, 4)"}
+	valTypes := []string{"VARCHAR(256)", "TEXT", "BIGINT", "DOUBLE", "BOOLEAN", "DATEV2", "DATETIMEV2(6)", "DECIMALV3(18, 4)", "ARRAY<VARCHAR(64)>", "ARRAY<TEXT>"}
+
+	hegel.Test(t, func(ht *hegel.T) {
+		scopeIdx := hegel.Draw(ht, hegel.Integers(0, len(scopes)-1))
+		vaultIdx := hegel.Draw(ht, hegel.Integers(0, len(vaults)-1))
+		cgIdx := hegel.Draw(ht, hegel.Integers(0, len(colocates)-1))
+		kIdx := hegel.Draw(ht, hegel.Integers(0, len(keyTypes)-1))
+		v1Idx := hegel.Draw(ht, hegel.Integers(0, len(valTypes)-1))
+		v2Idx := hegel.Draw(ht, hegel.Integers(0, len(valTypes)-1))
+		usePK := hegel.Draw(ht, hegel.Integers(0, 1)) == 1
+
+		dt0 := keyTypes[kIdx]
+		dt1 := valTypes[v1Idx]
+		dt2 := valTypes[v2Idx]
+
+		cols := []DorisColumnDescriptor{
+			{
+				ColumnName:     "col_0",
+				ProtoFieldName: "col_0",
+				DorisType:      dt0,
+				Nullable:       false,
+				IsUniqueKey:    usePK,
+			},
+			{
+				ColumnName:     "col_1",
+				ProtoFieldName: "col_1",
+				DorisType:      dt1,
+				Nullable:       !strings.HasPrefix(dt1, "ARRAY<"),
+				InvertedIndex:  dt1 == "TEXT" || dt1 == "VARCHAR(256)",
+			},
+			{
+				ColumnName:     "col_2",
+				ProtoFieldName: "col_2",
+				DorisType:      dt2,
+				Nullable:       !strings.HasPrefix(dt2, "ARRAY<"),
+			},
+		}
+		for i := range cols {
+			cols[i].IcebergType = cols[i].CanonicalIcebergSpecType()
+		}
+
+		desc := DorisTableDescriptor{
+			TableName:        "prop_sr_tbl",
+			DatabaseScope:    scopes[scopeIdx],
+			SyncTier:         "WHOLE_TABLE",
+			StorageVaultName: vaults[vaultIdx],
+			ColocateGroup:    colocates[cgIdx],
+			Columns:          cols,
+		}
+		if usePK {
+			desc.UniqueKeyColumns = []string{"col_0"}
+			desc.EnableMoW = true
+		} else {
+			desc.DuplicateKeyColumns = []string{"col_0"}
+		}
+
+		srSQL := desc.BuildStarRocksCreateTableSQL("acme", 8)
+		if srSQL == "" {
+			ht.Fatalf("BuildStarRocksCreateTableSQL returned empty for valid descriptor: %+v", desc)
+		}
+		if usePK && !strings.Contains(srSQL, "PRIMARY KEY(col_0)") {
+			ht.Fatalf("expected PRIMARY KEY(col_0) in StarRocks SQL:\n%s", srSQL)
+		}
+		if !usePK && !strings.Contains(srSQL, "DUPLICATE KEY(col_0)") {
+			ht.Fatalf("expected DUPLICATE KEY(col_0) in StarRocks SQL:\n%s", srSQL)
+		}
+
+		srHCLOut := desc.BuildStarRocksAtlasHCL("acme", 8)
+		if srHCLOut == "" {
+			ht.Fatalf("BuildStarRocksAtlasHCL returned empty for valid descriptor: %+v", desc)
+		}
+		roundTripDescs, pErr := ParseDorisAtlasHCL(srHCLOut)
+		if pErr != nil || len(roundTripDescs) != 1 {
+			ht.Fatalf("ParseDorisAtlasHCL failed: err=%v, len=%d", pErr, len(roundTripDescs))
+		}
+		if violations := LintDorisEvolution(roundTripDescs, []DorisTableDescriptor{desc}); len(violations) > 0 {
+			ht.Fatalf("unexpected evolution violations between parsed StarRocks HCL and Doris descriptor: %+v\nHCL:\n%s", violations, srHCLOut)
+		}
+		reRendered := roundTripDescs[0].BuildStarRocksAtlasHCL("acme", 8)
+		if reRendered != srHCLOut {
+			ht.Fatalf("BuildStarRocksAtlasHCL not idempotent after ParseDorisAtlasHCL:\nfirst:\n%s\nsecond:\n%s", srHCLOut, reRendered)
+		}
+	})
+}
+
+func TestDorisVsStarRocks_StringAndTextInvertedIndexNaming(t *testing.T) {
+	tbl := DorisTableDescriptor{
+		TableName:        "search_docs",
+		DatabaseScope:    "TENANT",
+		SyncTier:         "WHOLE_TABLE",
+		UniqueKeyColumns: []string{"doc_id"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "doc_id", DorisType: "VARCHAR(64)", Nullable: false, IsUniqueKey: true},
+			{ColumnName: "str_col", DorisType: "STRING", Nullable: false, InvertedIndex: true},
+			{ColumnName: "txt_col", DorisType: "TEXT", Nullable: false, InvertedIndex: true},
+		},
+	}
+
+	dorisSQL := tbl.BuildDorisCreateTableSQL("acme", 4)
+	if !strings.Contains(dorisSQL, "INDEX idx_search_docs_str_col (str_col) USING INVERTED") {
+		t.Errorf("Doris SQL for STRING column should use non-BM25 inverted index name idx_search_docs_str_col:\n%s", dorisSQL)
+	}
+	if !strings.Contains(dorisSQL, `INDEX idx_txt_col_bm25 (txt_col) USING INVERTED PROPERTIES ("parser" = "english", "support_phrase" = "true", "lower_case" = "true")`) {
+		t.Errorf("Doris SQL for TEXT column should use BM25 inverted index:\n%s", dorisSQL)
+	}
+
+	dorisHCL := tbl.BuildDorisAtlasHCL("acme", 4)
+	if !strings.Contains(dorisHCL, "  index \"idx_search_docs_str_col\" {\n    columns = [column.str_col]\n    using = \"INVERTED\"\n  }") {
+		t.Errorf("Doris HCL for STRING column should use non-BM25 inverted index name idx_search_docs_str_col:\n%s", dorisHCL)
+	}
+	if !strings.Contains(dorisHCL, "  index \"idx_txt_col_bm25\" {\n    columns = [column.txt_col]\n    using = \"INVERTED\"\n    properties = {\n      parser = \"english\"") {
+		t.Errorf("Doris HCL for TEXT column should use BM25 inverted index:\n%s", dorisHCL)
+	}
+
+	srSQL := tbl.BuildStarRocksCreateTableSQL("acme", 4)
+	if !strings.Contains(srSQL, `INDEX idx_str_col_bm25 (str_col) USING GIN("parser" = "english")`) {
+		t.Errorf("StarRocks SQL for STRING column should use GIN BM25 index:\n%s", srSQL)
+	}
+	if !strings.Contains(srSQL, `INDEX idx_txt_col_bm25 (txt_col) USING GIN("parser" = "english")`) {
+		t.Errorf("StarRocks SQL for TEXT column should use GIN BM25 index:\n%s", srSQL)
+	}
+
+	srHCL := tbl.BuildStarRocksAtlasHCL("acme", 4)
+	if !strings.Contains(srHCL, "  index \"idx_str_col_bm25\" {\n    columns = [column.str_col]\n    using = \"GIN\"") {
+		t.Errorf("StarRocks HCL for STRING column should use GIN BM25 index:\n%s", srHCL)
+	}
+	if !strings.Contains(srHCL, "  index \"idx_txt_col_bm25\" {\n    columns = [column.txt_col]\n    using = \"GIN\"") {
+		t.Errorf("StarRocks HCL for TEXT column should use GIN BM25 index:\n%s", srHCL)
+	}
+}

@@ -327,17 +327,41 @@ func TestProperty_DorisAndIcebergDDL_DeterminismImmutabilityAndSafety(t *testing
 			ht.Fatalf("BuildDorisCreateTableSQL non-deterministic")
 		}
 
+		sr1 := desc.BuildStarRocksCreateTableSQL(slug, buckets)
+		sr2 := desc.BuildStarRocksCreateTableSQL(slug, buckets)
+		if sr1 != sr2 {
+			ht.Fatalf("BuildStarRocksCreateTableSQL non-deterministic")
+		}
+
 		ice1 := desc.BuildIcebergCreateTableSQL(slug)
 		ice2 := desc.BuildIcebergCreateTableSQL(slug)
 		if ice1 != ice2 {
 			ht.Fatalf("BuildIcebergCreateTableSQL non-deterministic")
 		}
 
-		if !reflect.DeepEqual(desc.Columns, origCols) {
-			ht.Fatalf("DDL generation mutated receiver Columns in-place:\norig: %+v\ngot:  %+v", origCols, desc.Columns)
+		dorisHCL1 := desc.BuildDorisAtlasHCL(slug, buckets)
+		dorisHCL2 := desc.BuildDorisAtlasHCL(slug, buckets)
+		if dorisHCL1 != dorisHCL2 {
+			ht.Fatalf("BuildDorisAtlasHCL non-deterministic")
 		}
 
-		for _, sqlStr := range []string{doris1, ice1} {
+		srHCL1 := desc.BuildStarRocksAtlasHCL(slug, buckets)
+		srHCL2 := desc.BuildStarRocksAtlasHCL(slug, buckets)
+		if srHCL1 != srHCL2 {
+			ht.Fatalf("BuildStarRocksAtlasHCL non-deterministic")
+		}
+
+		iceHCL1 := desc.BuildIcebergAtlasHCL(slug)
+		iceHCL2 := desc.BuildIcebergAtlasHCL(slug)
+		if iceHCL1 != iceHCL2 {
+			ht.Fatalf("BuildIcebergAtlasHCL non-deterministic")
+		}
+
+		if !reflect.DeepEqual(desc.Columns, origCols) {
+			ht.Fatalf("DDL/HCL generation mutated receiver Columns in-place:\norig: %+v\ngot:  %+v", origCols, desc.Columns)
+		}
+
+		for _, sqlStr := range []string{doris1, sr1, ice1} {
 			if sqlStr == "" {
 				continue
 			}
@@ -348,12 +372,35 @@ func TestProperty_DorisAndIcebergDDL_DeterminismImmutabilityAndSafety(t *testing
 			if strings.Contains(withoutFinalSemi, ";") {
 				ht.Fatalf("unexpected semicolon inside DDL:\n%s", sqlStr)
 			}
+			if strings.Count(sqlStr, "(") != strings.Count(sqlStr, ")") {
+				ht.Fatalf("unbalanced parentheses in DDL:\n%s", sqlStr)
+			}
+		}
+
+		for _, hclStr := range []string{dorisHCL1, srHCL1, iceHCL1} {
+			if hclStr == "" {
+				continue
+			}
+			if !strings.HasPrefix(hclStr, "table \"") || !strings.HasSuffix(hclStr, "}") {
+				ht.Fatalf("malformed HCL envelope:\n%s", hclStr)
+			}
+			if strings.Count(hclStr, "{") != strings.Count(hclStr, "}") {
+				ht.Fatalf("unbalanced braces in HCL:\n%s", hclStr)
+			}
+			parsed, err := ParseDorisAtlasHCL(hclStr)
+			if err != nil {
+				ht.Fatalf("ParseDorisAtlasHCL failed on generated HCL:\n%s\nerr: %v", hclStr, err)
+			}
+			if len(parsed) != 1 || parsed[0].TableName != desc.TableName {
+				ht.Fatalf("ParseDorisAtlasHCL returned unexpected table descriptors: %+v", parsed)
+			}
 		}
 	})
 }
 
-// Property: CanonicalIcebergSpecType and dorisColumnIcebergDDLType never panic on arbitrary
-// or nested ARRAY<...> types and map LARGEINT / DATEV2 / DECIMALV3 consistently at any depth.
+// Property: CanonicalIcebergSpecType, dorisColumnIcebergDDLType, dorisColumnStarRocksDDLType,
+// and dorisColumnStarRocksHCLType never panic on arbitrary or nested ARRAY<...> types and map
+// LARGEINT / DATEV2 / DATETIMEV2 / DECIMALV3 / TEXT consistently at any depth.
 func TestProperty_CanonicalIcebergAndDDLTypeMapping_Totality(t *testing.T) {
 	leafTypes := []string{"DATEV2", "DATETIMEV2(6)", "LARGEINT", "BIGINT", "SMALLINT", "TINYINT", "INT", "BOOLEAN", "FLOAT", "DOUBLE", "VARCHAR(64)", "TEXT", "DECIMALV3(12,4)"}
 
@@ -362,6 +409,8 @@ func TestProperty_CanonicalIcebergAndDDLTypeMapping_Totality(t *testing.T) {
 		arbIce := hegel.Draw(ht, hegel.Text().MaxSize(40))
 		_ = (DorisColumnDescriptor{DorisType: arbDoris, IcebergType: arbIce}).CanonicalIcebergSpecType()
 		_ = dorisColumnIcebergDDLType(arbDoris, arbIce)
+		_ = dorisColumnStarRocksDDLType(arbDoris, arbIce)
+		_ = dorisColumnStarRocksHCLType(arbDoris, arbIce)
 
 		depth := hegel.Draw(ht, hegel.Integers(0, 3))
 		dt := leafTypes[hegel.Draw(ht, hegel.Integers(0, len(leafTypes)-1))]
@@ -370,14 +419,22 @@ func TestProperty_CanonicalIcebergAndDDLTypeMapping_Totality(t *testing.T) {
 		}
 		spec := (DorisColumnDescriptor{DorisType: dt}).CanonicalIcebergSpecType()
 		ddl := dorisColumnIcebergDDLType(dt, "")
-		if spec == "" || ddl == "" {
-			ht.Fatalf("empty type mapping for %q: spec=%q ddl=%q", dt, spec, ddl)
+		srDDL := dorisColumnStarRocksDDLType(dt, "")
+		srHCL := dorisColumnStarRocksHCLType(dt, "")
+		if spec == "" || ddl == "" || srDDL == "" || srHCL == "" {
+			ht.Fatalf("empty type mapping for %q: spec=%q ddl=%q srDDL=%q srHCL=%q", dt, spec, ddl, srDDL, srHCL)
 		}
 		if strings.Contains(spec, "DATEV2") || strings.Contains(spec, "LARGEINT") || strings.Contains(spec, "DECIMALV3") {
 			ht.Fatalf("CanonicalIcebergSpecType(%q) leaked Doris token in %q", dt, spec)
 		}
 		if strings.Contains(ddl, "DATEV2") || strings.Contains(ddl, "LARGEINT") || strings.Contains(ddl, "DECIMALV3") {
 			ht.Fatalf("dorisColumnIcebergDDLType(%q) leaked Doris-only token in %q", dt, ddl)
+		}
+		if strings.Contains(srDDL, "DATEV2") || strings.Contains(srDDL, "DATETIMEV2") || strings.Contains(srDDL, "DECIMALV3") || strings.Contains(srDDL, "TEXT") {
+			ht.Fatalf("dorisColumnStarRocksDDLType(%q) leaked Doris-only token in %q", dt, srDDL)
+		}
+		if strings.Contains(srHCL, "datev2") || strings.Contains(srHCL, "datetimev2") || strings.Contains(srHCL, "decimalv3") || strings.Contains(srHCL, "text") {
+			ht.Fatalf("dorisColumnStarRocksHCLType(%q) leaked Doris-only token in %q", dt, srHCL)
 		}
 	})
 }

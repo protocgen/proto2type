@@ -21,3 +21,4 @@ generator/.gocache/
 .go_cache/
 .modcache/
 .cache/
+graphify-out/

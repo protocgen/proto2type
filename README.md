@@ -24,7 +24,7 @@ You define your data once in `.proto` files, then maintain **parallel structs by
 - 🔥 **Firestore backend** — `firestore:""` tags, `serverTimestamp` sentinel, document ID exclusion
 - 🍃 **MongoDB backend** — `bson:""` tags, `_id` handling, `,inline` support
 - 🐘 **PostgreSQL backend** — `db:""` tags and HAPI-style FHIR search index extraction (`postgres_mode=search_index`)
-- 🏔️ **Apache Doris 4.x & Iceberg backend** — Go storage structs (`db:""`, `doris:""`), SQL scanners (`Columns()`, `Values()`, `ScanRow()`), `ToProto()`/`FromProto()` converters, Doris 4.x / Iceberg DDL generation (`BuildDorisCreateTableSQL`, `BuildIcebergCreateTableSQL`, `doris_mode=go|ddl|both`), and schema evolution linting (`LintEvolution`, `LintDorisTableEvolution`)
+- 🏔️ **Apache Doris 4.x, StarRocks 4.x & Iceberg backend** — Go storage structs (`db:""`, `doris:""`), SQL scanners (`Columns()`, `Values()`, `ScanRow()`), `ToProto()`/`FromProto()` converters, Doris 4.x / StarRocks 4.x / Iceberg SQL DDL and Atlas HCL generation (`BuildDorisCreateTableSQL`, `BuildStarRocksCreateTableSQL`, `BuildIcebergCreateTableSQL`, `BuildDorisAtlasHCL`, `BuildStarRocksAtlasHCL`, `BuildIcebergAtlasHCL`, `doris_mode=go|ddl|hcl|both|all|starrocks|starrocks_both|starrocks_ddl|starrocks_hcl`), and schema evolution linting (`LintEvolution`, `LintDorisTableEvolution`)
 - 🔄 **Bidirectional converters** — `ToProto()` / `FromProto()`, `ToDomain()` / `FromDomain()` on every struct
 - 🎯 **Field mask helpers** — `ApplyFieldMask()` for partial updates
 - 📋 **Custom proto options** — `document_id`, `server_timestamp`, `skip`, `omitempty`, `inline`, `name`, `table`, `column`
@@ -365,8 +365,8 @@ See [CONFIG.md](CONFIG.md) for the full reference, including proto-level annotat
 | Option | Default | Description |
 |---|---|---|
 | `lang` | `go` | Target language (`go`, `rust`, `python`, `kotlin`, `typescript`) |
-| `backend` | _(none)_ | Storage backend (`firestore`, `mongo`, `postgres`, `doris`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc`) |
-| `doris_mode` | `""` (`go`) | Doris/Iceberg backend mode: `""`/`go` (Go storage structs + SQL scanners), `ddl` (Doris & Iceberg SQL DDL), `both` |
+| `backend` | _(none)_ | Storage backend (`firestore`, `mongo`, `postgres`, `doris`, `starrocks`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc`) |
+| `doris_mode` | `""` (`go`) | Doris/StarRocks/Iceberg backend mode: `""`/`go` (Go storage structs + SQL scanners), `ddl` (Doris, StarRocks & Iceberg SQL DDL), `hcl` (Doris, StarRocks & Iceberg Atlas HCL), `both` (`go` + `ddl`), `all` (`go` + `ddl` + `hcl`), `starrocks` (`*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_both` (`go` + `*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_ddl`, `starrocks_hcl` |
 | `doris_storage_vault` | `""` | Default Apache Doris storage vault name for DDL properties (omitted when empty) |
 | `iceberg_catalog` | `""` (`iceberg`) | Default Apache Iceberg catalog prefix for DDL (renders `iceberg` when empty) |
 | `postgres_mode` | `""` | Postgres backend mode: `""` (struct), `search_index` (FHIR search index extraction) |

@@ -31,6 +31,7 @@
           ];
 
           shellHook = ''
+            export GOWORK=off
             echo "proto2type dev shell"
             echo "  go:       $(go version)"
             echo "  buf:      $(buf --version)"

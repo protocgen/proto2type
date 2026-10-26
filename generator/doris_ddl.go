@@ -59,7 +59,7 @@ func (c DorisColumnDescriptor) CanonicalIcebergSpecType() string {
 	case "DOUBLE":
 		return "DOUBLE"
 	}
-	if strings.HasPrefix(dt, "DATETIMEV2(") && strings.HasSuffix(dt, ")") {
+	if (strings.HasPrefix(dt, "DATETIMEV2(") || strings.HasPrefix(dt, "DATETIME(")) && strings.HasSuffix(dt, ")") {
 		return "TIMESTAMPTZ"
 	}
 	if strings.HasPrefix(dt, "VARCHAR") || dt == "TEXT" || dt == "STRING" || dt == "JSON" || dt == "JSONB" || dt == "VARIANT" {
@@ -103,6 +103,66 @@ type DorisTableDescriptor struct {
 	EnableMoW            bool
 	Indexes              []DorisIndexDescriptor
 	Columns              []DorisColumnDescriptor
+}
+
+// dorisColumnStarRocksDDLType maps a column's Doris/Iceberg type metadata to the
+// SQL column type used in StarRocks 4.x CREATE TABLE DDL:
+//   - DATEV2 -> DATE
+//   - DATETIMEV2 / DATETIMEV2(p) -> DATETIME
+//   - DECIMALV3(p, s) -> DECIMAL(p, s)
+//   - TEXT -> STRING (and recursively inside ARRAY<T>)
+func dorisColumnStarRocksDDLType(dorisType, icebergType string) string {
+	dt := strings.ToUpper(strings.TrimSpace(dorisType))
+	switch dt {
+	case "DATEV2", "DATE":
+		return "DATE"
+	case "DATETIMEV2", "DATETIME":
+		return "DATETIME"
+	case "TEXT", "STRING":
+		return "STRING"
+	}
+	if (strings.HasPrefix(dt, "DATETIMEV2(") || strings.HasPrefix(dt, "DATETIME(")) && strings.HasSuffix(dt, ")") {
+		return "DATETIME"
+	}
+	if strings.HasPrefix(dt, "DECIMALV3(") && strings.HasSuffix(dt, ")") {
+		rest := strings.TrimPrefix(dt, "DECIMALV3(")
+		rest = strings.ReplaceAll(rest, ", ", ",")
+		rest = strings.ReplaceAll(rest, ",", ", ")
+		return "DECIMAL(" + rest
+	}
+	if strings.HasPrefix(dt, "DECIMAL(") && strings.HasSuffix(dt, ")") {
+		rest := strings.TrimPrefix(dt, "DECIMAL(")
+		rest = strings.ReplaceAll(rest, ", ", ",")
+		rest = strings.ReplaceAll(rest, ",", ", ")
+		return "DECIMAL(" + rest
+	}
+	if strings.HasPrefix(dt, "ARRAY<") && strings.HasSuffix(dt, ">") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(dt, "ARRAY<"), ">")
+		return "ARRAY<" + dorisColumnStarRocksDDLType(inner, "") + ">"
+	}
+	if dt != "" {
+		return dt
+	}
+	it := strings.TrimSpace(icebergType)
+	switch strings.ToUpper(it) {
+	case "STRING":
+		return "VARCHAR(256)"
+	case "LONG":
+		return "BIGINT"
+	case "TIMESTAMPTZ", "TIMESTAMP":
+		return "DATETIME"
+	case "LIST<STRING>":
+		return "ARRAY<VARCHAR(64)>"
+	case "LIST<FLOAT>":
+		return "ARRAY<FLOAT>"
+	case "LIST<DOUBLE>":
+		return "ARRAY<DOUBLE>"
+	case "LIST<INT>":
+		return "ARRAY<INT>"
+	case "LIST<LONG>":
+		return "ARRAY<BIGINT>"
+	}
+	return strings.ToUpper(it)
 }
 
 // dorisColumnIcebergDDLType maps a column's Doris/Iceberg type metadata to the
@@ -606,6 +666,265 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	return b.String()
 }
 
+// BuildStarRocksCreateTableSQL renders a deterministic StarRocks 4.x
+// CREATE TABLE IF NOT EXISTS statement for this table descriptor.
+// Returns an empty string if the table is Iceberg-only or fails identifier validation.
+func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, buckets int) string {
+	if !validateDescriptorIdentifiers(t) {
+		return ""
+	}
+	if t.SyncTier == "ICEBERG_ONLY" {
+		return ""
+	}
+
+	var uks []string
+	if len(t.UniqueKeyColumns) > 0 {
+		uks = dedupDorisColumnList(t.UniqueKeyColumns)
+	} else {
+		for _, c := range t.Columns {
+			if c.IsUniqueKey {
+				uks = append(uks, c.ColumnName)
+			}
+		}
+		uks = dedupDorisColumnList(uks)
+	}
+	dupKeys := dedupDorisColumnList(t.DuplicateKeyColumns)
+	ngramCols := dedupDorisColumnList(t.NgramBfColumns)
+	bloomCols := dedupDorisColumnList(t.BloomFilterColumns)
+
+	if t.DatabaseScope == "GLOBAL_TERMINOLOGY" && t.SyncTier == "RELEASE_PARTITIONED" &&
+		len(uks) == 0 && len(dupKeys) == 0 {
+		return ""
+	}
+
+	orderedCols := reorderDorisDescriptorColumns(t.Columns, uks, dupKeys, true)
+	if len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {
+		cp := make([]DorisColumnDescriptor, len(orderedCols))
+		copy(cp, orderedCols)
+		cp[0].Nullable = false
+		orderedCols = cp
+	}
+
+	colTypes := make(map[string]string, len(orderedCols))
+	for _, c := range orderedCols {
+		colTypes[c.ColumnName] = dorisColumnStarRocksDDLType(c.DorisType, c.IcebergType)
+	}
+	for _, uk := range uks {
+		if !isDorisKeyEligibleType(colTypes[uk]) {
+			return ""
+		}
+	}
+	for _, dk := range dupKeys {
+		if !isDorisKeyEligibleType(colTypes[dk]) {
+			return ""
+		}
+	}
+	if len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {
+		if !isDorisKeyEligibleType(colTypes[orderedCols[0].ColumnName]) {
+			return ""
+		}
+	}
+	if t.DistributedByColumn != "" && !isDorisKeyEligibleType(colTypes[t.DistributedByColumn]) {
+		return ""
+	}
+	for _, dc := range dedupDorisColumnList(t.DistributionColumns) {
+		if !isDorisKeyEligibleType(colTypes[dc]) {
+			return ""
+		}
+	}
+
+	slug, ok := sanitizeDorisTenantSlug(tenantSlug)
+	if !ok {
+		return ""
+	}
+	bucketStr := "${TENANT_BUCKETS}"
+	if buckets > 0 {
+		bucketStr = strconv.Itoa(buckets)
+	}
+
+	var fullTableName string
+	switch t.DatabaseScope {
+	case "GLOBAL_TERMINOLOGY":
+		fullTableName = "internal.terminology." + t.TableName
+		if buckets <= 0 {
+			bucketStr = "1"
+		}
+	case "GLOBAL_TERMINOLOGY_RAG":
+		fullTableName = "internal.terminology_rag." + t.TableName
+		if buckets <= 0 {
+			bucketStr = "8"
+		}
+	case "GLOBAL_TELEMETRY":
+		fullTableName = "internal.telemetry." + t.TableName
+		if buckets <= 0 {
+			bucketStr = "8"
+		}
+	default:
+		fullTableName = "internal.tenant_" + slug + "." + t.TableName
+	}
+
+	var bodyLines []string
+	for _, c := range orderedCols {
+		colIdent := formatDorisDDLColumnIdent(c.ColumnName)
+		srType := colTypes[c.ColumnName]
+		line := fmt.Sprintf("    %s %s", colIdent, srType)
+		if !c.Nullable {
+			line += " NOT NULL"
+			if c.DefaultValue != "" {
+				line += fmt.Sprintf(" DEFAULT %q", c.DefaultValue)
+			} else if strings.HasPrefix(srType, "ARRAY<") && c.ColumnName != "embedding" {
+				line += ` DEFAULT "[]"`
+			} else if c.ColumnName == "record_status" {
+				line += ` DEFAULT "ACTIVE"`
+			} else if c.IsSequenceCol {
+				line += ` DEFAULT "0"`
+			} else if srType == "BOOLEAN" && !c.IsUniqueKey {
+				line += ` DEFAULT "false"`
+			} else if (srType == "SMALLINT" || srType == "INT") && !c.IsUniqueKey &&
+				(strings.HasSuffix(c.ColumnName, "_count") || c.ColumnName == "display_order") {
+				line += ` DEFAULT "0"`
+			} else if srType == "DOUBLE" && !c.IsUniqueKey && c.ColumnName == "additive_offset" {
+				line += ` DEFAULT "0.0"`
+			}
+		} else if c.DefaultValue != "" {
+			line += fmt.Sprintf(" DEFAULT %q", c.DefaultValue)
+		}
+		bodyLines = append(bodyLines, line)
+	}
+
+	seenInv := make(map[string]bool)
+	var invCols []string
+	for _, c := range orderedCols {
+		if c.InvertedIndex && !seenInv[c.ColumnName] {
+			seenInv[c.ColumnName] = true
+			invCols = append(invCols, c.ColumnName)
+		}
+	}
+	for _, colName := range t.InvertedIndexColumns {
+		if colName != "" && !seenInv[colName] {
+			seenInv[colName] = true
+			invCols = append(invCols, colName)
+		}
+	}
+	for _, idxCol := range invCols {
+		if colTypes[idxCol] == "STRING" || colTypes[idxCol] == "TEXT" {
+			bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_bm25 (%s) USING GIN("parser" = "english")`, idxCol, formatDorisDDLColumnIdent(idxCol)))
+		} else {
+			bodyLines = append(bodyLines, fmt.Sprintf("    INDEX idx_%s_%s (%s) USING BITMAP", t.TableName, idxCol, formatDorisDDLColumnIdent(idxCol)))
+		}
+	}
+	for _, ngCol := range ngramCols {
+		bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_ngram_%s_%s (%s) USING NGRAMBF ("gram_num" = "3", "bloom_filter_fpp" = "0.05")`, t.TableName, ngCol, formatDorisDDLColumnIdent(ngCol)))
+	}
+	if len(uks) == 0 {
+		if embDim, ok := resolveDorisEmbeddingDimension(t); ok {
+			for _, c := range orderedCols {
+				if c.ColumnName == "embedding" && !c.Nullable && colTypes[c.ColumnName] == "ARRAY<FLOAT>" {
+					bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_hnsw (%s) USING VECTOR ("index_type" = "hnsw", "metric_type" = "l2_distance", "dim" = "%d")`, c.ColumnName, formatDorisDDLColumnIdent(c.ColumnName), embDim))
+				}
+			}
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("CREATE TABLE IF NOT EXISTS ")
+	b.WriteString(fullTableName)
+	b.WriteString(" (\n")
+	b.WriteString(strings.Join(bodyLines, ",\n"))
+	b.WriteString("\n)\n")
+
+	if len(uks) > 0 {
+		b.WriteString("PRIMARY KEY(")
+		b.WriteString(formatDorisDDLColumnIdentList(uks))
+		b.WriteString(")\n")
+		distCol := t.DistributedByColumn
+		if distCol == "" && len(t.DistributionColumns) > 0 {
+			distCol = t.DistributionColumns[0]
+		}
+		if distCol == "" {
+			if len(uks) > 1 && uks[0] == "tenant_id" {
+				distCol = uks[1]
+			} else {
+				distCol = uks[0]
+			}
+		}
+		b.WriteString("DISTRIBUTED BY HASH(")
+		b.WriteString(formatDorisDDLColumnIdent(distCol))
+		b.WriteString(") BUCKETS ")
+		b.WriteString(bucketStr)
+		b.WriteString("\n")
+	} else if len(dupKeys) > 0 {
+		b.WriteString("DUPLICATE KEY(")
+		b.WriteString(formatDorisDDLColumnIdentList(dupKeys))
+		b.WriteString(")\n")
+		distCol := t.DistributedByColumn
+		if distCol == "" && len(t.DistributionColumns) > 0 {
+			distCol = t.DistributionColumns[0]
+		}
+		if distCol == "" {
+			distCol = dupKeys[0]
+		}
+		b.WriteString("DISTRIBUTED BY HASH(")
+		b.WriteString(formatDorisDDLColumnIdent(distCol))
+		b.WriteString(") BUCKETS ")
+		b.WriteString(bucketStr)
+		b.WriteString("\n")
+	} else if len(orderedCols) > 0 {
+		b.WriteString("DUPLICATE KEY(")
+		b.WriteString(formatDorisDDLColumnIdent(orderedCols[0].ColumnName))
+		b.WriteString(")\n")
+		distCol := t.DistributedByColumn
+		if distCol == "" && len(t.DistributionColumns) > 0 {
+			distCol = t.DistributionColumns[0]
+		}
+		if distCol == "" {
+			distCol = orderedCols[0].ColumnName
+		}
+		b.WriteString("DISTRIBUTED BY HASH(")
+		b.WriteString(formatDorisDDLColumnIdent(distCol))
+		b.WriteString(") BUCKETS ")
+		b.WriteString(bucketStr)
+		b.WriteString("\n")
+	}
+
+	var props []string
+	if t.StorageVaultName != "" {
+		props = append(props, fmt.Sprintf(`    "storage_volume" = %q`, t.StorageVaultName))
+		props = append(props, `    "datacache.enable" = "true"`)
+	}
+	props = append(props, `    "compression" = "zstd"`)
+	if len(uks) > 0 || t.EnableMoW {
+		props = append(props, `    "enable_persistent_index" = "true"`)
+	}
+
+	seqCol := strings.TrimSpace(t.SequenceCol)
+	if seqCol == "" {
+		seqCol = strings.TrimSpace(t.SequenceColumn)
+	}
+	if seqCol == "" {
+		for _, c := range t.Columns {
+			if c.IsSequenceCol {
+				seqCol = c.ColumnName
+				break
+			}
+		}
+	}
+	if seqCol != "" {
+		props = append(props, fmt.Sprintf(`    "function_column.sequence_col" = %q`, seqCol))
+	}
+	if t.ColocateGroup != "" {
+		props = append(props, fmt.Sprintf(`    "colocate_with" = %q`, t.ColocateGroup))
+	}
+	if len(bloomCols) > 0 {
+		props = append(props, fmt.Sprintf(`    "bloom_filter_columns" = %q`, strings.Join(bloomCols, ", ")))
+	}
+
+	b.WriteString("PROPERTIES (\n")
+	b.WriteString(strings.Join(props, ",\n"))
+	b.WriteString("\n);")
+	return b.String()
+}
+
 // BuildIcebergCreateTableSQL renders a deterministic Apache Iceberg
 // CREATE TABLE IF NOT EXISTS statement for this table descriptor.
 // Returns an empty string if SyncTier == "INTERNAL_ONLY" or identifier validation fails.
@@ -738,8 +1057,8 @@ type ddlBlock struct {
 	sql       string
 }
 
-// generateDorisDDLFiles emits <prefix>_doris.sql and <prefix>_iceberg.sql
-// for all Doris/Iceberg tables in the proto file.
+// generateDorisDDLFiles emits <prefix>_doris.sql, <prefix>_starrocks.sql, and <prefix>_iceberg.sql
+// for all Doris/StarRocks/Iceberg tables in the proto file.
 func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, tables []*dorisTableIR) error {
 	var dorisBlocks []ddlBlock
 	var icebergBlocks []ddlBlock
@@ -781,6 +1100,10 @@ func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 		}
 	}
 
+	if err := generateStarRocksDDLFile(gen, file, tables); err != nil {
+		return err
+	}
+
 	if len(icebergBlocks) > 0 {
 		icebergFilename, err := outputFilename(file.GeneratedFilenamePrefix, "_iceberg.sql")
 		if err != nil {
@@ -801,5 +1124,40 @@ func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 		}
 	}
 
+	return nil
+}
+
+// generateStarRocksDDLFile emits <prefix>_starrocks.sql for all StarRocks tables in the proto file.
+func generateStarRocksDDLFile(gen *protogen.Plugin, file *protogen.File, tables []*dorisTableIR) error {
+	var srBlocks []ddlBlock
+	for _, tbl := range tables {
+		if sql := tbl.Descriptor.BuildStarRocksCreateTableSQL("", 0); sql != "" {
+			srBlocks = append(srBlocks, ddlBlock{
+				goName:    tbl.GoName,
+				tableName: tbl.Descriptor.TableName,
+				sql:       sql,
+			})
+		}
+	}
+	if len(srBlocks) == 0 {
+		return nil
+	}
+	srFilename, err := outputFilename(file.GeneratedFilenamePrefix, "_starrocks.sql")
+	if err != nil {
+		return err
+	}
+	sg := gen.NewGeneratedFile(srFilename, "")
+	sg.P("-- Code generated by proto2type. DO NOT EDIT.")
+	sg.P("-- source: ", file.Desc.Path())
+	sg.P("-- backend: starrocks (ddl)")
+	sg.P()
+
+	for i, blk := range srBlocks {
+		if i > 0 {
+			sg.P()
+		}
+		sg.P("-- ", blk.goName, " (", blk.tableName, ")")
+		sg.P(blk.sql)
+	}
 	return nil
 }

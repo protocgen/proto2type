@@ -2959,3 +2959,53 @@ func keysOf(m map[string]string) []string {
 	}
 	return out
 }
+
+func TestDorisColumnStarRocksTypeMappings(t *testing.T) {
+	tests := []struct {
+		dorisType   string
+		icebergType string
+		wantDDL     string
+		wantHCL     string
+	}{
+		{"DATEV2", "DATE", "DATE", "date"},
+		{"DATE", "DATE", "DATE", "date"},
+		{"DATETIMEV2", "TIMESTAMPTZ", "DATETIME", "datetime"},
+		{"DATETIMEV2(6)", "TIMESTAMPTZ", "DATETIME", "datetime"},
+		{"DATETIMEV2(3)", "TIMESTAMPTZ", "DATETIME", "datetime"},
+		{"DATETIME(6)", "TIMESTAMPTZ", "DATETIME", "datetime"},
+		{"DECIMALV3(18, 4)", "DECIMAL(18, 4)", "DECIMAL(18, 4)", "decimal(18, 4)"},
+		{"DECIMALV3(10,2)", "DECIMAL(10, 2)", "DECIMAL(10, 2)", "decimal(10, 2)"},
+		{"DECIMAL(12, 2)", "DECIMAL(12, 2)", "DECIMAL(12, 2)", "decimal(12, 2)"},
+		{"TEXT", "STRING", "STRING", "string"},
+		{"STRING", "STRING", "STRING", "string"},
+		{"VARCHAR(64)", "STRING", "VARCHAR(64)", "varchar(64)"},
+		{"INT", "INT", "INT", "int"},
+		{"BIGINT", "LONG", "BIGINT", "bigint"},
+		{"SMALLINT", "INT", "SMALLINT", "smallint"},
+		{"TINYINT", "INT", "TINYINT", "tinyint"},
+		{"LARGEINT", "DECIMAL(38, 0)", "LARGEINT", "largeint"},
+		{"BOOLEAN", "BOOLEAN", "BOOLEAN", "boolean"},
+		{"FLOAT", "FLOAT", "FLOAT", "float"},
+		{"DOUBLE", "DOUBLE", "DOUBLE", "double"},
+		{"ARRAY<FLOAT>", "LIST<FLOAT>", "ARRAY<FLOAT>", "array<float>"},
+		{"ARRAY<VARCHAR(64)>", "LIST<STRING>", "ARRAY<VARCHAR(64)>", "array<varchar(64)>"},
+		{"ARRAY<TEXT>", "LIST<STRING>", "ARRAY<STRING>", "array<string>"},
+		{"ARRAY<DATEV2>", "LIST<DATE>", "ARRAY<DATE>", "array<date>"},
+		{"ARRAY<DATETIMEV2(6)>", "LIST<TIMESTAMPTZ>", "ARRAY<DATETIME>", "array<datetime>"},
+		{"ARRAY<DECIMALV3(18, 4)>", "LIST<DECIMAL(18, 4)>", "ARRAY<DECIMAL(18, 4)>", "array<decimal(18, 4)>"},
+		{"", "STRING", "VARCHAR(256)", "varchar(256)"},
+		{"", "TIMESTAMPTZ", "DATETIME", "datetime"},
+		{"", "LONG", "BIGINT", "bigint"},
+	}
+
+	for _, tc := range tests {
+		gotDDL := dorisColumnStarRocksDDLType(tc.dorisType, tc.icebergType)
+		if gotDDL != tc.wantDDL {
+			t.Errorf("dorisColumnStarRocksDDLType(%q, %q) = %q, want %q", tc.dorisType, tc.icebergType, gotDDL, tc.wantDDL)
+		}
+		gotHCL := dorisColumnStarRocksHCLType(tc.dorisType, tc.icebergType)
+		if gotHCL != tc.wantHCL {
+			t.Errorf("dorisColumnStarRocksHCLType(%q, %q) = %q, want %q", tc.dorisType, tc.icebergType, gotHCL, tc.wantHCL)
+		}
+	}
+}
