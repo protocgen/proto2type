@@ -550,7 +550,7 @@ func TestBuildStarRocksCreateTableSQL_And_AtlasHCL(t *testing.T) {
 		`INDEX idx_patient_profiles_mrn (mrn) USING BITMAP`,
 		`INDEX idx_patient_profiles_allergy_codes (allergy_codes) USING BITMAP`,
 		`INDEX idx_clinical_note_bm25 (clinical_note) USING GIN("parser" = "english")`,
-		`INDEX idx_ngram_patient_profiles_full_name (full_name) USING NGRAM_BF PROPERTIES ("gram_size" = "3", "bf_size" = "1024")`,
+		`INDEX idx_ngram_patient_profiles_full_name (full_name) USING NGRAMBF ("gram_num" = "3", "bloom_filter_fpp" = "0.05")`,
 		"PRIMARY KEY(tenant_id, patient_id)",
 		"DISTRIBUTED BY HASH(patient_id) BUCKETS ${TENANT_BUCKETS}",
 		`"storage_volume" = "s3_lakehouse_vault"`,
@@ -571,6 +571,7 @@ func TestBuildStarRocksCreateTableSQL_And_AtlasHCL(t *testing.T) {
 		"DATETIMEV2",
 		"DECIMALV3",
 		"USING INVERTED",
+		"USING NGRAM_BF",
 		"enable_unique_key_merge_on_write",
 		"storage_vault_name",
 	} {
@@ -588,6 +589,7 @@ func TestBuildStarRocksCreateTableSQL_And_AtlasHCL(t *testing.T) {
 		"  primary_key {\n    columns = [column.tenant_id, column.patient_id]\n    sequence_col = column.updated_at\n  }",
 		"  index \"idx_clinical_note_bm25\" {\n    columns = [column.clinical_note]\n    using = \"GIN\"\n    properties = {\n      parser = \"english\"\n    }\n  }",
 		"  index \"idx_patient_profiles_mrn\" {\n    columns = [column.mrn]\n    using = \"BITMAP\"\n  }",
+		"  index \"idx_ngram_patient_profiles_full_name\" {\n    columns = [column.full_name]\n    using = \"NGRAMBF\"\n    properties = {\n      gram_num = \"3\"\n      bloom_filter_fpp = \"0.05\"\n    }\n  }",
 		`storage_volume = "s3_lakehouse_vault"`,
 		`"datacache.enable" = "true"`,
 		`enable_persistent_index = "true"`,
@@ -605,6 +607,7 @@ func TestBuildStarRocksCreateTableSQL_And_AtlasHCL(t *testing.T) {
 		"datetimev2",
 		"decimalv3",
 		`using = "INVERTED"`,
+		`using = "NGRAM_BF"`,
 		"enable_unique_key_merge_on_write",
 		"storage_vault_name",
 	} {
@@ -728,6 +731,12 @@ func TestStarRocksPluginModes_And_RuntimeParity(t *testing.T) {
 			dorisMode: "starrocks",
 			wantFiles: []string{"example.com/clinical/v1/patient_starrocks.sql", "example.com/clinical/v1/patient_starrocks.hcl"},
 			noFiles:   []string{"example.com/clinical/v1/patient_doris.type.go", "example.com/clinical/v1/patient_doris.sql", "example.com/clinical/v1/patient_doris.hcl", "example.com/clinical/v1/patient_iceberg.sql", "example.com/clinical/v1/patient_iceberg.hcl"},
+		},
+		{
+			backend:   "doris",
+			dorisMode: "starrocks_both",
+			wantFiles: []string{"example.com/clinical/v1/patient_doris.type.go", "example.com/clinical/v1/patient_starrocks.sql", "example.com/clinical/v1/patient_starrocks.hcl"},
+			noFiles:   []string{"example.com/clinical/v1/patient_doris.sql", "example.com/clinical/v1/patient_doris.hcl", "example.com/clinical/v1/patient_iceberg.sql", "example.com/clinical/v1/patient_iceberg.hcl"},
 		},
 		{
 			backend:   "doris",
@@ -858,6 +867,12 @@ table "sr_orders" {
     columns = [column.status_code]
     using = "BITMAP"
   }
+  index "idx_ngram_sr_orders_notes" {
+    columns = [column.notes]
+    using = "NGRAMBF"
+    gram_num = "3"
+    bloom_filter_fpp = "0.05"
+  }
   properties = {
     storage_volume = "s3_shared_vol"
     "datacache.enable" = "true"
@@ -940,6 +955,9 @@ table "sr_agg" {
 	}
 	if !reflect.DeepEqual(orders.InvertedIndexColumns, []string{"notes", "status_code"}) {
 		t.Errorf("orders.InvertedIndexColumns = %v, want [notes status_code]", orders.InvertedIndexColumns)
+	}
+	if !reflect.DeepEqual(orders.NgramBfColumns, []string{"notes"}) {
+		t.Errorf("orders.NgramBfColumns = %v, want [notes]", orders.NgramBfColumns)
 	}
 
 	vecs := parsed[1]
@@ -1040,12 +1058,58 @@ table "sr_agg" {
 		if pErr != nil || len(roundTripDescs) != 1 {
 			ht.Fatalf("ParseDorisAtlasHCL failed: err=%v, len=%d", pErr, len(roundTripDescs))
 		}
-		if violations := LintDorisEvolution([]DorisTableDescriptor{desc}, roundTripDescs); len(violations) > 0 {
-			ht.Fatalf("unexpected evolution violations between original Doris descriptor and parsed StarRocks HCL: %+v\nHCL:\n%s", violations, srHCLOut)
+		if violations := LintDorisEvolution(roundTripDescs, []DorisTableDescriptor{desc}); len(violations) > 0 {
+			ht.Fatalf("unexpected evolution violations between parsed StarRocks HCL and Doris descriptor: %+v\nHCL:\n%s", violations, srHCLOut)
 		}
 		reRendered := roundTripDescs[0].BuildStarRocksAtlasHCL("acme", 8)
 		if reRendered != srHCLOut {
 			ht.Fatalf("BuildStarRocksAtlasHCL not idempotent after ParseDorisAtlasHCL:\nfirst:\n%s\nsecond:\n%s", srHCLOut, reRendered)
 		}
 	})
+}
+
+func TestDorisVsStarRocks_StringAndTextInvertedIndexNaming(t *testing.T) {
+	tbl := DorisTableDescriptor{
+		TableName:        "search_docs",
+		DatabaseScope:    "TENANT",
+		SyncTier:         "WHOLE_TABLE",
+		UniqueKeyColumns: []string{"doc_id"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "doc_id", DorisType: "VARCHAR(64)", Nullable: false, IsUniqueKey: true},
+			{ColumnName: "str_col", DorisType: "STRING", Nullable: false, InvertedIndex: true},
+			{ColumnName: "txt_col", DorisType: "TEXT", Nullable: false, InvertedIndex: true},
+		},
+	}
+
+	dorisSQL := tbl.BuildDorisCreateTableSQL("acme", 4)
+	if !strings.Contains(dorisSQL, "INDEX idx_search_docs_str_col (str_col) USING INVERTED") {
+		t.Errorf("Doris SQL for STRING column should use non-BM25 inverted index name idx_search_docs_str_col:\n%s", dorisSQL)
+	}
+	if !strings.Contains(dorisSQL, `INDEX idx_txt_col_bm25 (txt_col) USING INVERTED PROPERTIES ("parser" = "english", "support_phrase" = "true", "lower_case" = "true")`) {
+		t.Errorf("Doris SQL for TEXT column should use BM25 inverted index:\n%s", dorisSQL)
+	}
+
+	dorisHCL := tbl.BuildDorisAtlasHCL("acme", 4)
+	if !strings.Contains(dorisHCL, "  index \"idx_search_docs_str_col\" {\n    columns = [column.str_col]\n    using = \"INVERTED\"\n  }") {
+		t.Errorf("Doris HCL for STRING column should use non-BM25 inverted index name idx_search_docs_str_col:\n%s", dorisHCL)
+	}
+	if !strings.Contains(dorisHCL, "  index \"idx_txt_col_bm25\" {\n    columns = [column.txt_col]\n    using = \"INVERTED\"\n    properties = {\n      parser = \"english\"") {
+		t.Errorf("Doris HCL for TEXT column should use BM25 inverted index:\n%s", dorisHCL)
+	}
+
+	srSQL := tbl.BuildStarRocksCreateTableSQL("acme", 4)
+	if !strings.Contains(srSQL, `INDEX idx_str_col_bm25 (str_col) USING GIN("parser" = "english")`) {
+		t.Errorf("StarRocks SQL for STRING column should use GIN BM25 index:\n%s", srSQL)
+	}
+	if !strings.Contains(srSQL, `INDEX idx_txt_col_bm25 (txt_col) USING GIN("parser" = "english")`) {
+		t.Errorf("StarRocks SQL for TEXT column should use GIN BM25 index:\n%s", srSQL)
+	}
+
+	srHCL := tbl.BuildStarRocksAtlasHCL("acme", 4)
+	if !strings.Contains(srHCL, "  index \"idx_str_col_bm25\" {\n    columns = [column.str_col]\n    using = \"GIN\"") {
+		t.Errorf("StarRocks HCL for STRING column should use GIN BM25 index:\n%s", srHCL)
+	}
+	if !strings.Contains(srHCL, "  index \"idx_txt_col_bm25\" {\n    columns = [column.txt_col]\n    using = \"GIN\"") {
+		t.Errorf("StarRocks HCL for TEXT column should use GIN BM25 index:\n%s", srHCL)
+	}
 }

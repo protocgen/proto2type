@@ -237,9 +237,14 @@ func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 		{"DATEV2", "DATEV2"},
 		{"DATEV2", "DATE"},
 		{"DATE", "DATEV2"},
-		{"DATETIMEV2(6)", "DATETIMEV2(6)"},
-		{"DATETIMEV2(6)", "DATETIME"},
+		{"DATETIME", "DATETIMEV2"},
+		{"DATETIMEV2(0)", "DATETIME"},
 		{"DATETIME", "DATETIMEV2(6)"},
+		{"DATETIMEV2(3)", "DATETIMEV2(6)"},
+		{"DATETIMEV2(6)", "DATETIMEV2(6)"},
+		{"DATETIME(6)", "DATETIMEV2(6)"},
+		{"DATETIMEV2(6)", "DATETIME(6)"},
+		{"ARRAY<DATETIME>", "ARRAY<DATETIMEV2(6)>"},
 		{"DECIMALV3(10, 2)", "DECIMAL(10, 2)"},
 		{"DECIMAL(10, 2)", "DECIMALV3(10, 2)"},
 		{"DECIMAL(10, 2)", "DECIMAL(18, 2)"},
@@ -277,6 +282,10 @@ func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 		{"FLOAT", "INT"},                             // Float to int
 		{"INT", "DOUBLE"},                            // Int to double
 		{"DATEV2", "DATETIMEV2(6)"},                  // Date to datetime
+		{"DATETIMEV2(6)", "DATETIME"},                // Datetime precision narrowing (6 -> 0)
+		{"DATETIMEV2(6)", "DATETIMEV2(0)"},           // Datetime precision narrowing (6 -> 0)
+		{"DATETIMEV2(6)", "DATETIMEV2(3)"},           // Datetime precision narrowing (6 -> 3)
+		{"ARRAY<DATETIMEV2(6)>", "ARRAY<DATETIME>"},  // Array datetime precision narrowing
 		{"DECIMAL(10, 2)", "DECIMAL(10, 4)"},         // Scale change
 		{"DECIMALV3(10, 2)", "DECIMAL(18, 4)"},       // Scale change
 		{"DECIMAL(10, 2)", "DECIMAL(8, 2)"},          // Precision narrowing

@@ -339,7 +339,7 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 		}
 	}
 	for _, idxCol := range invCols {
-		if colTypes[idxCol] == "TEXT" || colTypes[idxCol] == "STRING" {
+		if colTypes[idxCol] == "TEXT" {
 			idxName := fmt.Sprintf("idx_%s_bm25", idxCol)
 			emittedIdx[idxName] = true
 			fmt.Fprintf(&b, "  index %q {\n", idxName)
@@ -488,7 +488,7 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 
 	colTypes := make(map[string]string, len(orderedCols))
 	for _, c := range orderedCols {
-		colTypes[c.ColumnName] = strings.ToUpper(strings.TrimSpace(c.DorisType))
+		colTypes[c.ColumnName] = dorisColumnStarRocksDDLType(c.DorisType, c.IcebergType)
 	}
 	for _, uk := range uks {
 		if !isDorisKeyEligibleType(colTypes[uk]) {
@@ -501,7 +501,7 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 		}
 	}
 	if len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {
-		if !isDorisKeyEligibleType(orderedCols[0].DorisType) {
+		if !isDorisKeyEligibleType(colTypes[orderedCols[0].ColumnName]) {
 			return ""
 		}
 	}
@@ -684,10 +684,10 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 		emittedIdx[idxName] = true
 		fmt.Fprintf(&b, "  index %q {\n", idxName)
 		fmt.Fprintf(&b, "    columns = [column.%s]\n", ngCol)
-		b.WriteString("    using = \"NGRAM_BF\"\n")
+		b.WriteString("    using = \"NGRAMBF\"\n")
 		b.WriteString("    properties = {\n")
-		b.WriteString("      gram_size = \"3\"\n")
-		b.WriteString("      bf_size = \"1024\"\n")
+		b.WriteString("      gram_num = \"3\"\n")
+		b.WriteString("      bloom_filter_fpp = \"0.05\"\n")
 		b.WriteString("    }\n")
 		b.WriteString("  }\n")
 	}
@@ -723,6 +723,8 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 			} else {
 				using = "BITMAP"
 			}
+		case "NGRAM_BF":
+			using = "NGRAMBF"
 		case "ANN":
 			using = "VECTOR"
 		}
@@ -1482,7 +1484,7 @@ func applyDorisAtlasSubBlock(
 		switch strings.ToUpper(idxDesc.Using) {
 		case "INVERTED", "GIN", "BITMAP":
 			desc.InvertedIndexColumns = dedupDorisColumnList(append(desc.InvertedIndexColumns, idxDesc.Columns...))
-		case "NGRAM_BF":
+		case "NGRAM_BF", "NGRAMBF":
 			desc.NgramBfColumns = dedupDorisColumnList(append(desc.NgramBfColumns, idxDesc.Columns...))
 		case "ANN", "VECTOR":
 			if dimStr, hasDim := idxDesc.Properties["dim"]; hasDim {
@@ -1594,15 +1596,19 @@ func parseDorisAtlasIndexBlock(idxName, body string) (DorisIndexDescriptor, erro
 	if err != nil {
 		return idx, fmt.Errorf("index %q: %w", idxName, err)
 	}
-	if colsRaw, ok := kv["columns"]; ok {
-		cols, cErr := parseHCLColumnRefList(colsRaw)
-		if cErr != nil {
-			return idx, fmt.Errorf("index %q: %w", idxName, cErr)
+	for k, rawV := range kv {
+		switch k {
+		case "columns":
+			cols, cErr := parseHCLColumnRefList(rawV)
+			if cErr != nil {
+				return idx, fmt.Errorf("index %q: %w", idxName, cErr)
+			}
+			idx.Columns = cols
+		case "using":
+			idx.Using = strings.ToUpper(unquoteHCLString(rawV))
+		default:
+			idx.Properties[k] = unquoteHCLString(rawV)
 		}
-		idx.Columns = cols
-	}
-	if usingRaw, ok := kv["using"]; ok {
-		idx.Using = strings.ToUpper(unquoteHCLString(usingRaw))
 	}
 	return idx, nil
 }
@@ -2020,7 +2026,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tfor _, idxCol := range invCols {")
-	g.P("\t\tif colTypes[idxCol] == \"TEXT\" || colTypes[idxCol] == \"STRING\" {")
+	g.P("\t\tif colTypes[idxCol] == \"TEXT\" {")
 	g.P("\t\t\tidxName := ", fmtSprintf, "(\"idx_%s_bm25\", idxCol)")
 	g.P("\t\t\temittedIdx[idxName] = true")
 	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"  index %q {\\n\", idxName))")
@@ -2161,7 +2167,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t}")
 	g.P("\tcolTypes := make(map[string]string, len(orderedCols))")
 	g.P("\tfor _, c := range orderedCols {")
-	g.P("\t\tcolTypes[c.ColumnName] = ", stringsToUpper, "(", stringsTrimSpace, "(c.DorisType))")
+	g.P("\t\tcolTypes[c.ColumnName] = dorisColumnStarRocksDDLType(c.DorisType, c.IcebergType)")
 	g.P("\t}")
 	g.P("\tfor _, uk := range uks {")
 	g.P("\t\tif !isDorisKeyEligibleType(colTypes[uk]) {")
@@ -2174,7 +2180,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tif len(uks) == 0 && len(dupKeys) == 0 && len(orderedCols) > 0 {")
-	g.P("\t\tif !isDorisKeyEligibleType(orderedCols[0].DorisType) {")
+	g.P("\t\tif !isDorisKeyEligibleType(colTypes[orderedCols[0].ColumnName]) {")
 	g.P("\t\t\treturn \"\"")
 	g.P("\t\t}")
 	g.P("\t}")
@@ -2346,10 +2352,10 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\temittedIdx[idxName] = true")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"  index %q {\\n\", idxName))")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    columns = [column.%s]\\n\", ngCol))")
-	g.P("\t\tb.WriteString(\"    using = \\\"NGRAM_BF\\\"\\n\")")
+	g.P("\t\tb.WriteString(\"    using = \\\"NGRAMBF\\\"\\n\")")
 	g.P("\t\tb.WriteString(\"    properties = {\\n\")")
-	g.P("\t\tb.WriteString(\"      gram_size = \\\"3\\\"\\n\")")
-	g.P("\t\tb.WriteString(\"      bf_size = \\\"1024\\\"\\n\")")
+	g.P("\t\tb.WriteString(\"      gram_num = \\\"3\\\"\\n\")")
+	g.P("\t\tb.WriteString(\"      bloom_filter_fpp = \\\"0.05\\\"\\n\")")
 	g.P("\t\tb.WriteString(\"    }\\n\")")
 	g.P("\t\tb.WriteString(\"  }\\n\")")
 	g.P("\t}")
@@ -2385,6 +2391,8 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t\t} else {")
 	g.P("\t\t\t\tusing = \"BITMAP\"")
 	g.P("\t\t\t}")
+	g.P("\t\tcase \"NGRAM_BF\":")
+	g.P("\t\t\tusing = \"NGRAMBF\"")
 	g.P("\t\tcase \"ANN\":")
 	g.P("\t\t\tusing = \"VECTOR\"")
 	g.P("\t\t}")
@@ -3108,7 +3116,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tswitch ", stringsToUpper, "(idxDesc.Using) {")
 	g.P("\t\tcase \"INVERTED\", \"GIN\", \"BITMAP\":")
 	g.P("\t\t\tdesc.InvertedIndexColumns = dedupDorisColumnList(append(desc.InvertedIndexColumns, idxDesc.Columns...))")
-	g.P("\t\tcase \"NGRAM_BF\":")
+	g.P("\t\tcase \"NGRAM_BF\", \"NGRAMBF\":")
 	g.P("\t\t\tdesc.NgramBfColumns = dedupDorisColumnList(append(desc.NgramBfColumns, idxDesc.Columns...))")
 	g.P("\t\tcase \"ANN\", \"VECTOR\":")
 	g.P("\t\t\tif dimStr, hasDim := idxDesc.Properties[\"dim\"]; hasDim {")
@@ -3219,15 +3227,19 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\tif err != nil {")
 	g.P("\t\treturn idx, ", fmtErrorf, "(\"index %q: %w\", idxName, err)")
 	g.P("\t}")
-	g.P("\tif colsRaw, ok := kv[\"columns\"]; ok {")
-	g.P("\t\tcols, cErr := parseHCLColumnRefList(colsRaw)")
-	g.P("\t\tif cErr != nil {")
-	g.P("\t\t\treturn idx, ", fmtErrorf, "(\"index %q: %w\", idxName, cErr)")
+	g.P("\tfor k, rawV := range kv {")
+	g.P("\t\tswitch k {")
+	g.P("\t\tcase \"columns\":")
+	g.P("\t\t\tcols, cErr := parseHCLColumnRefList(rawV)")
+	g.P("\t\t\tif cErr != nil {")
+	g.P("\t\t\t\treturn idx, ", fmtErrorf, "(\"index %q: %w\", idxName, cErr)")
+	g.P("\t\t\t}")
+	g.P("\t\t\tidx.Columns = cols")
+	g.P("\t\tcase \"using\":")
+	g.P("\t\t\tidx.Using = ", stringsToUpper, "(unquoteHCLString(rawV))")
+	g.P("\t\tdefault:")
+	g.P("\t\t\tidx.Properties[k] = unquoteHCLString(rawV)")
 	g.P("\t\t}")
-	g.P("\t\tidx.Columns = cols")
-	g.P("\t}")
-	g.P("\tif usingRaw, ok := kv[\"using\"]; ok {")
-	g.P("\t\tidx.Using = ", stringsToUpper, "(unquoteHCLString(usingRaw))")
 	g.P("\t}")
 	g.P("\treturn idx, nil")
 	g.P("}")

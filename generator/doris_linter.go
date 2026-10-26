@@ -257,10 +257,11 @@ func ValidateDorisEvolution(before, after []DorisTableDescriptor) error {
 
 // IsSafeDorisTypeEvolution reports whether evolving a column from beforeType to
 // afterType is either a no-op (including Doris <-> StarRocks type aliases such as
-// DATEV2 <-> DATE, DATETIMEV2(p) <-> DATETIME, DECIMALV3(p,s) <-> DECIMAL(p,s),
-// and TEXT <-> STRING) or a safe widening type change supported by
-// Apache Doris 4.x Light Schema Change (LSC), StarRocks 4.x, and Apache Iceberg v2:
+// DATEV2 <-> DATE, DECIMALV3(p,s) <-> DECIMAL(p,s), and TEXT <-> STRING) or a
+// safe widening type change supported by Apache Doris 4.x Light Schema Change (LSC),
+// StarRocks 4.x, and Apache Iceberg v2:
 //   - VARCHAR(m) -> VARCHAR(n) where n > m
+//   - DATETIME(p1) / DATETIMEV2(p1) -> DATETIME(p2) / DATETIMEV2(p2) where p2 >= p1 (bare DATETIME/DATETIMEV2 has precision 0)
 //   - DECIMAL(p1, s) / DECIMALV3(p1, s) -> DECIMAL(p2, s) / DECIMALV3(p2, s) where p2 >= p1
 //   - ARRAY<T1> -> ARRAY<T2> where T1 -> T2 is a safe type evolution
 //   - TINYINT -> SMALLINT, INT, or BIGINT
@@ -277,19 +278,26 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 		return false
 	}
 
+	if strings.HasPrefix(bt, "ARRAY<") && strings.HasSuffix(bt, ">") {
+		if strings.HasPrefix(at, "ARRAY<") && strings.HasSuffix(at, ">") {
+			innerB := strings.TrimSuffix(strings.TrimPrefix(bt, "ARRAY<"), ">")
+			innerA := strings.TrimSuffix(strings.TrimPrefix(at, "ARRAY<"), ">")
+			return IsSafeDorisTypeEvolution(innerB, innerA)
+		}
+		return false
+	}
+
+	if p1, okB := parseDorisDatetimePrecision(bt); okB {
+		if p2, okA := parseDorisDatetimePrecision(at); okA {
+			return p2 >= p1
+		}
+		return false
+	}
+
 	canonBefore := dorisColumnStarRocksDDLType(bt, "")
 	canonAfter := dorisColumnStarRocksDDLType(at, "")
 	if canonBefore == canonAfter {
 		return true
-	}
-
-	if strings.HasPrefix(canonBefore, "ARRAY<") && strings.HasSuffix(canonBefore, ">") {
-		if strings.HasPrefix(canonAfter, "ARRAY<") && strings.HasSuffix(canonAfter, ">") {
-			innerB := strings.TrimSuffix(strings.TrimPrefix(canonBefore, "ARRAY<"), ">")
-			innerA := strings.TrimSuffix(strings.TrimPrefix(canonAfter, "ARRAY<"), ">")
-			return IsSafeDorisTypeEvolution(innerB, innerA)
-		}
-		return false
 	}
 
 	if m, okB := parseDorisVarcharLength(canonBefore); okB {
@@ -318,6 +326,29 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 	default:
 		return false
 	}
+}
+
+// parseDorisDatetimePrecision extracts precision P (0 <= P <= 6) from "DATETIME", "DATETIMEV2",
+// "DATETIME(P)", or "DATETIMEV2(P)". Bare "DATETIME" or "DATETIMEV2" has precision 0.
+func parseDorisDatetimePrecision(upperType string) (int, bool) {
+	switch upperType {
+	case "DATETIME", "DATETIMEV2":
+		return 0, true
+	}
+	var inner string
+	switch {
+	case strings.HasPrefix(upperType, "DATETIME(") && strings.HasSuffix(upperType, ")"):
+		inner = strings.TrimSuffix(strings.TrimPrefix(upperType, "DATETIME("), ")")
+	case strings.HasPrefix(upperType, "DATETIMEV2(") && strings.HasSuffix(upperType, ")"):
+		inner = strings.TrimSuffix(strings.TrimPrefix(upperType, "DATETIMEV2("), ")")
+	default:
+		return 0, false
+	}
+	p, err := strconv.Atoi(strings.TrimSpace(inner))
+	if err != nil || p < 0 || p > 6 {
+		return 0, false
+	}
+	return p, true
 }
 
 // parseDorisDecimalParams extracts precision P and scale S from "DECIMAL(P, S)" or "DECIMALV3(P, S)".

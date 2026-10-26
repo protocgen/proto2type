@@ -553,7 +553,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		}
 	}
 	for _, idxCol := range invCols {
-		if colTypes[idxCol] == "TEXT" || colTypes[idxCol] == "STRING" {
+		if colTypes[idxCol] == "TEXT" {
 			bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_bm25 (%s) USING INVERTED PROPERTIES ("parser" = "english", "support_phrase" = "true", "lower_case" = "true")`, idxCol, formatDorisDDLColumnIdent(idxCol)))
 		} else {
 			bodyLines = append(bodyLines, fmt.Sprintf("    INDEX idx_%s_%s (%s) USING INVERTED", t.TableName, idxCol, formatDorisDDLColumnIdent(idxCol)))
@@ -727,7 +727,7 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	if t.DistributedByColumn != "" && !isDorisKeyEligibleType(colTypes[t.DistributedByColumn]) {
 		return ""
 	}
-	for _, dc := range t.DistributionColumns {
+	for _, dc := range dedupDorisColumnList(t.DistributionColumns) {
 		if !isDorisKeyEligibleType(colTypes[dc]) {
 			return ""
 		}
@@ -814,7 +814,7 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 		}
 	}
 	for _, ngCol := range ngramCols {
-		bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_ngram_%s_%s (%s) USING NGRAM_BF PROPERTIES ("gram_size" = "3", "bf_size" = "1024")`, t.TableName, ngCol, formatDorisDDLColumnIdent(ngCol)))
+		bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_ngram_%s_%s (%s) USING NGRAMBF ("gram_num" = "3", "bloom_filter_fpp" = "0.05")`, t.TableName, ngCol, formatDorisDDLColumnIdent(ngCol)))
 	}
 	if len(uks) == 0 {
 		if embDim, ok := resolveDorisEmbeddingDimension(t); ok {

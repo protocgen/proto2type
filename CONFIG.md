@@ -113,9 +113,9 @@ Can be combined with `domain=true` (default) to generate both domain and storage
 
 Controls the Apache Doris 4.x, StarRocks 4.x & Apache Iceberg lakehouse backend output when `backend=doris` or `backend=starrocks`.
 
-| Default | `""` (`go` for `backend=doris`; `starrocks` for `backend=starrocks`) |
+| Default | `""` (`go` for `backend=doris`, emitting `*_doris.type.go`; `go` + `starrocks` for `backend=starrocks`, emitting `*_doris.type.go`, `*_starrocks.sql`, `*_starrocks.hcl`; `all` emits `*_doris.type.go`, `*_doris.sql`, `*_doris.hcl`, `*_starrocks.sql`, `*_starrocks.hcl`, `*_iceberg.sql`, `*_iceberg.hcl`) |
 |---|---|
-| Values | `""` / `go` (Go storage structs + SQL scanners), `ddl` (Doris, StarRocks & Iceberg SQL DDL), `hcl` (Doris, StarRocks & Iceberg Atlas HCL), `both` (`go` + `ddl`), `all` (`go` + `ddl` + `hcl`), `starrocks` (`*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_ddl` (`*_starrocks.sql`), `starrocks_hcl` (`*_starrocks.hcl`) |
+| Values | `""` / `go` (Go storage structs + SQL scanners), `ddl` (Doris, StarRocks & Iceberg SQL DDL), `hcl` (Doris, StarRocks & Iceberg Atlas HCL), `both` (`go` + `ddl`), `all` (`go` + `ddl` + `hcl`), `starrocks` (`*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_both` (`go` + `*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_ddl` (`*_starrocks.sql`), `starrocks_hcl` (`*_starrocks.hcl`) |
 
 ### `doris_storage_vault`
 
@@ -450,7 +450,7 @@ message PatientRecord {
 
 | Feature | Support |
 |---|---|
-| Language | Go (`lang=go`), SQL DDL (`doris_mode=ddl`, `both`, `all`, `starrocks`, `starrocks_ddl`), and Atlas HCL (`doris_mode=hcl`, `all`, `starrocks`, `starrocks_hcl`) |
+| Language | Go (`lang=go`), SQL DDL (`doris_mode=ddl`, `both`, `all`, `starrocks`, `starrocks_both`, `starrocks_ddl`), and Atlas HCL (`doris_mode=hcl`, `all`, `starrocks`, `starrocks_both`, `starrocks_hcl`) |
 | Struct tags | `db:"col"` and `doris:"col[,pk]"` |
 | Struct suffix | `Doris` (e.g. `PatientRecordDoris`) |
 | File suffixes | `_doris.type.go` (Go), `_doris.sql` / `_doris.hcl` (Doris 4.x DDL & HCL), `_starrocks.sql` / `_starrocks.hcl` (StarRocks 4.x DDL & HCL), `_iceberg.sql` / `_iceberg.hcl` (Iceberg DDL & HCL) |

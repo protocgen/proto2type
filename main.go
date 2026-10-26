@@ -57,7 +57,7 @@ func main() {
 	flags.StringVar(&opts.Backend, "backend", "", "storage backend: firestore, mongo, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc, postgres, doris, starrocks")
 	flags.StringVar(&opts.PostgresMode, "postgres_mode", "", "postgres backend mode: '' (struct), 'search_index' (HAPI-style FHIR search index extraction)")
 	flags.StringVar(&opts.PostgresSearchParams, "postgres_search_params", "", "path to FHIR SearchParameter JSON bundle (required for postgres_mode=search_index)")
-	flags.StringVar(&opts.DorisMode, "doris_mode", "", "doris/starrocks backend mode: '' (go storage structs + SQL scanners), 'ddl' (Doris, StarRocks & Iceberg SQL DDL), 'hcl' (Atlas Doris, StarRocks & Iceberg HCL), 'both' (Go and SQL DDL), 'all' (Go, SQL DDL, and Atlas HCL), 'starrocks' (StarRocks SQL DDL + Atlas HCL), 'starrocks_ddl' (StarRocks SQL DDL), 'starrocks_hcl' (StarRocks Atlas HCL)")
+	flags.StringVar(&opts.DorisMode, "doris_mode", "", "doris/starrocks backend mode: '' (go storage structs + SQL scanners), 'ddl' (Doris, StarRocks & Iceberg SQL DDL), 'hcl' (Atlas Doris, StarRocks & Iceberg HCL), 'both' (Go and SQL DDL), 'all' (Go, SQL DDL, and Atlas HCL), 'starrocks' (StarRocks SQL DDL + Atlas HCL), 'starrocks_both' (Go, StarRocks SQL DDL + Atlas HCL), 'starrocks_ddl' (StarRocks SQL DDL), 'starrocks_hcl' (StarRocks Atlas HCL)")
 	flags.StringVar(&opts.DorisStorageVault, "doris_storage_vault", "", "storage vault name for Doris PROPERTIES (\"storage_vault_name\" = ...)")
 	flags.StringVar(&opts.IcebergCatalog, "iceberg_catalog", "", "catalog name for Iceberg DDL (<catalog>.<db>.<table>, default \"iceberg\")")
 	flags.BoolVar(&opts.Domain, "domain", true, "generate domain types + proto converters")

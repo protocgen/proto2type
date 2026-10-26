@@ -27,6 +27,7 @@ type Options struct {
 	//   "both"                    — both Go storage structs + SQL scanners and SQL DDL
 	//   "all"                     — Go storage structs + SQL scanners, SQL DDL, and Atlas HCL
 	//   "starrocks"               — StarRocks SQL DDL and Atlas HCL (<prefix>_starrocks.sql, <prefix>_starrocks.hcl)
+	//   "starrocks_both"          — Go storage structs + SQL scanners, StarRocks SQL DDL, and StarRocks Atlas HCL
 	//   "starrocks_ddl"           — StarRocks SQL DDL (<prefix>_starrocks.sql)
 	//   "starrocks_hcl"           — StarRocks Atlas HCL (<prefix>_starrocks.hcl)
 	DorisMode string
