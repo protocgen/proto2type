@@ -93,8 +93,8 @@ func (gg *goGenerator) generateGoDoris(gen *protogen.Plugin, file *protogen.File
 	emitGo := opts.DorisMode == "" || opts.DorisMode == "go" || opts.DorisMode == "both" || opts.DorisMode == "all" || opts.DorisMode == "starrocks_both"
 	emitDDL := opts.DorisMode == "ddl" || opts.DorisMode == "both" || opts.DorisMode == "all"
 	emitHCL := opts.DorisMode == "hcl" || opts.DorisMode == "all"
-	emitStarRocksDDL := opts.DorisMode == "starrocks" || opts.DorisMode == "starrocks_both" || opts.DorisMode == "starrocks_ddl" || (opts.Backend == "starrocks" && opts.DorisMode == "")
-	emitStarRocksHCL := opts.DorisMode == "starrocks" || opts.DorisMode == "starrocks_both" || opts.DorisMode == "starrocks_hcl" || (opts.Backend == "starrocks" && opts.DorisMode == "")
+	emitStarRocksDDL := opts.DorisMode == "all" || opts.DorisMode == "starrocks" || opts.DorisMode == "starrocks_both" || opts.DorisMode == "starrocks_ddl" || (opts.Backend == "starrocks" && opts.DorisMode == "")
+	emitStarRocksHCL := opts.DorisMode == "all" || opts.DorisMode == "starrocks" || opts.DorisMode == "starrocks_both" || opts.DorisMode == "starrocks_hcl" || (opts.Backend == "starrocks" && opts.DorisMode == "")
 
 	if emitGo {
 		if err := gg.generateGoDorisFile(gen, file, opts, tables); err != nil {
@@ -105,7 +105,8 @@ func (gg *goGenerator) generateGoDoris(gen *protogen.Plugin, file *protogen.File
 		if err := generateDorisDDLFiles(gen, file, tables); err != nil {
 			return err
 		}
-	} else if emitStarRocksDDL {
+	}
+	if emitStarRocksDDL {
 		if err := generateStarRocksDDLFile(gen, file, tables); err != nil {
 			return err
 		}
@@ -114,7 +115,8 @@ func (gg *goGenerator) generateGoDoris(gen *protogen.Plugin, file *protogen.File
 		if err := generateDorisHCLFiles(gen, file, tables); err != nil {
 			return err
 		}
-	} else if emitStarRocksHCL {
+	}
+	if emitStarRocksHCL {
 		if err := generateStarRocksHCLFile(gen, file, tables); err != nil {
 			return err
 		}

@@ -22,12 +22,12 @@ type Options struct {
 	// DorisMode controls the Doris/StarRocks/Iceberg lakehouse backend behavior:
 	//   ""              (default) — Go storage structs + SQL row scanners
 	//   "go"                      — Go storage structs + SQL row scanners
-	//   "ddl"                     — Doris, StarRocks & Iceberg SQL DDL (<prefix>_doris.sql, <prefix>_starrocks.sql, <prefix>_iceberg.sql)
-	//   "hcl"                     — Atlas Doris, StarRocks & Iceberg HCL (<prefix>_doris.hcl, <prefix>_starrocks.hcl, <prefix>_iceberg.hcl)
-	//   "both"                    — both Go storage structs + SQL scanners and SQL DDL
-	//   "all"                     — Go storage structs + SQL scanners, SQL DDL, and Atlas HCL
+	//   "ddl"                     — Doris & Iceberg SQL DDL (<prefix>_doris.sql, <prefix>_iceberg.sql)
+	//   "hcl"                     — Atlas Doris & Iceberg HCL (<prefix>_doris.hcl, <prefix>_iceberg.hcl)
+	//   "both"                    — Go storage structs + SQL scanners and Doris & Iceberg SQL DDL (<prefix>_doris.type.go, <prefix>_doris.sql, <prefix>_iceberg.sql)
+	//   "all"                     — all 3 dialects: Go storage structs + SQL scanners, Doris/StarRocks/Iceberg SQL DDL, and Atlas HCL (<prefix>_doris.type.go, <prefix>_doris.sql, <prefix>_doris.hcl, <prefix>_starrocks.sql, <prefix>_starrocks.hcl, <prefix>_iceberg.sql, <prefix>_iceberg.hcl)
 	//   "starrocks"               — StarRocks SQL DDL and Atlas HCL (<prefix>_starrocks.sql, <prefix>_starrocks.hcl)
-	//   "starrocks_both"          — Go storage structs + SQL scanners, StarRocks SQL DDL, and StarRocks Atlas HCL
+	//   "starrocks_both"          — Go storage structs + SQL scanners, StarRocks SQL DDL, and StarRocks Atlas HCL (<prefix>_doris.type.go, <prefix>_starrocks.sql, <prefix>_starrocks.hcl)
 	//   "starrocks_ddl"           — StarRocks SQL DDL (<prefix>_starrocks.sql)
 	//   "starrocks_hcl"           — StarRocks Atlas HCL (<prefix>_starrocks.hcl)
 	DorisMode string

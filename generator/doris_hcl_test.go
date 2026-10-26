@@ -440,8 +440,14 @@ func TestGenerateGoDoris_HCLAndAllModes(t *testing.T) {
 	if _, ok := hclFiles["example.com/clinical/v1/patient_doris.type.go"]; ok {
 		t.Errorf("unexpected _doris.type.go when doris_mode=hcl")
 	}
+	if _, ok := hclFiles["example.com/clinical/v1/patient_starrocks.hcl"]; ok {
+		t.Errorf("unexpected _starrocks.hcl when doris_mode=hcl")
+	}
+	if _, ok := hclFiles["example.com/clinical/v1/patient_starrocks.sql"]; ok {
+		t.Errorf("unexpected _starrocks.sql when doris_mode=hcl")
+	}
 
-	// 2. doris_mode=all emits Go + SQL DDL + Atlas HCL
+	// 2. doris_mode=all emits Go + Doris/StarRocks/Iceberg SQL DDL + Atlas HCL
 	genAll := newPlugin(t, fds, []string{"clinical/patient.proto"})
 	runnerAll := NewRunner()
 	optsAll := &Options{
@@ -464,8 +470,10 @@ func TestGenerateGoDoris_HCLAndAllModes(t *testing.T) {
 	for _, wantFile := range []string{
 		"example.com/clinical/v1/patient_doris.type.go",
 		"example.com/clinical/v1/patient_doris.sql",
+		"example.com/clinical/v1/patient_starrocks.sql",
 		"example.com/clinical/v1/patient_iceberg.sql",
 		"example.com/clinical/v1/patient_doris.hcl",
+		"example.com/clinical/v1/patient_starrocks.hcl",
 		"example.com/clinical/v1/patient_iceberg.hcl",
 	} {
 		if _, ok := allFiles[wantFile]; !ok {
@@ -726,6 +734,24 @@ func TestStarRocksPluginModes_And_RuntimeParity(t *testing.T) {
 		wantFiles []string
 		noFiles   []string
 	}{
+		{
+			backend:   "doris",
+			dorisMode: "ddl",
+			wantFiles: []string{"example.com/clinical/v1/patient_doris.sql", "example.com/clinical/v1/patient_iceberg.sql"},
+			noFiles:   []string{"example.com/clinical/v1/patient_doris.type.go", "example.com/clinical/v1/patient_starrocks.sql", "example.com/clinical/v1/patient_starrocks.hcl", "example.com/clinical/v1/patient_doris.hcl", "example.com/clinical/v1/patient_iceberg.hcl"},
+		},
+		{
+			backend:   "doris",
+			dorisMode: "hcl",
+			wantFiles: []string{"example.com/clinical/v1/patient_doris.hcl", "example.com/clinical/v1/patient_iceberg.hcl"},
+			noFiles:   []string{"example.com/clinical/v1/patient_doris.type.go", "example.com/clinical/v1/patient_starrocks.sql", "example.com/clinical/v1/patient_starrocks.hcl", "example.com/clinical/v1/patient_doris.sql", "example.com/clinical/v1/patient_iceberg.sql"},
+		},
+		{
+			backend:   "doris",
+			dorisMode: "both",
+			wantFiles: []string{"example.com/clinical/v1/patient_doris.type.go", "example.com/clinical/v1/patient_doris.sql", "example.com/clinical/v1/patient_iceberg.sql"},
+			noFiles:   []string{"example.com/clinical/v1/patient_starrocks.sql", "example.com/clinical/v1/patient_starrocks.hcl", "example.com/clinical/v1/patient_doris.hcl", "example.com/clinical/v1/patient_iceberg.hcl"},
+		},
 		{
 			backend:   "doris",
 			dorisMode: "starrocks",
