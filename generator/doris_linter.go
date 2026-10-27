@@ -260,13 +260,15 @@ func ValidateDorisEvolution(before, after []DorisTableDescriptor) error {
 // DATEV2 <-> DATE, DECIMALV3(p,s) <-> DECIMAL(p,s), and TEXT <-> STRING) or a
 // safe widening type change supported by Apache Doris 4.x Light Schema Change (LSC),
 // StarRocks 4.x, and Apache Iceberg v2:
-//   - VARCHAR(m) -> VARCHAR(n) where n > m
+//   - VARCHAR(m) -> VARCHAR(n) (where n >= m), STRING, or TEXT
+//   - DATE / DATEV2 -> DATETIME / DATETIMEV2(p)
 //   - DATETIME(p1) / DATETIMEV2(p1) -> DATETIME(p2) / DATETIMEV2(p2) where p2 >= p1 (bare DATETIME/DATETIMEV2 has precision 0)
 //   - DECIMAL(p1, s) / DECIMALV3(p1, s) -> DECIMAL(p2, s) / DECIMALV3(p2, s) where p2 >= p1
 //   - ARRAY<T1> -> ARRAY<T2> where T1 -> T2 is a safe type evolution
-//   - TINYINT -> SMALLINT, INT, or BIGINT
-//   - SMALLINT -> INT or BIGINT
-//   - INT -> BIGINT
+//   - TINYINT -> SMALLINT, INT, BIGINT, or LARGEINT
+//   - SMALLINT -> INT, BIGINT, or LARGEINT
+//   - INT -> BIGINT or LARGEINT
+//   - BIGINT -> LARGEINT
 //   - FLOAT -> DOUBLE
 func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 	bt := strings.ToUpper(strings.TrimSpace(beforeType))
@@ -302,9 +304,9 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 
 	if m, okB := parseDorisVarcharLength(canonBefore); okB {
 		if n, okA := parseDorisVarcharLength(canonAfter); okA {
-			return n > m
+			return n >= m
 		}
-		return false
+		return canonAfter == "STRING"
 	}
 
 	if p1, s1, okB := parseDorisDecimalParams(canonBefore); okB {
@@ -316,13 +318,18 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 
 	switch canonBefore {
 	case "TINYINT":
-		return canonAfter == "SMALLINT" || canonAfter == "INT" || canonAfter == "BIGINT"
+		return canonAfter == "SMALLINT" || canonAfter == "INT" || canonAfter == "BIGINT" || canonAfter == "LARGEINT"
 	case "SMALLINT":
-		return canonAfter == "INT" || canonAfter == "BIGINT"
+		return canonAfter == "INT" || canonAfter == "BIGINT" || canonAfter == "LARGEINT"
 	case "INT":
-		return canonAfter == "BIGINT"
+		return canonAfter == "BIGINT" || canonAfter == "LARGEINT"
+	case "BIGINT":
+		return canonAfter == "LARGEINT"
 	case "FLOAT":
 		return canonAfter == "DOUBLE"
+	case "DATE":
+		_, okA := parseDorisDatetimePrecision(at)
+		return okA
 	default:
 		return false
 	}
