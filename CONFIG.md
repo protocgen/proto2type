@@ -113,9 +113,9 @@ Can be combined with `domain=true` (default) to generate both domain and storage
 
 Controls the Apache Doris 4.x, StarRocks 4.x & Apache Iceberg lakehouse backend output when `backend=doris` or `backend=starrocks`.
 
-| Default | `""` (`go` for `backend=doris`, emitting `*_doris.type.go`; `go` + `starrocks` for `backend=starrocks`, emitting `*_doris.type.go`, `*_starrocks.sql`, `*_starrocks.hcl`; `all` emits `*_doris.type.go`, `*_doris.sql`, `*_doris.hcl`, `*_starrocks.sql`, `*_starrocks.hcl`, `*_iceberg.sql`, `*_iceberg.hcl`) |
+| Default | `""` (`go` for `backend=doris`, emitting `*_doris.type.go`; `go` + `starrocks` for `backend=starrocks`, emitting `*_doris.type.go`, `*_starrocks.sql`, `*_starrocks.hcl`) |
 |---|---|
-| Values | `""` / `go` (Go storage structs + SQL scanners), `ddl` (Doris, StarRocks & Iceberg SQL DDL), `hcl` (Doris, StarRocks & Iceberg Atlas HCL), `both` (`go` + `ddl`), `all` (`go` + `ddl` + `hcl`), `starrocks` (`*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_both` (`go` + `*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_ddl` (`*_starrocks.sql`), `starrocks_hcl` (`*_starrocks.hcl`) |
+| Values | `""` / `go` (Go storage structs + SQL scanners), `ddl` (`*_doris.sql` + `*_iceberg.sql`), `hcl` (`*_doris.hcl` + `*_iceberg.hcl`), `both` (`*_doris.type.go` + `*_doris.sql` + `*_iceberg.sql`), `all` (all 3 dialects: `*_doris.type.go` + `*_doris.sql` + `*_doris.hcl` + `*_starrocks.sql` + `*_starrocks.hcl` + `*_iceberg.sql` + `*_iceberg.hcl`), `starrocks` (`*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_both` (`*_doris.type.go` + `*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_ddl` (`*_starrocks.sql`), `starrocks_hcl` (`*_starrocks.hcl`) |
 
 ### `doris_storage_vault`
 

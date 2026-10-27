@@ -1057,8 +1057,8 @@ type ddlBlock struct {
 	sql       string
 }
 
-// generateDorisDDLFiles emits <prefix>_doris.sql, <prefix>_starrocks.sql, and <prefix>_iceberg.sql
-// for all Doris/StarRocks/Iceberg tables in the proto file.
+// generateDorisDDLFiles emits <prefix>_doris.sql and <prefix>_iceberg.sql
+// for all Doris/Iceberg tables in the proto file.
 func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, tables []*dorisTableIR) error {
 	var dorisBlocks []ddlBlock
 	var icebergBlocks []ddlBlock
@@ -1098,10 +1098,6 @@ func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 			dg.P("-- ", blk.goName, " (", blk.tableName, ")")
 			dg.P(blk.sql)
 		}
-	}
-
-	if err := generateStarRocksDDLFile(gen, file, tables); err != nil {
-		return err
 	}
 
 	if len(icebergBlocks) > 0 {

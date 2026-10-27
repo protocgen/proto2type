@@ -366,7 +366,7 @@ See [CONFIG.md](CONFIG.md) for the full reference, including proto-level annotat
 |---|---|---|
 | `lang` | `go` | Target language (`go`, `rust`, `python`, `kotlin`, `typescript`) |
 | `backend` | _(none)_ | Storage backend (`firestore`, `mongo`, `postgres`, `doris`, `starrocks`, `sqlite`, `dynamodb`, `datastore`, `spanner`, `buffa`, `jsonrpc`) |
-| `doris_mode` | `""` (`go`) | Doris/StarRocks/Iceberg backend mode: `""`/`go` (Go storage structs + SQL scanners), `ddl` (Doris, StarRocks & Iceberg SQL DDL), `hcl` (Doris, StarRocks & Iceberg Atlas HCL), `both` (`go` + `ddl`), `all` (`go` + `ddl` + `hcl`), `starrocks` (`*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_both` (`go` + `*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_ddl`, `starrocks_hcl` |
+| `doris_mode` | `""` (`go`) | Doris/StarRocks/Iceberg backend mode: `""`/`go` (Go storage structs + SQL scanners), `ddl` (`*_doris.sql` + `*_iceberg.sql`), `hcl` (`*_doris.hcl` + `*_iceberg.hcl`), `both` (`*_doris.type.go` + `*_doris.sql` + `*_iceberg.sql`), `all` (`*_doris.type.go` + `*_doris.sql` + `*_doris.hcl` + `*_starrocks.sql` + `*_starrocks.hcl` + `*_iceberg.sql` + `*_iceberg.hcl`), `starrocks` (`*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_both` (`*_doris.type.go` + `*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_ddl` (`*_starrocks.sql`), `starrocks_hcl` (`*_starrocks.hcl`) |
 | `doris_storage_vault` | `""` | Default Apache Doris storage vault name for DDL properties (omitted when empty) |
 | `iceberg_catalog` | `""` (`iceberg`) | Default Apache Iceberg catalog prefix for DDL (renders `iceberg` when empty) |
 | `postgres_mode` | `""` | Postgres backend mode: `""` (struct), `search_index` (FHIR search index extraction) |

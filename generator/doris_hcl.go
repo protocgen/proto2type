@@ -1613,8 +1613,8 @@ func parseDorisAtlasIndexBlock(idxName, body string) (DorisIndexDescriptor, erro
 	return idx, nil
 }
 
-// generateDorisHCLFiles emits <prefix>_doris.hcl, <prefix>_starrocks.hcl, and <prefix>_iceberg.hcl
-// for all Doris/StarRocks/Iceberg tables in the proto file when doris_mode is "hcl" or "all".
+// generateDorisHCLFiles emits <prefix>_doris.hcl and <prefix>_iceberg.hcl
+// for all Doris/Iceberg tables in the proto file when doris_mode is "hcl" or "all".
 func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, tables []*dorisTableIR) error {
 	var dorisBlocks []ddlBlock
 	var icebergBlocks []ddlBlock
@@ -1654,10 +1654,6 @@ func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 			dg.P("# ", blk.goName, " (", blk.tableName, ")")
 			dg.P(blk.sql)
 		}
-	}
-
-	if err := generateStarRocksHCLFile(gen, file, tables); err != nil {
-		return err
 	}
 
 	if len(icebergBlocks) > 0 {
