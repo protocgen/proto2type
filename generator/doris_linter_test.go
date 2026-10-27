@@ -227,16 +227,24 @@ func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 		{"VARCHAR(32)", "VARCHAR(32)"},
 		{"VARCHAR(32)", "VARCHAR(64)"},
 		{"varchar(64)", "VARCHAR(256)"},
+		{"VARCHAR(64)", "STRING"},
+		{"VARCHAR(64)", "TEXT"},
 		{"TINYINT", "SMALLINT"},
 		{"TINYINT", "INT"},
 		{"TINYINT", "BIGINT"},
+		{"TINYINT", "LARGEINT"},
 		{"SMALLINT", "INT"},
 		{"SMALLINT", "BIGINT"},
+		{"SMALLINT", "LARGEINT"},
 		{"INT", "BIGINT"},
+		{"INT", "LARGEINT"},
+		{"BIGINT", "LARGEINT"},
 		{"FLOAT", "DOUBLE"},
 		{"DATEV2", "DATEV2"},
 		{"DATEV2", "DATE"},
 		{"DATE", "DATEV2"},
+		{"DATE", "DATETIME"},
+		{"DATEV2", "DATETIMEV2(6)"},
 		{"DATETIME", "DATETIMEV2"},
 		{"DATETIMEV2(0)", "DATETIME"},
 		{"DATETIME", "DATETIMEV2(6)"},
@@ -254,9 +262,13 @@ func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 		{"STRING", "TEXT"},
 		{"ARRAY<FLOAT>", "ARRAY<FLOAT>"},
 		{"ARRAY<VARCHAR(32)>", "ARRAY<VARCHAR(64)>"},
+		{"ARRAY<VARCHAR(64)>", "ARRAY<STRING>"},
+		{"ARRAY<VARCHAR(64)>", "ARRAY<TEXT>"},
 		{"ARRAY<TEXT>", "ARRAY<STRING>"},
 		{"ARRAY<STRING>", "ARRAY<TEXT>"},
 		{"ARRAY<DATEV2>", "ARRAY<DATE>"},
+		{"ARRAY<DATE>", "ARRAY<DATETIME>"},
+		{"ARRAY<DATEV2>", "ARRAY<DATETIMEV2(6)>"},
 	}
 	for _, tc := range allowedCases {
 		if !IsSafeDorisTypeEvolution(tc.before, tc.after) {
@@ -269,19 +281,25 @@ func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 		after  string
 	}{
 		{"VARCHAR(64)", "VARCHAR(32)"},               // Narrowing VARCHAR
-		{"VARCHAR(64)", "TEXT"},                      // Incompatible with LSC / key rules
+		{"STRING", "VARCHAR(64)"},                    // Narrowing STRING to VARCHAR
+		{"TEXT", "VARCHAR(64)"},                      // Narrowing TEXT to VARCHAR
 		{"VARCHAR(64)", "INT"},                       // Incompatible type family
+		{"LARGEINT", "BIGINT"},                       // Narrowing integer
+		{"LARGEINT", "INT"},                          // Narrowing integer
+		{"LARGEINT", "SMALLINT"},                     // Narrowing integer
+		{"LARGEINT", "TINYINT"},                      // Narrowing integer
 		{"BIGINT", "INT"},                            // Narrowing integer
 		{"BIGINT", "SMALLINT"},                       // Narrowing integer
 		{"BIGINT", "TINYINT"},                        // Narrowing integer
-		{"BIGINT", "LARGEINT"},                       // Incompatible in Iceberg v2 (LONG -> DECIMAL(38,0))
 		{"INT", "SMALLINT"},                          // Narrowing integer
 		{"INT", "TINYINT"},                           // Narrowing integer
 		{"SMALLINT", "TINYINT"},                      // Narrowing integer
 		{"DOUBLE", "FLOAT"},                          // Narrowing float
 		{"FLOAT", "INT"},                             // Float to int
 		{"INT", "DOUBLE"},                            // Int to double
-		{"DATEV2", "DATETIMEV2(6)"},                  // Date to datetime
+		{"DATETIME", "DATE"},                         // Datetime to date narrowing
+		{"DATETIMEV2(6)", "DATEV2"},                  // Datetime to date narrowing
+		{"DATE", "DATETIMEV2(99)"},                   // Invalid datetime precision
 		{"DATETIMEV2(6)", "DATETIME"},                // Datetime precision narrowing (6 -> 0)
 		{"DATETIMEV2(6)", "DATETIMEV2(0)"},           // Datetime precision narrowing (6 -> 0)
 		{"DATETIMEV2(6)", "DATETIMEV2(3)"},           // Datetime precision narrowing (6 -> 3)

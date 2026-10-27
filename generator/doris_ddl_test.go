@@ -311,6 +311,42 @@ func TestRuntimeVsPlugin_StarRocksAndDorisParity(t *testing.T) {
 			}
 		})
 	}
+
+	evolutionCases := []struct {
+		before string
+		after  string
+		want   bool
+	}{
+		{"VARCHAR(32)", "VARCHAR(64)", true},
+		{"VARCHAR(64)", "STRING", true},
+		{"VARCHAR(64)", "TEXT", true},
+		{"ARRAY<VARCHAR(64)>", "ARRAY<STRING>", true},
+		{"TINYINT", "LARGEINT", true},
+		{"SMALLINT", "LARGEINT", true},
+		{"INT", "LARGEINT", true},
+		{"BIGINT", "LARGEINT", true},
+		{"LARGEINT", "BIGINT", false},
+		{"DATE", "DATETIME", true},
+		{"DATEV2", "DATETIMEV2(6)", true},
+		{"DATETIME", "DATE", false},
+		{"DATETIMEV2(6)", "DATEV2", false},
+		{"DATETIME", "DATETIMEV2(6)", true},
+		{"DATETIMEV2(6)", "DATETIME", false},
+		{"DATETIMEV2(6)", "DATETIMEV2(3)", false},
+		{"ARRAY<DATETIMEV2(6)>", "ARRAY<DATETIME>", false},
+		{"DECIMALV3(10, 2)", "DECIMAL(18, 2)", true},
+		{"DECIMALV3(10, 2)", "DECIMAL(8, 2)", false},
+	}
+	for _, ec := range evolutionCases {
+		gotRT := IsSafeDorisTypeEvolution(ec.before, ec.after)
+		gotPlugin := genpkg.IsSafeDorisTypeEvolution(ec.before, ec.after)
+		if gotRT != gotPlugin {
+			t.Errorf("IsSafeDorisTypeEvolution(%q, %q) runtime=%v != plugin=%v", ec.before, ec.after, gotRT, gotPlugin)
+		}
+		if gotRT != ec.want {
+			t.Errorf("IsSafeDorisTypeEvolution(%q, %q) = %v, want %v", ec.before, ec.after, gotRT, ec.want)
+		}
+	}
 }
 `
 	if err := os.WriteFile(filepath.Join(tmpPkgDir, "parity_test.go"), []byte(parityTestSrc), 0o644); err != nil {
