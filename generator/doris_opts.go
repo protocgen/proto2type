@@ -95,8 +95,7 @@ func (m *DorisTableMetaIR) hasDorisSpecificFields() bool {
 	if m == nil {
 		return false
 	}
-	return m.TableName != "" ||
-		m.DatabaseScope != "" ||
+	if m.DatabaseScope != "" ||
 		m.SyncTier != "" ||
 		len(m.UniqueKeyColumns) > 0 ||
 		len(m.PartitionByColumns) > 0 ||
@@ -110,7 +109,10 @@ func (m *DorisTableMetaIR) hasDorisSpecificFields() bool {
 		m.FileCacheTTLSeconds != 0 ||
 		m.StorageVaultName != "" ||
 		m.IcebergCatalog != "" ||
-		m.EmbeddingDimension != 0
+		m.EmbeddingDimension != 0 {
+		return true
+	}
+	return m.TableName != "" && len(m.PrimaryKeyFields) == 0 && len(m.Indexes) == 0
 }
 
 // DorisColumnMetaIR holds Apache Doris 4.x, Apache Iceberg, and PostgreSQL column-level
@@ -584,22 +586,22 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 			TableName:            t.GetTableName(),
 			DatabaseScope:        normalizeDatabaseScope(t.GetDatabaseScope()),
 			SyncTier:             normalizeSyncTier(t.GetSyncTier()),
-			UniqueKeyColumns:     append([]string(nil), t.GetUniqueKeyColumns()...),
-			PartitionByColumns:   append([]string(nil), t.GetPartitionByColumns()...),
+			UniqueKeyColumns:     mergeUniqueStrings(nil, t.GetUniqueKeyColumns()),
+			PartitionByColumns:   mergeUniqueStrings(nil, t.GetPartitionByColumns()),
 			ColocateGroup:        t.GetColocateGroup(),
 			SequenceCol:          t.GetSequenceCol(),
-			InvertedIndexColumns: append([]string(nil), t.GetInvertedIndexColumns()...),
-			NgramBfColumns:       append([]string(nil), t.GetNgramBfColumns()...),
-			BloomFilterColumns:   append([]string(nil), t.GetBloomFilterColumns()...),
+			InvertedIndexColumns: mergeUniqueStrings(nil, t.GetInvertedIndexColumns()),
+			NgramBfColumns:       mergeUniqueStrings(nil, t.GetNgramBfColumns()),
+			BloomFilterColumns:   mergeUniqueStrings(nil, t.GetBloomFilterColumns()),
 			DistributedByColumn:  t.GetDistributedByColumn(),
-			DuplicateKeyColumns:  append([]string(nil), t.GetDuplicateKeyColumns()...),
+			DuplicateKeyColumns:  mergeUniqueStrings(nil, t.GetDuplicateKeyColumns()),
 			FileCacheTTLSeconds:  t.GetFileCacheTtlSeconds(),
 			StorageVaultName:     t.GetStorageVaultName(),
 			IcebergCatalog:       t.GetIcebergCatalog(),
 			EmbeddingDimension:   t.GetEmbeddingDimension(),
 			WriterService:        strings.TrimSpace(t.GetWriterService()),
-			ReaderServices:       trimNonEmptyStrings(t.GetReaderServices()),
-			PrimaryKeyFields:     trimNonEmptyStrings(t.GetPrimaryKeyFields()),
+			ReaderServices:       mergeUniqueStrings(nil, trimNonEmptyStrings(t.GetReaderServices())),
+			PrimaryKeyFields:     mergeUniqueStrings(nil, trimNonEmptyStrings(t.GetPrimaryKeyFields())),
 			Indexes:              indexes,
 		}
 		if !out.isEmpty() {
@@ -622,6 +624,16 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 			mergeTableMeta(typedOut, wireOut)
 		}
 		return typedOut
+	}
+	if wireOut != nil {
+		wireOut.UniqueKeyColumns = mergeUniqueStrings(nil, wireOut.UniqueKeyColumns)
+		wireOut.PartitionByColumns = mergeUniqueStrings(nil, wireOut.PartitionByColumns)
+		wireOut.InvertedIndexColumns = mergeUniqueStrings(nil, wireOut.InvertedIndexColumns)
+		wireOut.NgramBfColumns = mergeUniqueStrings(nil, wireOut.NgramBfColumns)
+		wireOut.BloomFilterColumns = mergeUniqueStrings(nil, wireOut.BloomFilterColumns)
+		wireOut.DuplicateKeyColumns = mergeUniqueStrings(nil, wireOut.DuplicateKeyColumns)
+		wireOut.ReaderServices = mergeUniqueStrings(nil, wireOut.ReaderServices)
+		wireOut.PrimaryKeyFields = mergeUniqueStrings(nil, wireOut.PrimaryKeyFields)
 	}
 	return wireOut
 }
@@ -971,7 +983,7 @@ func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultA
 					if includeVaultAndCatalog {
 						dst.IcebergCatalog = string(v)
 					} else if s := strings.TrimSpace(string(v)); s != "" {
-						dst.ReaderServices = append(dst.ReaderServices, s)
+						dst.ReaderServices = mergeUniqueStrings(dst.ReaderServices, []string{s})
 					}
 					b = b[m:]
 					continue
@@ -989,7 +1001,7 @@ func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultA
 			if includeVaultAndCatalog && typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
 					if s := strings.TrimSpace(string(v)); s != "" {
-						dst.ReaderServices = append(dst.ReaderServices, s)
+						dst.ReaderServices = mergeUniqueStrings(dst.ReaderServices, []string{s})
 					}
 					b = b[m:]
 					continue
@@ -999,7 +1011,7 @@ func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultA
 			if includeVaultAndCatalog && typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
 					if s := strings.TrimSpace(string(v)); s != "" {
-						dst.PrimaryKeyFields = append(dst.PrimaryKeyFields, s)
+						dst.PrimaryKeyFields = mergeUniqueStrings(dst.PrimaryKeyFields, []string{s})
 					}
 					b = b[m:]
 					continue
@@ -1245,17 +1257,20 @@ func parseDorisColumnMetaFromOptionsWire(raw []byte) *DorisColumnMetaIR {
 				break
 			}
 			b = b[m:]
-			// Check field 10 (ColumnOptions column = 10) inside FieldOptions
+			// Check field 10 (ColumnOptions column = 10) and top-level relational fields 11..14 inside FieldOptions
 			inner := val
+			var topLevelFK *ForeignKeyIR
 			for len(inner) > 0 {
 				inum, ityp, in := protowire.ConsumeTag(inner)
 				if in < 0 {
 					break
 				}
 				inner = inner[in:]
-				if ityp == protowire.BytesType && inum == 10 {
+				switch {
+				case ityp == protowire.BytesType && inum == 10:
 					cval, cm := protowire.ConsumeBytes(inner)
 					if cm < 0 {
+						inner = nil
 						break
 					}
 					inner = inner[cm:]
@@ -1263,13 +1278,69 @@ func parseDorisColumnMetaFromOptionsWire(raw []byte) *DorisColumnMetaIR {
 						ext1307Out = &DorisColumnMetaIR{}
 					}
 					parseColumnMetaBytes(cval, ext1307Out)
-				} else {
+				case ityp == protowire.VarintType && inum == 11: // bool primary_key = 11
+					v, cm := protowire.ConsumeVarint(inner)
+					if cm < 0 {
+						inner = nil
+						break
+					}
+					inner = inner[cm:]
+					if ext1307Out == nil {
+						ext1307Out = &DorisColumnMetaIR{}
+					}
+					if v != 0 {
+						ext1307Out.PrimaryKey = true
+					}
+				case ityp == protowire.VarintType && inum == 12: // bool index = 12
+					v, cm := protowire.ConsumeVarint(inner)
+					if cm < 0 {
+						inner = nil
+						break
+					}
+					inner = inner[cm:]
+					if ext1307Out == nil {
+						ext1307Out = &DorisColumnMetaIR{}
+					}
+					if v != 0 {
+						ext1307Out.Index = true
+					}
+				case ityp == protowire.VarintType && inum == 13: // bool unique = 13
+					v, cm := protowire.ConsumeVarint(inner)
+					if cm < 0 {
+						inner = nil
+						break
+					}
+					inner = inner[cm:]
+					if ext1307Out == nil {
+						ext1307Out = &DorisColumnMetaIR{}
+					}
+					if v != 0 {
+						ext1307Out.Unique = true
+					}
+				case ityp == protowire.BytesType && inum == 14: // ForeignKey foreign_key = 14
+					fval, cm := protowire.ConsumeBytes(inner)
+					if cm < 0 {
+						inner = nil
+						break
+					}
+					inner = inner[cm:]
+					if fk := parseForeignKeyBytes(fval); fk != nil {
+						if ext1307Out == nil {
+							ext1307Out = &DorisColumnMetaIR{}
+						}
+						topLevelFK = fk
+					}
+				default:
 					im := protowire.ConsumeFieldValue(inum, ityp, inner)
 					if im < 0 {
+						inner = nil
 						break
 					}
 					inner = inner[im:]
 				}
+			}
+			if ext1307Out != nil && ext1307Out.ForeignKey == nil && topLevelFK != nil {
+				ext1307Out.ForeignKey = topLevelFK
 			}
 			continue
 		}
@@ -1407,6 +1478,10 @@ func parseColumnMetaBytes(b []byte, dst *DorisColumnMetaIR) {
 				if v, m := protowire.ConsumeVarint(b); m >= 0 {
 					if v <= math.MaxInt32 {
 						dst.Length = int32(v)
+					} else if negMag := ^v + 1; negMag <= math.MaxInt32 {
+						dst.Length = -int32(negMag) // #nosec G115 -- bounded by negMag <= math.MaxInt32
+					} else if ^v+1 == 1<<31 {
+						dst.Length = math.MinInt32
 					}
 					b = b[m:]
 					continue

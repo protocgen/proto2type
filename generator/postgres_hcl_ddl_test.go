@@ -1559,3 +1559,1221 @@ func TestPostgresCodeRabbitReviewFixes(t *testing.T) {
 		t.Errorf("expected cross-file duplicate PostgreSQL table name error, got %v", err)
 	}
 }
+
+// TestPostgresHardening_SameServiceForeignKeyPrefix verifies that intra-schema foreign keys
+// referencing an unprefixed snake_case table name or message name automatically resolve to
+// the target table's writer_service-prefixed physical table name in both DDL and HCL.
+func TestPostgresHardening_SameServiceForeignKeyPrefix(t *testing.T) {
+	orderTableOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(orderTableOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			WriterService: "order-service",
+		},
+	})
+
+	itemTableOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(itemTableOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			WriterService: "order-service",
+		},
+	})
+
+	fkBySnakeOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(fkBySnakeOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		ForeignKey: &proto2typepb.ForeignKey{
+			RefTable:  "order",
+			RefColumn: "id",
+			OnDelete:  "CASCADE",
+		},
+	})
+
+	fkByMsgNameOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(fkByMsgNameOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		ForeignKey: &proto2typepb.ForeignKey{
+			RefTable:  "Order",
+			RefColumn: "id",
+			OnDelete:  "RESTRICT",
+		},
+	})
+
+	fkExternalOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(fkExternalOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		ForeignKey: &proto2typepb.ForeignKey{
+			RefTable:  "external_vendors",
+			RefColumn: "id",
+		},
+	})
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("orders.proto"),
+		Package: proto.String("orders.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/orders/v1;ordersv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("Order"),
+				Options: orderTableOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+				},
+			},
+			{
+				Name:    proto.String("OrderItem"),
+				Options: itemTableOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+					{
+						Name:     proto.String("order_id"),
+						Number:   proto.Int32(2),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("orderId"),
+						Options:  fkBySnakeOpts,
+					},
+					{
+						Name:     proto.String("parent_order_id"),
+						Number:   proto.Int32(3),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("parentOrderId"),
+						Options:  fkByMsgNameOpts,
+					},
+					{
+						Name:     proto.String("vendor_id"),
+						Number:   proto.Int32(4),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("vendorId"),
+						Options:  fkExternalOpts,
+					},
+				},
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"orders.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "all",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+
+	ddl := gotFiles["orders_postgres.sql"]
+	for _, wantSQL := range []string{
+		`ALTER TABLE "order_service__order_item" ADD CONSTRAINT "fk_order_service__order_item_order_id" FOREIGN KEY ("order_id") REFERENCES "order_service__order" ("id") ON DELETE CASCADE;`,
+		`ALTER TABLE "order_service__order_item" ADD CONSTRAINT "fk_order_service__order_item_parent_order_id" FOREIGN KEY ("parent_order_id") REFERENCES "order_service__order" ("id") ON DELETE RESTRICT;`,
+		`ALTER TABLE "order_service__order_item" ADD CONSTRAINT "fk_order_service__order_item_vendor_id" FOREIGN KEY ("vendor_id") REFERENCES "external_vendors" ("id");`,
+	} {
+		if !strings.Contains(ddl, wantSQL) {
+			t.Errorf("DDL missing expected FK statement %q:\n%s", wantSQL, ddl)
+		}
+	}
+
+	hcl := gotFiles["orders_postgres.hcl"]
+	for _, wantHCL := range []string{
+		"  foreign_key \"fk_order_service__order_item_order_id\" {\n    columns     = [column.order_id]\n    ref_columns = [table.order_service__order.column.id]\n    on_delete   = CASCADE\n  }",
+		"  foreign_key \"fk_order_service__order_item_parent_order_id\" {\n    columns     = [column.parent_order_id]\n    ref_columns = [table.order_service__order.column.id]\n    on_delete   = RESTRICT\n  }",
+		"  foreign_key \"fk_order_service__order_item_vendor_id\" {\n    columns     = [column.vendor_id]\n    ref_columns = [table.external_vendors.column.id]\n  }",
+	} {
+		if !strings.Contains(hcl, wantHCL) {
+			t.Errorf("HCL missing expected FK block %q:\n%s", wantHCL, hcl)
+		}
+	}
+}
+
+// TestPostgresHardening_AdversarialInjectionRejection verifies that malicious default_value,
+// ServerDefault, sql_type, and foreign key inputs are rejected both during schema collection
+// and when calling BuildPostgresCreateTableSQL or BuildPostgresAtlasHCL directly.
+func TestPostgresHardening_AdversarialInjectionRejection(t *testing.T) {
+	cases := []struct {
+		name      string
+		fieldType descriptorpb.FieldDescriptorProto_Type
+		sqlType   string
+		defVal    string
+		wantErr   string
+	}{
+		{
+			name:      "numeric_sql_injection_check",
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_INT32,
+			defVal:    "0 CHECK (1=1)",
+			wantErr:   "invalid numeric default_value",
+		},
+		{
+			name:      "numeric_hcl_injection_braces",
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_INT64,
+			defVal:    "0 } column pwn {",
+			wantErr:   "invalid numeric default_value",
+		},
+		{
+			name:      "boolean_sql_injection",
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_BOOL,
+			defVal:    "true OR 1=1",
+			wantErr:   "invalid boolean default_value",
+		},
+		{
+			name:      "sql_type_references_injection",
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+			sqlType:   "VARCHAR(10) REFERENCES other(id)",
+			wantErr:   "invalid PostgreSQL sql_type",
+		},
+		{
+			name:      "sql_type_check_injection",
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+			sqlType:   "NUMERIC(10, 2) CHECK (val > 0)",
+			wantErr:   "invalid PostgreSQL sql_type",
+		},
+		{
+			name:      "string_default_newline_rejection",
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+			defVal:    "hello\nworld",
+			wantErr:   "invalid default_value",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fOpts := &descriptorpb.FieldOptions{}
+			proto.SetExtension(fOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+				Column: &proto2typepb.ColumnOptions{
+					SqlType:      tc.sqlType,
+					DefaultValue: tc.defVal,
+				},
+			})
+			fdp := &descriptorpb.FileDescriptorProto{
+				Syntax:  proto.String("proto3"),
+				Name:    proto.String("adv.proto"),
+				Package: proto.String("adv.v1"),
+				Options: &descriptorpb.FileOptions{
+					GoPackage: proto.String("example.com/adv/v1;advv1"),
+				},
+				MessageType: []*descriptorpb.DescriptorProto{
+					{
+						Name: proto.String("AdvRecord"),
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:     proto.String("val"),
+								Number:   proto.Int32(1),
+								Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:     tc.fieldType.Enum(),
+								JsonName: proto.String("val"),
+								Options:  fOpts,
+							},
+						},
+					},
+				},
+			}
+			gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"adv.proto"})
+			err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+				Lang:         "go",
+				Backend:      "postgres",
+				PostgresMode: "both",
+				Domain:       false,
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
+			}
+		})
+	}
+
+	// Direct descriptor calls must also reject malicious payloads
+	badDescriptors := []PostgresTableSchemaDescriptor{
+		{
+			TableName: "valid_table",
+			Columns: []PostgresColumnDescriptor{
+				{ColumnName: "c1", SQLType: "INTEGER", HCLType: "integer", DefaultValue: "0 CHECK (1=1)"},
+			},
+		},
+		{
+			TableName: "valid_table",
+			Columns: []PostgresColumnDescriptor{
+				{ColumnName: "c1", SQLType: "TIMESTAMPTZ", HCLType: "timestamptz", ServerDefault: "NOW()); DROP TABLE x; --"},
+			},
+		},
+		{
+			TableName: "valid_table",
+			Columns: []PostgresColumnDescriptor{
+				{ColumnName: "c1", SQLType: "VARCHAR(10) REFERENCES t(id)", HCLType: "varchar(10)"},
+			},
+		},
+		{
+			TableName: "valid_table",
+			Columns: []PostgresColumnDescriptor{
+				{ColumnName: "c1", SQLType: "TEXT", HCLType: "text"},
+			},
+			ForeignKeys: []PostgresForeignKeyDescriptor{
+				{
+					Name:      "fk_valid",
+					Columns:   []string{"c1"},
+					RefTable:  strings.Repeat("a", 64),
+					RefColumn: "id",
+				},
+			},
+		},
+		{
+			TableName: "valid_table",
+			Columns: []PostgresColumnDescriptor{
+				{ColumnName: "c1", SQLType: "TEXT", HCLType: "text"},
+			},
+			ForeignKeys: []PostgresForeignKeyDescriptor{
+				{
+					Name:      "fk_valid",
+					Columns:   []string{"c1"},
+					RefTable:  "other_table",
+					RefColumn: "id",
+					OnDelete:  "CASCADE; DROP TABLE x",
+				},
+			},
+		},
+	}
+
+	for i, desc := range badDescriptors {
+		if sql := desc.BuildPostgresCreateTableSQL(); sql != "" && len(desc.ForeignKeys) == 0 {
+			t.Errorf("case %d: expected empty SQL from BuildPostgresCreateTableSQL, got:\n%s", i, sql)
+		}
+		if len(desc.ForeignKeys) > 0 {
+			if fkSQL := desc.BuildPostgresForeignKeysSQL(); len(fkSQL) != 0 {
+				t.Errorf("case %d: expected empty FK SQL from BuildPostgresForeignKeysSQL, got: %v", i, fkSQL)
+			}
+		}
+		if hcl := desc.BuildPostgresAtlasHCL(); hcl != "" {
+			t.Errorf("case %d: expected empty HCL from BuildPostgresAtlasHCL, got:\n%s", i, hcl)
+		}
+	}
+}
+
+// TestPostgresHardening_DefaultValueQuotingMatrix verifies default value formatting across
+// CHAR(2), TIMESTAMP, TIMESTAMPTZ(6), INTERVAL, INET, TEXT[], BOOLEAN, and INTEGER in DDL and HCL.
+func TestPostgresHardening_DefaultValueQuotingMatrix(t *testing.T) {
+	mkField := func(name string, num int32, ft descriptorpb.FieldDescriptorProto_Type, label descriptorpb.FieldDescriptorProto_Label, sqlType, defVal string, serverTS bool) *descriptorpb.FieldDescriptorProto {
+		opts := &descriptorpb.FieldOptions{}
+		proto.SetExtension(opts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+			ServerTimestamp: serverTS,
+			Column: &proto2typepb.ColumnOptions{
+				SqlType:      sqlType,
+				DefaultValue: defVal,
+			},
+		})
+		return &descriptorpb.FieldDescriptorProto{
+			Name:     proto.String(name),
+			Number:   proto.Int32(num),
+			Label:    label.Enum(),
+			Type:     ft.Enum(),
+			JsonName: proto.String(name),
+			Options:  opts,
+		}
+	}
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("defaults_matrix.proto"),
+		Package: proto.String("matrix.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/matrix/v1;matrixv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: proto.String("DefaultsMatrix"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					mkField("country_code", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL, "CHAR(2)", "US", false),
+					mkField("legacy_ts", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL, "TIMESTAMP", "1970-01-01 00:00:00", false),
+					mkField("precise_tstz", 3, descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL, "TIMESTAMPTZ(6)", "1970-01-01T00:00:00Z", false),
+					mkField("auto_tstz", 4, descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL, "TIMESTAMPTZ(6)", "", true),
+					mkField("lease_window", 5, descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL, "INTERVAL", "1 day", false),
+					mkField("host_ip", 6, descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL, "INET", "127.0.0.1", false),
+					mkField("labels", 7, descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_LABEL_REPEATED, "", "{}", false),
+					mkField("is_enabled", 8, descriptorpb.FieldDescriptorProto_TYPE_BOOL, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL, "", "TRUE", false),
+					mkField("retry_offset", 9, descriptorpb.FieldDescriptorProto_TYPE_INT32, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL, "", "-42", false),
+				},
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"defaults_matrix.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "both",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+
+	ddl := gotFiles["defaults_matrix_postgres.sql"]
+	for _, wantSQL := range []string{
+		`"country_code" CHAR(2) NOT NULL DEFAULT 'US'`,
+		`"legacy_ts" TIMESTAMP NOT NULL DEFAULT '1970-01-01 00:00:00'`,
+		`"precise_tstz" TIMESTAMPTZ(6) NOT NULL DEFAULT '1970-01-01T00:00:00Z'`,
+		`"auto_tstz" TIMESTAMPTZ(6) NOT NULL DEFAULT NOW()`,
+		`"lease_window" INTERVAL NOT NULL DEFAULT '1 day'`,
+		`"host_ip" INET NOT NULL DEFAULT '127.0.0.1'`,
+		`"labels" TEXT[] NOT NULL DEFAULT '{}'`,
+		`"is_enabled" BOOLEAN NOT NULL DEFAULT TRUE`,
+		`"retry_offset" INTEGER NOT NULL DEFAULT -42`,
+	} {
+		if !strings.Contains(ddl, wantSQL) {
+			t.Errorf("DDL missing expected column definition %q:\n%s", wantSQL, ddl)
+		}
+	}
+
+	hcl := gotFiles["defaults_matrix_postgres.hcl"]
+	for _, wantHCL := range []string{
+		"  column \"country_code\" {\n    null = false\n    type = char(2)\n    default = \"US\"\n  }",
+		"  column \"legacy_ts\" {\n    null = false\n    type = timestamp\n    default = \"1970-01-01 00:00:00\"\n  }",
+		"  column \"precise_tstz\" {\n    null = false\n    type = timestamptz(6)\n    default = \"1970-01-01T00:00:00Z\"\n  }",
+		"  column \"auto_tstz\" {\n    null = false\n    type = timestamptz(6)\n    default = sql(\"now()\")\n  }",
+		"  column \"lease_window\" {\n    null = false\n    type = interval\n    default = \"1 day\"\n  }",
+		"  column \"host_ip\" {\n    null = false\n    type = inet\n    default = \"127.0.0.1\"\n  }",
+		"  column \"labels\" {\n    null = false\n    type = sql(\"text[]\")\n    default = \"{}\"\n  }",
+		"  column \"is_enabled\" {\n    null = false\n    type = boolean\n    default = true\n  }",
+		"  column \"retry_offset\" {\n    null = false\n    type = integer\n    default = -42\n  }",
+	} {
+		if !strings.Contains(hcl, wantHCL) {
+			t.Errorf("HCL missing expected column block %q:\n%s", wantHCL, hcl)
+		}
+	}
+}
+
+// TestPostgresHardening_MapAndNestedMessagesNotStandaloneTables verifies that map<string, SubMeta>
+// value messages and unannotated nested messages are not emitted as standalone tables, while
+// nested messages with explicit TableOptions are emitted as standalone tables.
+func TestPostgresHardening_MapAndNestedMessagesNotStandaloneTables(t *testing.T) {
+	annotatedNestedOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(annotatedNestedOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			TableName: "explicit_nested_events",
+		},
+	})
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("maps_nested.proto"),
+		Package: proto.String("mapsnested.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/mapsnested/v1;mapsnestedv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: proto.String("SubMeta"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("label"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("label"),
+					},
+				},
+			},
+			{
+				Name: proto.String("MainContainer"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+					{
+						Name:     proto.String("meta_by_key"),
+						Number:   proto.Int32(2),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+						TypeName: proto.String(".mapsnested.v1.MainContainer.MetaByKeyEntry"),
+						JsonName: proto.String("metaByKey"),
+					},
+				},
+				NestedType: []*descriptorpb.DescriptorProto{
+					{
+						Name: proto.String("MetaByKeyEntry"),
+						Options: &descriptorpb.MessageOptions{
+							MapEntry: proto.Bool(true),
+						},
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:     proto.String("key"),
+								Number:   proto.Int32(1),
+								Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+								JsonName: proto.String("key"),
+							},
+							{
+								Name:     proto.String("value"),
+								Number:   proto.Int32(2),
+								Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+								TypeName: proto.String(".mapsnested.v1.SubMeta"),
+								JsonName: proto.String("value"),
+							},
+						},
+					},
+					{
+						Name: proto.String("UnannotatedNestedHelper"),
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:     proto.String("note"),
+								Number:   proto.Int32(1),
+								Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+								JsonName: proto.String("note"),
+							},
+						},
+					},
+					{
+						Name:    proto.String("AnnotatedNestedEvent"),
+						Options: annotatedNestedOpts,
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:     proto.String("event_id"),
+								Number:   proto.Int32(1),
+								Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+								JsonName: proto.String("eventId"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"maps_nested.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "both",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+
+	ddl := gotFiles["maps_nested_postgres.sql"]
+	hcl := gotFiles["maps_nested_postgres.hcl"]
+
+	if !strings.Contains(ddl, `CREATE TABLE IF NOT EXISTS "main_container"`) || !strings.Contains(ddl, `"meta_by_key" JSONB NOT NULL`) {
+		t.Errorf("expected main_container with meta_by_key JSONB in DDL:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, `CREATE TABLE IF NOT EXISTS "explicit_nested_events"`) {
+		t.Errorf("expected explicit_nested_events in DDL:\n%s", ddl)
+	}
+	if !strings.Contains(hcl, `table "explicit_nested_events"`) {
+		t.Errorf("expected explicit_nested_events in HCL:\n%s", hcl)
+	}
+	if strings.Contains(ddl, `"sub_meta"`) || strings.Contains(hcl, `table "sub_meta"`) {
+		t.Errorf("map value message SubMeta must not be emitted as a standalone table:\nDDL:\n%s\nHCL:\n%s", ddl, hcl)
+	}
+	if strings.Contains(ddl, `"unannotated_nested_helper"`) || strings.Contains(hcl, `table "unannotated_nested_helper"`) {
+		t.Errorf("unannotated nested message UnannotatedNestedHelper must not be emitted as a standalone table:\nDDL:\n%s\nHCL:\n%s", ddl, hcl)
+	}
+}
+
+// TestPostgresHardening_Identifier63ByteCompactionAndValidation verifies deterministic 63-byte
+// identifier compaction with SHA-256 suffix for auto-generated index/unique/FK names, and
+// strict 63-byte rejection for explicit user-supplied identifiers.
+func TestPostgresHardening_Identifier63ByteCompactionAndValidation(t *testing.T) {
+	tblOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(tblOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			WriterService: "claims-processing-service",
+		},
+	})
+
+	col1Opts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(col1Opts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		Index:  true,
+		Unique: true,
+		ForeignKey: &proto2typepb.ForeignKey{
+			RefTable:  "tenants",
+			RefColumn: "id",
+		},
+	})
+
+	col2Opts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(col2Opts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		Index:  true,
+		Unique: true,
+		ForeignKey: &proto2typepb.ForeignKey{
+			RefTable:  "tenants",
+			RefColumn: "id",
+		},
+	})
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("long_names.proto"),
+		Package: proto.String("longnames.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/longnames/v1;longnamesv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("AdjudicationBatchRecord"),
+				Options: tblOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("primary_organization_hierarchical_reference_identifier_alpha"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("colAlpha"),
+						Options:  col1Opts,
+					},
+					{
+						Name:     proto.String("primary_organization_hierarchical_reference_identifier_bravo"),
+						Number:   proto.Int32(2),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("colBravo"),
+						Options:  col2Opts,
+					},
+				},
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"long_names.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "both",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+	ddl := gotFiles["long_names_postgres.sql"]
+	hcl := gotFiles["long_names_postgres.hcl"]
+	if n := strings.Count(ddl, "CREATE INDEX IF NOT EXISTS \"idx_"); n != 2 {
+		t.Fatalf("expected 2 compacted idx_ indexes in DDL, got %d:\n%s", n, ddl)
+	}
+	if n := strings.Count(ddl, "CREATE UNIQUE INDEX IF NOT EXISTS \"uq_"); n != 2 {
+		t.Fatalf("expected 2 compacted uq_ indexes in DDL, got %d:\n%s", n, ddl)
+	}
+	if !strings.Contains(ddl, "ADD CONSTRAINT \"fk_") {
+		t.Fatalf("expected compacted fk_ constraint in DDL:\n%s", ddl)
+	}
+	for _, line := range strings.Split(ddl, "\n") {
+		for _, pfx := range []string{`"idx_`, `"uq_`, `"fk_`} {
+			if pos := strings.Index(line, pfx); pos >= 0 {
+				rest := line[pos+1:]
+				if end := strings.IndexByte(rest, '"'); end >= 0 {
+					id := rest[:end]
+					if len(id) > maxPostgresIdentifierBytes {
+						t.Errorf("compacted identifier %q length %d exceeds 63 bytes", id, len(id))
+					}
+				}
+			}
+		}
+	}
+	if !strings.Contains(hcl, `index "idx_`) || !strings.Contains(hcl, `index "uq_`) || !strings.Contains(hcl, `foreign_key "fk_`) {
+		t.Fatalf("expected compacted idx_, uq_, and fk_ identifiers in HCL:\n%s", hcl)
+	}
+
+	// Verify explicit index name > 63 bytes is rejected
+	explicitLongIdxOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(explicitLongIdxOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			Indexes: []*proto2typepb.IndexDef{
+				{
+					Name:    "idx_" + strings.Repeat("x", 60),
+					Columns: []string{"id"},
+				},
+			},
+		},
+	})
+	badIdxFDP := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("bad_idx_len.proto"),
+		Package: proto.String("longnames.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/longnames/v1;longnamesv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("BadIdxLen"),
+				Options: explicitLongIdxOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+				},
+			},
+		},
+	}
+	genBadIdx := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{badIdxFDP}}, []string{"bad_idx_len.proto"})
+	if err := NewRunner().GenerateFile(genBadIdx, genBadIdx.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "ddl",
+		Domain:       false,
+	}); err == nil || !strings.Contains(err.Error(), "exceeds 63-byte identifier limit") {
+		t.Errorf("expected error for >63-byte explicit index name, got %v", err)
+	}
+}
+
+// TestPostgresHardening_CompositeAndOneofPKAndRedundantUniqueIndex verifies that composite
+// primary keys and oneof variant primary keys are marked NOT NULL, that single-column PKs
+// skip redundant uq_<table>_<pk> indexes while composite PK columns with unique: true keep them,
+// and that negative column length is rejected.
+func TestPostgresHardening_CompositeAndOneofPKAndRedundantUniqueIndex(t *testing.T) {
+	compTableOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(compTableOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			PrimaryKeyFields: []string{"tenant_id", "oneof_pk_code"},
+		},
+	})
+
+	tenantFieldOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(tenantFieldOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		Unique: true,
+	})
+
+	singlePKFieldOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(singlePKFieldOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		PrimaryKey: true,
+		Unique:     true,
+		Index:      true,
+	})
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("pk_test.proto"),
+		Package: proto.String("pktest.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/pktest/v1;pktestv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("CompositeTable"),
+				Options: compTableOpts,
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("pk_choice")},
+				},
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("tenant_id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("tenantId"),
+						Options:  tenantFieldOpts,
+					},
+					{
+						Name:       proto.String("oneof_pk_code"),
+						Number:     proto.Int32(2),
+						Label:      descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:       descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName:   proto.String("oneofPkCode"),
+						OneofIndex: proto.Int32(0),
+					},
+				},
+			},
+			{
+				Name: proto.String("SinglePKTable"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+						Options:  singlePKFieldOpts,
+					},
+				},
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"pk_test.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "both",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+
+	ddl := gotFiles["pk_test_postgres.sql"]
+	hcl := gotFiles["pk_test_postgres.hcl"]
+
+	// Oneof variant in primary key must be NOT NULL
+	if !strings.Contains(ddl, `"oneof_pk_code" TEXT NOT NULL`) {
+		t.Errorf("expected oneof PK column oneof_pk_code to be NOT NULL in DDL:\n%s", ddl)
+	}
+	if !strings.Contains(hcl, "  column \"oneof_pk_code\" {\n    null = false\n    type = text\n  }") {
+		t.Errorf("expected oneof PK column oneof_pk_code to have null = false in HCL:\n%s", hcl)
+	}
+	// Composite PK column with unique: true still gets its single-column unique index
+	if !strings.Contains(ddl, `uq_composite_table_tenant_id`) {
+		t.Errorf("expected uq_composite_table_tenant_id on composite PK member in DDL:\n%s", ddl)
+	}
+	// Single-column PK with unique: true must NOT emit redundant uq_single_pk_table_id
+	if strings.Contains(ddl, `uq_single_pk_table_id`) || strings.Contains(hcl, `uq_single_pk_table_id`) {
+		t.Errorf("expected redundant single-column PK unique index uq_single_pk_table_id to be skipped:\nDDL:\n%s\nHCL:\n%s", ddl, hcl)
+	}
+
+	// Negative length must be rejected
+	negLenOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(negLenOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		Column: &proto2typepb.ColumnOptions{
+			Length: -5,
+		},
+	})
+	negFDP := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("neg_len.proto"),
+		Package: proto.String("pktest.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/pktest/v1;pktestv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: proto.String("NegLenTable"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("code"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("code"),
+						Options:  negLenOpts,
+					},
+				},
+			},
+		},
+	}
+	genNeg := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{negFDP}}, []string{"neg_len.proto"})
+	if err := NewRunner().GenerateFile(genNeg, genNeg.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "ddl",
+		Domain:       false,
+	}); err == nil || !strings.Contains(err.Error(), "column length cannot be negative") {
+		t.Errorf("expected negative column length error, got %v", err)
+	}
+}
+
+// TestPostgresHardening_Wire1307ShorthandAndNegativeLength verifies raw wire decoding of
+// extension 1307 FieldOptions shorthand tags 11-14 (primary_key, index, unique, foreign_key),
+// negative two's-complement varint length at tag 13 in ColumnOptions, and mixed 1307+50201 Doris eligibility.
+func TestPostgresHardening_Wire1307ShorthandAndNegativeLength(t *testing.T) {
+	// 1. Build raw wire bytes for extension 1307 FieldOptions with tags 10 (column), 11 (pk), 12 (index), 13 (unique), 14 (fk)
+	var colBytes []byte
+	colBytes = protowire.AppendTag(colBytes, 11, protowire.BytesType)
+	colBytes = protowire.AppendString(colBytes, "VARCHAR(64)")
+
+	var fkBytes []byte
+	fkBytes = protowire.AppendTag(fkBytes, 1, protowire.BytesType)
+	fkBytes = protowire.AppendString(fkBytes, "orgs")
+	fkBytes = protowire.AppendTag(fkBytes, 2, protowire.BytesType)
+	fkBytes = protowire.AppendString(fkBytes, "org_id")
+	fkBytes = protowire.AppendTag(fkBytes, 3, protowire.BytesType)
+	fkBytes = protowire.AppendString(fkBytes, "CASCADE")
+
+	var fieldOptsPayload []byte
+	fieldOptsPayload = protowire.AppendTag(fieldOptsPayload, 10, protowire.BytesType)
+	fieldOptsPayload = protowire.AppendBytes(fieldOptsPayload, colBytes)
+	fieldOptsPayload = protowire.AppendTag(fieldOptsPayload, 11, protowire.VarintType)
+	fieldOptsPayload = protowire.AppendVarint(fieldOptsPayload, 1)
+	fieldOptsPayload = protowire.AppendTag(fieldOptsPayload, 12, protowire.VarintType)
+	fieldOptsPayload = protowire.AppendVarint(fieldOptsPayload, 1)
+	fieldOptsPayload = protowire.AppendTag(fieldOptsPayload, 13, protowire.VarintType)
+	fieldOptsPayload = protowire.AppendVarint(fieldOptsPayload, 1)
+	fieldOptsPayload = protowire.AppendTag(fieldOptsPayload, 14, protowire.BytesType)
+	fieldOptsPayload = protowire.AppendBytes(fieldOptsPayload, fkBytes)
+
+	wire1307 := buildWireExtension(proto2typeExtensionNumber, fieldOptsPayload)
+	parsed := parseDorisColumnMetaFromOptionsWire(wire1307)
+	if parsed == nil {
+		t.Fatal("parseDorisColumnMetaFromOptionsWire returned nil")
+	}
+	if parsed.SQLType != "VARCHAR(64)" || !parsed.PrimaryKey || !parsed.Index || !parsed.Unique {
+		t.Errorf("unexpected parsed shorthand fields: %+v", parsed)
+	}
+	if parsed.ForeignKey == nil || parsed.ForeignKey.RefTable != "orgs" || parsed.ForeignKey.RefColumn != "org_id" || parsed.ForeignKey.OnDelete != "CASCADE" {
+		t.Errorf("unexpected parsed ForeignKey: %+v", parsed.ForeignKey)
+	}
+
+	// 2. Verify negative varint for length (tag 13 inside ColumnOptions) is decoded as negative int32
+	var negColBytes []byte
+	negColBytes = protowire.AppendTag(negColBytes, 13, protowire.VarintType)
+	negTen := int64(-10)
+	negColBytes = protowire.AppendVarint(negColBytes, uint64(negTen))
+	var negFieldPayload []byte
+	negFieldPayload = protowire.AppendTag(negFieldPayload, 10, protowire.BytesType)
+	negFieldPayload = protowire.AppendBytes(negFieldPayload, negColBytes)
+	negParsed := parseDorisColumnMetaFromOptionsWire(buildWireExtension(proto2typeExtensionNumber, negFieldPayload))
+	if negParsed == nil || negParsed.Length != -10 {
+		t.Errorf("expected negative wire length -10, got %+v", negParsed)
+	}
+
+	// 3. Verify Doris eligibility when a message has 1307 writer_service + 50201 table_name + 50200 column SQLType
+	mixedMsgOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(mixedMsgOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			WriterService: "analytics-writer",
+		},
+	})
+	mixedMsgOpts.ProtoReflect().SetUnknown(buildLegacy50201WithWriterWire("legacy_events", "", nil, nil))
+
+	var col50200 []byte
+	col50200 = protowire.AppendTag(col50200, 1, protowire.BytesType)
+	col50200 = protowire.AppendString(col50200, "VARCHAR(64)")
+	fieldOpts50200 := &descriptorpb.FieldOptions{}
+	fieldOpts50200.ProtoReflect().SetUnknown(buildWireExtension(legacyColumnMetaExtensionNumber, col50200))
+
+	dorisFDP := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("mixed_doris.proto"),
+		Package: proto.String("mixed.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/mixed/v1;mixedv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("LegacyEvent"),
+				Options: mixedMsgOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("event_id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("eventId"),
+						Options:  fieldOpts50200,
+					},
+				},
+			},
+		},
+	}
+	genDoris := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{dorisFDP}}, []string{"mixed_doris.proto"})
+	tables, err := buildDorisTablesForFile(genDoris.Files[0], nil)
+	if err != nil {
+		t.Fatalf("buildDorisTablesForFile failed: %v", err)
+	}
+	if len(tables) != 1 || tables[0].Meta.TableName != "legacy_events" || tables[0].Meta.WriterService != "analytics-writer" {
+		t.Errorf("expected LegacyEvent to be Doris-eligible with merged table_name and writer_service, got %+v", tables)
+	}
+}
+
+// TestPostgresHardening_CrossFileDuplicateTableNamesAllModes verifies that cross-file
+// physical PostgreSQL table name collisions are rejected across orm, ddl, hcl, and all modes.
+func TestPostgresHardening_CrossFileDuplicateTableNamesAllModes(t *testing.T) {
+	opts1 := &descriptorpb.MessageOptions{}
+	proto.SetExtension(opts1, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			TableName: "billing_service__invoice",
+		},
+	})
+	opts2 := &descriptorpb.MessageOptions{}
+	proto.SetExtension(opts2, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			WriterService: "billing-service",
+		},
+	})
+
+	fdp1 := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("invoice_a.proto"),
+		Package: proto.String("billinga.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/billinga/v1;billingav1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("LegacyInvoice"),
+				Options: opts1,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+				},
+			},
+		},
+	}
+	fdp2 := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("invoice_b.proto"),
+		Package: proto.String("billingb.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/billingb/v1;billingbv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("Invoice"),
+				Options: opts2,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+				},
+			},
+		},
+	}
+
+	for _, mode := range []string{"orm", "ddl", "hcl", "all"} {
+		t.Run("mode_"+mode, func(t *testing.T) {
+			gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp1, fdp2}}, []string{"invoice_a.proto", "invoice_b.proto"})
+			err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+				Lang:         "go",
+				Backend:      "postgres",
+				PostgresMode: mode,
+				Domain:       false,
+			})
+			if err == nil || !strings.Contains(err.Error(), "duplicate PostgreSQL table name") {
+				t.Errorf("mode %q: expected duplicate PostgreSQL table name error, got %v", mode, err)
+			}
+		})
+	}
+}
+
+// TestPostgresHardening_ExplicitIndexNameAmbiguousFKAndHCLTemplateEscape verifies that:
+// 1. Explicitly named indexes override auto-generated indexes on the same column;
+// 2. HCL template interpolation openers (${ and %{) in default values are escaped;
+// 3. Long message-name aliases (>63 bytes) in ref_table resolve when the target has a valid table_name;
+// 4. Ambiguous unprefixed ref_table targets across multiple writer services are rejected.
+func TestPostgresHardening_ExplicitIndexNameAmbiguousFKAndHCLTemplateEscape(t *testing.T) {
+	shortTargetOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(shortTargetOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			TableName: "short_target",
+		},
+	})
+
+	longAliasName := "OrganizationEnterpriseHierarchicalDepartmentalConfigurationTarget" // 65 bytes
+	fkColOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(fkColOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		Index: true,
+		Column: &proto2typepb.ColumnOptions{
+			DefaultValue: "tpl-${env}-%{region}",
+		},
+		ForeignKey: &proto2typepb.ForeignKey{
+			RefTable:  longAliasName,
+			RefColumn: "id",
+		},
+	})
+
+	refTblOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(refTblOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			Indexes: []*proto2typepb.IndexDef{
+				{
+					Name:    "idx_custom_lookup",
+					Columns: []string{"target_id"},
+				},
+			},
+		},
+	})
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("explicit_idx_fk.proto"),
+		Package: proto.String("explicitidxfk.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/explicitidxfk/v1;explicitidxfkv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String(longAliasName),
+				Options: shortTargetOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+				},
+			},
+			{
+				Name:    proto.String("RefHolder"),
+				Options: refTblOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("target_id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("targetId"),
+						Options:  fkColOpts,
+					},
+				},
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"explicit_idx_fk.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "both",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+	ddl := gotFiles["explicit_idx_fk_postgres.sql"]
+	hcl := gotFiles["explicit_idx_fk_postgres.hcl"]
+
+	if !strings.Contains(ddl, `"idx_custom_lookup"`) || strings.Contains(ddl, `"idx_ref_holder_target_id"`) {
+		t.Errorf("expected explicit index idx_custom_lookup to replace auto-named index in DDL:\n%s", ddl)
+	}
+	if !strings.Contains(hcl, `index "idx_custom_lookup"`) || strings.Contains(hcl, `index "idx_ref_holder_target_id"`) {
+		t.Errorf("expected explicit index idx_custom_lookup to replace auto-named index in HCL:\n%s", hcl)
+	}
+	if !strings.Contains(ddl, `REFERENCES "short_target" ("id")`) {
+		t.Errorf("expected >63-byte message alias to resolve to short_target in DDL:\n%s", ddl)
+	}
+	if !strings.Contains(hcl, `default = "tpl-$${env}-%%{region}"`) {
+		t.Errorf("expected HCL template interpolation sequences to be escaped in HCL:\n%s", hcl)
+	}
+
+	// Verify ambiguous unprefixed ref_table across two writer services is rejected for a third writer service.
+	billingOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(billingOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{WriterService: "billing"},
+	})
+	shippingOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(shippingOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{WriterService: "shipping"},
+	})
+	auditOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(auditOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{WriterService: "audit"},
+	})
+	ambigFKOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(ambigFKOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		ForeignKey: &proto2typepb.ForeignKey{
+			RefTable:  "order",
+			RefColumn: "id",
+		},
+	})
+
+	ambigFDP := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("ambig_fk.proto"),
+		Package: proto.String("ambigfk.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/ambigfk/v1;ambigfkv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: proto.String("BillingScope"),
+				NestedType: []*descriptorpb.DescriptorProto{
+					{
+						Name:    proto.String("Order"),
+						Options: billingOpts,
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:     proto.String("id"),
+								Number:   proto.Int32(1),
+								Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+								JsonName: proto.String("id"),
+							},
+						},
+					},
+				},
+			},
+			{
+				Name: proto.String("ShippingScope"),
+				NestedType: []*descriptorpb.DescriptorProto{
+					{
+						Name:    proto.String("Order"),
+						Options: shippingOpts,
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:     proto.String("id"),
+								Number:   proto.Int32(1),
+								Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+								JsonName: proto.String("id"),
+							},
+						},
+					},
+				},
+			},
+			{
+				Name:    proto.String("AuditEntry"),
+				Options: auditOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("order_id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("orderId"),
+						Options:  ambigFKOpts,
+					},
+				},
+			},
+		},
+	}
+
+	genAmbig := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{ambigFDP}}, []string{"ambig_fk.proto"})
+	if err := NewRunner().GenerateFile(genAmbig, genAmbig.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "ddl",
+		Domain:       false,
+	}); err == nil || !strings.Contains(err.Error(), "ambiguous unprefixed ref_table") {
+		t.Errorf("expected ambiguous unprefixed ref_table error, got %v", err)
+	}
+}

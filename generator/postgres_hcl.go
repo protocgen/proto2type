@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -10,24 +11,22 @@ import (
 // formatPostgresHCLDefaultValue formats the Atlas HCL default attribute value for a PostgreSQL column.
 func formatPostgresHCLDefaultValue(c PostgresColumnDescriptor) string {
 	if c.ServerDefault != "" {
-		return fmt.Sprintf("sql(%q)", strings.ToLower(c.ServerDefault))
+		return fmt.Sprintf("sql(%q)", strings.ToLower(strings.TrimSpace(c.ServerDefault)))
 	}
 	if c.DefaultValue == "" {
 		return ""
 	}
-	lowerType := strings.ToLower(c.HCLType)
-	if lowerType == "text" ||
-		strings.HasPrefix(lowerType, "varchar") ||
-		strings.HasPrefix(lowerType, "character varying") ||
-		strings.HasPrefix(lowerType, "character_varying") ||
-		lowerType == "date" ||
-		lowerType == "timestamptz" ||
-		lowerType == "timestamp with time zone" ||
-		lowerType == "uuid" ||
-		lowerType == "jsonb" {
-		return fmt.Sprintf("%q", c.DefaultValue)
+	sqlType := c.SQLType
+	if sqlType == "" {
+		sqlType = strings.ReplaceAll(c.HCLType, "double_precision", "double precision")
 	}
-	return c.DefaultValue
+	if isPostgresBooleanSQLType(sqlType) {
+		return strings.ToLower(c.DefaultValue)
+	}
+	if isPostgresNumericSQLType(sqlType) {
+		return c.DefaultValue
+	}
+	return strconv.Quote(strings.NewReplacer("${", "$${", "%{", "%%{").Replace(c.DefaultValue))
 }
 
 // formatPostgresHCLType normalizes a PostgreSQL type expression into a valid Atlas HCL type attribute.
@@ -63,25 +62,55 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 	b.WriteString("  schema = schema.tenant\n")
 
 	for _, c := range t.Columns {
-		if !isValidSQLIdentifier(c.ColumnName) || !isValidPostgresSQLTypeSyntax(c.SQLType) {
+		sqlType := strings.TrimSpace(c.SQLType)
+		hclType := strings.TrimSpace(c.HCLType)
+		if sqlType == "" && hclType != "" {
+			sqlType = strings.ToUpper(strings.ReplaceAll(hclType, "double_precision", "double precision"))
+		}
+		if hclType == "" && sqlType != "" {
+			hclType = strings.ToLower(sqlType)
+		}
+		hclTypeAsSQL := strings.ReplaceAll(hclType, "double_precision", "double precision")
+		if !isValidSQLIdentifier(c.ColumnName) ||
+			len(c.ColumnName) > maxPostgresIdentifierBytes ||
+			!isValidPostgresSQLTypeSyntax(sqlType) ||
+			!isValidPostgresSQLTypeSyntax(hclTypeAsSQL) ||
+			!isValidPostgresServerDefault(c.ServerDefault) ||
+			validatePostgresDefaultValue(sqlType, c.DefaultValue) != nil {
 			return ""
 		}
-		fmt.Fprintf(&b, "  column %q {\n", c.ColumnName)
-		fmt.Fprintf(&b, "    null = %t\n", c.Nullable)
-		fmt.Fprintf(&b, "    type = %s\n", formatPostgresHCLType(c.HCLType))
-		if def := formatPostgresHCLDefaultValue(c); def != "" {
+		normCol := c
+		normCol.SQLType = sqlType
+		normCol.HCLType = hclType
+		fmt.Fprintf(&b, "  column %q {\n", normCol.ColumnName)
+		fmt.Fprintf(&b, "    null = %t\n", normCol.Nullable)
+		fmt.Fprintf(&b, "    type = %s\n", formatPostgresHCLType(normCol.HCLType))
+		if def := formatPostgresHCLDefaultValue(normCol); def != "" {
 			fmt.Fprintf(&b, "    default = %s\n", def)
 		}
 		b.WriteString("  }\n")
 	}
 
 	if len(t.PrimaryKeys) > 0 {
+		for _, pk := range t.PrimaryKeys {
+			if !isValidSQLIdentifier(pk) || len(pk) > maxPostgresIdentifierBytes {
+				return ""
+			}
+		}
 		b.WriteString("  primary_key {\n")
 		fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(t.PrimaryKeys))
 		b.WriteString("  }\n")
 	}
 
 	for _, idx := range t.Indexes {
+		if !isValidSQLIdentifier(idx.Name) || len(idx.Name) > maxPostgresIdentifierBytes || len(idx.Columns) == 0 {
+			return ""
+		}
+		for _, col := range idx.Columns {
+			if !isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes {
+				return ""
+			}
+		}
 		fmt.Fprintf(&b, "  index %q {\n", idx.Name)
 		if idx.Unique {
 			b.WriteString("    unique  = true\n")
@@ -91,14 +120,33 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 	}
 
 	for _, fk := range t.ForeignKeys {
+		if !isValidSQLIdentifier(fk.Name) || len(fk.Name) > maxPostgresIdentifierBytes ||
+			!isValidSQLIdentifier(fk.RefTable) || len(fk.RefTable) > maxPostgresIdentifierBytes ||
+			!isValidSQLIdentifier(fk.RefColumn) || len(fk.RefColumn) > maxPostgresIdentifierBytes ||
+			len(fk.Columns) == 0 {
+			return ""
+		}
+		for _, col := range fk.Columns {
+			if !isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes {
+				return ""
+			}
+		}
+		delHCL, _, ok := isValidForeignKeyAction(fk.OnDelete)
+		if !ok {
+			return ""
+		}
+		updHCL, _, ok := isValidForeignKeyAction(fk.OnUpdate)
+		if !ok {
+			return ""
+		}
 		fmt.Fprintf(&b, "  foreign_key %q {\n", fk.Name)
 		fmt.Fprintf(&b, "    columns     = %s\n", formatAtlasHCLColRefList(fk.Columns))
 		fmt.Fprintf(&b, "    ref_columns = [table.%s.column.%s]\n", fk.RefTable, fk.RefColumn)
-		if hclAct, _, ok := isValidForeignKeyAction(fk.OnDelete); ok && hclAct != "" {
-			fmt.Fprintf(&b, "    on_delete   = %s\n", hclAct)
+		if delHCL != "" {
+			fmt.Fprintf(&b, "    on_delete   = %s\n", delHCL)
 		}
-		if hclAct, _, ok := isValidForeignKeyAction(fk.OnUpdate); ok && hclAct != "" {
-			fmt.Fprintf(&b, "    on_update   = %s\n", hclAct)
+		if updHCL != "" {
+			fmt.Fprintf(&b, "    on_update   = %s\n", updHCL)
 		}
 		b.WriteString("  }\n")
 	}

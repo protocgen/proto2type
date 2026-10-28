@@ -139,7 +139,7 @@ func buildDorisTablesForFile(file *protogen.File, opts *Options) ([]*dorisTableI
 		if err := validateTableServiceMeta(string(msg.Desc.FullName()), meta); err != nil {
 			return nil, err
 		}
-		if !meta.hasDorisSpecificFields() {
+		if !meta.hasDorisSpecificFields() && (meta.TableName == "" || !messageHasAnnotatedDorisColumns(msg, make(map[protoreflect.FullName]bool))) {
 			continue
 		}
 		if meta.TableName == "" {
