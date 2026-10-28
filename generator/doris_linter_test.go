@@ -257,6 +257,8 @@ func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 		{"DECIMAL(10, 2)", "DECIMAL(18, 2)"},
 		{"DECIMALV3(10, 2)", "DECIMAL(18, 2)"},
 		{"DECIMALV3(10, 2)", "DECIMALV3(18, 2)"},
+		{"DECIMAL(38, 0)", "LARGEINT"},
+		{"DECIMALV3(38, 0)", "LARGEINT"},
 		{"TEXT", "STRING"},
 		{"STRING", "TEXT"},
 		{"ARRAY<FLOAT>", "ARRAY<FLOAT>"},
@@ -284,6 +286,8 @@ func TestLintDorisTableEvolution_DORIS006_SafeTypeEvolution(t *testing.T) {
 		{"TEXT", "VARCHAR(64)"},                      // Narrowing TEXT to VARCHAR
 		{"VARCHAR(64)", "INT"},                       // Incompatible type family
 		{"LARGEINT", "BIGINT"},                       // Narrowing integer
+		{"LARGEINT", "DECIMAL(38, 0)"},               // LARGEINT -> DECIMAL(38, 0) overflow risk
+		{"LARGEINT", "DECIMALV3(38, 0)"},             // LARGEINT -> DECIMALV3(38, 0) overflow risk
 		{"LARGEINT", "INT"},                          // Narrowing integer
 		{"LARGEINT", "SMALLINT"},                     // Narrowing integer
 		{"LARGEINT", "TINYINT"},                      // Narrowing integer

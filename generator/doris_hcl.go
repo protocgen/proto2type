@@ -443,6 +443,9 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 	if len(bloomCols) > 0 {
 		fmt.Fprintf(&b, "    bloom_filter_columns = %q\n", strings.Join(bloomCols, ", "))
 	}
+	if t.SyncTier == "INTERNAL_ONLY" {
+		b.WriteString("    sync_tier = \"INTERNAL_ONLY\"\n")
+	}
 	b.WriteString("  }\n")
 	b.WriteString("}")
 	return b.String()
@@ -773,6 +776,9 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 	}
 	if len(bloomCols) > 0 {
 		fmt.Fprintf(&b, "    bloom_filter_columns = %q\n", strings.Join(bloomCols, ", "))
+	}
+	if t.SyncTier == "INTERNAL_ONLY" {
+		b.WriteString("    sync_tier = \"INTERNAL_ONLY\"\n")
 	}
 	b.WriteString("  }\n")
 	b.WriteString("}")
@@ -2151,6 +2157,9 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\tif len(bloomCols) > 0 {")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    bloom_filter_columns = %q\\n\", ", stringsJoin, "(bloomCols, \", \")))")
 	g.P("\t}")
+	g.P("\tif t.SyncTier == \"INTERNAL_ONLY\" {")
+	g.P("\t\tb.WriteString(\"    sync_tier = \\\"INTERNAL_ONLY\\\"\\n\")")
+	g.P("\t}")
 	g.P("\tb.WriteString(\"  }\\n\")")
 	g.P("\tb.WriteString(\"}\")")
 	g.P("\treturn b.String()")
@@ -2462,6 +2471,9 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t}")
 	g.P("\tif len(bloomCols) > 0 {")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    bloom_filter_columns = %q\\n\", ", stringsJoin, "(bloomCols, \", \")))")
+	g.P("\t}")
+	g.P("\tif t.SyncTier == \"INTERNAL_ONLY\" {")
+	g.P("\t\tb.WriteString(\"    sync_tier = \\\"INTERNAL_ONLY\\\"\\n\")")
 	g.P("\t}")
 	g.P("\tb.WriteString(\"  }\\n\")")
 	g.P("\tb.WriteString(\"}\")")
@@ -3124,7 +3136,8 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t\treturn ", fmtErrorf, "(\"partition_by: %w\", err)")
 	g.P("\t\t}")
 	g.P("\t\tif specRaw, ok := kv[\"spec\"]; ok {")
-	g.P("\t\t\tdesc.IcebergPartitionSpec = unquoteHCLString(specRaw)")
+	g.P("\t\t\tspec := unquoteHCLString(specRaw)")
+	g.P("\t\t\tdesc.IcebergPartitionSpec = spec")
 	g.P("\t\t}")
 	g.P("\t\treturn nil")
 	g.P("\tcase ", stringsHasPrefix, "(header, \"index \"):")

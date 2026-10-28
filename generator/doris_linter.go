@@ -71,67 +71,70 @@ func LintDorisTableEvolution(before, after DorisTableDescriptor) []DorisEvolutio
 
 	var violations []DorisEvolutionViolation
 
-	// DORIS001_IMMUTABLE_KEY: Block changes to UniqueKeyColumns or DuplicateKeyColumns.
-	beforeUKs := effectiveDorisUniqueKeys(before)
-	afterUKs := effectiveDorisUniqueKeys(after)
-	if !dorisStringSlicesEqual(beforeUKs, afterUKs) {
-		violations = append(violations, DorisEvolutionViolation{
-			Rule:      DORIS001_IMMUTABLE_KEY,
-			TableName: tableName,
-			Message:   fmt.Sprintf("UNIQUE KEY columns cannot be mutated on existing table (before=%v, after=%v)", beforeUKs, afterUKs),
-		})
-	}
-	beforeDKs := effectiveDorisDuplicateKeys(before)
-	afterDKs := effectiveDorisDuplicateKeys(after)
-	if !dorisStringSlicesEqual(beforeDKs, afterDKs) {
-		violations = append(violations, DorisEvolutionViolation{
-			Rule:      DORIS001_IMMUTABLE_KEY,
-			TableName: tableName,
-			Message:   fmt.Sprintf("DUPLICATE KEY columns cannot be mutated on existing table (before=%v, after=%v)", beforeDKs, afterDKs),
-		})
-	}
-
-	// DORIS002_IMMUTABLE_SEQUENCE: Block changes to SequenceCol (e.g. publication_generation).
-	beforeSeq := effectiveDorisSequenceCol(before)
-	afterSeq := effectiveDorisSequenceCol(after)
-	if beforeSeq != afterSeq {
-		seqCol := afterSeq
-		if seqCol == "" {
-			seqCol = beforeSeq
+	pureIceberg := isPureIcebergDescriptor(before) && isPureIcebergDescriptor(after)
+	if !pureIceberg {
+		// DORIS001_IMMUTABLE_KEY: Block changes to UniqueKeyColumns or DuplicateKeyColumns.
+		beforeUKs := effectiveDorisUniqueKeys(before)
+		afterUKs := effectiveDorisUniqueKeys(after)
+		if !dorisStringSlicesEqual(beforeUKs, afterUKs) {
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:      DORIS001_IMMUTABLE_KEY,
+				TableName: tableName,
+				Message:   fmt.Sprintf("UNIQUE KEY columns cannot be mutated on existing table (before=%v, after=%v)", beforeUKs, afterUKs),
+			})
 		}
-		violations = append(violations, DorisEvolutionViolation{
-			Rule:       DORIS002_IMMUTABLE_SEQUENCE,
-			TableName:  tableName,
-			ColumnName: seqCol,
-			Message:    fmt.Sprintf("sequence_col cannot be mutated on existing table (before=%q, after=%q)", beforeSeq, afterSeq),
-		})
-	}
-
-	// DORIS003_IMMUTABLE_DISTRIBUTION: Block changes to DistributedByColumn/DistributionColumns or ColocateGroup.
-	beforeDist := effectiveDorisDistributionCols(before)
-	afterDist := effectiveDorisDistributionCols(after)
-	if !dorisStringSlicesEqual(beforeDist, afterDist) {
-		beforeDistStr := strings.Join(beforeDist, ", ")
-		afterDistStr := strings.Join(afterDist, ", ")
-		distCol := afterDistStr
-		if distCol == "" {
-			distCol = beforeDistStr
+		beforeDKs := effectiveDorisDuplicateKeys(before)
+		afterDKs := effectiveDorisDuplicateKeys(after)
+		if !dorisStringSlicesEqual(beforeDKs, afterDKs) {
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:      DORIS001_IMMUTABLE_KEY,
+				TableName: tableName,
+				Message:   fmt.Sprintf("DUPLICATE KEY columns cannot be mutated on existing table (before=%v, after=%v)", beforeDKs, afterDKs),
+			})
 		}
-		violations = append(violations, DorisEvolutionViolation{
-			Rule:       DORIS003_IMMUTABLE_DISTRIBUTION,
-			TableName:  tableName,
-			ColumnName: distCol,
-			Message:    fmt.Sprintf("distributed_by_column cannot be mutated on existing table (before=%q, after=%q)", beforeDistStr, afterDistStr),
-		})
-	}
-	beforeColocate := strings.TrimSpace(before.ColocateGroup)
-	afterColocate := strings.TrimSpace(after.ColocateGroup)
-	if beforeColocate != afterColocate {
-		violations = append(violations, DorisEvolutionViolation{
-			Rule:      DORIS003_IMMUTABLE_DISTRIBUTION,
-			TableName: tableName,
-			Message:   fmt.Sprintf("colocate_with group cannot be mutated on existing table (before=%q, after=%q)", beforeColocate, afterColocate),
-		})
+
+		// DORIS002_IMMUTABLE_SEQUENCE: Block changes to SequenceCol (e.g. publication_generation).
+		beforeSeq := effectiveDorisSequenceCol(before)
+		afterSeq := effectiveDorisSequenceCol(after)
+		if beforeSeq != afterSeq {
+			seqCol := afterSeq
+			if seqCol == "" {
+				seqCol = beforeSeq
+			}
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:       DORIS002_IMMUTABLE_SEQUENCE,
+				TableName:  tableName,
+				ColumnName: seqCol,
+				Message:    fmt.Sprintf("sequence_col cannot be mutated on existing table (before=%q, after=%q)", beforeSeq, afterSeq),
+			})
+		}
+
+		// DORIS003_IMMUTABLE_DISTRIBUTION: Block changes to DistributedByColumn/DistributionColumns or ColocateGroup.
+		beforeDist := effectiveDorisDistributionCols(before)
+		afterDist := effectiveDorisDistributionCols(after)
+		if !dorisStringSlicesEqual(beforeDist, afterDist) {
+			beforeDistStr := strings.Join(beforeDist, ", ")
+			afterDistStr := strings.Join(afterDist, ", ")
+			distCol := afterDistStr
+			if distCol == "" {
+				distCol = beforeDistStr
+			}
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:       DORIS003_IMMUTABLE_DISTRIBUTION,
+				TableName:  tableName,
+				ColumnName: distCol,
+				Message:    fmt.Sprintf("distributed_by_column cannot be mutated on existing table (before=%q, after=%q)", beforeDistStr, afterDistStr),
+			})
+		}
+		beforeColocate := strings.TrimSpace(before.ColocateGroup)
+		afterColocate := strings.TrimSpace(after.ColocateGroup)
+		if beforeColocate != afterColocate {
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:      DORIS003_IMMUTABLE_DISTRIBUTION,
+				TableName: tableName,
+				Message:   fmt.Sprintf("colocate_with group cannot be mutated on existing table (before=%q, after=%q)", beforeColocate, afterColocate),
+			})
+		}
 	}
 
 	beforeColByName := make(map[string]DorisColumnDescriptor, len(before.Columns))
@@ -400,7 +403,7 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 		if p2, s2, okA := parseDorisDecimalParams(canonAfter); okA {
 			return p2 >= p1 && s1 == s2
 		}
-		return false
+		return p1 == 38 && s1 == 0 && canonAfter == "LARGEINT"
 	}
 
 	switch canonBefore {
@@ -569,6 +572,72 @@ func dorisStringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// isPureIcebergDescriptor reports whether t was parsed from an Iceberg-only HCL
+// block (having IcebergCatalog set and no Doris-specific key, distribution,
+// sequence, or colocate clauses).
+func isPureIcebergDescriptor(t DorisTableDescriptor) bool {
+	if len(t.UniqueKeyColumns) > 0 || len(t.DuplicateKeyColumns) > 0 {
+		return false
+	}
+	for _, c := range t.Columns {
+		if c.IsUniqueKey || c.IsSequenceCol {
+			return false
+		}
+	}
+	if strings.TrimSpace(t.DistributedByColumn) != "" || len(t.DistributionColumns) > 0 {
+		return false
+	}
+	if strings.TrimSpace(t.SequenceCol) != "" || strings.TrimSpace(t.SequenceColumn) != "" {
+		return false
+	}
+	if strings.TrimSpace(t.ColocateGroup) != "" {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(t.SyncTier), "ICEBERG_ONLY") {
+		return len(t.Columns) > 0
+	}
+	if strings.TrimSpace(t.SyncTier) != "" {
+		return false
+	}
+	return strings.TrimSpace(t.IcebergCatalog) != "" && len(t.Columns) > 0
+}
+
+func toPureIcebergDescriptor(t DorisTableDescriptor) DorisTableDescriptor {
+	t.SyncTier = "ICEBERG_ONLY"
+	t.UniqueKeyColumns = nil
+	t.DuplicateKeyColumns = nil
+	t.DistributedByColumn = ""
+	t.DistributionColumns = nil
+	t.SequenceCol = ""
+	t.SequenceColumn = ""
+	t.ColocateGroup = ""
+	if len(t.Columns) > 0 {
+		cols := make([]DorisColumnDescriptor, len(t.Columns))
+		copy(cols, t.Columns)
+		for i := range cols {
+			cols[i].IsUniqueKey = false
+			cols[i].IsSequenceCol = false
+		}
+		t.Columns = cols
+	}
+	return t
+}
+
+// effectiveIcebergPartitionSpec resolves the normalized partition spec for an Iceberg table.
+func effectiveIcebergPartitionSpec(t DorisTableDescriptor) string {
+	if spec := strings.TrimSpace(t.IcebergPartitionSpec); spec != "" {
+		parts := strings.Split(spec, ",")
+		var norm []string
+		for _, p := range parts {
+			if s := strings.TrimSpace(p); s != "" {
+				norm = append(norm, s)
+			}
+		}
+		return strings.Join(norm, ", ")
+	}
+	return strings.Join(effectiveDorisPartitionCols(t), ", ")
 }
 
 // hasDorisTargetTable reports whether t materializes a physical table in
@@ -788,21 +857,27 @@ func BuildIcebergAlterTableSQL(before, after DorisTableDescriptor, tenantSlug st
 	if !ok {
 		return nil, fmt.Errorf("invalid tenantSlug %q in BuildIcebergAlterTableSQL", tenantSlug)
 	}
-	if err := ValidateDorisTableEvolution(before, after); err != nil {
-		return nil, err
-	}
 	beforeHasIce := hasIcebergTargetTable(before)
 	afterHasIce := hasIcebergTargetTable(after)
-	if !beforeHasIce && !afterHasIce {
-		return nil, nil
-	}
 	if beforeHasIce != afterHasIce {
 		return nil, fmt.Errorf("cannot generate Iceberg ALTER TABLE across sync_tier target transition (%q -> %q) for table %q", before.SyncTier, after.SyncTier, after.TableName)
 	}
+	afterForLint := after
+	if isPureIcebergDescriptor(before) && afterHasIce {
+		afterForLint = toPureIcebergDescriptor(after)
+	}
+	if err := ValidateDorisTableEvolution(before, afterForLint); err != nil {
+		return nil, err
+	}
+	if !beforeHasIce && !afterHasIce {
+		return nil, nil
+	}
 	beforeParts := effectiveDorisPartitionCols(before)
 	afterParts := effectiveDorisPartitionCols(after)
-	if !dorisStringSlicesEqual(beforeParts, afterParts) || strings.TrimSpace(before.IcebergPartitionSpec) != strings.TrimSpace(after.IcebergPartitionSpec) {
-		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing Iceberg table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
+	beforeSpec := effectiveIcebergPartitionSpec(before)
+	afterSpec := effectiveIcebergPartitionSpec(after)
+	if beforeSpec != afterSpec || (len(beforeParts) > 0 && len(afterParts) > 0 && !dorisStringSlicesEqual(beforeParts, afterParts)) {
+		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing Iceberg table %q (before=%q, after=%q)", after.TableName, beforeSpec, afterSpec)
 	}
 
 	fullTableName := icebergQualifiedTableName(after, slug)
@@ -1049,7 +1124,16 @@ func BuildIcebergSchemaMigrationSQL(before, after []DorisTableDescriptor, tenant
 	if err != nil {
 		return nil, err
 	}
-	if err := ValidateDorisSchemaEvolution(before, after); err != nil {
+	afterForLint := make([]DorisTableDescriptor, len(after))
+	for i, afterTbl := range after {
+		key := dorisTableEvolutionIdentity(afterTbl)
+		if beforeTbl, ok := beforeByKey[key]; ok && isPureIcebergDescriptor(beforeTbl) && hasIcebergTargetTable(afterTbl) {
+			afterForLint[i] = toPureIcebergDescriptor(afterTbl)
+		} else {
+			afterForLint[i] = afterTbl
+		}
+	}
+	if err := ValidateDorisSchemaEvolution(before, afterForLint); err != nil {
 		return nil, err
 	}
 	matchedBeforeKeys := make(map[string]bool, len(before))

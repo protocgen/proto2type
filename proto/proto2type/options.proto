@@ -138,8 +138,8 @@ message ColumnOptions {
 
   // Explicit PostgreSQL SQL type override (e.g. "VARCHAR(64)", "NUMERIC(10,2)", "UUID").
   string sql_type = 11;
-  // Store string/message column as JSONB in PostgreSQL.
-  bool jsonb = 12;
+  // DEPRECATED/FORBIDDEN: JSONB column types are forbidden in relational PostgreSQL schemas.
+  bool jsonb = 12 [deprecated = true];
   // Maximum character length for VARCHAR(N) in PostgreSQL.
   int32 length = 13;
   // Mark column as primary key in PostgreSQL.
@@ -152,6 +152,8 @@ message ColumnOptions {
   OptionalBool nullable = 17;
   // Relational foreign key reference for this column in PostgreSQL.
   ForeignKey foreign_key = 18;
+  // Alias for sql_type: explicit PostgreSQL SQL type override (e.g. "VARCHAR(64)", "NUMERIC(18, 4)").
+  string postgres_type = 19;
 }
 
 // ComputedField defines a derived field that is automatically populated

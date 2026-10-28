@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **PostgreSQL SQL DDL (`_postgres.sql`), Atlas HCL (`_postgres.hcl`), and `PG001`–`PG007` schema evolution linter**:
+  - Added `BuildPostgresCreateTableSQL`, `BuildPostgresAtlasHCL`, `ParsePostgresAtlasHCL`, `BuildPostgresAlterTableSQL`, `BuildPostgresSchemaMigrationSQL`, `LintPostgresTableEvolution`, and `ValidatePostgresSchemaEvolution` using strict relational PostgreSQL types (`VARCHAR(n)`, `TEXT`, `BOOLEAN`, `SMALLINT`, `INTEGER`, `BIGINT`, `NUMERIC(p, s)`, `REAL`, `DOUBLE PRECISION`, `BYTEA`, `DATE`, `TIMESTAMPTZ`, `VECTOR(dim)`, and 1D arrays `T[]`) while forbidding `JSON`, `JSONB`, and `VARIANT`.
+  - Added `(proto2type.field).column.postgres_type` (`field 11`) for explicit PostgreSQL column type overrides.
+  - Added `_search_index.sql` (`search_index_ddl`), `_search_index.hcl` (`search_index_hcl`), and `PostgresSearchIndexTables()` for `fhir_search_parameter_*` tables (`string`, `token`, `date`, `reference`, `quantity`, `number`, `uri`).
+  - Flattened `(proto2type.field).inline = true` nested message fields into `<parent>_<child>` columns on Go and Rust `<Name>Postgres` structs and in PostgreSQL DDL/HCL.
+- **Composable `postgres_mode` and `doris_mode` options**:
+  - Both `postgres_mode` and `doris_mode` now accept `+`- or `,`-separated target combinations (e.g. `postgres_mode=types+hcl`, `ddl+hcl`, `search_index+ddl+hcl`, `all`; `doris_mode=go+hcl`, `ddl+hcl`, `go+starrocks_hcl`).
+  - Automatically skips domain file emission in schema-only modes (`ddl`, `hcl`, `search_index*`) so separate `protoc` invocations do not collide on `.type.go` / `.type.rs`.
+
+### Fixed
+
+- **Rust PostgreSQL backend (`rust_postgres.go`)**:
+  - Removed all `sqlx::types::Json` (`JSONB`) wrappers in favor of native PostgreSQL 1D arrays (`Vec<T>`) for repeated scalars, enums, timestamps, durations, and `FieldMask`, flattened columns for `inline` nested messages, and `String` / `Option<String>` (`TEXT`) for dynamic WKT/map shapes.
+  - Fixed `into_domain()` overwriting `Timestamp`, `Duration`, `FieldMask`, and wrapper fields with `.map(|j| j.0)`.
+  - Fixed enum conversions to use `<EnumTypeName>::from_i32(...)` from the IR instead of `try_from`, and removed unused `epoch_ms_to_datetime` / `InvalidTimestamp` helpers.
+- **Doris / StarRocks / Iceberg HCL round-tripping & strict relational linting (`doris_hcl.go`, `doris_linter.go`)**:
+  - Preserved table properties (`buckets`, `auto_buckets`, `enable_mow`, `colocate_with`, `file_cache_ttl_seconds`, `storage_vault_name`, `iceberg_catalog`, `iceberg_partition_spec`, `sequence_col`) and index blocks across `BuildDorisAtlasHCL`, `BuildIcebergAtlasHCL`, `BuildStarRocksAtlasHCL`, and `ParseDorisAtlasHCL`.
+  - Forbade `JSON`, `JSONB`, and `VARIANT` in `DORIS006` (`IsSafeDorisTypeEvolution` and `LintDorisTableEvolution`).
+
 ## [0.11.0] - 2026-10-27
 
 ### Added

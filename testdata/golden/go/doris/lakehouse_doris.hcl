@@ -117,5 +117,6 @@ table "concept_embeddings" {
   }
   properties = {
     compression = "zstd"
+    sync_tier = "INTERNAL_ONLY"
   }
 }

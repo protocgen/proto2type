@@ -10,7 +10,6 @@ use chrono::{DateTime, Utc};
 #[derive(Debug)]
 pub enum ConversionError {
     Json(serde_json::Error),
-    InvalidTimestamp(i64),
     InvalidEnumValue(i32),
     Overflow,
 }
@@ -19,7 +18,6 @@ impl std::fmt::Display for ConversionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Json(e) => write!(f, "json: {e}"),
-            Self::InvalidTimestamp(ms) => write!(f, "invalid timestamp: {ms}ms"),
             Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),
             Self::Overflow => write!(f, "integer overflow during conversion"),
         }
@@ -32,18 +30,6 @@ impl From<serde_json::Error> for ConversionError {
     fn from(e: serde_json::Error) -> Self {
         Self::Json(e)
     }
-}
-
-/// Converts epoch milliseconds to a chrono DateTime<Utc>.
-#[allow(dead_code)]
-fn epoch_ms_to_datetime(ms: i64) -> Result<DateTime<Utc>, ConversionError> {
-    DateTime::from_timestamp_millis(ms).ok_or(ConversionError::InvalidTimestamp(ms))
-}
-
-/// Converts a chrono DateTime<Utc> to epoch milliseconds.
-#[allow(dead_code)]
-fn datetime_to_epoch_ms(dt: &DateTime<Utc>) -> i64 {
-    dt.timestamp_millis()
 }
 
 /// PostgreSQL storage representation of test.v1.EmptyMessage.
@@ -104,14 +90,14 @@ impl AllOptionalScalarsPostgres {
     pub fn to_domain(&self) -> Result<AllOptionalScalars, ConversionError> {
         Ok(AllOptionalScalars {
             opt_string: self.opt_string.clone(),
-            opt_int32: self.opt_int32.clone(),
-            opt_int64: self.opt_int64.clone(),
-            opt_bool: self.opt_bool.clone(),
-            opt_double: self.opt_double.clone(),
-            opt_float: self.opt_float.clone(),
+            opt_int32: self.opt_int32,
+            opt_int64: self.opt_int64,
+            opt_bool: self.opt_bool,
+            opt_double: self.opt_double,
+            opt_float: self.opt_float,
             opt_bytes: self.opt_bytes.clone(),
-            opt_timestamp: self.opt_timestamp.clone(),
-            opt_enum: self.opt_enum.map(|v| SingleValueEnum::try_from(v)).transpose()?,
+            opt_timestamp: self.opt_timestamp,
+            opt_enum: self.opt_enum.map(|v| SingleValueEnum::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?,
         })
     }
 
@@ -125,8 +111,8 @@ impl AllOptionalScalarsPostgres {
             opt_double: self.opt_double,
             opt_float: self.opt_float,
             opt_bytes: self.opt_bytes,
-            opt_timestamp: self.opt_timestamp.map(|j| j.0),
-            opt_enum: self.opt_enum.map(|v| SingleValueEnum::try_from(v)).transpose()?,
+            opt_timestamp: self.opt_timestamp,
+            opt_enum: self.opt_enum.map(|v| SingleValueEnum::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?,
         })
     }
 
@@ -134,13 +120,13 @@ impl AllOptionalScalarsPostgres {
     pub fn from_domain(d: &AllOptionalScalars) -> Result<Self, ConversionError> {
         Ok(Self {
             opt_string: d.opt_string.clone(),
-            opt_int32: d.opt_int32.clone(),
-            opt_int64: d.opt_int64.clone(),
-            opt_bool: d.opt_bool.clone(),
-            opt_double: d.opt_double.clone(),
-            opt_float: d.opt_float.clone(),
+            opt_int32: d.opt_int32,
+            opt_int64: d.opt_int64,
+            opt_bool: d.opt_bool,
+            opt_double: d.opt_double,
+            opt_float: d.opt_float,
             opt_bytes: d.opt_bytes.clone(),
-            opt_timestamp: d.opt_timestamp.clone(),
+            opt_timestamp: d.opt_timestamp,
             opt_enum: d.opt_enum.map(|e| e as i32),
         })
     }
@@ -163,28 +149,28 @@ impl TryFrom<AllOptionalScalarsPostgres> for AllOptionalScalars {
 /// PostgreSQL storage representation of test.v1.OneofOnly.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct OneofOnlyPostgres {
-    pub payload: Option<sqlx::types::Json<serde_json::Value>>,
+    pub payload: Option<String>,
 }
 
 impl OneofOnlyPostgres {
     /// Converts this row to the domain type.
     pub fn to_domain(&self) -> Result<OneofOnly, ConversionError> {
         Ok(OneofOnly {
-            payload: match &self.payload { Some(json) => Some(serde_json::from_value(json.0.clone())?), None => None },
+            payload: match &self.payload { Some(s) => Some(serde_json::from_str(s)?), None => None },
         })
     }
 
     /// Converts this row into the domain type, consuming self.
     pub fn into_domain(self) -> Result<OneofOnly, ConversionError> {
         Ok(OneofOnly {
-            payload: match self.payload { Some(json) => Some(serde_json::from_value(json.0)?), None => None },
+            payload: match self.payload { Some(s) => Some(serde_json::from_str(&s)?), None => None },
         })
     }
 
     /// Constructs a row from the domain type.
     pub fn from_domain(d: &OneofOnly) -> Result<Self, ConversionError> {
         Ok(Self {
-            payload: match &d.payload { Some(v) => Some(sqlx::types::Json(serde_json::to_value(v)?)), None => None },
+            payload: match &d.payload { Some(v) => Some(serde_json::to_string(v)?), None => None },
         })
     }
 }
@@ -206,32 +192,32 @@ impl TryFrom<OneofOnlyPostgres> for OneofOnly {
 /// PostgreSQL storage representation of test.v1.MapOnly.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct MapOnlyPostgres {
-    pub string_map: sqlx::types::Json<std::collections::HashMap<String, String>>,
-    pub int_map: sqlx::types::Json<std::collections::HashMap<i32, String>>,
+    pub string_map: Option<String>,
+    pub int_map: Option<String>,
 }
 
 impl MapOnlyPostgres {
     /// Converts this row to the domain type.
     pub fn to_domain(&self) -> Result<MapOnly, ConversionError> {
         Ok(MapOnly {
-            string_map: self.string_map.0.clone(),
-            int_map: self.int_map.0.clone(),
+            string_map: serde_json::from_str(&self.string_map.as_deref().unwrap_or("{}"))?,
+            int_map: serde_json::from_str(&self.int_map.as_deref().unwrap_or("{}"))?,
         })
     }
 
     /// Converts this row into the domain type, consuming self.
     pub fn into_domain(self) -> Result<MapOnly, ConversionError> {
         Ok(MapOnly {
-            string_map: self.string_map.0,
-            int_map: self.int_map.0,
+            string_map: serde_json::from_str(&self.string_map.as_deref().unwrap_or("{}"))?,
+            int_map: serde_json::from_str(&self.int_map.as_deref().unwrap_or("{}"))?,
         })
     }
 
     /// Constructs a row from the domain type.
     pub fn from_domain(d: &MapOnly) -> Result<Self, ConversionError> {
         Ok(Self {
-            string_map: sqlx::types::Json(d.string_map.clone()),
-            int_map: sqlx::types::Json(d.int_map.clone()),
+            string_map: Some(serde_json::to_string(&d.string_map)?),
+            int_map: Some(serde_json::to_string(&d.int_map)?),
         })
     }
 }
@@ -253,32 +239,32 @@ impl TryFrom<MapOnlyPostgres> for MapOnly {
 /// PostgreSQL storage representation of test.v1.RepeatedOnly.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RepeatedOnlyPostgres {
-    pub items: sqlx::types::Json<Vec<String>>,
-    pub numbers: sqlx::types::Json<Vec<i32>>,
+    pub items: Vec<String>,
+    pub numbers: Vec<i32>,
 }
 
 impl RepeatedOnlyPostgres {
     /// Converts this row to the domain type.
     pub fn to_domain(&self) -> Result<RepeatedOnly, ConversionError> {
         Ok(RepeatedOnly {
-            items: self.items.0.clone(),
-            numbers: self.numbers.0.clone(),
+            items: self.items.clone(),
+            numbers: self.numbers.clone(),
         })
     }
 
     /// Converts this row into the domain type, consuming self.
     pub fn into_domain(self) -> Result<RepeatedOnly, ConversionError> {
         Ok(RepeatedOnly {
-            items: self.items.0,
-            numbers: self.numbers.0,
+            items: self.items,
+            numbers: self.numbers,
         })
     }
 
     /// Constructs a row from the domain type.
     pub fn from_domain(d: &RepeatedOnly) -> Result<Self, ConversionError> {
         Ok(Self {
-            items: sqlx::types::Json(d.items.clone()),
-            numbers: sqlx::types::Json(d.numbers.clone()),
+            items: d.items.clone(),
+            numbers: d.numbers.clone(),
         })
     }
 }

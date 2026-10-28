@@ -69,9 +69,25 @@ func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opt
 	// and doris_mode=ddl/hcl/starrocks* emits SQL/HCL only, so only generate domain types when a
 	// separate go_package is configured and doris_mode is not DDL/HCL-only.
 	isLakehouseBackend := opts.Backend == "doris" || opts.Backend == "starrocks"
-	isSchemaOnlyMode := opts.DorisMode == "ddl" || opts.DorisMode == "hcl" ||
-		opts.DorisMode == "starrocks" || opts.DorisMode == "starrocks_ddl" || opts.DorisMode == "starrocks_hcl"
-	if opts.Domain && (!isLakehouseBackend || (opts.GoPackage != "" && !isSchemaOnlyMode)) {
+	var isLakehouseSchemaOnly, isPostgresSchemaOnly bool
+	if isLakehouseBackend {
+		if dt, err := opts.ParseDorisMode(); err == nil && !dt.EmitGo {
+			isLakehouseSchemaOnly = true
+		}
+	}
+	if opts.Backend == "postgres" {
+		if pt, err := opts.ParsePostgresMode(); err == nil && !pt.EmitTypes && !pt.EmitSearchIndexGo {
+			isPostgresSchemaOnly = true
+		}
+	}
+	shouldEmitDomain := opts.Domain
+	if isLakehouseBackend && (opts.GoPackage == "" || isLakehouseSchemaOnly) {
+		shouldEmitDomain = false
+	}
+	if isPostgresSchemaOnly && opts.GoPackage == "" {
+		shouldEmitDomain = false
+	}
+	if shouldEmitDomain {
 		if err := gg.generateGoDomain(gen, file, opts); err != nil {
 			return err
 		}
