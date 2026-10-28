@@ -55,7 +55,7 @@ func main() {
 
 	flags.StringVar(&opts.Lang, "lang", "go", "target language: go, python, kotlin, typescript")
 	flags.StringVar(&opts.Backend, "backend", "", "storage backend: firestore, mongo, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc, postgres, doris, starrocks")
-	flags.StringVar(&opts.PostgresMode, "postgres_mode", "", "postgres backend mode: '' (struct), 'search_index' (HAPI-style FHIR search index extraction)")
+	flags.StringVar(&opts.PostgresMode, "postgres_mode", "", "postgres backend mode: ''/'orm' (struct), 'none' (disabled), 'hcl' (Atlas HCL), 'ddl' (SQL DDL), 'both'/'tables'/'all' (struct + HCL + DDL), 'search_index' (HAPI-style FHIR search index extraction)")
 	flags.StringVar(&opts.PostgresSearchParams, "postgres_search_params", "", "path to FHIR SearchParameter JSON bundle (required for postgres_mode=search_index)")
 	flags.StringVar(&opts.DorisMode, "doris_mode", "", "doris/starrocks backend mode: '' (go storage structs + SQL scanners), 'ddl' (Doris & Iceberg SQL DDL), 'hcl' (Atlas Doris & Iceberg HCL), 'both' (Go and Doris & Iceberg SQL DDL), 'all' (Go, Doris, StarRocks & Iceberg SQL DDL and Atlas HCL), 'starrocks' (StarRocks SQL DDL + Atlas HCL), 'starrocks_both' (Go, StarRocks SQL DDL + Atlas HCL), 'starrocks_ddl' (StarRocks SQL DDL), 'starrocks_hcl' (StarRocks Atlas HCL)")
 	flags.StringVar(&opts.DorisStorageVault, "doris_storage_vault", "", "storage vault name for Doris PROPERTIES (\"storage_vault_name\" = ...)")
@@ -118,9 +118,9 @@ func main() {
 
 		if opts.PostgresMode != "" {
 			switch opts.PostgresMode {
-			case "tables", "search_index":
+			case "orm", "none", "hcl", "ddl", "both", "tables", "all", "search_index":
 			default:
-				return fmt.Errorf("unknown postgres_mode: %q (must be 'tables' or 'search_index')", opts.PostgresMode)
+				return fmt.Errorf("unknown postgres_mode: %q (must be '', 'orm', 'none', 'hcl', 'ddl', 'both', 'tables', 'all', or 'search_index')", opts.PostgresMode)
 			}
 			if opts.PostgresMode == "search_index" && opts.PostgresSearchParams == "" {
 				return fmt.Errorf("postgres_mode=search_index requires postgres_search_params to be specified")

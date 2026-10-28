@@ -196,6 +196,10 @@ type DomainMessage struct {
 	HasEncryptedFields bool
 	// HasComputedFields is true when at least one field has (proto2type.field).computed set.
 	HasComputedFields bool
+	// ProtoMsg is the underlying protogen.Message descriptor.
+	ProtoMsg *protogen.Message
+	// PostgresTableName is the resolved physical PostgreSQL table name for this message.
+	PostgresTableName string
 }
 
 // DomainField is the IR for a single message field.
@@ -314,6 +318,8 @@ type DomainField struct {
 	// ProtoMessageGoIdent is the protogen.GoIdent for message types.
 	// Used for QualifiedGoIdent to resolve e.g. pb.Tag.
 	ProtoMessageGoIdent protogen.GoIdent
+	// ProtoField is the underlying protogen.Field descriptor.
+	ProtoField *protogen.Field
 }
 
 // ComputedFieldIR holds the configuration for a computed/derived field.
@@ -415,6 +421,13 @@ type OneofVariant struct {
 	ProtoMessageGoIdent protogen.GoIdent
 	// ValidateConstraints holds buf/validate rules for this variant field.
 	ValidateConstraints *ValidateConstraints
+	// NameOverride is the (proto2type.field).name value on this variant field, or empty.
+	NameOverride string
+	// ColumnMeta holds column-level metadata extracted from (proto2type.field).column
+	// or legacy extension 50200 on this variant field.
+	ColumnMeta *DorisColumnMetaIR
+	// ProtoField is the underlying protogen.Field descriptor for this variant.
+	ProtoField *protogen.Field
 }
 
 // ValidateConstraints holds buf/validate rules extracted from proto field options.
@@ -456,6 +469,7 @@ type ValidateConstraints struct {
 	IgnoreEmpty bool // skip validation when field is zero-value
 }
 
+// HasConstraints reports whether c is non-nil and has at least one validation rule set.
 func (c *ValidateConstraints) HasConstraints() bool {
 	if c == nil {
 		return false
@@ -470,6 +484,7 @@ func (c *ValidateConstraints) HasConstraints() bool {
 		c.Unique || c.DefinedOnly || c.IgnoreEmpty
 }
 
+// ToPydanticArgs converts c into a slice of Pydantic Field(...) keyword argument strings.
 func (c *ValidateConstraints) ToPydanticArgs() []string {
 	if c == nil {
 		return nil
@@ -517,6 +532,7 @@ func (c *ValidateConstraints) ToPydanticArgs() []string {
 	return args
 }
 
+// IsRequired reports whether f has google.api.field_behavior = REQUIRED.
 func (f *DomainField) IsRequired() bool {
 	for _, b := range f.FieldBehaviors {
 		if b == annotations.FieldBehavior_REQUIRED {
@@ -526,6 +542,7 @@ func (f *DomainField) IsRequired() bool {
 	return false
 }
 
+// IsOutputOnly reports whether f has google.api.field_behavior = OUTPUT_ONLY.
 func (f *DomainField) IsOutputOnly() bool {
 	for _, b := range f.FieldBehaviors {
 		if b == annotations.FieldBehavior_OUTPUT_ONLY {
@@ -535,6 +552,7 @@ func (f *DomainField) IsOutputOnly() bool {
 	return false
 }
 
+// IsInputOnly reports whether f has google.api.field_behavior = INPUT_ONLY.
 func (f *DomainField) IsInputOnly() bool {
 	for _, b := range f.FieldBehaviors {
 		if b == annotations.FieldBehavior_INPUT_ONLY {
@@ -544,6 +562,7 @@ func (f *DomainField) IsInputOnly() bool {
 	return false
 }
 
+// IsImmutable reports whether f has google.api.field_behavior = IMMUTABLE.
 func (f *DomainField) IsImmutable() bool {
 	for _, b := range f.FieldBehaviors {
 		if b == annotations.FieldBehavior_IMMUTABLE {

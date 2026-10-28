@@ -10,7 +10,11 @@ type Options struct {
 	Backend string
 
 	// PostgresMode controls the Postgres backend behavior:
-	//   ""             (default) — struct-per-message with db:"" tags
+	//   "" or "orm"    (default) — struct-per-message with db:"" tags (<prefix>_postgres.type.go)
+	//   "none"         — disabled
+	//   "hcl"          — Atlas PostgreSQL HCL (<prefix>_postgres.hcl)
+	//   "ddl"          — PostgreSQL SQL DDL (<prefix>_postgres.sql)
+	//   "both" | "tables" | "all" — Go storage structs + Atlas HCL + SQL DDL (<prefix>_postgres.type.go, <prefix>_postgres.hcl, <prefix>_postgres.sql)
 	//   "search_index" — HAPI-style search index extraction functions (FHIR)
 	PostgresMode string
 
@@ -167,3 +171,11 @@ func (o *Options) ValidateEnabled() bool {
 func (o *Options) ValidateNative() bool {
 	return o.Validate == "native"
 }
+
+// TableMetaConfig is an alias for DorisTableMetaIR, representing table-level metadata
+// extracted from (proto2type.message).table (extension 1307) or legacy table_meta (extension 50201).
+type TableMetaConfig = DorisTableMetaIR
+
+// ColumnConfig is an alias for DorisColumnMetaIR, representing column-level metadata
+// extracted from (proto2type.field).column (extension 1307) or legacy column_meta (extension 50200).
+type ColumnConfig = DorisColumnMetaIR

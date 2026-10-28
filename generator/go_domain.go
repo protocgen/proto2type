@@ -40,8 +40,15 @@ type goGenerator struct {
 	// emittedDorisDateHelpers tracks Go packages that have already had the
 	// google.type.Date Doris conversion helpers emitted.
 	emittedDorisDateHelpers map[protogen.GoImportPath]bool
+	// emittedPostgresTypes tracks Go packages that have already had the shared
+	// PostgresTableDescriptor type emitted.
+	emittedPostgresTypes map[protogen.GoImportPath]bool
+	// seenPostgresTables tracks resolved physical PostgreSQL table names across files
+	// in a compilation to detect cross-file table name collisions.
+	seenPostgresTables map[string]string
 }
 
+// newGoGenerator creates a new goGenerator with initialized state maps.
 func newGoGenerator() *goGenerator {
 	return &goGenerator{
 		emittedDeepCopyHelper:   make(map[protogen.GoImportPath]bool),
@@ -50,6 +57,8 @@ func newGoGenerator() *goGenerator {
 		emittedSearchIndexFiles: make(map[string]string),
 		emittedDorisTypes:       make(map[protogen.GoImportPath]bool),
 		emittedDorisDateHelpers: make(map[protogen.GoImportPath]bool),
+		emittedPostgresTypes:    make(map[protogen.GoImportPath]bool),
+		seenPostgresTables:      make(map[string]string),
 	}
 }
 
@@ -76,10 +85,7 @@ func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opt
 		case "mongo":
 			return generateGoMongo(gen, file, opts)
 		case "postgres":
-			if opts.PostgresMode == "search_index" {
-				return gg.generateGoPostgresSearchIndex(gen, file, opts)
-			}
-			return generateGoPostgres(gen, file, opts)
+			return gg.generateGoPostgresDispatch(gen, file, opts)
 		case "doris", "starrocks":
 			return gg.generateGoDoris(gen, file, opts)
 		default:

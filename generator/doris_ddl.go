@@ -98,6 +98,8 @@ type DorisTableDescriptor struct {
 	StorageVaultName     string
 	IcebergCatalog       string
 	IcebergPartitionSpec string
+	WriterService        string
+	ReaderServices       []string
 	Buckets              int
 	AutoBuckets          bool
 	EnableMoW            bool
@@ -248,6 +250,14 @@ func validateDescriptorIdentifiers(t DorisTableDescriptor) bool {
 	}
 	if t.IcebergCatalog != "" && !isValidSQLIdentifier(t.IcebergCatalog) {
 		return false
+	}
+	if t.WriterService != "" && !isValidServiceIdentifier(t.WriterService) {
+		return false
+	}
+	for _, rs := range t.ReaderServices {
+		if rs != "*" && !isValidServiceIdentifier(rs) {
+			return false
+		}
 	}
 	if t.EmbeddingDimension < 0 {
 		return false
@@ -1100,9 +1110,11 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 }
 
 type ddlBlock struct {
-	goName    string
-	tableName string
-	sql       string
+	goName         string
+	tableName      string
+	writerService  string
+	readerServices []string
+	sql            string
 }
 
 // generateDorisDDLFiles emits <prefix>_doris.sql and <prefix>_iceberg.sql
@@ -1114,16 +1126,20 @@ func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 	for _, tbl := range tables {
 		if sql := tbl.Descriptor.BuildDorisCreateTableSQL("", 0); sql != "" {
 			dorisBlocks = append(dorisBlocks, ddlBlock{
-				goName:    tbl.GoName,
-				tableName: tbl.Descriptor.TableName,
-				sql:       sql,
+				goName:         tbl.GoName,
+				tableName:      tbl.Descriptor.TableName,
+				writerService:  tbl.Descriptor.WriterService,
+				readerServices: tbl.Descriptor.ReaderServices,
+				sql:            sql,
 			})
 		}
 		if sql := tbl.Descriptor.BuildIcebergCreateTableSQL(""); sql != "" {
 			icebergBlocks = append(icebergBlocks, ddlBlock{
-				goName:    tbl.GoName,
-				tableName: tbl.Descriptor.TableName,
-				sql:       sql,
+				goName:         tbl.GoName,
+				tableName:      tbl.Descriptor.TableName,
+				writerService:  tbl.Descriptor.WriterService,
+				readerServices: tbl.Descriptor.ReaderServices,
+				sql:            sql,
 			})
 		}
 	}
@@ -1144,6 +1160,12 @@ func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 				dg.P()
 			}
 			dg.P("-- ", blk.goName, " (", blk.tableName, ")")
+			if blk.writerService != "" {
+				dg.P("-- writer_service: ", blk.writerService)
+			}
+			if len(blk.readerServices) > 0 {
+				dg.P("-- reader_services: ", strings.Join(blk.readerServices, ", "))
+			}
 			dg.P(blk.sql)
 		}
 	}
@@ -1164,6 +1186,12 @@ func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 				ig.P()
 			}
 			ig.P("-- ", blk.goName, " (", blk.tableName, ")")
+			if blk.writerService != "" {
+				ig.P("-- writer_service: ", blk.writerService)
+			}
+			if len(blk.readerServices) > 0 {
+				ig.P("-- reader_services: ", strings.Join(blk.readerServices, ", "))
+			}
 			ig.P(blk.sql)
 		}
 	}
@@ -1177,9 +1205,11 @@ func generateStarRocksDDLFile(gen *protogen.Plugin, file *protogen.File, tables 
 	for _, tbl := range tables {
 		if sql := tbl.Descriptor.BuildStarRocksCreateTableSQL("", 0); sql != "" {
 			srBlocks = append(srBlocks, ddlBlock{
-				goName:    tbl.GoName,
-				tableName: tbl.Descriptor.TableName,
-				sql:       sql,
+				goName:         tbl.GoName,
+				tableName:      tbl.Descriptor.TableName,
+				writerService:  tbl.Descriptor.WriterService,
+				readerServices: tbl.Descriptor.ReaderServices,
+				sql:            sql,
 			})
 		}
 	}
@@ -1201,6 +1231,12 @@ func generateStarRocksDDLFile(gen *protogen.Plugin, file *protogen.File, tables 
 			sg.P()
 		}
 		sg.P("-- ", blk.goName, " (", blk.tableName, ")")
+		if blk.writerService != "" {
+			sg.P("-- writer_service: ", blk.writerService)
+		}
+		if len(blk.readerServices) > 0 {
+			sg.P("-- reader_services: ", strings.Join(blk.readerServices, ", "))
+		}
 		sg.P(blk.sql)
 	}
 	return nil

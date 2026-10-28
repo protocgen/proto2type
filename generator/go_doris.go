@@ -136,6 +136,12 @@ func buildDorisTablesForFile(file *protogen.File, opts *Options) ([]*dorisTableI
 		if meta == nil {
 			continue
 		}
+		if err := validateTableServiceMeta(string(msg.Desc.FullName()), meta); err != nil {
+			return nil, err
+		}
+		if !meta.hasDorisSpecificFields() {
+			continue
+		}
 		if meta.TableName == "" {
 			return nil, fmt.Errorf("message %s: table_meta has empty table_name", msg.Desc.FullName())
 		}
@@ -186,6 +192,9 @@ func validateDorisTableMeta(msg *protogen.Message, meta *DorisTableMetaIR) error
 	}
 	if meta.EmbeddingDimension > 0 && len(meta.UniqueKeyColumns) > 0 {
 		return fmt.Errorf("message %s: embedding_dimension (%d) requires a DUPLICATE KEY table and cannot be combined with unique_key_columns", fullName, meta.EmbeddingDimension)
+	}
+	if err := validateTableServiceMeta(string(fullName), meta); err != nil {
+		return err
 	}
 	checkList := func(label string, items []string) error {
 		for _, item := range items {
@@ -563,6 +572,8 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 		EmbeddingDimension:   meta.EmbeddingDimension,
 		StorageVaultName:     meta.StorageVaultName,
 		IcebergCatalog:       meta.IcebergCatalog,
+		WriterService:        meta.WriterService,
+		ReaderServices:       append([]string(nil), meta.ReaderServices...),
 		Columns:              colDescs,
 	}
 
@@ -1664,11 +1675,27 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tStorageVaultName     string")
 	g.P("\tIcebergCatalog       string")
 	g.P("\tIcebergPartitionSpec string")
+	g.P("\tWriterService        string")
+	g.P("\tReaderServices       []string")
 	g.P("\tBuckets              int")
 	g.P("\tAutoBuckets          bool")
 	g.P("\tEnableMoW            bool")
 	g.P("\tIndexes              []DorisIndexDescriptor")
 	g.P("\tColumns              []DorisColumnDescriptor")
+	g.P("}")
+	g.P()
+
+	g.P("func isValidDorisServiceIdentifier(s string) bool {")
+	g.P("\tif len(s) == 0 || s[0] < 'a' || s[0] > 'z' {")
+	g.P("\t\treturn false")
+	g.P("\t}")
+	g.P("\tfor i := 1; i < len(s); i++ {")
+	g.P("\t\tc := s[i]")
+	g.P("\t\tif !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {")
+	g.P("\t\t\treturn false")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\treturn true")
 	g.P("}")
 	g.P()
 
@@ -1877,6 +1904,14 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t}")
 	g.P("\tif t.IcebergCatalog != \"\" && !isValidDorisSQLIdentifier(t.IcebergCatalog) {")
 	g.P("\t\treturn false")
+	g.P("\t}")
+	g.P("\tif t.WriterService != \"\" && !isValidDorisServiceIdentifier(t.WriterService) {")
+	g.P("\t\treturn false")
+	g.P("\t}")
+	g.P("\tfor _, rs := range t.ReaderServices {")
+	g.P("\t\tif rs != \"*\" && !isValidDorisServiceIdentifier(rs) {")
+	g.P("\t\t\treturn false")
+	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tif t.EmbeddingDimension < 0 {")
 	g.P("\t\treturn false")
@@ -4230,6 +4265,8 @@ func emitDorisTableCode(g *protogen.GeneratedFile, tbl *dorisTableIR) {
 	g.P("\t\tEmbeddingDimension:   ", d.EmbeddingDimension, ",")
 	g.P("\t\tStorageVaultName:     ", fmt.Sprintf("%q", d.StorageVaultName), ",")
 	g.P("\t\tIcebergCatalog:       ", fmt.Sprintf("%q", d.IcebergCatalog), ",")
+	g.P("\t\tWriterService:        ", fmt.Sprintf("%q", d.WriterService), ",")
+	g.P("\t\tReaderServices:       ", formatGoStringSliceLiteral(d.ReaderServices), ",")
 	g.P("\t\tColumns: []DorisColumnDescriptor{")
 	for _, c := range d.Columns {
 		g.P("\t\t\t{")

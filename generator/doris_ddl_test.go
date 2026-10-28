@@ -11,6 +11,8 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
+// TestBuildStarRocksCreateTableSQL_RuntimeVsPluginParity verifies parity between plugin-side
+// and emitted runtime-side Doris/StarRocks DDL and HCL builders.
 func TestBuildStarRocksCreateTableSQL_RuntimeVsPluginParity(t *testing.T) {
 	fdp := &descriptorpb.FileDescriptorProto{
 		Syntax:  proto.String("proto3"),
@@ -114,6 +116,8 @@ func toRuntimeDesc(p genpkg.DorisTableDescriptor) DorisTableDescriptor {
 		StorageVaultName:     p.StorageVaultName,
 		IcebergCatalog:       p.IcebergCatalog,
 		IcebergPartitionSpec: p.IcebergPartitionSpec,
+		WriterService:        p.WriterService,
+		ReaderServices:       append([]string(nil), p.ReaderServices...),
 		Buckets:              p.Buckets,
 		AutoBuckets:          p.AutoBuckets,
 		EnableMoW:            p.EnableMoW,
@@ -257,6 +261,26 @@ func TestRuntimeVsPlugin_StarRocksAndDorisParity(t *testing.T) {
 				"INDEX idx_embedding_hnsw (embedding) USING VECTOR (\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"768\")",
 				"DUPLICATE KEY(doc_id, chunk_id)",
 				"DISTRIBUTED BY HASH(chunk_id) BUCKETS 8",
+			},
+		},
+		{
+			name: "with_writer_and_reader_services",
+			desc: genpkg.DorisTableDescriptor{
+				TableName:        "patient_events",
+				DatabaseScope:    "TENANT",
+				SyncTier:         "WHOLE_TABLE",
+				UniqueKeyColumns: []string{"tenant_id", "id"},
+				WriterService:    "patient-service",
+				ReaderServices:   []string{"analytics-service", "*"},
+				Columns: []genpkg.DorisColumnDescriptor{
+					{ColumnName: "tenant_id", DorisType: "VARCHAR(64)", Nullable: false},
+					{ColumnName: "id", DorisType: "VARCHAR(64)", Nullable: false},
+				},
+			},
+			slug:    "acme",
+			buckets: 4,
+			wantInSR: []string{
+				"PRIMARY KEY(tenant_id, id)",
 			},
 		},
 	}

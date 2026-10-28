@@ -135,9 +135,9 @@ Default Apache Iceberg catalog prefix for `CREATE TABLE IF NOT EXISTS <catalog>.
 
 Controls the PostgreSQL backend behavior when `backend=postgres`.
 
-| Default | `""` (struct-per-message with `db:""` tags) |
+| Default | `""` / `orm` (struct-per-message with `db:""` tags in `*_postgres.type.go`) |
 |---|---|
-| Values | `""`, `tables`, `search_index` (HAPI-style FHIR search index extraction functions; requires `postgres_search_params`) |
+| Values | `""` / `orm` (`*_postgres.type.go`), `none` (disabled), `hcl` (Atlas HCL in `*_postgres.hcl`), `ddl` (PostgreSQL DDL in `*_postgres.sql`), `both` / `tables` / `all` (`*_postgres.type.go` + `*_postgres.hcl` + `*_postgres.sql`), `search_index` (HAPI-style FHIR search index extraction functions; requires `postgres_search_params`) |
 
 ### `domain`
 

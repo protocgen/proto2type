@@ -670,11 +670,26 @@ type DorisTableDescriptor struct {
 	StorageVaultName     string
 	IcebergCatalog       string
 	IcebergPartitionSpec string
+	WriterService        string
+	ReaderServices       []string
 	Buckets              int
 	AutoBuckets          bool
 	EnableMoW            bool
 	Indexes              []DorisIndexDescriptor
 	Columns              []DorisColumnDescriptor
+}
+
+func isValidDorisServiceIdentifier(s string) bool {
+	if len(s) == 0 || s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func isValidDorisSQLIdentifier(s string) bool {
@@ -873,6 +888,14 @@ func validateDorisDescriptor(t DorisTableDescriptor) bool {
 	}
 	if t.IcebergCatalog != "" && !isValidDorisSQLIdentifier(t.IcebergCatalog) {
 		return false
+	}
+	if t.WriterService != "" && !isValidDorisServiceIdentifier(t.WriterService) {
+		return false
+	}
+	for _, rs := range t.ReaderServices {
+		if rs != "*" && !isValidDorisServiceIdentifier(rs) {
+			return false
+		}
 	}
 	if t.EmbeddingDimension < 0 {
 		return false
@@ -4652,6 +4675,8 @@ func EligibilityCriterionResultDorisTable() DorisTableDescriptor {
 		EmbeddingDimension:   0,
 		StorageVaultName:     "lakehouse_vault",
 		IcebergCatalog:       "lakehouse",
+		WriterService:        "",
+		ReaderServices:       nil,
 		Columns: []DorisColumnDescriptor{
 			{
 				ColumnName:      "patient_id",
@@ -5009,6 +5034,8 @@ func ConceptEmbeddingRecordDorisTable() DorisTableDescriptor {
 		EmbeddingDimension:   768,
 		StorageVaultName:     "",
 		IcebergCatalog:       "",
+		WriterService:        "",
+		ReaderServices:       nil,
 		Columns: []DorisColumnDescriptor{
 			{
 				ColumnName:      "concept_id",
