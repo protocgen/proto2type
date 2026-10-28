@@ -39,6 +39,33 @@ message TableOptions {
   string storage_vault_name = 14;
   string iceberg_catalog = 15;
   int32 embedding_dimension = 16;
+
+  // Owning microservice that writes to this table (e.g. "patient-service").
+  // For PostgreSQL tables without an explicit table_name override, prefixes the
+  // physical table name as "<normalized_writer_service>__<snake_case_msg>".
+  string writer_service = 17;
+  // Additional microservices permitted to read from this table (or "*" for shared read).
+  repeated string reader_services = 18;
+
+  // Explicit primary key column names for relational (PostgreSQL) tables.
+  repeated string primary_key_fields = 19;
+  // Explicit composite or named indexes for relational (PostgreSQL) tables.
+  repeated IndexDef indexes = 20;
+}
+
+// IndexDef defines a single or composite relational index on a table.
+message IndexDef {
+  string name = 1;
+  repeated string columns = 2;
+  bool unique = 3;
+}
+
+// ForeignKey defines a relational foreign key reference on a column.
+message ForeignKey {
+  string ref_table = 1;
+  string ref_column = 2;
+  string on_delete = 3;
+  string on_update = 4;
 }
 
 // Field-level options for proto2type.
@@ -81,6 +108,18 @@ message FieldOptions {
 
   // Apache Doris 4.x and Apache Iceberg lakehouse column metadata.
   ColumnOptions column = 10;
+
+  // Mark this field as a primary key column in relational (PostgreSQL) tables.
+  bool primary_key = 11;
+
+  // Create a non-unique B-tree index on this column in relational (PostgreSQL) tables.
+  bool index = 12;
+
+  // Create a unique index/constraint on this column in relational (PostgreSQL) tables.
+  bool unique = 13;
+
+  // Relational foreign key reference for this column.
+  ForeignKey foreign_key = 14;
 }
 
 // ColumnOptions defines Apache Doris 4.x and Apache Iceberg lakehouse column
@@ -96,6 +135,23 @@ message ColumnOptions {
   bool strip_enum_prefix = 8;
   string column_name = 9;
   string default_value = 10;
+
+  // Explicit PostgreSQL SQL type override (e.g. "VARCHAR(64)", "NUMERIC(10,2)", "UUID").
+  string sql_type = 11;
+  // Store string/message column as JSONB in PostgreSQL.
+  bool jsonb = 12;
+  // Maximum character length for VARCHAR(N) in PostgreSQL.
+  int32 length = 13;
+  // Mark column as primary key in PostgreSQL.
+  bool primary_key = 14;
+  // Create a non-unique index on this column in PostgreSQL.
+  bool index = 15;
+  // Create a unique index on this column in PostgreSQL.
+  bool unique = 16;
+  // Override column nullability in PostgreSQL.
+  OptionalBool nullable = 17;
+  // Relational foreign key reference for this column in PostgreSQL.
+  ForeignKey foreign_key = 18;
 }
 
 // ComputedField defines a derived field that is automatically populated

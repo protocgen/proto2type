@@ -8,6 +8,8 @@ import (
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+
+	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
 )
 
 const (
@@ -19,7 +21,22 @@ const (
 	legacyTableMetaExtensionNumber protowire.Number = 50201
 )
 
-// DorisTableMetaIR holds Apache Doris 4.x and Apache Iceberg table-level
+// IndexDefIR holds a relational index definition from TableOptions.indexes.
+type IndexDefIR struct {
+	Name    string
+	Columns []string
+	Unique  bool
+}
+
+// ForeignKeyIR holds a relational foreign key reference from ColumnOptions / FieldOptions.
+type ForeignKeyIR struct {
+	RefTable  string
+	RefColumn string
+	OnDelete  string
+	OnUpdate  string
+}
+
+// DorisTableMetaIR holds Apache Doris 4.x, Apache Iceberg, and PostgreSQL table-level
 // metadata extracted from either (proto2type.message).table (extension 1307)
 // or legacy table_meta (extension 50201).
 type DorisTableMetaIR struct {
@@ -39,6 +56,10 @@ type DorisTableMetaIR struct {
 	StorageVaultName     string
 	IcebergCatalog       string
 	EmbeddingDimension   int32
+	WriterService        string
+	ReaderServices       []string
+	PrimaryKeyFields     []string
+	Indexes              []IndexDefIR
 }
 
 // isEmpty reports whether m is nil or has all zero-valued fields.
@@ -61,10 +82,38 @@ func (m *DorisTableMetaIR) isEmpty() bool {
 		m.FileCacheTTLSeconds == 0 &&
 		m.StorageVaultName == "" &&
 		m.IcebergCatalog == "" &&
-		m.EmbeddingDimension == 0
+		m.EmbeddingDimension == 0 &&
+		m.WriterService == "" &&
+		len(m.ReaderServices) == 0 &&
+		len(m.PrimaryKeyFields) == 0 &&
+		len(m.Indexes) == 0
 }
 
-// DorisColumnMetaIR holds Apache Doris 4.x and Apache Iceberg column-level
+// hasDorisSpecificFields reports whether m has any Doris, StarRocks, or Iceberg
+// table-level option set (excluding PostgreSQL-only and service-ownership-only fields).
+func (m *DorisTableMetaIR) hasDorisSpecificFields() bool {
+	if m == nil {
+		return false
+	}
+	return m.TableName != "" ||
+		m.DatabaseScope != "" ||
+		m.SyncTier != "" ||
+		len(m.UniqueKeyColumns) > 0 ||
+		len(m.PartitionByColumns) > 0 ||
+		m.ColocateGroup != "" ||
+		m.SequenceCol != "" ||
+		len(m.InvertedIndexColumns) > 0 ||
+		len(m.NgramBfColumns) > 0 ||
+		len(m.BloomFilterColumns) > 0 ||
+		m.DistributedByColumn != "" ||
+		len(m.DuplicateKeyColumns) > 0 ||
+		m.FileCacheTTLSeconds != 0 ||
+		m.StorageVaultName != "" ||
+		m.IcebergCatalog != "" ||
+		m.EmbeddingDimension != 0
+}
+
+// DorisColumnMetaIR holds Apache Doris 4.x, Apache Iceberg, and PostgreSQL column-level
 // metadata extracted from either (proto2type.field).column (extension 1307)
 // or legacy column_meta (extension 50200).
 type DorisColumnMetaIR struct {
@@ -78,9 +127,20 @@ type DorisColumnMetaIR struct {
 	StripEnumPrefix bool
 	ColumnName      string
 	DefaultValue    string
+	SQLType         string
+	JSONB           bool
+	Length          int32
+	PrimaryKey      bool
+	Index           bool
+	Unique          bool
+	Nullable        *bool
+	ForeignKey      *ForeignKeyIR
 }
 
-// isEmpty reports whether m is nil or has all zero-valued fields.
+// isEmpty reports whether m is nil or has no Doris/Iceberg column metadata set.
+// PostgreSQL-only fields (SQLType, JSONB, Length, PrimaryKey, Index, Unique,
+// Nullable, ForeignKey) are intentionally excluded so Postgres-annotated fields
+// do not trigger Doris column filtering in messageHasAnnotatedDorisColumns.
 func (m *DorisColumnMetaIR) isEmpty() bool {
 	if m == nil {
 		return true
@@ -95,6 +155,25 @@ func (m *DorisColumnMetaIR) isEmpty() bool {
 		!m.StripEnumPrefix &&
 		m.ColumnName == "" &&
 		m.DefaultValue == ""
+}
+
+// isAllEmpty reports whether m is nil or has all zero-valued Doris, Iceberg,
+// and PostgreSQL column metadata fields.
+func (m *DorisColumnMetaIR) isAllEmpty() bool {
+	if m == nil {
+		return true
+	}
+	if !m.isEmpty() {
+		return false
+	}
+	return m.SQLType == "" &&
+		!m.JSONB &&
+		m.Length == 0 &&
+		!m.PrimaryKey &&
+		!m.Index &&
+		!m.Unique &&
+		m.Nullable == nil &&
+		m.ForeignKey == nil
 }
 
 // normalizeDatabaseScope normalizes raw scope strings or enum names to canonical
@@ -301,7 +380,180 @@ func isDorisKeyEligibleType(dorisType string) bool {
 		!strings.HasPrefix(dt, "STRUCT<")
 }
 
-// extractDorisTableMeta extracts Doris/Iceberg table metadata from a message's options.
+// isValidServiceIdentifier reports whether s matches ^[a-z][a-z0-9_-]*$.
+func isValidServiceIdentifier(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	if s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		ok := (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-'
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// validateTableServiceMeta validates WriterService and ReaderServices on table metadata.
+func validateTableServiceMeta(msgName string, meta *DorisTableMetaIR) error {
+	if meta == nil {
+		return nil
+	}
+	if meta.WriterService != "" && !isValidServiceIdentifier(meta.WriterService) {
+		return fmt.Errorf("message %s: invalid writer_service %q (must match ^[a-z][a-z0-9_-]*$)", msgName, meta.WriterService)
+	}
+	for _, rs := range meta.ReaderServices {
+		if rs != "*" && !isValidServiceIdentifier(rs) {
+			return fmt.Errorf("message %s: invalid reader_services entry %q (must be \"*\" or match ^[a-z][a-z0-9_-]*$)", msgName, rs)
+		}
+	}
+	return nil
+}
+
+// PostgresPrefixedTableName resolves a PostgreSQL physical table name from table metadata
+// and a default snake_case message name:
+//   - If meta.TableName != "" -> meta.TableName (explicit override wins)
+//   - If meta.TableName == "" && meta.WriterService != "" -> "<norm_writer>__<defaultName>"
+//   - Otherwise -> defaultName
+func PostgresPrefixedTableName(meta *DorisTableMetaIR, defaultName string) string {
+	if meta != nil {
+		if name := strings.TrimSpace(meta.TableName); name != "" {
+			return name
+		}
+		if ws := strings.TrimSpace(meta.WriterService); ws != "" {
+			normWriter := strings.ReplaceAll(ws, "-", "_")
+			prefix := normWriter + "__"
+			if strings.HasPrefix(defaultName, prefix) {
+				return defaultName
+			}
+			return prefix + defaultName
+		}
+	}
+	return defaultName
+}
+
+// resolvePostgresTableName resolves the PostgreSQL physical table name for a proto message.
+func resolvePostgresTableName(msg *protogen.Message, meta *DorisTableMetaIR) string {
+	defaultName := ""
+	if msg != nil {
+		defaultName = toSnakeCase(msg.GoIdent.GoName)
+	}
+	return PostgresPrefixedTableName(meta, defaultName)
+}
+
+// trimNonEmptyStrings trims whitespace from each element of in and omits empty strings.
+func trimNonEmptyStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	var out []string
+	for _, s := range in {
+		if t := strings.TrimSpace(s); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// mergeUniqueStrings appends elements from src into dst, preserving order and deduplicating.
+func mergeUniqueStrings(dst, src []string) []string {
+	if len(src) == 0 {
+		return dst
+	}
+	seen := make(map[string]bool, len(dst)+len(src))
+	var out []string
+	for _, s := range dst {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	for _, s := range src {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// mergeTableMeta merges non-empty fields from src into dst without duplicating slices.
+func mergeTableMeta(dst, src *DorisTableMetaIR) {
+	if dst == nil || src == nil {
+		return
+	}
+	if dst.TableName == "" && src.TableName != "" {
+		dst.TableName = src.TableName
+	}
+	if dst.DatabaseScope == "" && src.DatabaseScope != "" {
+		dst.DatabaseScope = src.DatabaseScope
+	}
+	if dst.SyncTier == "" && src.SyncTier != "" {
+		dst.SyncTier = src.SyncTier
+	}
+	dst.UniqueKeyColumns = mergeUniqueStrings(dst.UniqueKeyColumns, src.UniqueKeyColumns)
+	dst.PartitionByColumns = mergeUniqueStrings(dst.PartitionByColumns, src.PartitionByColumns)
+	if dst.ColocateGroup == "" && src.ColocateGroup != "" {
+		dst.ColocateGroup = src.ColocateGroup
+	}
+	if dst.SequenceCol == "" && src.SequenceCol != "" {
+		dst.SequenceCol = src.SequenceCol
+	}
+	dst.InvertedIndexColumns = mergeUniqueStrings(dst.InvertedIndexColumns, src.InvertedIndexColumns)
+	dst.NgramBfColumns = mergeUniqueStrings(dst.NgramBfColumns, src.NgramBfColumns)
+	dst.BloomFilterColumns = mergeUniqueStrings(dst.BloomFilterColumns, src.BloomFilterColumns)
+	if dst.DistributedByColumn == "" && src.DistributedByColumn != "" {
+		dst.DistributedByColumn = src.DistributedByColumn
+	}
+	dst.DuplicateKeyColumns = mergeUniqueStrings(dst.DuplicateKeyColumns, src.DuplicateKeyColumns)
+	if dst.FileCacheTTLSeconds == 0 && src.FileCacheTTLSeconds != 0 {
+		dst.FileCacheTTLSeconds = src.FileCacheTTLSeconds
+	}
+	if dst.StorageVaultName == "" && src.StorageVaultName != "" {
+		dst.StorageVaultName = src.StorageVaultName
+	}
+	if dst.IcebergCatalog == "" && src.IcebergCatalog != "" {
+		dst.IcebergCatalog = src.IcebergCatalog
+	}
+	if dst.EmbeddingDimension == 0 && src.EmbeddingDimension != 0 {
+		dst.EmbeddingDimension = src.EmbeddingDimension
+	}
+	if dst.WriterService == "" && src.WriterService != "" {
+		dst.WriterService = src.WriterService
+	}
+	dst.ReaderServices = mergeUniqueStrings(dst.ReaderServices, src.ReaderServices)
+	dst.PrimaryKeyFields = mergeUniqueStrings(dst.PrimaryKeyFields, src.PrimaryKeyFields)
+	for _, idx := range src.Indexes {
+		exists := false
+		for _, existing := range dst.Indexes {
+			if existing.Name == idx.Name && strings.Join(existing.Columns, ",") == strings.Join(idx.Columns, ",") && existing.Unique == idx.Unique {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			dst.Indexes = append(dst.Indexes, idx)
+		}
+	}
+}
+
+// extractTableMeta is an alias for extractDorisTableMeta, returning table-level
+// metadata for any relational or lakehouse backend (Postgres, Doris, StarRocks, Iceberg).
+func extractTableMeta(msg *protogen.Message) *TableMetaConfig {
+	return extractDorisTableMeta(msg)
+}
+
+// extractColumnMeta extracts column-level metadata (including PostgreSQL, Doris, StarRocks,
+// and Iceberg options) from a field's options.
+func extractColumnMeta(field *protogen.Field) *ColumnConfig {
+	return extractColumnMetaInternal(field, true)
+}
+
+// extractDorisTableMeta extracts Doris/Iceberg/Postgres table metadata from a message's options.
 // It inspects both native (proto2type.message).table (extension 1307) and
 // wire-level legacy extension 50201 (table_meta). Returns nil if neither is set.
 func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
@@ -309,9 +561,25 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 		return nil
 	}
 
+	var typedOut *DorisTableMetaIR
 	// 1. Check typed (proto2type.message).table extension first.
 	if mo := getMessageOptions(msg); mo.GetTable() != nil {
 		t := mo.GetTable()
+		var indexes []IndexDefIR
+		for _, idx := range t.GetIndexes() {
+			if idx == nil {
+				continue
+			}
+			cols := trimNonEmptyStrings(idx.GetColumns())
+			name := strings.TrimSpace(idx.GetName())
+			if len(cols) > 0 || name != "" {
+				indexes = append(indexes, IndexDefIR{
+					Name:    name,
+					Columns: cols,
+					Unique:  idx.GetUnique(),
+				})
+			}
+		}
 		out := &DorisTableMetaIR{
 			TableName:            t.GetTableName(),
 			DatabaseScope:        normalizeDatabaseScope(t.GetDatabaseScope()),
@@ -329,28 +597,40 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 			StorageVaultName:     t.GetStorageVaultName(),
 			IcebergCatalog:       t.GetIcebergCatalog(),
 			EmbeddingDimension:   t.GetEmbeddingDimension(),
+			WriterService:        strings.TrimSpace(t.GetWriterService()),
+			ReaderServices:       trimNonEmptyStrings(t.GetReaderServices()),
+			PrimaryKeyFields:     trimNonEmptyStrings(t.GetPrimaryKeyFields()),
+			Indexes:              indexes,
 		}
 		if !out.isEmpty() {
-			return out
+			typedOut = out
 		}
 	}
 
 	// 2. Inspect wire bytes on MessageOptions for extension 50201 (or fallback 1307.2).
 	opts := msg.Desc.Options()
 	if opts == nil {
-		return nil
+		return typedOut
 	}
 	raw, err := proto.Marshal(opts)
 	if err != nil || len(raw) == 0 {
-		return nil
+		return typedOut
 	}
-	return parseDorisTableMetaFromOptionsWire(raw)
+	wireOut := parseDorisTableMetaFromOptionsWire(raw)
+	if typedOut != nil {
+		if wireOut != nil {
+			mergeTableMeta(typedOut, wireOut)
+		}
+		return typedOut
+	}
+	return wireOut
 }
 
 // parseDorisTableMetaFromOptionsWire scans marshaled MessageOptions wire bytes
 // for tag 50201 (legacy table_meta) or tag 1307 field 2 ((proto2type.message).table).
 func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
-	var out *DorisTableMetaIR
+	var legacyOut *DorisTableMetaIR
+	var ext1307Out *DorisTableMetaIR
 	b := raw
 	for len(b) > 0 {
 		num, typ, n := protowire.ConsumeTag(b)
@@ -365,10 +645,10 @@ func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
 				break
 			}
 			b = b[m:]
-			if out == nil {
-				out = &DorisTableMetaIR{}
+			if legacyOut == nil {
+				legacyOut = &DorisTableMetaIR{}
 			}
-			parseTableMetaBytesWithVault(val, out, false)
+			parseTableMetaBytesWithVault(val, legacyOut, false)
 			continue
 		}
 
@@ -392,10 +672,10 @@ func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
 						break
 					}
 					inner = inner[tm:]
-					if out == nil {
-						out = &DorisTableMetaIR{}
+					if ext1307Out == nil {
+						ext1307Out = &DorisTableMetaIR{}
 					}
-					parseTableMetaBytesWithVault(tval, out, true)
+					parseTableMetaBytesWithVault(tval, ext1307Out, true)
 				} else {
 					im := protowire.ConsumeFieldValue(inum, ityp, inner)
 					if im < 0 {
@@ -413,6 +693,17 @@ func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
 		}
 		b = b[m:]
 	}
+
+	var out *DorisTableMetaIR
+	switch {
+	case ext1307Out != nil && legacyOut != nil:
+		mergeTableMeta(ext1307Out, legacyOut)
+		out = ext1307Out
+	case ext1307Out != nil:
+		out = ext1307Out
+	default:
+		out = legacyOut
+	}
 	if out.isEmpty() {
 		return nil
 	}
@@ -424,10 +715,113 @@ func parseTableMetaBytes(b []byte, dst *DorisTableMetaIR) {
 	parseTableMetaBytesWithVault(b, dst, true)
 }
 
+// parseIndexDefBytes decodes a serialized IndexDef message into IndexDefIR.
+func parseIndexDefBytes(b []byte) IndexDefIR {
+	var idx IndexDefIR
+	for len(b) > 0 {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			break
+		}
+		b = b[n:]
+		switch num {
+		case 1: // string name = 1
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					idx.Name = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 2: // repeated string columns = 2
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if col := strings.TrimSpace(string(v)); col != "" {
+						idx.Columns = append(idx.Columns, col)
+					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 3: // bool unique = 3
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					idx.Unique = v != 0
+					b = b[m:]
+					continue
+				}
+			}
+		}
+		m := protowire.ConsumeFieldValue(num, typ, b)
+		if m < 0 {
+			break
+		}
+		b = b[m:]
+	}
+	return idx
+}
+
+// parseForeignKeyBytes decodes a serialized ForeignKey message into *ForeignKeyIR.
+func parseForeignKeyBytes(b []byte) *ForeignKeyIR {
+	fk := &ForeignKeyIR{}
+	for len(b) > 0 {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			break
+		}
+		b = b[n:]
+		switch num {
+		case 1: // string ref_table = 1
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					fk.RefTable = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 2: // string ref_column = 2
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					fk.RefColumn = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 3: // string on_delete = 3
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					fk.OnDelete = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 4: // string on_update = 4
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					fk.OnUpdate = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		}
+		m := protowire.ConsumeFieldValue(num, typ, b)
+		if m < 0 {
+			break
+		}
+		b = b[m:]
+	}
+	if fk.RefTable == "" && fk.RefColumn == "" && fk.OnDelete == "" && fk.OnUpdate == "" {
+		return nil
+	}
+	return fk
+}
+
 // parseTableMetaBytesWithVault decodes a serialized TableMeta / TableOptions message into dst.
 // When includeVaultAndCatalog is false (legacy extension 50201), fields 14 and 15
-// (writer_service / reader_services) are ignored so CLI/plugin options supply
-// DorisStorageVault and IcebergCatalog.
+// decode writer_service and reader_services (from candela.types.TableMeta), whereas
+// when includeVaultAndCatalog is true (extension 1307 proto2type.TableOptions),
+// fields 14 and 15 decode storage_vault_name and iceberg_catalog and fields 17 and 18
+// decode writer_service and reader_services.
 func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultAndCatalog bool) {
 	for len(b) > 0 {
 		num, typ, n := protowire.ConsumeTag(b)
@@ -559,18 +953,64 @@ func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultA
 					continue
 				}
 			}
-		case 14: // string storage_vault_name = 14 (TableOptions 1307 only)
-			if includeVaultAndCatalog && typ == protowire.BytesType {
+		case 14: // string storage_vault_name = 14 (1307) OR string writer_service = 14 (50201)
+			if typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
-					dst.StorageVaultName = string(v)
+					if includeVaultAndCatalog {
+						dst.StorageVaultName = string(v)
+					} else {
+						dst.WriterService = strings.TrimSpace(string(v))
+					}
 					b = b[m:]
 					continue
 				}
 			}
-		case 15: // string iceberg_catalog = 15 (TableOptions 1307 only)
+		case 15: // string iceberg_catalog = 15 (1307) OR repeated string reader_services = 15 (50201)
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if includeVaultAndCatalog {
+						dst.IcebergCatalog = string(v)
+					} else if s := strings.TrimSpace(string(v)); s != "" {
+						dst.ReaderServices = append(dst.ReaderServices, s)
+					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 17: // string writer_service = 17 (TableOptions 1307)
 			if includeVaultAndCatalog && typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
-					dst.IcebergCatalog = string(v)
+					dst.WriterService = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 18: // repeated string reader_services = 18 (TableOptions 1307)
+			if includeVaultAndCatalog && typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if s := strings.TrimSpace(string(v)); s != "" {
+						dst.ReaderServices = append(dst.ReaderServices, s)
+					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 19: // repeated string primary_key_fields = 19 (TableOptions 1307)
+			if includeVaultAndCatalog && typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if s := strings.TrimSpace(string(v)); s != "" {
+						dst.PrimaryKeyFields = append(dst.PrimaryKeyFields, s)
+					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 20: // repeated IndexDef indexes = 20 (TableOptions 1307)
+			if includeVaultAndCatalog && typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if idx := parseIndexDefBytes(v); len(idx.Columns) > 0 || idx.Name != "" {
+						dst.Indexes = append(dst.Indexes, idx)
+					}
 					b = b[m:]
 					continue
 				}
@@ -599,17 +1039,124 @@ func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultA
 	}
 }
 
+// foreignKeyIRFromProto converts a protobuf ForeignKey option message into a ForeignKeyIR,
+// returning nil if fk is nil or all of its fields are empty.
+func foreignKeyIRFromProto(fk *proto2typepb.ForeignKey) *ForeignKeyIR {
+	if fk == nil {
+		return nil
+	}
+	out := &ForeignKeyIR{
+		RefTable:  strings.TrimSpace(fk.GetRefTable()),
+		RefColumn: strings.TrimSpace(fk.GetRefColumn()),
+		OnDelete:  strings.TrimSpace(fk.GetOnDelete()),
+		OnUpdate:  strings.TrimSpace(fk.GetOnUpdate()),
+	}
+	if out.RefTable == "" && out.RefColumn == "" && out.OnDelete == "" && out.OnUpdate == "" {
+		return nil
+	}
+	return out
+}
+
+// mergeColumnMeta merges non-empty fields from src into dst without overwriting
+// fields already set on dst.
+func mergeColumnMeta(dst, src *DorisColumnMetaIR) {
+	if dst == nil || src == nil {
+		return
+	}
+	if dst.DorisType == "" && src.DorisType != "" {
+		dst.DorisType = src.DorisType
+	}
+	if dst.IcebergType == "" && src.IcebergType != "" {
+		dst.IcebergType = src.IcebergType
+	}
+	if !dst.InvertedIndex && src.InvertedIndex {
+		dst.InvertedIndex = true
+	}
+	if !dst.IsUniqueKey && src.IsUniqueKey {
+		dst.IsUniqueKey = true
+	}
+	if !dst.IsSequenceCol && src.IsSequenceCol {
+		dst.IsSequenceCol = true
+	}
+	if !dst.InlineNested && src.InlineNested {
+		dst.InlineNested = true
+	}
+	if !dst.IsPartitionKey && src.IsPartitionKey {
+		dst.IsPartitionKey = true
+	}
+	if !dst.StripEnumPrefix && src.StripEnumPrefix {
+		dst.StripEnumPrefix = true
+	}
+	if dst.ColumnName == "" && src.ColumnName != "" {
+		dst.ColumnName = src.ColumnName
+	}
+	if dst.DefaultValue == "" && src.DefaultValue != "" {
+		dst.DefaultValue = src.DefaultValue
+	}
+	if dst.SQLType == "" && src.SQLType != "" {
+		dst.SQLType = src.SQLType
+	}
+	if !dst.JSONB && src.JSONB {
+		dst.JSONB = true
+	}
+	if dst.Length == 0 && src.Length != 0 {
+		dst.Length = src.Length
+	}
+	if !dst.PrimaryKey && src.PrimaryKey {
+		dst.PrimaryKey = true
+	}
+	if !dst.Index && src.Index {
+		dst.Index = true
+	}
+	if !dst.Unique && src.Unique {
+		dst.Unique = true
+	}
+	if dst.Nullable == nil && src.Nullable != nil {
+		b := *src.Nullable
+		dst.Nullable = &b
+	}
+	if dst.ForeignKey == nil && src.ForeignKey != nil {
+		fkCopy := *src.ForeignKey
+		dst.ForeignKey = &fkCopy
+	}
+}
+
 // extractDorisColumnMeta extracts Doris/Iceberg column metadata from a field's options.
 // It inspects both native (proto2type.field).column (extension 1307) and
-// wire-level legacy extension 50200 (column_meta). Returns nil if neither is set.
+// wire-level legacy extension 50200 (column_meta), returning nil if no Doris/Iceberg
+// column options are set.
 func extractDorisColumnMeta(field *protogen.Field) *DorisColumnMetaIR {
+	return extractColumnMetaInternal(field, false)
+}
+
+// extractColumnMetaInternal extracts column metadata from both typed (proto2type.field)
+// and wire-level legacy extension 50200, merging non-empty fields so top-level FieldOptions
+// shorthand does not shadow legacy 50200 metadata. When includePostgres is false,
+// returns nil unless at least one Doris/Iceberg column field is non-empty.
+func extractColumnMetaInternal(field *protogen.Field, includePostgres bool) *DorisColumnMetaIR {
 	if field == nil || field.Desc == nil {
 		return nil
 	}
 
-	// 1. Check typed (proto2type.field).column extension first.
-	if fo := getFieldOptions(field); fo.GetColumn() != nil {
+	var typedOut *DorisColumnMetaIR
+	// 1. Check typed (proto2type.field) extension first.
+	if fo := getFieldOptions(field); fo != nil {
 		c := fo.GetColumn()
+		var nullable *bool
+		if c != nil {
+			switch c.GetNullable() {
+			case proto2typepb.OptionalBool_OPTIONAL_BOOL_TRUE:
+				b := true
+				nullable = &b
+			case proto2typepb.OptionalBool_OPTIONAL_BOOL_FALSE:
+				b := false
+				nullable = &b
+			}
+		}
+		fk := foreignKeyIRFromProto(c.GetForeignKey())
+		if fk == nil {
+			fk = foreignKeyIRFromProto(fo.GetForeignKey())
+		}
 		out := &DorisColumnMetaIR{
 			DorisType:       c.GetDorisType(),
 			IcebergType:     c.GetIcebergType(),
@@ -621,28 +1168,56 @@ func extractDorisColumnMeta(field *protogen.Field) *DorisColumnMetaIR {
 			StripEnumPrefix: c.GetStripEnumPrefix(),
 			ColumnName:      c.GetColumnName(),
 			DefaultValue:    c.GetDefaultValue(),
+			SQLType:         strings.TrimSpace(c.GetSqlType()),
+			JSONB:           c.GetJsonb(),
+			Length:          c.GetLength(),
+			PrimaryKey:      c.GetPrimaryKey() || fo.GetPrimaryKey(),
+			Index:           c.GetIndex() || fo.GetIndex(),
+			Unique:          c.GetUnique() || fo.GetUnique(),
+			Nullable:        nullable,
+			ForeignKey:      fk,
 		}
-		if !out.isEmpty() {
-			return out
+		if !out.isAllEmpty() {
+			typedOut = out
 		}
 	}
 
 	// 2. Inspect wire bytes on FieldOptions for extension 50200 (or fallback 1307.10).
-	opts := field.Desc.Options()
-	if opts == nil {
+	var wireOut *DorisColumnMetaIR
+	if opts := field.Desc.Options(); opts != nil {
+		if raw, err := proto.Marshal(opts); err == nil && len(raw) > 0 {
+			wireOut = parseDorisColumnMetaFromOptionsWire(raw)
+		}
+	}
+
+	var merged *DorisColumnMetaIR
+	switch {
+	case typedOut != nil && wireOut != nil:
+		mergeColumnMeta(typedOut, wireOut)
+		merged = typedOut
+	case typedOut != nil:
+		merged = typedOut
+	default:
+		merged = wireOut
+	}
+
+	if includePostgres {
+		if merged.isAllEmpty() {
+			return nil
+		}
+		return merged
+	}
+	if merged.isEmpty() {
 		return nil
 	}
-	raw, err := proto.Marshal(opts)
-	if err != nil || len(raw) == 0 {
-		return nil
-	}
-	return parseDorisColumnMetaFromOptionsWire(raw)
+	return merged
 }
 
 // parseDorisColumnMetaFromOptionsWire scans marshaled FieldOptions wire bytes
 // for tag 50200 (legacy column_meta) or tag 1307 field 10 ((proto2type.field).column).
 func parseDorisColumnMetaFromOptionsWire(raw []byte) *DorisColumnMetaIR {
-	var out *DorisColumnMetaIR
+	var legacyOut *DorisColumnMetaIR
+	var ext1307Out *DorisColumnMetaIR
 	b := raw
 	for len(b) > 0 {
 		num, typ, n := protowire.ConsumeTag(b)
@@ -657,10 +1232,10 @@ func parseDorisColumnMetaFromOptionsWire(raw []byte) *DorisColumnMetaIR {
 				break
 			}
 			b = b[m:]
-			if out == nil {
-				out = &DorisColumnMetaIR{}
+			if legacyOut == nil {
+				legacyOut = &DorisColumnMetaIR{}
 			}
-			parseColumnMetaBytes(val, out)
+			parseColumnMetaBytes(val, legacyOut)
 			continue
 		}
 
@@ -684,10 +1259,10 @@ func parseDorisColumnMetaFromOptionsWire(raw []byte) *DorisColumnMetaIR {
 						break
 					}
 					inner = inner[cm:]
-					if out == nil {
-						out = &DorisColumnMetaIR{}
+					if ext1307Out == nil {
+						ext1307Out = &DorisColumnMetaIR{}
 					}
-					parseColumnMetaBytes(cval, out)
+					parseColumnMetaBytes(cval, ext1307Out)
 				} else {
 					im := protowire.ConsumeFieldValue(inum, ityp, inner)
 					if im < 0 {
@@ -705,7 +1280,17 @@ func parseDorisColumnMetaFromOptionsWire(raw []byte) *DorisColumnMetaIR {
 		}
 		b = b[m:]
 	}
-	if out.isEmpty() {
+	var out *DorisColumnMetaIR
+	switch {
+	case ext1307Out != nil && legacyOut != nil:
+		mergeColumnMeta(ext1307Out, legacyOut)
+		out = ext1307Out
+	case ext1307Out != nil:
+		out = ext1307Out
+	default:
+		out = legacyOut
+	}
+	if out.isAllEmpty() {
 		return nil
 	}
 	return out
@@ -797,6 +1382,81 @@ func parseColumnMetaBytes(b []byte, dst *DorisColumnMetaIR) {
 			if typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
 					dst.DefaultValue = string(v)
+					b = b[m:]
+					continue
+				}
+			}
+		case 11: // string sql_type = 11
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					dst.SQLType = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 12: // bool jsonb = 12
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					dst.JSONB = v != 0
+					b = b[m:]
+					continue
+				}
+			}
+		case 13: // int32 length = 13
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					if v <= math.MaxInt32 {
+						dst.Length = int32(v)
+					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 14: // bool primary_key = 14
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					dst.PrimaryKey = v != 0
+					b = b[m:]
+					continue
+				}
+			}
+		case 15: // bool index = 15
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					dst.Index = v != 0
+					b = b[m:]
+					continue
+				}
+			}
+		case 16: // bool unique = 16
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					dst.Unique = v != 0
+					b = b[m:]
+					continue
+				}
+			}
+		case 17: // OptionalBool nullable = 17
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					switch v {
+					case 1:
+						bv := true
+						dst.Nullable = &bv
+					case 2:
+						bv := false
+						dst.Nullable = &bv
+					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 18: // ForeignKey foreign_key = 18
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if fk := parseForeignKeyBytes(v); fk != nil {
+						dst.ForeignKey = fk
+					}
 					b = b[m:]
 					continue
 				}

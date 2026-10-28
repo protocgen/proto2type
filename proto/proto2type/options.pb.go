@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v7.34.1
-// source: proto2type/options.proto
+// source: proto/proto2type/options.proto
 
 package proto2type
 
@@ -55,11 +55,11 @@ func (x OptionalBool) String() string {
 }
 
 func (OptionalBool) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto2type_options_proto_enumTypes[0].Descriptor()
+	return file_proto_proto2type_options_proto_enumTypes[0].Descriptor()
 }
 
 func (OptionalBool) Type() protoreflect.EnumType {
-	return &file_proto2type_options_proto_enumTypes[0]
+	return &file_proto_proto2type_options_proto_enumTypes[0]
 }
 
 func (x OptionalBool) Number() protoreflect.EnumNumber {
@@ -68,7 +68,7 @@ func (x OptionalBool) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use OptionalBool.Descriptor instead.
 func (OptionalBool) EnumDescriptor() ([]byte, []int) {
-	return file_proto2type_options_proto_rawDescGZIP(), []int{0}
+	return file_proto_proto2type_options_proto_rawDescGZIP(), []int{0}
 }
 
 type MessageOptions struct {
@@ -83,7 +83,7 @@ type MessageOptions struct {
 
 func (x *MessageOptions) Reset() {
 	*x = MessageOptions{}
-	mi := &file_proto2type_options_proto_msgTypes[0]
+	mi := &file_proto_proto2type_options_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -95,7 +95,7 @@ func (x *MessageOptions) String() string {
 func (*MessageOptions) ProtoMessage() {}
 
 func (x *MessageOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_proto2type_options_proto_msgTypes[0]
+	mi := &file_proto_proto2type_options_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -108,7 +108,7 @@ func (x *MessageOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageOptions.ProtoReflect.Descriptor instead.
 func (*MessageOptions) Descriptor() ([]byte, []int) {
-	return file_proto2type_options_proto_rawDescGZIP(), []int{0}
+	return file_proto_proto2type_options_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *MessageOptions) GetSkip() bool {
@@ -145,13 +145,23 @@ type TableOptions struct {
 	StorageVaultName     string                 `protobuf:"bytes,14,opt,name=storage_vault_name,json=storageVaultName,proto3" json:"storage_vault_name,omitempty"`
 	IcebergCatalog       string                 `protobuf:"bytes,15,opt,name=iceberg_catalog,json=icebergCatalog,proto3" json:"iceberg_catalog,omitempty"`
 	EmbeddingDimension   int32                  `protobuf:"varint,16,opt,name=embedding_dimension,json=embeddingDimension,proto3" json:"embedding_dimension,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Owning microservice that writes to this table (e.g. "patient-service").
+	// For PostgreSQL tables without an explicit table_name override, prefixes the
+	// physical table name as "<normalized_writer_service>__<snake_case_msg>".
+	WriterService string `protobuf:"bytes,17,opt,name=writer_service,json=writerService,proto3" json:"writer_service,omitempty"`
+	// Additional microservices permitted to read from this table (or "*" for shared read).
+	ReaderServices []string `protobuf:"bytes,18,rep,name=reader_services,json=readerServices,proto3" json:"reader_services,omitempty"`
+	// Explicit primary key column names for relational (PostgreSQL) tables.
+	PrimaryKeyFields []string `protobuf:"bytes,19,rep,name=primary_key_fields,json=primaryKeyFields,proto3" json:"primary_key_fields,omitempty"`
+	// Explicit composite or named indexes for relational (PostgreSQL) tables.
+	Indexes       []*IndexDef `protobuf:"bytes,20,rep,name=indexes,proto3" json:"indexes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TableOptions) Reset() {
 	*x = TableOptions{}
-	mi := &file_proto2type_options_proto_msgTypes[1]
+	mi := &file_proto_proto2type_options_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -163,7 +173,7 @@ func (x *TableOptions) String() string {
 func (*TableOptions) ProtoMessage() {}
 
 func (x *TableOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_proto2type_options_proto_msgTypes[1]
+	mi := &file_proto_proto2type_options_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -176,7 +186,7 @@ func (x *TableOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TableOptions.ProtoReflect.Descriptor instead.
 func (*TableOptions) Descriptor() ([]byte, []int) {
-	return file_proto2type_options_proto_rawDescGZIP(), []int{1}
+	return file_proto_proto2type_options_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *TableOptions) GetTableName() string {
@@ -291,6 +301,164 @@ func (x *TableOptions) GetEmbeddingDimension() int32 {
 	return 0
 }
 
+func (x *TableOptions) GetWriterService() string {
+	if x != nil {
+		return x.WriterService
+	}
+	return ""
+}
+
+func (x *TableOptions) GetReaderServices() []string {
+	if x != nil {
+		return x.ReaderServices
+	}
+	return nil
+}
+
+func (x *TableOptions) GetPrimaryKeyFields() []string {
+	if x != nil {
+		return x.PrimaryKeyFields
+	}
+	return nil
+}
+
+func (x *TableOptions) GetIndexes() []*IndexDef {
+	if x != nil {
+		return x.Indexes
+	}
+	return nil
+}
+
+// IndexDef defines a single or composite relational index on a table.
+type IndexDef struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Columns       []string               `protobuf:"bytes,2,rep,name=columns,proto3" json:"columns,omitempty"`
+	Unique        bool                   `protobuf:"varint,3,opt,name=unique,proto3" json:"unique,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IndexDef) Reset() {
+	*x = IndexDef{}
+	mi := &file_proto_proto2type_options_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IndexDef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IndexDef) ProtoMessage() {}
+
+func (x *IndexDef) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_proto2type_options_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IndexDef.ProtoReflect.Descriptor instead.
+func (*IndexDef) Descriptor() ([]byte, []int) {
+	return file_proto_proto2type_options_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *IndexDef) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *IndexDef) GetColumns() []string {
+	if x != nil {
+		return x.Columns
+	}
+	return nil
+}
+
+func (x *IndexDef) GetUnique() bool {
+	if x != nil {
+		return x.Unique
+	}
+	return false
+}
+
+// ForeignKey defines a relational foreign key reference on a column.
+type ForeignKey struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RefTable      string                 `protobuf:"bytes,1,opt,name=ref_table,json=refTable,proto3" json:"ref_table,omitempty"`
+	RefColumn     string                 `protobuf:"bytes,2,opt,name=ref_column,json=refColumn,proto3" json:"ref_column,omitempty"`
+	OnDelete      string                 `protobuf:"bytes,3,opt,name=on_delete,json=onDelete,proto3" json:"on_delete,omitempty"`
+	OnUpdate      string                 `protobuf:"bytes,4,opt,name=on_update,json=onUpdate,proto3" json:"on_update,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ForeignKey) Reset() {
+	*x = ForeignKey{}
+	mi := &file_proto_proto2type_options_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ForeignKey) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ForeignKey) ProtoMessage() {}
+
+func (x *ForeignKey) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_proto2type_options_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ForeignKey.ProtoReflect.Descriptor instead.
+func (*ForeignKey) Descriptor() ([]byte, []int) {
+	return file_proto_proto2type_options_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ForeignKey) GetRefTable() string {
+	if x != nil {
+		return x.RefTable
+	}
+	return ""
+}
+
+func (x *ForeignKey) GetRefColumn() string {
+	if x != nil {
+		return x.RefColumn
+	}
+	return ""
+}
+
+func (x *ForeignKey) GetOnDelete() string {
+	if x != nil {
+		return x.OnDelete
+	}
+	return ""
+}
+
+func (x *ForeignKey) GetOnUpdate() string {
+	if x != nil {
+		return x.OnUpdate
+	}
+	return ""
+}
+
 type FieldOptions struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Mark as document ID field.
@@ -317,14 +485,22 @@ type FieldOptions struct {
 	// Excluded from domain types. Used for Firestore search indexes.
 	Computed *ComputedField `protobuf:"bytes,9,opt,name=computed,proto3" json:"computed,omitempty"`
 	// Apache Doris 4.x and Apache Iceberg lakehouse column metadata.
-	Column        *ColumnOptions `protobuf:"bytes,10,opt,name=column,proto3" json:"column,omitempty"`
+	Column *ColumnOptions `protobuf:"bytes,10,opt,name=column,proto3" json:"column,omitempty"`
+	// Mark this field as a primary key column in relational (PostgreSQL) tables.
+	PrimaryKey bool `protobuf:"varint,11,opt,name=primary_key,json=primaryKey,proto3" json:"primary_key,omitempty"`
+	// Create a non-unique B-tree index on this column in relational (PostgreSQL) tables.
+	Index bool `protobuf:"varint,12,opt,name=index,proto3" json:"index,omitempty"`
+	// Create a unique index/constraint on this column in relational (PostgreSQL) tables.
+	Unique bool `protobuf:"varint,13,opt,name=unique,proto3" json:"unique,omitempty"`
+	// Relational foreign key reference for this column.
+	ForeignKey    *ForeignKey `protobuf:"bytes,14,opt,name=foreign_key,json=foreignKey,proto3" json:"foreign_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FieldOptions) Reset() {
 	*x = FieldOptions{}
-	mi := &file_proto2type_options_proto_msgTypes[2]
+	mi := &file_proto_proto2type_options_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -336,7 +512,7 @@ func (x *FieldOptions) String() string {
 func (*FieldOptions) ProtoMessage() {}
 
 func (x *FieldOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_proto2type_options_proto_msgTypes[2]
+	mi := &file_proto_proto2type_options_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -349,7 +525,7 @@ func (x *FieldOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FieldOptions.ProtoReflect.Descriptor instead.
 func (*FieldOptions) Descriptor() ([]byte, []int) {
-	return file_proto2type_options_proto_rawDescGZIP(), []int{2}
+	return file_proto_proto2type_options_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *FieldOptions) GetDocumentId() bool {
@@ -422,6 +598,34 @@ func (x *FieldOptions) GetColumn() *ColumnOptions {
 	return nil
 }
 
+func (x *FieldOptions) GetPrimaryKey() bool {
+	if x != nil {
+		return x.PrimaryKey
+	}
+	return false
+}
+
+func (x *FieldOptions) GetIndex() bool {
+	if x != nil {
+		return x.Index
+	}
+	return false
+}
+
+func (x *FieldOptions) GetUnique() bool {
+	if x != nil {
+		return x.Unique
+	}
+	return false
+}
+
+func (x *FieldOptions) GetForeignKey() *ForeignKey {
+	if x != nil {
+		return x.ForeignKey
+	}
+	return nil
+}
+
 // ColumnOptions defines Apache Doris 4.x and Apache Iceberg lakehouse column
 // metadata on a field. Wire-compatible with legacy column metadata extension 50200.
 type ColumnOptions struct {
@@ -436,13 +640,29 @@ type ColumnOptions struct {
 	StripEnumPrefix bool                   `protobuf:"varint,8,opt,name=strip_enum_prefix,json=stripEnumPrefix,proto3" json:"strip_enum_prefix,omitempty"`
 	ColumnName      string                 `protobuf:"bytes,9,opt,name=column_name,json=columnName,proto3" json:"column_name,omitempty"`
 	DefaultValue    string                 `protobuf:"bytes,10,opt,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Explicit PostgreSQL SQL type override (e.g. "VARCHAR(64)", "NUMERIC(10,2)", "UUID").
+	SqlType string `protobuf:"bytes,11,opt,name=sql_type,json=sqlType,proto3" json:"sql_type,omitempty"`
+	// Store string/message column as JSONB in PostgreSQL.
+	Jsonb bool `protobuf:"varint,12,opt,name=jsonb,proto3" json:"jsonb,omitempty"`
+	// Maximum character length for VARCHAR(N) in PostgreSQL.
+	Length int32 `protobuf:"varint,13,opt,name=length,proto3" json:"length,omitempty"`
+	// Mark column as primary key in PostgreSQL.
+	PrimaryKey bool `protobuf:"varint,14,opt,name=primary_key,json=primaryKey,proto3" json:"primary_key,omitempty"`
+	// Create a non-unique index on this column in PostgreSQL.
+	Index bool `protobuf:"varint,15,opt,name=index,proto3" json:"index,omitempty"`
+	// Create a unique index on this column in PostgreSQL.
+	Unique bool `protobuf:"varint,16,opt,name=unique,proto3" json:"unique,omitempty"`
+	// Override column nullability in PostgreSQL.
+	Nullable OptionalBool `protobuf:"varint,17,opt,name=nullable,proto3,enum=proto2type.OptionalBool" json:"nullable,omitempty"`
+	// Relational foreign key reference for this column in PostgreSQL.
+	ForeignKey    *ForeignKey `protobuf:"bytes,18,opt,name=foreign_key,json=foreignKey,proto3" json:"foreign_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ColumnOptions) Reset() {
 	*x = ColumnOptions{}
-	mi := &file_proto2type_options_proto_msgTypes[3]
+	mi := &file_proto_proto2type_options_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -454,7 +674,7 @@ func (x *ColumnOptions) String() string {
 func (*ColumnOptions) ProtoMessage() {}
 
 func (x *ColumnOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_proto2type_options_proto_msgTypes[3]
+	mi := &file_proto_proto2type_options_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -467,7 +687,7 @@ func (x *ColumnOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ColumnOptions.ProtoReflect.Descriptor instead.
 func (*ColumnOptions) Descriptor() ([]byte, []int) {
-	return file_proto2type_options_proto_rawDescGZIP(), []int{3}
+	return file_proto_proto2type_options_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ColumnOptions) GetDorisType() string {
@@ -540,6 +760,62 @@ func (x *ColumnOptions) GetDefaultValue() string {
 	return ""
 }
 
+func (x *ColumnOptions) GetSqlType() string {
+	if x != nil {
+		return x.SqlType
+	}
+	return ""
+}
+
+func (x *ColumnOptions) GetJsonb() bool {
+	if x != nil {
+		return x.Jsonb
+	}
+	return false
+}
+
+func (x *ColumnOptions) GetLength() int32 {
+	if x != nil {
+		return x.Length
+	}
+	return 0
+}
+
+func (x *ColumnOptions) GetPrimaryKey() bool {
+	if x != nil {
+		return x.PrimaryKey
+	}
+	return false
+}
+
+func (x *ColumnOptions) GetIndex() bool {
+	if x != nil {
+		return x.Index
+	}
+	return false
+}
+
+func (x *ColumnOptions) GetUnique() bool {
+	if x != nil {
+		return x.Unique
+	}
+	return false
+}
+
+func (x *ColumnOptions) GetNullable() OptionalBool {
+	if x != nil {
+		return x.Nullable
+	}
+	return OptionalBool_OPTIONAL_BOOL_UNSPECIFIED
+}
+
+func (x *ColumnOptions) GetForeignKey() *ForeignKey {
+	if x != nil {
+		return x.ForeignKey
+	}
+	return nil
+}
+
 // ComputedField defines a derived field that is automatically populated
 // from another field during FromDomain() conversion.
 type ComputedField struct {
@@ -554,7 +830,7 @@ type ComputedField struct {
 
 func (x *ComputedField) Reset() {
 	*x = ComputedField{}
-	mi := &file_proto2type_options_proto_msgTypes[4]
+	mi := &file_proto_proto2type_options_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -566,7 +842,7 @@ func (x *ComputedField) String() string {
 func (*ComputedField) ProtoMessage() {}
 
 func (x *ComputedField) ProtoReflect() protoreflect.Message {
-	mi := &file_proto2type_options_proto_msgTypes[4]
+	mi := &file_proto_proto2type_options_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -579,7 +855,7 @@ func (x *ComputedField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComputedField.ProtoReflect.Descriptor instead.
 func (*ComputedField) Descriptor() ([]byte, []int) {
-	return file_proto2type_options_proto_rawDescGZIP(), []int{4}
+	return file_proto_proto2type_options_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ComputedField) GetSource() string {
@@ -596,14 +872,14 @@ func (x *ComputedField) GetTransform() string {
 	return ""
 }
 
-var file_proto2type_options_proto_extTypes = []protoimpl.ExtensionInfo{
+var file_proto_proto2type_options_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MessageOptions)(nil),
 		ExtensionType: (*MessageOptions)(nil),
 		Field:         1307,
 		Name:          "proto2type.message",
 		Tag:           "bytes,1307,opt,name=message",
-		Filename:      "proto2type/options.proto",
+		Filename:      "proto/proto2type/options.proto",
 	},
 	{
 		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
@@ -611,31 +887,31 @@ var file_proto2type_options_proto_extTypes = []protoimpl.ExtensionInfo{
 		Field:         1307,
 		Name:          "proto2type.field",
 		Tag:           "bytes,1307,opt,name=field",
-		Filename:      "proto2type/options.proto",
+		Filename:      "proto/proto2type/options.proto",
 	},
 }
 
 // Extension fields to descriptorpb.MessageOptions.
 var (
 	// optional proto2type.MessageOptions message = 1307;
-	E_Message = &file_proto2type_options_proto_extTypes[0]
+	E_Message = &file_proto_proto2type_options_proto_extTypes[0]
 )
 
 // Extension fields to descriptorpb.FieldOptions.
 var (
 	// optional proto2type.FieldOptions field = 1307;
-	E_Field = &file_proto2type_options_proto_extTypes[1]
+	E_Field = &file_proto_proto2type_options_proto_extTypes[1]
 )
 
-var File_proto2type_options_proto protoreflect.FileDescriptor
+var File_proto_proto2type_options_proto protoreflect.FileDescriptor
 
-const file_proto2type_options_proto_rawDesc = "" +
+const file_proto_proto2type_options_proto_rawDesc = "" +
 	"\n" +
-	"\x18proto2type/options.proto\x12\n" +
+	"\x1eproto/proto2type/options.proto\x12\n" +
 	"proto2type\x1a google/protobuf/descriptor.proto\"T\n" +
 	"\x0eMessageOptions\x12\x12\n" +
 	"\x04skip\x18\x01 \x01(\bR\x04skip\x12.\n" +
-	"\x05table\x18\x02 \x01(\v2\x18.proto2type.TableOptionsR\x05table\"\xd2\x05\n" +
+	"\x05table\x18\x02 \x01(\v2\x18.proto2type.TableOptionsR\x05table\"\x80\a\n" +
 	"\fTableOptions\x12\x1d\n" +
 	"\n" +
 	"table_name\x18\x01 \x01(\tR\ttableName\x12%\n" +
@@ -654,7 +930,22 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\x16file_cache_ttl_seconds\x18\r \x01(\x05R\x13fileCacheTtlSeconds\x12,\n" +
 	"\x12storage_vault_name\x18\x0e \x01(\tR\x10storageVaultName\x12'\n" +
 	"\x0ficeberg_catalog\x18\x0f \x01(\tR\x0eicebergCatalog\x12/\n" +
-	"\x13embedding_dimension\x18\x10 \x01(\x05R\x12embeddingDimension\"\x96\x03\n" +
+	"\x13embedding_dimension\x18\x10 \x01(\x05R\x12embeddingDimension\x12%\n" +
+	"\x0ewriter_service\x18\x11 \x01(\tR\rwriterService\x12'\n" +
+	"\x0freader_services\x18\x12 \x03(\tR\x0ereaderServices\x12,\n" +
+	"\x12primary_key_fields\x18\x13 \x03(\tR\x10primaryKeyFields\x12.\n" +
+	"\aindexes\x18\x14 \x03(\v2\x14.proto2type.IndexDefR\aindexes\"P\n" +
+	"\bIndexDef\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\acolumns\x18\x02 \x03(\tR\acolumns\x12\x16\n" +
+	"\x06unique\x18\x03 \x01(\bR\x06unique\"\x82\x01\n" +
+	"\n" +
+	"ForeignKey\x12\x1b\n" +
+	"\tref_table\x18\x01 \x01(\tR\brefTable\x12\x1d\n" +
+	"\n" +
+	"ref_column\x18\x02 \x01(\tR\trefColumn\x12\x1b\n" +
+	"\ton_delete\x18\x03 \x01(\tR\bonDelete\x12\x1b\n" +
+	"\ton_update\x18\x04 \x01(\tR\bonUpdate\"\x9e\x04\n" +
 	"\fFieldOptions\x12\x1f\n" +
 	"\vdocument_id\x18\x01 \x01(\bR\n" +
 	"documentId\x12)\n" +
@@ -667,7 +958,13 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\aencrypt\x18\b \x01(\bR\aencrypt\x125\n" +
 	"\bcomputed\x18\t \x01(\v2\x19.proto2type.ComputedFieldR\bcomputed\x121\n" +
 	"\x06column\x18\n" +
-	" \x01(\v2\x19.proto2type.ColumnOptionsR\x06column\"\x85\x03\n" +
+	" \x01(\v2\x19.proto2type.ColumnOptionsR\x06column\x12\x1f\n" +
+	"\vprimary_key\x18\v \x01(\bR\n" +
+	"primaryKey\x12\x14\n" +
+	"\x05index\x18\f \x01(\bR\x05index\x12\x16\n" +
+	"\x06unique\x18\r \x01(\bR\x06unique\x127\n" +
+	"\vforeign_key\x18\x0e \x01(\v2\x16.proto2type.ForeignKeyR\n" +
+	"foreignKey\"\x8c\x05\n" +
 	"\rColumnOptions\x12\x1d\n" +
 	"\n" +
 	"doris_type\x18\x01 \x01(\tR\tdorisType\x12!\n" +
@@ -681,7 +978,17 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\vcolumn_name\x18\t \x01(\tR\n" +
 	"columnName\x12#\n" +
 	"\rdefault_value\x18\n" +
-	" \x01(\tR\fdefaultValue\"E\n" +
+	" \x01(\tR\fdefaultValue\x12\x19\n" +
+	"\bsql_type\x18\v \x01(\tR\asqlType\x12\x14\n" +
+	"\x05jsonb\x18\f \x01(\bR\x05jsonb\x12\x16\n" +
+	"\x06length\x18\r \x01(\x05R\x06length\x12\x1f\n" +
+	"\vprimary_key\x18\x0e \x01(\bR\n" +
+	"primaryKey\x12\x14\n" +
+	"\x05index\x18\x0f \x01(\bR\x05index\x12\x16\n" +
+	"\x06unique\x18\x10 \x01(\bR\x06unique\x124\n" +
+	"\bnullable\x18\x11 \x01(\x0e2\x18.proto2type.OptionalBoolR\bnullable\x127\n" +
+	"\vforeign_key\x18\x12 \x01(\v2\x16.proto2type.ForeignKeyR\n" +
+	"foreignKey\"E\n" +
 	"\rComputedField\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x1c\n" +
 	"\ttransform\x18\x02 \x01(\tR\ttransform*^\n" +
@@ -695,68 +1002,74 @@ const file_proto2type_options_proto_rawDesc = "" +
 	" \x01(\v2\x18.proto2type.FieldOptionsR\x05fieldB2Z0github.com/protocgen/proto2type/proto/proto2typeb\x06proto3"
 
 var (
-	file_proto2type_options_proto_rawDescOnce sync.Once
-	file_proto2type_options_proto_rawDescData []byte
+	file_proto_proto2type_options_proto_rawDescOnce sync.Once
+	file_proto_proto2type_options_proto_rawDescData []byte
 )
 
-func file_proto2type_options_proto_rawDescGZIP() []byte {
-	file_proto2type_options_proto_rawDescOnce.Do(func() {
-		file_proto2type_options_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto2type_options_proto_rawDesc), len(file_proto2type_options_proto_rawDesc)))
+func file_proto_proto2type_options_proto_rawDescGZIP() []byte {
+	file_proto_proto2type_options_proto_rawDescOnce.Do(func() {
+		file_proto_proto2type_options_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_proto2type_options_proto_rawDesc), len(file_proto_proto2type_options_proto_rawDesc)))
 	})
-	return file_proto2type_options_proto_rawDescData
+	return file_proto_proto2type_options_proto_rawDescData
 }
 
-var file_proto2type_options_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto2type_options_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
-var file_proto2type_options_proto_goTypes = []any{
+var file_proto_proto2type_options_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_proto_proto2type_options_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_proto_proto2type_options_proto_goTypes = []any{
 	(OptionalBool)(0),                   // 0: proto2type.OptionalBool
 	(*MessageOptions)(nil),              // 1: proto2type.MessageOptions
 	(*TableOptions)(nil),                // 2: proto2type.TableOptions
-	(*FieldOptions)(nil),                // 3: proto2type.FieldOptions
-	(*ColumnOptions)(nil),               // 4: proto2type.ColumnOptions
-	(*ComputedField)(nil),               // 5: proto2type.ComputedField
-	(*descriptorpb.MessageOptions)(nil), // 6: google.protobuf.MessageOptions
-	(*descriptorpb.FieldOptions)(nil),   // 7: google.protobuf.FieldOptions
+	(*IndexDef)(nil),                    // 3: proto2type.IndexDef
+	(*ForeignKey)(nil),                  // 4: proto2type.ForeignKey
+	(*FieldOptions)(nil),                // 5: proto2type.FieldOptions
+	(*ColumnOptions)(nil),               // 6: proto2type.ColumnOptions
+	(*ComputedField)(nil),               // 7: proto2type.ComputedField
+	(*descriptorpb.MessageOptions)(nil), // 8: google.protobuf.MessageOptions
+	(*descriptorpb.FieldOptions)(nil),   // 9: google.protobuf.FieldOptions
 }
-var file_proto2type_options_proto_depIdxs = []int32{
-	2, // 0: proto2type.MessageOptions.table:type_name -> proto2type.TableOptions
-	0, // 1: proto2type.FieldOptions.omitempty:type_name -> proto2type.OptionalBool
-	0, // 2: proto2type.FieldOptions.enum_as_string:type_name -> proto2type.OptionalBool
-	5, // 3: proto2type.FieldOptions.computed:type_name -> proto2type.ComputedField
-	4, // 4: proto2type.FieldOptions.column:type_name -> proto2type.ColumnOptions
-	6, // 5: proto2type.message:extendee -> google.protobuf.MessageOptions
-	7, // 6: proto2type.field:extendee -> google.protobuf.FieldOptions
-	1, // 7: proto2type.message:type_name -> proto2type.MessageOptions
-	3, // 8: proto2type.field:type_name -> proto2type.FieldOptions
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	7, // [7:9] is the sub-list for extension type_name
-	5, // [5:7] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+var file_proto_proto2type_options_proto_depIdxs = []int32{
+	2,  // 0: proto2type.MessageOptions.table:type_name -> proto2type.TableOptions
+	3,  // 1: proto2type.TableOptions.indexes:type_name -> proto2type.IndexDef
+	0,  // 2: proto2type.FieldOptions.omitempty:type_name -> proto2type.OptionalBool
+	0,  // 3: proto2type.FieldOptions.enum_as_string:type_name -> proto2type.OptionalBool
+	7,  // 4: proto2type.FieldOptions.computed:type_name -> proto2type.ComputedField
+	6,  // 5: proto2type.FieldOptions.column:type_name -> proto2type.ColumnOptions
+	4,  // 6: proto2type.FieldOptions.foreign_key:type_name -> proto2type.ForeignKey
+	0,  // 7: proto2type.ColumnOptions.nullable:type_name -> proto2type.OptionalBool
+	4,  // 8: proto2type.ColumnOptions.foreign_key:type_name -> proto2type.ForeignKey
+	8,  // 9: proto2type.message:extendee -> google.protobuf.MessageOptions
+	9,  // 10: proto2type.field:extendee -> google.protobuf.FieldOptions
+	1,  // 11: proto2type.message:type_name -> proto2type.MessageOptions
+	5,  // 12: proto2type.field:type_name -> proto2type.FieldOptions
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	11, // [11:13] is the sub-list for extension type_name
+	9,  // [9:11] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
-func init() { file_proto2type_options_proto_init() }
-func file_proto2type_options_proto_init() {
-	if File_proto2type_options_proto != nil {
+func init() { file_proto_proto2type_options_proto_init() }
+func file_proto_proto2type_options_proto_init() {
+	if File_proto_proto2type_options_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto2type_options_proto_rawDesc), len(file_proto2type_options_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_proto2type_options_proto_rawDesc), len(file_proto_proto2type_options_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   7,
 			NumExtensions: 2,
 			NumServices:   0,
 		},
-		GoTypes:           file_proto2type_options_proto_goTypes,
-		DependencyIndexes: file_proto2type_options_proto_depIdxs,
-		EnumInfos:         file_proto2type_options_proto_enumTypes,
-		MessageInfos:      file_proto2type_options_proto_msgTypes,
-		ExtensionInfos:    file_proto2type_options_proto_extTypes,
+		GoTypes:           file_proto_proto2type_options_proto_goTypes,
+		DependencyIndexes: file_proto_proto2type_options_proto_depIdxs,
+		EnumInfos:         file_proto_proto2type_options_proto_enumTypes,
+		MessageInfos:      file_proto_proto2type_options_proto_msgTypes,
+		ExtensionInfos:    file_proto_proto2type_options_proto_extTypes,
 	}.Build()
-	File_proto2type_options_proto = out.File
-	file_proto2type_options_proto_goTypes = nil
-	file_proto2type_options_proto_depIdxs = nil
+	File_proto_proto2type_options_proto = out.File
+	file_proto_proto2type_options_proto_goTypes = nil
+	file_proto_proto2type_options_proto_depIdxs = nil
 }

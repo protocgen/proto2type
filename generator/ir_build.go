@@ -87,9 +87,11 @@ func buildDomainMessage(msg *protogen.Message, parentName string, opts *Options,
 	name := irMessageName(msg, parentName)
 
 	dm := &DomainMessage{
-		Name:     name,
-		FullName: string(msg.Desc.FullName()),
-		Comment:  cleanComment(string(msg.Comments.Leading)),
+		Name:              name,
+		FullName:          string(msg.Desc.FullName()),
+		Comment:           cleanComment(string(msg.Comments.Leading)),
+		ProtoMsg:          msg,
+		PostgresTableName: resolvePostgresTableName(msg, extractTableMeta(msg)),
 	}
 
 	dm.ProtoGoIdent = msg.GoIdent
@@ -237,6 +239,7 @@ func buildDomainField(field *protogen.Field, opts *Options) (*DomainField, error
 		FieldBehaviors:      getFieldBehaviors(field),
 		ValidateConstraints: extractValidateConstraints(field),
 		Comment:             cleanFieldComment(field),
+		ProtoField:          field,
 	}
 
 	// Populate proto2 custom default value (if present).
@@ -502,6 +505,9 @@ func buildDomainOneof(msg *protogen.Message, oneof *protogen.Oneof, msgIRName st
 			ScalarKind:   scalarKind,
 			ProtoGoIdent: field.GoIdent,
 			ProtoGoName:  field.GoName,
+			NameOverride: fieldNameOverride(field),
+			ColumnMeta:   extractColumnMeta(field),
+			ProtoField:   field,
 		}
 
 		switch kind {
@@ -601,8 +607,9 @@ func irEnumNameFromDesc(ed protoreflect.EnumDescriptor) string {
 // Flattened name collision detection
 // ---------------------------------------------------------------------------
 
-// detectNameCollisions walks all messages and enums in the IR and panics if
-// two types produce the same flattened name. This catches cases like:
+// detectNameCollisions walks all messages and enums in the IR and returns an error if
+// two types produce the same flattened name or the same resolved PostgreSQL table name.
+// This catches cases like:
 //
 //	message Foo_Bar {}          → "FooBar"
 //	message Foo { message Bar {} } → "FooBar"   (collision!)
@@ -616,6 +623,35 @@ func detectNameCollisions(df *DomainFile) error {
 
 	for _, e := range df.Enums {
 		if err := recordName(seen, e.Name, e.FullName); err != nil {
+			return err
+		}
+	}
+
+	seenTables := make(map[string]*DomainMessage)
+	if err := collectPostgresTableNames(df.Messages, seenTables); err != nil {
+		return err
+	}
+	return nil
+}
+
+// collectPostgresTableNames recursively checks that no two messages in msgs resolve
+// to the same physical PostgreSQL table name when table metadata is present.
+func collectPostgresTableNames(msgs []*DomainMessage, seen map[string]*DomainMessage) error {
+	for _, msg := range msgs {
+		if msg.Skip {
+			continue
+		}
+		if msg.PostgresTableName != "" {
+			if prev, ok := seen[msg.PostgresTableName]; ok && prev.FullName != msg.FullName {
+				if extractTableMeta(msg.ProtoMsg) != nil || extractTableMeta(prev.ProtoMsg) != nil {
+					return fmt.Errorf("proto2type: PostgreSQL table name collision — %q and %q both resolve to %q",
+						msg.FullName, prev.FullName, msg.PostgresTableName)
+				}
+			} else {
+				seen[msg.PostgresTableName] = msg
+			}
+		}
+		if err := collectPostgresTableNames(msg.NestedMessages, seen); err != nil {
 			return err
 		}
 	}

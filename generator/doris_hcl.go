@@ -1624,16 +1624,20 @@ func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 	for _, tbl := range tables {
 		if hcl := tbl.Descriptor.BuildDorisAtlasHCL("", 0); hcl != "" {
 			dorisBlocks = append(dorisBlocks, ddlBlock{
-				goName:    tbl.GoName,
-				tableName: tbl.Descriptor.TableName,
-				sql:       hcl,
+				goName:         tbl.GoName,
+				tableName:      tbl.Descriptor.TableName,
+				writerService:  tbl.Descriptor.WriterService,
+				readerServices: tbl.Descriptor.ReaderServices,
+				sql:            hcl,
 			})
 		}
 		if hcl := tbl.Descriptor.BuildIcebergAtlasHCL(""); hcl != "" {
 			icebergBlocks = append(icebergBlocks, ddlBlock{
-				goName:    tbl.GoName,
-				tableName: tbl.Descriptor.TableName,
-				sql:       hcl,
+				goName:         tbl.GoName,
+				tableName:      tbl.Descriptor.TableName,
+				writerService:  tbl.Descriptor.WriterService,
+				readerServices: tbl.Descriptor.ReaderServices,
+				sql:            hcl,
 			})
 		}
 	}
@@ -1654,6 +1658,12 @@ func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 				dg.P()
 			}
 			dg.P("# ", blk.goName, " (", blk.tableName, ")")
+			if blk.writerService != "" {
+				dg.P("# writer_service: ", blk.writerService)
+			}
+			if len(blk.readerServices) > 0 {
+				dg.P("# reader_services: ", strings.Join(blk.readerServices, ", "))
+			}
 			dg.P(blk.sql)
 		}
 	}
@@ -1674,6 +1684,12 @@ func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 				ig.P()
 			}
 			ig.P("# ", blk.goName, " (", blk.tableName, ")")
+			if blk.writerService != "" {
+				ig.P("# writer_service: ", blk.writerService)
+			}
+			if len(blk.readerServices) > 0 {
+				ig.P("# reader_services: ", strings.Join(blk.readerServices, ", "))
+			}
 			ig.P(blk.sql)
 		}
 	}
@@ -1687,9 +1703,11 @@ func generateStarRocksHCLFile(gen *protogen.Plugin, file *protogen.File, tables 
 	for _, tbl := range tables {
 		if hcl := tbl.Descriptor.BuildStarRocksAtlasHCL("", 0); hcl != "" {
 			srBlocks = append(srBlocks, ddlBlock{
-				goName:    tbl.GoName,
-				tableName: tbl.Descriptor.TableName,
-				sql:       hcl,
+				goName:         tbl.GoName,
+				tableName:      tbl.Descriptor.TableName,
+				writerService:  tbl.Descriptor.WriterService,
+				readerServices: tbl.Descriptor.ReaderServices,
+				sql:            hcl,
 			})
 		}
 	}
@@ -1711,6 +1729,12 @@ func generateStarRocksHCLFile(gen *protogen.Plugin, file *protogen.File, tables 
 			sg.P()
 		}
 		sg.P("# ", blk.goName, " (", blk.tableName, ")")
+		if blk.writerService != "" {
+			sg.P("# writer_service: ", blk.writerService)
+		}
+		if len(blk.readerServices) > 0 {
+			sg.P("# reader_services: ", strings.Join(blk.readerServices, ", "))
+		}
 		sg.P(blk.sql)
 	}
 	return nil
