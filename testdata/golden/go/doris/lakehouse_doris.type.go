@@ -3749,7 +3749,7 @@ func indexDorisSchemaEvolutionTables(
 	return beforeByKey, beforeByScope, beforeScopeCount, afterScopeCount, nil
 }
 
-func rejectDuplicateDorisTargetScope(after []DorisTableDescriptor, caller string) error {
+func rejectDuplicateDorisTargetScope(after []DorisTableDescriptor, engine, caller string) error {
 	seen := make(map[string]bool, len(after))
 	for _, t := range after {
 		if !hasDorisTargetTable(t) {
@@ -3757,9 +3757,21 @@ func rejectDuplicateDorisTargetScope(after []DorisTableDescriptor, caller string
 		}
 		scopeKey := dorisScopeTableIdentity(t)
 		if seen[scopeKey] {
-			return fmt.Errorf("duplicate Doris table name %q in scope in %s", t.TableName, caller)
+			return fmt.Errorf("duplicate %s table name %q in scope in %s", engine, t.TableName, caller)
 		}
 		seen[scopeKey] = true
+	}
+	return nil
+}
+
+func validateDorisNewTableColumns(t DorisTableDescriptor, engine string) error {
+	if len(t.Columns) == 0 {
+		return fmt.Errorf("failed to build %s CREATE TABLE SQL for new table %q: no columns", engine, t.TableName)
+	}
+	for _, c := range t.Columns {
+		if strings.TrimSpace(c.DorisType) == "" && strings.TrimSpace(c.IcebergType) == "" {
+			return fmt.Errorf("column %q in table %q has empty DorisType and IcebergType", c.ColumnName, t.TableName)
+		}
 	}
 	return nil
 }
@@ -3796,7 +3808,7 @@ func BuildDorisSchemaMigrationSQL(before, after []DorisTableDescriptor, tenantSl
 	if err := ValidateDorisSchemaEvolution(before, after); err != nil {
 		return nil, err
 	}
-	if err := rejectDuplicateDorisTargetScope(after, "BuildDorisSchemaMigrationSQL"); err != nil {
+	if err := rejectDuplicateDorisTargetScope(after, "Doris", "BuildDorisSchemaMigrationSQL"); err != nil {
 		return nil, err
 	}
 	matchedBeforeKeys := make(map[string]bool, len(before))
@@ -3814,8 +3826,8 @@ func BuildDorisSchemaMigrationSQL(before, after []DorisTableDescriptor, tenantSl
 		if !hasDorisTargetTable(afterTbl) {
 			continue
 		}
-		if len(afterTbl.Columns) == 0 {
-			return nil, fmt.Errorf("failed to build Doris CREATE TABLE SQL for new table %q: no columns", afterTbl.TableName)
+		if err := validateDorisNewTableColumns(afterTbl, "Doris"); err != nil {
+			return nil, err
 		}
 		createSQL := afterTbl.BuildDorisCreateTableSQL(tenantSlug, buckets)
 		if createSQL == "" {
@@ -3850,7 +3862,7 @@ func BuildStarRocksSchemaMigrationSQL(before, after []DorisTableDescriptor, tena
 	if err := ValidateDorisSchemaEvolution(before, after); err != nil {
 		return nil, err
 	}
-	if err := rejectDuplicateDorisTargetScope(after, "BuildStarRocksSchemaMigrationSQL"); err != nil {
+	if err := rejectDuplicateDorisTargetScope(after, "StarRocks", "BuildStarRocksSchemaMigrationSQL"); err != nil {
 		return nil, err
 	}
 	matchedBeforeKeys := make(map[string]bool, len(before))
@@ -3868,8 +3880,8 @@ func BuildStarRocksSchemaMigrationSQL(before, after []DorisTableDescriptor, tena
 		if !hasDorisTargetTable(afterTbl) {
 			continue
 		}
-		if len(afterTbl.Columns) == 0 {
-			return nil, fmt.Errorf("failed to build StarRocks CREATE TABLE SQL for new table %q: no columns", afterTbl.TableName)
+		if err := validateDorisNewTableColumns(afterTbl, "StarRocks"); err != nil {
+			return nil, err
 		}
 		createSQL := afterTbl.BuildStarRocksCreateTableSQL(tenantSlug, buckets)
 		if createSQL == "" {
@@ -3920,8 +3932,8 @@ func BuildIcebergSchemaMigrationSQL(before, after []DorisTableDescriptor, tenant
 		if !hasIcebergTargetTable(afterTbl) {
 			continue
 		}
-		if len(afterTbl.Columns) == 0 {
-			return nil, fmt.Errorf("failed to build Iceberg CREATE TABLE SQL for new table %q: no columns", afterTbl.TableName)
+		if err := validateDorisNewTableColumns(afterTbl, "Iceberg"); err != nil {
+			return nil, err
 		}
 		createSQL := afterTbl.BuildIcebergCreateTableSQL(tenantSlug)
 		if createSQL == "" {
