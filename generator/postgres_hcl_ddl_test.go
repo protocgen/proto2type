@@ -2777,4 +2777,3 @@ func TestPostgresHardening_ExplicitIndexNameAmbiguousFKAndHCLTemplateEscape(t *t
 		t.Errorf("expected ambiguous unprefixed ref_table error, got %v", err)
 	}
 }
-
