@@ -16,7 +16,6 @@ func baseLinterTestTable() DorisTableDescriptor {
 		DatabaseScope:       "TENANT",
 		SyncTier:            "MONTHLY_PARTITIONED",
 		UniqueKeyColumns:    []string{"patient_id", "criterion_id"},
-		PartitionByColumns:  []string{"event_month"},
 		ColocateGroup:       "azra_patient_group",
 		SequenceCol:         "publication_generation",
 		DistributedByColumn: "patient_id",
@@ -448,6 +447,107 @@ func TestLintDorisSchemaEvolution_MultiTableSlice(t *testing.T) {
 		if orderViolations[i].Rule != wantRule {
 			t.Errorf("orderViolations[%d].Rule = %s, want %s", i, orderViolations[i].Rule, wantRule)
 		}
+	}
+}
+
+// TestBuildDorisAlterTableSQL_AllDialects verifies deterministic ALTER TABLE DDL generation
+// across Apache Doris 4.x, StarRocks 4.x, and Apache Iceberg v2 for safe evolutions and error
+// rejection on unsafe evolutions or mismatched table identities.
+func TestBuildDorisAlterTableSQL_AllDialects(t *testing.T) {
+	before := baseLinterTestTable()
+
+	// 1. Reflexive / no-op evolution returns empty slice and nil error.
+	if stmts, err := before.BuildDorisAlterTableSQL(before, "acme"); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected (nil, nil) for reflexive Doris ALTER TABLE, got (%v, %v)", stmts, err)
+	}
+	if stmts, err := before.BuildStarRocksAlterTableSQL(before, "acme"); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected (nil, nil) for reflexive StarRocks ALTER TABLE, got (%v, %v)", stmts, err)
+	}
+	if stmts, err := before.BuildIcebergAlterTableSQL(before, "acme"); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected (nil, nil) for reflexive Iceberg ALTER TABLE, got (%v, %v)", stmts, err)
+	}
+
+	// 2. Safe widening + column additions:
+	after := baseLinterTestTable()
+	after.Columns[1].DorisType = "VARCHAR(128)" // criterion_id: VARCHAR(64) -> VARCHAR(128)
+	after.Columns[2].DorisType = "INT"          // display_order: SMALLINT -> INT
+	after.Columns = append(after.Columns,
+		DorisColumnDescriptor{ColumnName: "optional_note", DorisType: "VARCHAR(256)", IcebergType: "STRING", Nullable: true},
+		DorisColumnDescriptor{ColumnName: "record_status", DorisType: "VARCHAR(32)", IcebergType: "STRING", Nullable: false, DefaultValue: "ACTIVE"},
+		DorisColumnDescriptor{ColumnName: "tags", DorisType: "ARRAY<VARCHAR(64)>", IcebergType: "LIST<STRING>", Nullable: false},
+	)
+
+	dorisStmts, err := before.BuildDorisAlterTableSQL(after, "acme")
+	if err != nil {
+		t.Fatalf("BuildDorisAlterTableSQL failed: %v", err)
+	}
+	wantDoris := []string{
+		`ALTER TABLE internal.tenant_acme.eligibility_criterion_results MODIFY COLUMN criterion_id VARCHAR(128) NOT NULL;`,
+		`ALTER TABLE internal.tenant_acme.eligibility_criterion_results MODIFY COLUMN display_order INT NOT NULL DEFAULT "0";`,
+		`ALTER TABLE internal.tenant_acme.eligibility_criterion_results ADD COLUMN optional_note VARCHAR(256);`,
+		`ALTER TABLE internal.tenant_acme.eligibility_criterion_results ADD COLUMN record_status VARCHAR(32) NOT NULL DEFAULT "ACTIVE";`,
+		`ALTER TABLE internal.tenant_acme.eligibility_criterion_results ADD COLUMN tags ARRAY<VARCHAR(64)> NOT NULL DEFAULT "[]";`,
+	}
+	if !reflect.DeepEqual(dorisStmts, wantDoris) {
+		t.Fatalf("BuildDorisAlterTableSQL mismatch:\ngot:  %#v\nwant: %#v", dorisStmts, wantDoris)
+	}
+
+	srStmts, err := before.BuildStarRocksAlterTableSQL(after, "acme")
+	if err != nil {
+		t.Fatalf("BuildStarRocksAlterTableSQL failed: %v", err)
+	}
+	if !reflect.DeepEqual(srStmts, wantDoris) {
+		t.Fatalf("BuildStarRocksAlterTableSQL mismatch:\ngot:  %#v\nwant: %#v", srStmts, wantDoris)
+	}
+
+	iceStmts, err := before.BuildIcebergAlterTableSQL(after, "acme")
+	if err != nil {
+		t.Fatalf("BuildIcebergAlterTableSQL failed: %v", err)
+	}
+	wantIce := []string{
+		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results MODIFY COLUMN criterion_id VARCHAR(128) NOT NULL;`,
+		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results MODIFY COLUMN display_order INT NOT NULL;`,
+		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results ADD COLUMN optional_note VARCHAR(256);`,
+		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results ADD COLUMN record_status VARCHAR(32) NOT NULL;`,
+		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results ADD COLUMN tags ARRAY<VARCHAR(64)> NOT NULL;`,
+	}
+	if !reflect.DeepEqual(iceStmts, wantIce) {
+		t.Fatalf("BuildIcebergAlterTableSQL mismatch:\ngot:  %#v\nwant: %#v", iceStmts, wantIce)
+	}
+
+	// 3. Engine-specific skip tiers (ICEBERG_ONLY vs INTERNAL_ONLY):
+	iceOnlyBefore := before
+	iceOnlyBefore.SyncTier = "ICEBERG_ONLY"
+	iceOnlyAfter := after
+	iceOnlyAfter.SyncTier = "ICEBERG_ONLY"
+	if stmts, err := iceOnlyBefore.BuildDorisAlterTableSQL(iceOnlyAfter, "acme"); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected ICEBERG_ONLY table to return empty Doris ALTER TABLE, got (%v, %v)", stmts, err)
+	}
+	if stmts, err := iceOnlyBefore.BuildStarRocksAlterTableSQL(iceOnlyAfter, "acme"); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected ICEBERG_ONLY table to return empty StarRocks ALTER TABLE, got (%v, %v)", stmts, err)
+	}
+
+	internalBefore := before
+	internalBefore.SyncTier = "INTERNAL_ONLY"
+	internalAfter := after
+	internalAfter.SyncTier = "INTERNAL_ONLY"
+	if stmts, err := internalBefore.BuildIcebergAlterTableSQL(internalAfter, "acme"); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected INTERNAL_ONLY table to return empty Iceberg ALTER TABLE, got (%v, %v)", stmts, err)
+	}
+
+	// 4. Reject unsafe evolutions, mismatched table identities, and invalid tenant slugs:
+	unsafeAfter := baseLinterTestTable()
+	unsafeAfter.UniqueKeyColumns = []string{"patient_id"}
+	if _, err := before.BuildDorisAlterTableSQL(unsafeAfter, "acme"); err == nil {
+		t.Fatal("expected BuildDorisAlterTableSQL to return error on DORIS001 violation")
+	}
+	otherTable := after
+	otherTable.TableName = "other_table"
+	if _, err := before.BuildDorisAlterTableSQL(otherTable, "acme"); err == nil {
+		t.Fatal("expected BuildDorisAlterTableSQL to reject mismatched table identity")
+	}
+	if _, err := before.BuildDorisAlterTableSQL(after, "bad;slug"); err == nil {
+		t.Fatal("expected BuildDorisAlterTableSQL to reject invalid tenantSlug")
 	}
 }
 

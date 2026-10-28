@@ -1,0 +1,22 @@
+version: v2
+inputs:
+  - directory: .
+    paths:
+      - lakehouse.proto
+plugins:
+  # Generate proto Go types for lakehouse.proto
+  - local: protoc-gen-go
+    out: ../golden/go/pb
+    opt:
+      - paths=source_relative
+
+  # Apache Doris 4.x, StarRocks 4.x & Apache Iceberg lakehouse storage types, DDL, and Atlas HCL
+  - local: protoc-gen-proto2type
+    out: ../golden/go/doris
+    opt:
+      - paths=source_relative
+      - lang=go
+      - backend=doris
+      - doris_mode=all
+      - domain=false
+      - go_package=github.com/protocgen/proto2type/testdata/golden/go/doris;doris

@@ -508,3 +508,240 @@ func dorisStringSlicesEqual(a, b []string) bool {
 	}
 	return true
 }
+
+// BuildDorisAlterTableSQL validates evolving this table descriptor (before) into after
+// and renders deterministic Apache Doris 4.x ALTER TABLE statements (MODIFY COLUMN for
+// safe type widenings followed by ADD COLUMN for newly added columns).
+func (t DorisTableDescriptor) BuildDorisAlterTableSQL(after DorisTableDescriptor, tenantSlug string) ([]string, error) {
+	return BuildDorisAlterTableSQL(t, after, tenantSlug)
+}
+
+// BuildStarRocksAlterTableSQL validates evolving this table descriptor (before) into after
+// and renders deterministic StarRocks 4.x ALTER TABLE statements.
+func (t DorisTableDescriptor) BuildStarRocksAlterTableSQL(after DorisTableDescriptor, tenantSlug string) ([]string, error) {
+	return BuildStarRocksAlterTableSQL(t, after, tenantSlug)
+}
+
+// BuildIcebergAlterTableSQL validates evolving this table descriptor (before) into after
+// and renders deterministic Apache Iceberg ALTER TABLE statements.
+func (t DorisTableDescriptor) BuildIcebergAlterTableSQL(after DorisTableDescriptor, tenantSlug string) ([]string, error) {
+	return BuildIcebergAlterTableSQL(t, after, tenantSlug)
+}
+
+// BuildDorisAlterTableSQL validates evolving before into after and returns the ordered
+// Apache Doris 4.x ALTER TABLE statements (MODIFY COLUMN for widened columns, then
+// ADD COLUMN for new columns). Returns (nil, nil) when no changes are required or when
+// the table is Iceberg-only.
+func BuildDorisAlterTableSQL(before, after DorisTableDescriptor, tenantSlug string) ([]string, error) {
+	if !validateDescriptorIdentifiers(before) || !validateDescriptorIdentifiers(after) {
+		return nil, fmt.Errorf("invalid DorisTableDescriptor identifiers in BuildDorisAlterTableSQL")
+	}
+	if dorisTableEvolutionIdentity(before) != dorisTableEvolutionIdentity(after) {
+		return nil, fmt.Errorf("cannot generate ALTER TABLE across different physical tables (%q vs %q)", before.TableName, after.TableName)
+	}
+	slug, ok := sanitizeDorisTenantSlug(tenantSlug)
+	if !ok {
+		return nil, fmt.Errorf("invalid tenantSlug %q in BuildDorisAlterTableSQL", tenantSlug)
+	}
+	if err := ValidateDorisTableEvolution(before, after); err != nil {
+		return nil, err
+	}
+	if after.SyncTier == "ICEBERG_ONLY" {
+		return nil, nil
+	}
+	afterUKs := effectiveDorisUniqueKeys(after)
+	afterDKs := dedupDorisColumnList(after.DuplicateKeyColumns)
+	if after.DatabaseScope == "GLOBAL_TERMINOLOGY" && after.SyncTier == "RELEASE_PARTITIONED" && len(afterUKs) == 0 && len(afterDKs) == 0 {
+		return nil, nil
+	}
+
+	fullTableName := dorisQualifiedTableName(after, slug)
+	beforeColByName := make(map[string]DorisColumnDescriptor, len(before.Columns))
+	for _, bc := range before.Columns {
+		beforeColByName[bc.ColumnName] = bc
+	}
+
+	var stmts []string
+	// 1. Safe type widenings on existing columns (MODIFY COLUMN).
+	for _, ac := range after.Columns {
+		bc, existed := beforeColByName[ac.ColumnName]
+		if !existed {
+			continue
+		}
+		beforeType := resolveDorisAlterColumnType(bc)
+		afterType := resolveDorisAlterColumnType(ac)
+		if beforeType != afterType {
+			stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterType, true)))
+		}
+	}
+	// 2. Newly added columns (ADD COLUMN).
+	for _, ac := range after.Columns {
+		if _, existed := beforeColByName[ac.ColumnName]; existed {
+			continue
+		}
+		afterType := resolveDorisAlterColumnType(ac)
+		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterType, true)))
+	}
+	return stmts, nil
+}
+
+// BuildStarRocksAlterTableSQL validates evolving before into after and returns the ordered
+// StarRocks 4.x ALTER TABLE statements (MODIFY COLUMN for widened columns, then
+// ADD COLUMN for new columns). Returns (nil, nil) when no changes are required or when
+// the table is Iceberg-only.
+func BuildStarRocksAlterTableSQL(before, after DorisTableDescriptor, tenantSlug string) ([]string, error) {
+	if !validateDescriptorIdentifiers(before) || !validateDescriptorIdentifiers(after) {
+		return nil, fmt.Errorf("invalid DorisTableDescriptor identifiers in BuildStarRocksAlterTableSQL")
+	}
+	if dorisTableEvolutionIdentity(before) != dorisTableEvolutionIdentity(after) {
+		return nil, fmt.Errorf("cannot generate ALTER TABLE across different physical tables (%q vs %q)", before.TableName, after.TableName)
+	}
+	slug, ok := sanitizeDorisTenantSlug(tenantSlug)
+	if !ok {
+		return nil, fmt.Errorf("invalid tenantSlug %q in BuildStarRocksAlterTableSQL", tenantSlug)
+	}
+	if err := ValidateDorisTableEvolution(before, after); err != nil {
+		return nil, err
+	}
+	if after.SyncTier == "ICEBERG_ONLY" {
+		return nil, nil
+	}
+	afterUKs := effectiveDorisUniqueKeys(after)
+	afterDKs := dedupDorisColumnList(after.DuplicateKeyColumns)
+	if after.DatabaseScope == "GLOBAL_TERMINOLOGY" && after.SyncTier == "RELEASE_PARTITIONED" && len(afterUKs) == 0 && len(afterDKs) == 0 {
+		return nil, nil
+	}
+
+	fullTableName := dorisQualifiedTableName(after, slug)
+	beforeColByName := make(map[string]DorisColumnDescriptor, len(before.Columns))
+	for _, bc := range before.Columns {
+		beforeColByName[bc.ColumnName] = bc
+	}
+
+	var stmts []string
+	for _, ac := range after.Columns {
+		bc, existed := beforeColByName[ac.ColumnName]
+		if !existed {
+			continue
+		}
+		beforeSR := dorisColumnStarRocksDDLType(bc.DorisType, bc.IcebergType)
+		afterSR := dorisColumnStarRocksDDLType(ac.DorisType, ac.IcebergType)
+		if beforeSR != afterSR {
+			stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterSR, true)))
+		}
+	}
+	for _, ac := range after.Columns {
+		if _, existed := beforeColByName[ac.ColumnName]; existed {
+			continue
+		}
+		afterSR := dorisColumnStarRocksDDLType(ac.DorisType, ac.IcebergType)
+		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterSR, true)))
+	}
+	return stmts, nil
+}
+
+// BuildIcebergAlterTableSQL validates evolving before into after and returns the ordered
+// Apache Iceberg ALTER TABLE statements (MODIFY COLUMN for widened columns, then
+// ADD COLUMN for new columns). Returns (nil, nil) when no changes are required or when
+// SyncTier == "INTERNAL_ONLY".
+func BuildIcebergAlterTableSQL(before, after DorisTableDescriptor, tenantSlug string) ([]string, error) {
+	if !validateDescriptorIdentifiers(before) || !validateDescriptorIdentifiers(after) {
+		return nil, fmt.Errorf("invalid DorisTableDescriptor identifiers in BuildIcebergAlterTableSQL")
+	}
+	if dorisTableEvolutionIdentity(before) != dorisTableEvolutionIdentity(after) {
+		return nil, fmt.Errorf("cannot generate ALTER TABLE across different physical tables (%q vs %q)", before.TableName, after.TableName)
+	}
+	slug, ok := sanitizeDorisTenantSlug(tenantSlug)
+	if !ok {
+		return nil, fmt.Errorf("invalid tenantSlug %q in BuildIcebergAlterTableSQL", tenantSlug)
+	}
+	if err := ValidateDorisTableEvolution(before, after); err != nil {
+		return nil, err
+	}
+	if after.SyncTier == "INTERNAL_ONLY" {
+		return nil, nil
+	}
+
+	fullTableName := icebergQualifiedTableName(after, slug)
+	beforeColByName := make(map[string]DorisColumnDescriptor, len(before.Columns))
+	for _, bc := range before.Columns {
+		beforeColByName[bc.ColumnName] = bc
+	}
+
+	var stmts []string
+	for _, ac := range after.Columns {
+		bc, existed := beforeColByName[ac.ColumnName]
+		if !existed {
+			continue
+		}
+		beforeIce := dorisColumnIcebergDDLType(bc.DorisType, bc.IcebergType)
+		afterIce := dorisColumnIcebergDDLType(ac.DorisType, ac.IcebergType)
+		if beforeIce != afterIce {
+			stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterIce, false)))
+		}
+	}
+	for _, ac := range after.Columns {
+		if _, existed := beforeColByName[ac.ColumnName]; existed {
+			continue
+		}
+		afterIce := dorisColumnIcebergDDLType(ac.DorisType, ac.IcebergType)
+		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterIce, false)))
+	}
+	return stmts, nil
+}
+
+func resolveDorisAlterColumnType(c DorisColumnDescriptor) string {
+	dt := strings.ToUpper(strings.TrimSpace(c.DorisType))
+	if dt != "" {
+		return dt
+	}
+	return dorisColumnIcebergDDLType(c.DorisType, c.IcebergType)
+}
+
+func dorisQualifiedTableName(t DorisTableDescriptor, slug string) string {
+	switch t.DatabaseScope {
+	case "GLOBAL_TERMINOLOGY":
+		return "internal.terminology." + t.TableName
+	case "GLOBAL_TERMINOLOGY_RAG":
+		return "internal.terminology_rag." + t.TableName
+	case "GLOBAL_TELEMETRY":
+		return "internal.telemetry." + t.TableName
+	default:
+		return "internal.tenant_" + slug + "." + t.TableName
+	}
+}
+
+func icebergQualifiedTableName(t DorisTableDescriptor, slug string) string {
+	catalog := strings.TrimSpace(t.IcebergCatalog)
+	if catalog == "" {
+		catalog = "iceberg"
+	}
+	switch t.DatabaseScope {
+	case "GLOBAL_TERMINOLOGY":
+		return catalog + ".terminology." + t.TableName
+	case "GLOBAL_TELEMETRY":
+		return catalog + ".telemetry." + t.TableName
+	case "GLOBAL_TERMINOLOGY_RAG":
+		return catalog + ".terminology_rag." + t.TableName
+	default:
+		return catalog + ".tenant_" + slug + "." + t.TableName
+	}
+}
+
+func formatDorisAlterColumnClause(c DorisColumnDescriptor, colType string, includeDefaults bool) string {
+	colIdent := formatDorisDDLColumnIdent(c.ColumnName)
+	clause := fmt.Sprintf("%s %s", colIdent, colType)
+	if !c.Nullable {
+		clause += " NOT NULL"
+		if includeDefaults {
+			cWithType := c
+			cWithType.DorisType = colType
+			if defVal, hasDef := resolveDorisColumnDefaultValue(cWithType); hasDef {
+				clause += fmt.Sprintf(" DEFAULT %q", defVal)
+			}
+		}
+	} else if includeDefaults && c.DefaultValue != "" {
+		clause += fmt.Sprintf(" DEFAULT %q", c.DefaultValue)
+	}
+	return clause
+}

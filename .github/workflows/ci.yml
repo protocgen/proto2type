@@ -137,6 +137,7 @@ jobs:
           cd testdata/proto
           buf generate
           buf generate --template buf.gen.go-native.yaml
+          buf generate --template buf.gen.doris.yaml
           buf generate --template buf.gen.rust.yaml
           buf generate --template buf.gen.rust-postgres.yaml
           buf generate --template buf.gen.python.yaml
