@@ -177,6 +177,9 @@ For each annotated message `<Msg>`, `proto2type` generates:
    - `func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, buckets int) string`
    - `func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, buckets int) string`
    - `func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) string`
+   - `func (t DorisTableDescriptor) BuildDorisAlterTableSQL(after DorisTableDescriptor, tenantSlug string) ([]string, error)`
+   - `func (t DorisTableDescriptor) BuildStarRocksAlterTableSQL(after DorisTableDescriptor, tenantSlug string) ([]string, error)`
+   - `func (t DorisTableDescriptor) BuildIcebergAlterTableSQL(after DorisTableDescriptor, tenantSlug string) ([]string, error)`
    - `func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int) string`
    - `func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets int) string`
    - `func (t DorisTableDescriptor) BuildIcebergAtlasHCL(tenantSlug string) string`
@@ -185,9 +188,9 @@ For each annotated message `<Msg>`, `proto2type` generates:
 
 ---
 
-## Schema Evolution Linter (`DORIS001` – `DORIS006`)
+## Schema Evolution Linter (`DORIS001` – `DORIS006`) & `ALTER TABLE` Migration DDL
 
-Both the `generator` package and every generated `<name>_doris.type.go` package export a deterministic schema evolution linter that validates compatibility between `before` and `after` `DorisTableDescriptor` definitions across Apache Doris 4.x Light Schema Change (LSC), StarRocks 4.x, and Apache Iceberg v2:
+Both the `generator` package and every generated `<name>_doris.type.go` package export a deterministic schema evolution linter and `ALTER TABLE` migration generator that validate compatibility between `before` and `after` `DorisTableDescriptor` definitions across Apache Doris 4.x Light Schema Change (LSC), StarRocks 4.x, and Apache Iceberg v2:
 
 | Rule | Constant | Enforced Invariant |
 |---|---|---|
@@ -199,9 +202,13 @@ Both the `generator` package and every generated `<name>_doris.type.go` package 
 | `DORIS006_SAFE_TYPE_EVOLUTION` | `DorisRuleSafeTypeEvolution` | Existing column types may only widen (`VARCHAR(m) -> VARCHAR(n)` with `n >= m` or `STRING`/`TEXT`, `DATE/DATEV2 -> DATETIME/DATETIMEV2(p)`, `DATETIME(p1) -> DATETIME(p2)` with `p2 >= p1`, `DECIMAL(p1,s) -> DECIMAL(p2,s)` with `p2 >= p1`, `ARRAY<T1> -> ARRAY<T2>`, `TINYINT -> SMALLINT/INT/BIGINT/LARGEINT`, `SMALLINT -> INT/BIGINT/LARGEINT`, `INT -> BIGINT/LARGEINT`, `BIGINT -> LARGEINT`, `FLOAT -> DOUBLE`) |
 
 ```go
-// Validate evolving a single table descriptor:
-if err := ValidateDorisTableEvolution(beforeTable, afterTable); err != nil {
+// Validate evolving a single table descriptor and generate deterministic ALTER TABLE DDL:
+stmts, err := beforeTable.BuildDorisAlterTableSQL(afterTable, "acme")
+if err != nil {
     log.Fatalf("unsafe schema evolution:\n%v", err)
+}
+for _, stmt := range stmts {
+    fmt.Println(stmt)
 }
 
 // Or inspect structured violations across an entire package or parsed Atlas HCL schema:

@@ -1,4 +1,16 @@
 version: v2
+inputs:
+  - directory: .
+    paths:
+      - catalog.proto
+      - complex.proto
+      - edge_cases.proto
+      - fhir_patient.proto
+      - keywords.proto
+      - proto2type/options.proto
+      - service.proto
+      - streaming.proto
+      - user.proto
 plugins:
   - local: protoc-gen-proto2type
     out: ../golden/python/gen

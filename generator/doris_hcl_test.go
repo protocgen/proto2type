@@ -556,7 +556,6 @@ func TestBuildStarRocksCreateTableSQL_And_AtlasHCL(t *testing.T) {
 		"clinical_note STRING NOT NULL",
 		"updated_at DATETIME NOT NULL",
 		`INDEX idx_patient_profiles_mrn (mrn) USING BITMAP`,
-		`INDEX idx_patient_profiles_allergy_codes (allergy_codes) USING BITMAP`,
 		`INDEX idx_clinical_note_bm25 (clinical_note) USING GIN("parser" = "english")`,
 		`INDEX idx_ngram_patient_profiles_full_name (full_name) USING NGRAMBF ("gram_num" = "3", "bloom_filter_fpp" = "0.05")`,
 		"PRIMARY KEY(tenant_id, patient_id)",
@@ -582,6 +581,7 @@ func TestBuildStarRocksCreateTableSQL_And_AtlasHCL(t *testing.T) {
 		"USING NGRAM_BF",
 		"enable_unique_key_merge_on_write",
 		"storage_vault_name",
+		"idx_patient_profiles_allergy_codes",
 	} {
 		if strings.Contains(ppSQL, forbiddenSQL) {
 			t.Errorf("patient_profiles StarRocks SQL must not contain %q in:\n%s", forbiddenSQL, ppSQL)
@@ -618,6 +618,7 @@ func TestBuildStarRocksCreateTableSQL_And_AtlasHCL(t *testing.T) {
 		`using = "NGRAM_BF"`,
 		"enable_unique_key_merge_on_write",
 		"storage_vault_name",
+		"idx_patient_profiles_allergy_codes",
 	} {
 		if strings.Contains(ppHCL, forbiddenHCL) {
 			t.Errorf("patient_profiles StarRocks HCL must not contain %q in:\n%s", forbiddenHCL, ppHCL)

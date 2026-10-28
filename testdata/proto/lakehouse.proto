@@ -1,0 +1,112 @@
+syntax = "proto3";
+package test.lakehouse.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/type/date.proto";
+import "proto2type/options.proto";
+
+option go_package = "github.com/protocgen/proto2type/testdata/golden/go/pb";
+
+enum CriterionStatus {
+  CRITERION_STATUS_UNSPECIFIED = 0;
+  CRITERION_STATUS_MET = 1;
+  CRITERION_STATUS_EXCLUDED = 2;
+}
+
+message DocumentCitation {
+  int32 page_number = 1 [(proto2type.field).column = {
+    column_name: "citation_page_number"
+    doris_type: "INT"
+    iceberg_type: "INT"
+  }];
+  repeated float bbox_coords = 2 [(proto2type.field).column = {
+    column_name: "citation_bbox_coords"
+    doris_type: "ARRAY<FLOAT>"
+    iceberg_type: "LIST<FLOAT>"
+  }];
+}
+
+message EligibilityCriterionResult {
+  option (proto2type.message).table = {
+    table_name: "eligibility_criterion_results"
+    database_scope: "TENANT"
+    sync_tier: "MONTHLY_PARTITIONED"
+    unique_key_columns: ["patient_id", "criterion_id"]
+    partition_by_columns: ["event_month"]
+    colocate_group: "patient_cg"
+    sequence_col: "publication_generation"
+    inverted_index_columns: ["all_mrns"]
+    ngram_bf_columns: ["criterion_id"]
+    bloom_filter_columns: ["patient_id"]
+    distributed_by_column: "patient_id"
+    file_cache_ttl_seconds: 604800
+    storage_vault_name: "lakehouse_vault"
+    iceberg_catalog: "lakehouse"
+  };
+
+  string patient_id = 1 [(proto2type.field).column = {
+    doris_type: "VARCHAR(64)"
+    iceberg_type: "STRING"
+    is_unique_key: true
+  }];
+  string criterion_id = 2 [(proto2type.field).column = {
+    doris_type: "VARCHAR(64)"
+    iceberg_type: "STRING"
+    is_unique_key: true
+  }];
+  CriterionStatus effective_status = 3 [(proto2type.field).column = {
+    doris_type: "VARCHAR(32)"
+    iceberg_type: "STRING"
+    strip_enum_prefix: true
+  }];
+  repeated string all_mrns = 4 [(proto2type.field).column = {
+    doris_type: "ARRAY<VARCHAR(64)>"
+    iceberg_type: "LIST<STRING>"
+    inverted_index: true
+  }];
+  uint64 fingerprint_hash = 5 [(proto2type.field).column = {
+    doris_type: "LARGEINT"
+    iceberg_type: "LONG"
+  }];
+  google.type.Date event_month = 6 [(proto2type.field).column = {
+    doris_type: "DATEV2"
+    iceberg_type: "DATE"
+    is_partition_key: true
+  }];
+  google.protobuf.Timestamp verified_at = 7 [(proto2type.field).column = {
+    doris_type: "DATETIMEV2(6)"
+    iceberg_type: "TIMESTAMPTZ"
+  }];
+  DocumentCitation citation = 8 [(proto2type.field).column = {
+    inline_nested: true
+  }];
+  int64 publication_generation = 9 [(proto2type.field).column = {
+    doris_type: "BIGINT"
+    iceberg_type: "LONG"
+    is_sequence_col: true
+    default_value: "0"
+  }];
+}
+
+message ConceptEmbeddingRecord {
+  option (proto2type.message).table = {
+    table_name: "concept_embeddings"
+    database_scope: "GLOBAL_TERMINOLOGY_RAG"
+    sync_tier: "INTERNAL_ONLY"
+    duplicate_key_columns: ["concept_id", "code_system"]
+    embedding_dimension: 768
+  };
+
+  string concept_id = 1 [(proto2type.field).column = {
+    doris_type: "VARCHAR(64)"
+    iceberg_type: "STRING"
+  }];
+  string code_system = 2 [(proto2type.field).column = {
+    doris_type: "VARCHAR(32)"
+    iceberg_type: "STRING"
+  }];
+  repeated float embedding = 3 [(proto2type.field).column = {
+    doris_type: "ARRAY<FLOAT>"
+    iceberg_type: "LIST<FLOAT>"
+  }];
+}

@@ -572,6 +572,26 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		}
 	}
 
+	var partCols []string
+	if len(t.PartitionByColumns) > 0 {
+		partCols = dedupDorisColumnList(t.PartitionByColumns)
+	} else {
+		for _, c := range orderedCols {
+			if c.IsPartitionKey {
+				partCols = append(partCols, c.ColumnName)
+			}
+		}
+		partCols = dedupDorisColumnList(partCols)
+	}
+	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
+		for _, c := range orderedCols {
+			if c.ColumnName == "event_month" {
+				partCols = append(partCols, "event_month")
+				break
+			}
+		}
+	}
+
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
 	b.WriteString(fullTableName)
@@ -579,11 +599,12 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	b.WriteString(strings.Join(bodyLines, ",\n"))
 	b.WriteString("\n)\n")
 
+	var distCol string
 	if len(uks) > 0 {
 		b.WriteString("UNIQUE KEY(")
 		b.WriteString(formatDorisDDLColumnIdentList(uks))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" {
 			if len(uks) > 1 && uks[0] == "tenant_id" {
 				distCol = uks[1]
@@ -591,32 +612,35 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 				distCol = uks[0]
 			}
 		}
-		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
-		b.WriteString("\n")
 	} else if len(dupKeys) > 0 {
 		b.WriteString("DUPLICATE KEY(")
 		b.WriteString(formatDorisDDLColumnIdentList(dupKeys))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" {
 			distCol = dupKeys[0]
 		}
-		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
-		b.WriteString("\n")
 	} else if len(orderedCols) > 0 {
 		b.WriteString("DUPLICATE KEY(")
 		b.WriteString(formatDorisDDLColumnIdent(orderedCols[0].ColumnName))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" {
 			distCol = orderedCols[0].ColumnName
 		}
+	}
+	if len(partCols) > 0 {
+		partKind := "LIST"
+		if strings.HasPrefix(colTypes[partCols[0]], "DATE") {
+			partKind = "RANGE"
+		}
+		b.WriteString("PARTITION BY ")
+		b.WriteString(partKind)
+		b.WriteString("(")
+		b.WriteString(formatDorisDDLColumnIdentList(partCols))
+		b.WriteString(") ()\n")
+	}
+	if distCol != "" {
 		b.WriteString("DISTRIBUTED BY HASH(")
 		b.WriteString(formatDorisDDLColumnIdent(distCol))
 		b.WriteString(") BUCKETS ")
@@ -809,7 +833,7 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	for _, idxCol := range invCols {
 		if colTypes[idxCol] == "STRING" || colTypes[idxCol] == "TEXT" {
 			bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_bm25 (%s) USING GIN("parser" = "english")`, idxCol, formatDorisDDLColumnIdent(idxCol)))
-		} else {
+		} else if !strings.HasPrefix(colTypes[idxCol], "ARRAY<") {
 			bodyLines = append(bodyLines, fmt.Sprintf("    INDEX idx_%s_%s (%s) USING BITMAP", t.TableName, idxCol, formatDorisDDLColumnIdent(idxCol)))
 		}
 	}
@@ -826,6 +850,26 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 		}
 	}
 
+	var partCols []string
+	if len(t.PartitionByColumns) > 0 {
+		partCols = dedupDorisColumnList(t.PartitionByColumns)
+	} else {
+		for _, c := range orderedCols {
+			if c.IsPartitionKey {
+				partCols = append(partCols, c.ColumnName)
+			}
+		}
+		partCols = dedupDorisColumnList(partCols)
+	}
+	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
+		for _, c := range orderedCols {
+			if c.ColumnName == "event_month" {
+				partCols = append(partCols, "event_month")
+				break
+			}
+		}
+	}
+
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
 	b.WriteString(fullTableName)
@@ -833,11 +877,12 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	b.WriteString(strings.Join(bodyLines, ",\n"))
 	b.WriteString("\n)\n")
 
+	var distCol string
 	if len(uks) > 0 {
 		b.WriteString("PRIMARY KEY(")
 		b.WriteString(formatDorisDDLColumnIdentList(uks))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" && len(t.DistributionColumns) > 0 {
 			distCol = t.DistributionColumns[0]
 		}
@@ -848,38 +893,41 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 				distCol = uks[0]
 			}
 		}
-		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
-		b.WriteString("\n")
 	} else if len(dupKeys) > 0 {
 		b.WriteString("DUPLICATE KEY(")
 		b.WriteString(formatDorisDDLColumnIdentList(dupKeys))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" && len(t.DistributionColumns) > 0 {
 			distCol = t.DistributionColumns[0]
 		}
 		if distCol == "" {
 			distCol = dupKeys[0]
 		}
-		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
-		b.WriteString("\n")
 	} else if len(orderedCols) > 0 {
 		b.WriteString("DUPLICATE KEY(")
 		b.WriteString(formatDorisDDLColumnIdent(orderedCols[0].ColumnName))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" && len(t.DistributionColumns) > 0 {
 			distCol = t.DistributionColumns[0]
 		}
 		if distCol == "" {
 			distCol = orderedCols[0].ColumnName
 		}
+	}
+	if len(partCols) > 0 {
+		partKind := "LIST"
+		if strings.HasPrefix(colTypes[partCols[0]], "DATE") {
+			partKind = "RANGE"
+		}
+		b.WriteString("PARTITION BY ")
+		b.WriteString(partKind)
+		b.WriteString("(")
+		b.WriteString(formatDorisDDLColumnIdentList(partCols))
+		b.WriteString(") ()\n")
+	}
+	if distCol != "" {
 		b.WriteString("DISTRIBUTED BY HASH(")
 		b.WriteString(formatDorisDDLColumnIdent(distCol))
 		b.WriteString(") BUCKETS ")

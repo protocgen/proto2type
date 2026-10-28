@@ -670,7 +670,7 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 			b.WriteString("      parser = \"english\"\n")
 			b.WriteString("    }\n")
 			b.WriteString("  }\n")
-		} else {
+		} else if !strings.HasPrefix(colTypes[idxCol], "ARRAY<") {
 			idxName := fmt.Sprintf("idx_%s_%s", t.TableName, idxCol)
 			emittedIdx[idxName] = true
 			fmt.Fprintf(&b, "  index %q {\n", idxName)
@@ -714,12 +714,13 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 		if idx.Name == "" || emittedIdx[idx.Name] || len(idx.Columns) == 0 {
 			continue
 		}
-		emittedIdx[idx.Name] = true
 		using := strings.ToUpper(strings.TrimSpace(idx.Using))
 		switch using {
 		case "", "INVERTED":
 			if (len(idx.Columns) == 1 && (colTypes[idx.Columns[0]] == "TEXT" || colTypes[idx.Columns[0]] == "STRING")) || idx.Properties["parser"] != "" {
 				using = "GIN"
+			} else if len(idx.Columns) == 1 && strings.HasPrefix(colTypes[idx.Columns[0]], "ARRAY<") {
+				continue
 			} else {
 				using = "BITMAP"
 			}
@@ -728,6 +729,7 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 		case "ANN":
 			using = "VECTOR"
 		}
+		emittedIdx[idx.Name] = true
 		fmt.Fprintf(&b, "  index %q {\n", idx.Name)
 		fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
 		fmt.Fprintf(&b, "    using = %q\n", using)
@@ -2334,7 +2336,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t\tb.WriteString(\"      parser = \\\"english\\\"\\n\")")
 	g.P("\t\t\tb.WriteString(\"    }\\n\")")
 	g.P("\t\t\tb.WriteString(\"  }\\n\")")
-	g.P("\t\t} else {")
+	g.P("\t\t} else if !", stringsHasPrefix, "(colTypes[idxCol], \"ARRAY<\") {")
 	g.P("\t\t\tidxName := ", fmtSprintf, "(\"idx_%s_%s\", t.TableName, idxCol)")
 	g.P("\t\t\temittedIdx[idxName] = true")
 	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"  index %q {\\n\", idxName))")
@@ -2378,12 +2380,13 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tif idx.Name == \"\" || emittedIdx[idx.Name] || len(idx.Columns) == 0 {")
 	g.P("\t\t\tcontinue")
 	g.P("\t\t}")
-	g.P("\t\temittedIdx[idx.Name] = true")
 	g.P("\t\tusing := ", stringsToUpper, "(", stringsTrimSpace, "(idx.Using))")
 	g.P("\t\tswitch using {")
 	g.P("\t\tcase \"\", \"INVERTED\":")
 	g.P("\t\t\tif (len(idx.Columns) == 1 && (colTypes[idx.Columns[0]] == \"TEXT\" || colTypes[idx.Columns[0]] == \"STRING\")) || idx.Properties[\"parser\"] != \"\" {")
 	g.P("\t\t\t\tusing = \"GIN\"")
+	g.P("\t\t\t} else if len(idx.Columns) == 1 && ", stringsHasPrefix, "(colTypes[idx.Columns[0]], \"ARRAY<\") {")
+	g.P("\t\t\t\tcontinue")
 	g.P("\t\t\t} else {")
 	g.P("\t\t\t\tusing = \"BITMAP\"")
 	g.P("\t\t\t}")
@@ -2392,6 +2395,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tcase \"ANN\":")
 	g.P("\t\t\tusing = \"VECTOR\"")
 	g.P("\t\t}")
+	g.P("\t\temittedIdx[idx.Name] = true")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"  index %q {\\n\", idx.Name))")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    columns = %s\\n\", formatAtlasHCLColRefList(idx.Columns)))")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    using = %q\\n\", using))")
