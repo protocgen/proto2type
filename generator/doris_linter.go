@@ -209,6 +209,36 @@ func ValidateDorisTableEvolution(before, after DorisTableDescriptor) error {
 	return errors.Join(errs...)
 }
 
+// dorisScopeTableIdentity computes the (DatabaseScope, TableName) identity of t.
+func dorisScopeTableIdentity(t DorisTableDescriptor) string {
+	tableName := strings.TrimSpace(t.TableName)
+	if tableName == "" {
+		return ""
+	}
+	scope := strings.TrimSpace(t.DatabaseScope)
+	if scope == "" || scope == "UNSPECIFIED" {
+		scope = "TENANT"
+	}
+	return scope + "\x00" + tableName
+}
+
+// dorisSameDorisPhysicalTable reports whether before and after refer to the same
+// physical Doris/StarRocks table (matching DatabaseScope and TableName, and matching
+// IcebergCatalog when explicitly set on both descriptors).
+func dorisSameDorisPhysicalTable(before, after DorisTableDescriptor) bool {
+	sBefore := dorisScopeTableIdentity(before)
+	sAfter := dorisScopeTableIdentity(after)
+	if sBefore == "" || sBefore != sAfter {
+		return false
+	}
+	cBefore := strings.TrimSpace(before.IcebergCatalog)
+	cAfter := strings.TrimSpace(after.IcebergCatalog)
+	if cBefore != "" && cAfter != "" && cBefore != cAfter {
+		return false
+	}
+	return true
+}
+
 // dorisTableEvolutionIdentity computes the canonical physical table identity
 // (DatabaseScope, IcebergCatalog, TableName) used to pair before and after
 // table descriptors in LintDorisSchemaEvolution.
@@ -228,15 +258,47 @@ func dorisTableEvolutionIdentity(t DorisTableDescriptor) string {
 	return scope + "\x00" + catalog + "\x00" + tableName
 }
 
+func matchBeforeDorisTable(
+	afterTbl DorisTableDescriptor,
+	beforeByKey map[string]DorisTableDescriptor,
+	beforeByScope map[string]DorisTableDescriptor,
+	beforeScopeCount map[string]int,
+	afterScopeCount map[string]int,
+) (DorisTableDescriptor, string, bool) {
+	key := dorisTableEvolutionIdentity(afterTbl)
+	if beforeTbl, ok := beforeByKey[key]; ok {
+		return beforeTbl, key, true
+	}
+	scopeKey := dorisScopeTableIdentity(afterTbl)
+	if scopeKey != "" && beforeScopeCount[scopeKey] == 1 && afterScopeCount[scopeKey] == 1 {
+		if beforeTbl, ok := beforeByScope[scopeKey]; ok && dorisSameDorisPhysicalTable(beforeTbl, afterTbl) {
+			return beforeTbl, dorisTableEvolutionIdentity(beforeTbl), true
+		}
+	}
+	return DorisTableDescriptor{}, "", false
+}
+
 // LintDorisSchemaEvolution validates evolving a slice of before table descriptors
 // into after table descriptors. Tables present in both slices (matched by physical
 // table identity: DatabaseScope, IcebergCatalog, and TableName) are validated in
 // deterministic order.
 func LintDorisSchemaEvolution(before, after []DorisTableDescriptor) []DorisEvolutionViolation {
 	beforeByKey := make(map[string]DorisTableDescriptor, len(before))
+	beforeByScope := make(map[string]DorisTableDescriptor, len(before))
+	beforeScopeCount := make(map[string]int, len(before))
 	for _, t := range before {
 		if key := dorisTableEvolutionIdentity(t); key != "" {
 			beforeByKey[key] = t
+		}
+		if scopeKey := dorisScopeTableIdentity(t); scopeKey != "" {
+			beforeByScope[scopeKey] = t
+			beforeScopeCount[scopeKey]++
+		}
+	}
+	afterScopeCount := make(map[string]int, len(after))
+	for _, t := range after {
+		if scopeKey := dorisScopeTableIdentity(t); scopeKey != "" {
+			afterScopeCount[scopeKey]++
 		}
 	}
 	var violations []DorisEvolutionViolation
@@ -247,7 +309,7 @@ func LintDorisSchemaEvolution(before, after []DorisTableDescriptor) []DorisEvolu
 			continue
 		}
 		seen[key] = true
-		if beforeTbl, ok := beforeByKey[key]; ok {
+		if beforeTbl, _, ok := matchBeforeDorisTable(afterTbl, beforeByKey, beforeByScope, beforeScopeCount, afterScopeCount); ok {
 			violations = append(violations, LintDorisTableEvolution(beforeTbl, afterTbl)...)
 		}
 	}
@@ -585,7 +647,7 @@ func BuildDorisAlterTableSQL(before, after DorisTableDescriptor, tenantSlug stri
 	if !validateDescriptorIdentifiers(before) || !validateDescriptorIdentifiers(after) {
 		return nil, fmt.Errorf("invalid DorisTableDescriptor identifiers in BuildDorisAlterTableSQL")
 	}
-	if dorisTableEvolutionIdentity(before) != dorisTableEvolutionIdentity(after) {
+	if !dorisSameDorisPhysicalTable(before, after) {
 		return nil, fmt.Errorf("cannot generate ALTER TABLE across different physical tables (%q vs %q)", before.TableName, after.TableName)
 	}
 	slug, ok := sanitizeDorisTenantSlug(tenantSlug)
@@ -653,7 +715,7 @@ func BuildStarRocksAlterTableSQL(before, after DorisTableDescriptor, tenantSlug 
 	if !validateDescriptorIdentifiers(before) || !validateDescriptorIdentifiers(after) {
 		return nil, fmt.Errorf("invalid DorisTableDescriptor identifiers in BuildStarRocksAlterTableSQL")
 	}
-	if dorisTableEvolutionIdentity(before) != dorisTableEvolutionIdentity(after) {
+	if !dorisSameDorisPhysicalTable(before, after) {
 		return nil, fmt.Errorf("cannot generate ALTER TABLE across different physical tables (%q vs %q)", before.TableName, after.TableName)
 	}
 	slug, ok := sanitizeDorisTenantSlug(tenantSlug)
@@ -776,6 +838,250 @@ func BuildIcebergAlterTableSQL(before, after DorisTableDescriptor, tenantSlug st
 			return nil, fmt.Errorf("cannot add NOT NULL scalar column %q to existing Iceberg table %q: Iceberg ALTER TABLE ADD COLUMN does not support initial DEFAULT values", ac.ColumnName, after.TableName)
 		}
 		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterIce, false)))
+	}
+	return stmts, nil
+}
+
+func indexDorisSchemaEvolutionTables(
+	before, after []DorisTableDescriptor,
+	caller string,
+) (map[string]DorisTableDescriptor, map[string]DorisTableDescriptor, map[string]int, map[string]int, error) {
+	beforeByKey := make(map[string]DorisTableDescriptor, len(before))
+	beforeByScope := make(map[string]DorisTableDescriptor, len(before))
+	beforeScopeCount := make(map[string]int, len(before))
+	for _, t := range before {
+		if !validateDescriptorIdentifiers(t) {
+			return nil, nil, nil, nil, fmt.Errorf("invalid DorisTableDescriptor identifiers for table %q in %s", t.TableName, caller)
+		}
+		key := dorisTableEvolutionIdentity(t)
+		if _, dup := beforeByKey[key]; dup {
+			return nil, nil, nil, nil, fmt.Errorf("duplicate table identity for table %q in %s", t.TableName, caller)
+		}
+		beforeByKey[key] = t
+		scopeKey := dorisScopeTableIdentity(t)
+		beforeByScope[scopeKey] = t
+		beforeScopeCount[scopeKey]++
+	}
+	afterSeenKey := make(map[string]bool, len(after))
+	afterScopeCount := make(map[string]int, len(after))
+	for _, t := range after {
+		if !validateDescriptorIdentifiers(t) {
+			return nil, nil, nil, nil, fmt.Errorf("invalid DorisTableDescriptor identifiers for table %q in %s", t.TableName, caller)
+		}
+		key := dorisTableEvolutionIdentity(t)
+		if afterSeenKey[key] {
+			return nil, nil, nil, nil, fmt.Errorf("duplicate table identity for table %q in %s", t.TableName, caller)
+		}
+		afterSeenKey[key] = true
+		scopeKey := dorisScopeTableIdentity(t)
+		afterScopeCount[scopeKey]++
+	}
+	return beforeByKey, beforeByScope, beforeScopeCount, afterScopeCount, nil
+}
+
+// rejectDuplicateDorisTargetScope rejects two after descriptors that materialize
+// Doris or StarRocks tables with the same database scope and table name. The
+// CREATE TABLE name omits IcebergCatalog, so both would target one physical table.
+func rejectDuplicateDorisTargetScope(after []DorisTableDescriptor, engine, caller string) error {
+	seen := make(map[string]bool, len(after))
+	for _, t := range after {
+		if !hasDorisTargetTable(t) {
+			continue
+		}
+		scopeKey := dorisScopeTableIdentity(t)
+		if seen[scopeKey] {
+			return fmt.Errorf("duplicate %s table name %q in scope in %s", engine, t.TableName, caller)
+		}
+		seen[scopeKey] = true
+	}
+	return nil
+}
+
+func validateDorisNewTableColumns(t DorisTableDescriptor, engine string) error {
+	if len(t.Columns) == 0 {
+		return fmt.Errorf("failed to build %s CREATE TABLE SQL for new table %q: no columns", engine, t.TableName)
+	}
+	for _, c := range t.Columns {
+		if strings.TrimSpace(c.DorisType) == "" && strings.TrimSpace(c.IcebergType) == "" {
+			return fmt.Errorf("column %q in table %q has empty DorisType and IcebergType", c.ColumnName, t.TableName)
+		}
+	}
+	return nil
+}
+
+// hasAmbiguousDorisCatalogOmission reports whether beforeTbl could not be paired by
+// matchBeforeDorisTable because an omitted IcebergCatalog shared its (DatabaseScope, TableName)
+// with multiple descriptors.
+func hasAmbiguousDorisCatalogOmission(
+	beforeTbl DorisTableDescriptor,
+	after []DorisTableDescriptor,
+	beforeScopeCount, afterScopeCount map[string]int,
+) bool {
+	scopeKey := dorisScopeTableIdentity(beforeTbl)
+	if scopeKey == "" || (beforeScopeCount[scopeKey] <= 1 && afterScopeCount[scopeKey] <= 1) {
+		return false
+	}
+	for _, afterTbl := range after {
+		if dorisSameDorisPhysicalTable(beforeTbl, afterTbl) {
+			return true
+		}
+	}
+	return false
+}
+
+// BuildDorisSchemaMigrationSQL validates evolving a slice of before table descriptors
+// into after table descriptors and returns the ordered Apache Doris 4.x DDL statements:
+// ALTER TABLE statements for evolved existing tables and CREATE TABLE IF NOT EXISTS
+// statements for newly added tables. Rejects dropping existing Doris tables.
+func BuildDorisSchemaMigrationSQL(before, after []DorisTableDescriptor, tenantSlug string, buckets int) ([]string, error) {
+	if _, ok := sanitizeDorisTenantSlug(tenantSlug); !ok {
+		return nil, fmt.Errorf("invalid tenantSlug %q in BuildDorisSchemaMigrationSQL", tenantSlug)
+	}
+	beforeByKey, beforeByScope, beforeScopeCount, afterScopeCount, err := indexDorisSchemaEvolutionTables(before, after, "BuildDorisSchemaMigrationSQL")
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateDorisSchemaEvolution(before, after); err != nil {
+		return nil, err
+	}
+	if err := rejectDuplicateDorisTargetScope(after, "Doris", "BuildDorisSchemaMigrationSQL"); err != nil {
+		return nil, err
+	}
+	matchedBeforeKeys := make(map[string]bool, len(before))
+	var stmts []string
+	for _, afterTbl := range after {
+		if beforeTbl, matchedKey, ok := matchBeforeDorisTable(afterTbl, beforeByKey, beforeByScope, beforeScopeCount, afterScopeCount); ok {
+			matchedBeforeKeys[matchedKey] = true
+			alterStmts, err := BuildDorisAlterTableSQL(beforeTbl, afterTbl, tenantSlug)
+			if err != nil {
+				return nil, err
+			}
+			stmts = append(stmts, alterStmts...)
+			continue
+		}
+		if !hasDorisTargetTable(afterTbl) {
+			continue
+		}
+		if err := validateDorisNewTableColumns(afterTbl, "Doris"); err != nil {
+			return nil, err
+		}
+		createSQL := afterTbl.BuildDorisCreateTableSQL(tenantSlug, buckets)
+		if createSQL == "" {
+			return nil, fmt.Errorf("failed to build Doris CREATE TABLE SQL for new table %q", afterTbl.TableName)
+		}
+		stmts = append(stmts, createSQL)
+	}
+	for _, beforeTbl := range before {
+		key := dorisTableEvolutionIdentity(beforeTbl)
+		if !matchedBeforeKeys[key] && hasDorisTargetTable(beforeTbl) {
+			if hasAmbiguousDorisCatalogOmission(beforeTbl, after, beforeScopeCount, afterScopeCount) {
+				return nil, fmt.Errorf("ambiguous IcebergCatalog omission for Doris table %q in BuildDorisSchemaMigrationSQL", beforeTbl.TableName)
+			}
+			return nil, fmt.Errorf("dropping existing Doris table %q is forbidden in BuildDorisSchemaMigrationSQL", beforeTbl.TableName)
+		}
+	}
+	return stmts, nil
+}
+
+// BuildStarRocksSchemaMigrationSQL validates evolving a slice of before table descriptors
+// into after table descriptors and returns the ordered StarRocks 4.x DDL statements:
+// ALTER TABLE statements for evolved existing tables and CREATE TABLE IF NOT EXISTS
+// statements for newly added tables. Rejects dropping existing StarRocks tables.
+func BuildStarRocksSchemaMigrationSQL(before, after []DorisTableDescriptor, tenantSlug string, buckets int) ([]string, error) {
+	if _, ok := sanitizeDorisTenantSlug(tenantSlug); !ok {
+		return nil, fmt.Errorf("invalid tenantSlug %q in BuildStarRocksSchemaMigrationSQL", tenantSlug)
+	}
+	beforeByKey, beforeByScope, beforeScopeCount, afterScopeCount, err := indexDorisSchemaEvolutionTables(before, after, "BuildStarRocksSchemaMigrationSQL")
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateDorisSchemaEvolution(before, after); err != nil {
+		return nil, err
+	}
+	if err := rejectDuplicateDorisTargetScope(after, "StarRocks", "BuildStarRocksSchemaMigrationSQL"); err != nil {
+		return nil, err
+	}
+	matchedBeforeKeys := make(map[string]bool, len(before))
+	var stmts []string
+	for _, afterTbl := range after {
+		if beforeTbl, matchedKey, ok := matchBeforeDorisTable(afterTbl, beforeByKey, beforeByScope, beforeScopeCount, afterScopeCount); ok {
+			matchedBeforeKeys[matchedKey] = true
+			alterStmts, err := BuildStarRocksAlterTableSQL(beforeTbl, afterTbl, tenantSlug)
+			if err != nil {
+				return nil, err
+			}
+			stmts = append(stmts, alterStmts...)
+			continue
+		}
+		if !hasDorisTargetTable(afterTbl) {
+			continue
+		}
+		if err := validateDorisNewTableColumns(afterTbl, "StarRocks"); err != nil {
+			return nil, err
+		}
+		createSQL := afterTbl.BuildStarRocksCreateTableSQL(tenantSlug, buckets)
+		if createSQL == "" {
+			return nil, fmt.Errorf("failed to build StarRocks CREATE TABLE SQL for new table %q", afterTbl.TableName)
+		}
+		stmts = append(stmts, createSQL)
+	}
+	for _, beforeTbl := range before {
+		key := dorisTableEvolutionIdentity(beforeTbl)
+		if !matchedBeforeKeys[key] && hasDorisTargetTable(beforeTbl) {
+			if hasAmbiguousDorisCatalogOmission(beforeTbl, after, beforeScopeCount, afterScopeCount) {
+				return nil, fmt.Errorf("ambiguous IcebergCatalog omission for StarRocks table %q in BuildStarRocksSchemaMigrationSQL", beforeTbl.TableName)
+			}
+			return nil, fmt.Errorf("dropping existing StarRocks table %q is forbidden in BuildStarRocksSchemaMigrationSQL", beforeTbl.TableName)
+		}
+	}
+	return stmts, nil
+}
+
+// BuildIcebergSchemaMigrationSQL validates evolving a slice of before table descriptors
+// into after table descriptors and returns the ordered Apache Iceberg DDL statements:
+// ALTER TABLE statements for evolved existing tables and CREATE TABLE IF NOT EXISTS
+// statements for newly added tables. Rejects dropping existing Iceberg tables.
+func BuildIcebergSchemaMigrationSQL(before, after []DorisTableDescriptor, tenantSlug string) ([]string, error) {
+	if _, ok := sanitizeDorisTenantSlug(tenantSlug); !ok {
+		return nil, fmt.Errorf("invalid tenantSlug %q in BuildIcebergSchemaMigrationSQL", tenantSlug)
+	}
+	beforeByKey, _, _, _, err := indexDorisSchemaEvolutionTables(before, after, "BuildIcebergSchemaMigrationSQL")
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateDorisSchemaEvolution(before, after); err != nil {
+		return nil, err
+	}
+	matchedBeforeKeys := make(map[string]bool, len(before))
+	var stmts []string
+	for _, afterTbl := range after {
+		key := dorisTableEvolutionIdentity(afterTbl)
+		if beforeTbl, ok := beforeByKey[key]; ok {
+			matchedBeforeKeys[key] = true
+			alterStmts, err := BuildIcebergAlterTableSQL(beforeTbl, afterTbl, tenantSlug)
+			if err != nil {
+				return nil, err
+			}
+			stmts = append(stmts, alterStmts...)
+			continue
+		}
+		if !hasIcebergTargetTable(afterTbl) {
+			continue
+		}
+		if err := validateDorisNewTableColumns(afterTbl, "Iceberg"); err != nil {
+			return nil, err
+		}
+		createSQL := afterTbl.BuildIcebergCreateTableSQL(tenantSlug)
+		if createSQL == "" {
+			return nil, fmt.Errorf("failed to build Iceberg CREATE TABLE SQL for new table %q", afterTbl.TableName)
+		}
+		stmts = append(stmts, createSQL)
+	}
+	for _, beforeTbl := range before {
+		key := dorisTableEvolutionIdentity(beforeTbl)
+		if !matchedBeforeKeys[key] && hasIcebergTargetTable(beforeTbl) {
+			return nil, fmt.Errorf("dropping existing Iceberg table %q is forbidden in BuildIcebergSchemaMigrationSQL", beforeTbl.TableName)
+		}
 	}
 	return stmts, nil
 }
