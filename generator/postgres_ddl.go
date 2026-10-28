@@ -1,7 +1,9 @@
 package generator
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -50,52 +52,140 @@ type PostgresTableSchemaDescriptor struct {
 	ForeignKeys    []PostgresForeignKeyDescriptor
 }
 
-// isDisallowedPostgresTypeKeyword reports whether word is a SQL constraint or DDL
-// keyword that must never appear inside a column type expression.
-func isDisallowedPostgresTypeKeyword(word string) bool {
-	switch strings.ToUpper(word) {
-	case "NOT", "NULL", "DEFAULT", "PRIMARY", "KEY", "REFERENCES", "CHECK",
-		"UNIQUE", "CONSTRAINT", "FOREIGN", "DROP", "TABLE", "SELECT", "INSERT",
-		"UPDATE", "DELETE", "ALTER", "CREATE", "GRANT", "REVOKE", "TRUNCATE",
-		"UNION", "WHERE", "FROM":
+var (
+	// validPostgresSQLTypeRe matches safe, standard PostgreSQL column type expressions
+	// (including optional type parameters and trailing array dimensions), rejecting
+	// injected DDL constraints such as "VARCHAR(10) REFERENCES other(id)".
+	validPostgresSQLTypeRe = regexp.MustCompile(
+		`^(?i)(?:` +
+			`SMALLINT|INT2|INTEGER|INT|INT4|BIGINT|INT8|` +
+			`SMALLSERIAL|SERIAL2|SERIAL|SERIAL4|BIGSERIAL|SERIAL8|` +
+			`REAL|FLOAT4|DOUBLE PRECISION|FLOAT8|` +
+			`BOOLEAN|BOOL|TEXT|CITEXT|BYTEA|DATE|UUID|JSON|JSONB|` +
+			`INET|CIDR|MACADDR|MACADDR8|POINT|LINE|LSEG|BOX|PATH|POLYGON|CIRCLE|` +
+			`XML|MONEY|TSVECTOR|TSQUERY|` +
+			`INT4RANGE|INT8RANGE|NUMRANGE|TSRANGE|TSTZRANGE|DATERANGE|` +
+			`VECTOR\([1-9][0-9]*\)|` +
+			`(?:VARCHAR|CHARACTER VARYING|CHAR|CHARACTER|BPCHAR|BIT|BIT VARYING|VARBIT)(?:\([1-9][0-9]*\))?|` +
+			`(?:NUMERIC|DECIMAL)(?:\([1-9][0-9]*(?:,\s*[0-9]+)?\))?|` +
+			`(?:TIME|TIMESTAMP)(?:\([0-9]+\))?(?: WITH(?:OUT)? TIME ZONE)?|` +
+			`(?:TIMETZ|TIMESTAMPTZ|INTERVAL)(?:\([0-9]+\))?` +
+			`)(?:\[\])*$`,
+	)
+
+	// strictNumericLiteralRe matches a signed or unsigned integer or decimal literal without spaces.
+	strictNumericLiteralRe = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
+)
+
+// isValidPostgresSQLTypeSyntax reports whether s is a safe PostgreSQL column type expression
+// matching the strict PostgreSQL type allowlist (e.g. "TEXT", "VARCHAR(64)", "NUMERIC(20,0)",
+// "DOUBLE PRECISION", "TIMESTAMP WITH TIME ZONE", "TEXT[]", "UUID", "JSONB").
+func isValidPostgresSQLTypeSyntax(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) == 0 {
+		return false
+	}
+	return validPostgresSQLTypeRe.MatchString(s)
+}
+
+// isPostgresBooleanSQLType reports whether sqlType is a scalar PostgreSQL boolean type (not an array).
+func isPostgresBooleanSQLType(sqlType string) bool {
+	u := strings.ToUpper(strings.TrimSpace(sqlType))
+	return u == "BOOLEAN" || u == "BOOL"
+}
+
+// isPostgresNumericSQLType reports whether sqlType is a scalar PostgreSQL numeric type (not an array).
+func isPostgresNumericSQLType(sqlType string) bool {
+	u := strings.ToUpper(strings.TrimSpace(sqlType))
+	if strings.HasSuffix(u, "[]") {
+		return false
+	}
+	switch u {
+	case "SMALLINT", "INT2", "INTEGER", "INT", "INT4", "BIGINT", "INT8",
+		"SMALLSERIAL", "SERIAL2", "SERIAL", "SERIAL4", "BIGSERIAL", "SERIAL8",
+		"REAL", "FLOAT4", "DOUBLE PRECISION", "FLOAT8", "NUMERIC", "DECIMAL":
+		return true
+	}
+	return strings.HasPrefix(u, "NUMERIC(") || strings.HasPrefix(u, "DECIMAL(")
+}
+
+// isPostgresTimestampSQLType reports whether sqlType is a PostgreSQL timestamp type
+// eligible for a server_timestamp DEFAULT NOW() expression.
+func isPostgresTimestampSQLType(sqlType string) bool {
+	u := strings.ToUpper(strings.TrimSpace(sqlType))
+	if strings.HasSuffix(u, "[]") {
+		return false
+	}
+	return u == "TIMESTAMPTZ" ||
+		u == "TIMESTAMP" ||
+		u == "TIMESTAMP WITH TIME ZONE" ||
+		u == "TIMESTAMP WITHOUT TIME ZONE" ||
+		strings.HasPrefix(u, "TIMESTAMPTZ(") ||
+		strings.HasPrefix(u, "TIMESTAMP(")
+}
+
+// isValidPostgresServerDefault reports whether s is an empty or allowlisted SQL server default expression.
+func isValidPostgresServerDefault(s string) bool {
+	if s == "" {
+		return true
+	}
+	if strings.TrimSpace(s) != s {
+		return false
+	}
+	switch strings.ToUpper(s) {
+	case "NOW()", "CURRENT_TIMESTAMP", "GEN_RANDOM_UUID()":
 		return true
 	default:
 		return false
 	}
 }
 
-// isValidPostgresSQLTypeSyntax reports whether s is a safe PostgreSQL column type expression
-// (e.g. "TEXT", "VARCHAR(64)", "NUMERIC(20,0)", "DOUBLE PRECISION", "TEXT[]", "UUID", "JSONB").
-func isValidPostgresSQLTypeSyntax(s string) bool {
-	s = strings.TrimSpace(s)
-	if len(s) == 0 {
-		return false
+// validatePostgresDefaultValue validates that defaultValue is a safe literal for sqlType.
+// Scalar boolean columns require "true" or "false" (case-insensitive); scalar numeric columns
+// require a strict numeric literal (^-?[0-9]+(\.[0-9]+)?$); all other types require a safe
+// printable ASCII literal without quotes, backslashes, or semicolons.
+func validatePostgresDefaultValue(sqlType, defaultValue string) error {
+	if defaultValue == "" {
+		return nil
 	}
-	for strings.HasSuffix(s, "[]") {
-		s = strings.TrimSuffix(s, "[]")
+	if !isValidDorisDefaultValue(defaultValue) {
+		return fmt.Errorf("invalid default_value %q", defaultValue)
 	}
-	if len(s) == 0 {
-		return false
-	}
-	if isValidSQLTypeSyntax(s) {
-		return !isDisallowedPostgresTypeKeyword(s)
-	}
-	// Allow multi-word standard Postgres types such as "DOUBLE PRECISION",
-	// "TIMESTAMP WITH TIME ZONE", "CHARACTER VARYING(255)".
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return false
-	}
-	for _, w := range words {
-		if !isValidSQLTypeSyntax(w) || isDisallowedPostgresTypeKeyword(w) {
-			return false
+	if isPostgresBooleanSQLType(sqlType) {
+		lower := strings.ToLower(defaultValue)
+		if lower != "true" && lower != "false" {
+			return fmt.Errorf("invalid boolean default_value %q for %s (must be true or false)", defaultValue, sqlType)
 		}
+		return nil
 	}
-	// Reject consecutive spaces or control characters
-	if strings.Join(words, " ") != s {
-		return false
+	if isPostgresNumericSQLType(sqlType) {
+		if !strictNumericLiteralRe.MatchString(defaultValue) {
+			return fmt.Errorf("invalid numeric default_value %q for %s", defaultValue, sqlType)
+		}
+		return nil
 	}
-	return true
+	return nil
+}
+
+// compactPostgresIdentifier constructs "<prefix>_<body>" and, if it exceeds
+// maxPostgresIdentifierBytes (63), deterministically compacts it to <= 63 bytes
+// using a short 8-character SHA-256 hex suffix ("<prefix>_<truncated>_<hash8>").
+func compactPostgresIdentifier(prefix, body string) string {
+	full := prefix + "_" + body
+	if len(full) <= maxPostgresIdentifierBytes {
+		return full
+	}
+	sum := sha256.Sum256([]byte(full))
+	hashSuffix := fmt.Sprintf("%x", sum[:4])
+	maxBodyLen := maxPostgresIdentifierBytes - len(prefix) - 1 - 1 - len(hashSuffix)
+	if maxBodyLen < 1 {
+		return full[:maxPostgresIdentifierBytes]
+	}
+	truncated := strings.TrimRight(body[:maxBodyLen], "_")
+	if truncated == "" {
+		truncated = body[:maxBodyLen]
+	}
+	return prefix + "_" + truncated + "_" + hashSuffix
 }
 
 // isValidForeignKeyAction reports whether action is a valid SQL referential action.
@@ -416,27 +506,39 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 				if !isValidSQLIdentifier(colName) {
 					return nil, fmt.Errorf("oneof variant %s in %s: invalid SQL column name %q", v.Name, dm.FullName, colName)
 				}
+				if len(colName) > maxPostgresIdentifierBytes {
+					return nil, fmt.Errorf("oneof variant %s in %s: SQL column name %q exceeds %d-byte identifier limit (%d bytes)",
+						v.Name, dm.FullName, colName, maxPostgresIdentifierBytes, len(colName))
+				}
 				if colSet[colName] {
 					return nil, fmt.Errorf("oneof variant %s in %s: duplicate SQL column name %q", v.Name, dm.FullName, colName)
 				}
 				colSet[colName] = true
-				if colMeta != nil && colMeta.DefaultValue != "" && !isValidDorisDefaultValue(colMeta.DefaultValue) {
-					return nil, fmt.Errorf("oneof variant %s in %s: invalid default_value %q", v.Name, dm.FullName, colMeta.DefaultValue)
+				if colMeta != nil && colMeta.Length < 0 {
+					return nil, fmt.Errorf("oneof variant %s in %s: column length cannot be negative (%d)", v.Name, dm.FullName, colMeta.Length)
 				}
 				ddlType, hclType, err := resolveOneofVariantPostgresTypes(v, colMeta, opts)
 				if err != nil {
 					return nil, err
 				}
+				if colMeta != nil && colMeta.DefaultValue != "" {
+					if err := validatePostgresDefaultValue(ddlType, colMeta.DefaultValue); err != nil {
+						return nil, fmt.Errorf("oneof variant %s in %s: %w", v.Name, dm.FullName, err)
+					}
+				}
 				isVariantPK := colMeta != nil && (colMeta.PrimaryKey || colMeta.IsUniqueKey)
+				isVariantServerTS := v.ProtoField != nil && isServerTimestamp(v.ProtoField)
 				nullable := true
-				if isVariantPK || explicitPKSet[colName] {
+				if isVariantPK || explicitPKSet[colName] || isVariantServerTS {
 					nullable = false
 				} else if colMeta != nil && colMeta.Nullable != nil {
 					nullable = *colMeta.Nullable
 				}
-				var defVal string
+				var defVal, srvDef string
 				if colMeta != nil && colMeta.DefaultValue != "" {
 					defVal = colMeta.DefaultValue
+				} else if isVariantServerTS && isPostgresTimestampSQLType(ddlType) {
+					srvDef = "NOW()"
 				}
 				rawCols = append(rawCols, rawColInfo{
 					colDesc: PostgresColumnDescriptor{
@@ -446,6 +548,7 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 						HCLType:        hclType,
 						Nullable:       nullable,
 						DefaultValue:   defVal,
+						ServerDefault:  srvDef,
 					},
 					colMeta: colMeta,
 					fieldPK: isVariantPK,
@@ -479,13 +582,17 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 		if !isValidSQLIdentifier(colName) {
 			return nil, fmt.Errorf("field %s in %s: invalid SQL column name %q (must match ^[a-zA-Z_][a-zA-Z0-9_]*$)", f.Name, dm.FullName, colName)
 		}
+		if len(colName) > maxPostgresIdentifierBytes {
+			return nil, fmt.Errorf("field %s in %s: SQL column name %q exceeds %d-byte identifier limit (%d bytes)",
+				f.Name, dm.FullName, colName, maxPostgresIdentifierBytes, len(colName))
+		}
 		if colSet[colName] {
 			return nil, fmt.Errorf("field %s in %s: duplicate SQL column name %q", f.Name, dm.FullName, colName)
 		}
 		colSet[colName] = true
 
-		if colMeta != nil && colMeta.DefaultValue != "" && !isValidDorisDefaultValue(colMeta.DefaultValue) {
-			return nil, fmt.Errorf("field %s in %s: invalid default_value %q", f.Name, dm.FullName, colMeta.DefaultValue)
+		if colMeta != nil && colMeta.Length < 0 {
+			return nil, fmt.Errorf("field %s in %s: column length cannot be negative (%d)", f.Name, dm.FullName, colMeta.Length)
 		}
 
 		ddlType, hclType, err := resolvePostgresFieldTypes(f, colMeta, opts)
@@ -493,11 +600,17 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 			return nil, err
 		}
 
+		if colMeta != nil && colMeta.DefaultValue != "" {
+			if err := validatePostgresDefaultValue(ddlType, colMeta.DefaultValue); err != nil {
+				return nil, fmt.Errorf("field %s in %s: %w", f.Name, dm.FullName, err)
+			}
+		}
+
 		isFieldPK := f.DocID || (colMeta != nil && (colMeta.PrimaryKey || colMeta.IsUniqueKey))
 		var defVal, srvDef string
 		if colMeta != nil && colMeta.DefaultValue != "" {
 			defVal = colMeta.DefaultValue
-		} else if f.ServerTimestamp && (ddlType == "TIMESTAMPTZ" || ddlType == "TIMESTAMP WITH TIME ZONE") {
+		} else if f.ServerTimestamp && isPostgresTimestampSQLType(ddlType) {
 			srvDef = "NOW()"
 		}
 
@@ -551,16 +664,28 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 	// Collect indexes and foreign keys in deterministic order.
 	var indexes []PostgresIndexDescriptor
 	seenIdx := make(map[string]PostgresIndexDescriptor)
-	addIndex := func(idx PostgresIndexDescriptor) error {
+	seenIdxCols := make(map[string]bool)
+	addIndex := func(idx PostgresIndexDescriptor, autoNamed bool) error {
 		if idx.Name == "" {
-			prefix := "idx_"
+			autoNamed = true
+			prefix := "idx"
 			if idx.Unique {
-				prefix = "uq_"
+				prefix = "uq"
 			}
-			idx.Name = prefix + tableName + "_" + strings.Join(idx.Columns, "_")
+			idx.Name = compactPostgresIdentifier(prefix, tableName+"_"+strings.Join(idx.Columns, "_"))
+		} else if autoNamed {
+			prefix := "idx"
+			if idx.Unique {
+				prefix = "uq"
+			}
+			idx.Name = compactPostgresIdentifier(prefix, tableName+"_"+strings.Join(idx.Columns, "_"))
 		}
 		if !isValidSQLIdentifier(idx.Name) {
 			return fmt.Errorf("message %s: invalid index name %q", dm.FullName, idx.Name)
+		}
+		if len(idx.Name) > maxPostgresIdentifierBytes {
+			return fmt.Errorf("message %s: index name %q exceeds %d-byte identifier limit (%d bytes)",
+				dm.FullName, idx.Name, maxPostgresIdentifierBytes, len(idx.Name))
 		}
 		if len(idx.Columns) == 0 {
 			return fmt.Errorf("message %s: index %q has no columns", dm.FullName, idx.Name)
@@ -576,7 +701,16 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 			}
 			return nil
 		}
+		// Skip auto-generated unique index if it duplicates a single-column PRIMARY KEY.
+		if autoNamed && idx.Unique && len(idx.Columns) == 1 && len(pkCols) == 1 && idx.Columns[0] == pkCols[0] {
+			return nil
+		}
+		colSig := fmt.Sprintf("%t:%s", idx.Unique, strings.Join(idx.Columns, ","))
+		if seenIdxCols[colSig] {
+			return nil
+		}
 		seenIdx[idx.Name] = idx
+		seenIdxCols[colSig] = true
 		indexes = append(indexes, idx)
 		return nil
 	}
@@ -590,19 +724,17 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 		colName := rc.colDesc.ColumnName
 		if cm.Unique {
 			if err := addIndex(PostgresIndexDescriptor{
-				Name:    "uq_" + tableName + "_" + colName,
 				Columns: []string{colName},
 				Unique:  true,
-			}); err != nil {
+			}, true); err != nil {
 				return nil, err
 			}
 		}
 		if cm.Index || cm.InvertedIndex {
 			if err := addIndex(PostgresIndexDescriptor{
-				Name:    "idx_" + tableName + "_" + colName,
 				Columns: []string{colName},
 				Unique:  false,
-			}); err != nil {
+			}, true); err != nil {
 				return nil, err
 			}
 		}
@@ -611,12 +743,20 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 			if !isValidSQLIdentifier(refTable) {
 				return nil, fmt.Errorf("field %s in %s: invalid foreign key ref_table %q", colName, dm.FullName, refTable)
 			}
+			if len(refTable) > maxPostgresIdentifierBytes {
+				return nil, fmt.Errorf("field %s in %s: foreign key ref_table %q exceeds %d-byte identifier limit (%d bytes)",
+					colName, dm.FullName, refTable, maxPostgresIdentifierBytes, len(refTable))
+			}
 			refCol := cm.ForeignKey.RefColumn
 			if refCol == "" {
 				refCol = "id"
 			}
 			if !isValidSQLIdentifier(refCol) {
 				return nil, fmt.Errorf("field %s in %s: invalid foreign key ref_column %q", colName, dm.FullName, refCol)
+			}
+			if len(refCol) > maxPostgresIdentifierBytes {
+				return nil, fmt.Errorf("field %s in %s: foreign key ref_column %q exceeds %d-byte identifier limit (%d bytes)",
+					colName, dm.FullName, refCol, maxPostgresIdentifierBytes, len(refCol))
 			}
 			if _, _, ok := isValidForeignKeyAction(cm.ForeignKey.OnDelete); !ok {
 				return nil, fmt.Errorf("field %s in %s: invalid foreign key on_delete %q", colName, dm.FullName, cm.ForeignKey.OnDelete)
@@ -625,7 +765,7 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 				return nil, fmt.Errorf("field %s in %s: invalid foreign key on_update %q", colName, dm.FullName, cm.ForeignKey.OnUpdate)
 			}
 			fks = append(fks, PostgresForeignKeyDescriptor{
-				Name:      "fk_" + tableName + "_" + colName,
+				Name:      compactPostgresIdentifier("fk", tableName+"_"+colName),
 				Columns:   []string{colName},
 				RefTable:  refTable,
 				RefColumn: refCol,
@@ -641,15 +781,14 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 				continue
 			}
 			if err := addIndex(PostgresIndexDescriptor{
-				Name:    "idx_" + tableName + "_" + invCol,
 				Columns: []string{invCol},
 				Unique:  false,
-			}); err != nil {
+			}, true); err != nil {
 				return nil, err
 			}
 		}
 		for _, idxDef := range meta.Indexes {
-			if err := addIndex(PostgresIndexDescriptor(idxDef)); err != nil {
+			if err := addIndex(PostgresIndexDescriptor(idxDef), idxDef.Name == ""); err != nil {
 				return nil, err
 			}
 		}
@@ -675,7 +814,8 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 	}, nil
 }
 
-// collectPostgresTableSchemas extracts all top-level and nested table messages from df in declaration order.
+// collectPostgresTableSchemas extracts all top-level and explicitly table-annotated nested
+// messages from df in declaration order, resolving intra-schema foreign key RefTable prefixes.
 func collectPostgresTableSchemas(df *DomainFile, opts *Options) ([]*PostgresTableSchemaDescriptor, error) {
 	embeddedMsgs := make(map[string]bool)
 	var markEmbedded func(msgs []*DomainMessage)
@@ -704,14 +844,19 @@ func collectPostgresTableSchemas(df *DomainFile, opts *Options) ([]*PostgresTabl
 
 	var tables []*PostgresTableSchemaDescriptor
 	seenTables := make(map[string]string)
-	var collectMsgs func(msgs []*DomainMessage) error
-	collectMsgs = func(msgs []*DomainMessage) error {
+	byResolvedName := make(map[string]string)
+	byUnprefixedSnake := make(map[string]string)
+	byGoName := make(map[string]string)
+
+	var collectMsgs func(msgs []*DomainMessage, isNested bool) error
+	collectMsgs = func(msgs []*DomainMessage, isNested bool) error {
 		for _, dm := range msgs {
 			if dm.Skip {
 				continue
 			}
 			meta := extractTableMeta(dm.ProtoMsg)
-			if (meta != nil || !embeddedMsgs[dm.Name]) && len(dm.Fields) > 0 {
+			isEligible := (!isNested && (meta != nil || !embeddedMsgs[dm.Name])) || (isNested && meta != nil)
+			if isEligible && len(dm.Fields) > 0 {
 				tbl, err := buildPostgresTableSchema(dm, opts)
 				if err != nil {
 					return err
@@ -724,17 +869,58 @@ func collectPostgresTableSchemas(df *DomainFile, opts *Options) ([]*PostgresTabl
 					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q (already resolved by %s)", owner, tbl.TableName, prev)
 				}
 				seenTables[tbl.TableName] = owner
+				byResolvedName[tbl.TableName] = tbl.TableName
+				unprefixed := toSnakeCase(dm.Name)
+				if dm.ProtoMsg != nil {
+					unprefixed = toSnakeCase(dm.ProtoMsg.GoIdent.GoName)
+				}
+				if unprefixed != "" && byUnprefixedSnake[unprefixed] == "" {
+					byUnprefixedSnake[unprefixed] = tbl.TableName
+				}
+				if dm.Name != "" && byGoName[dm.Name] == "" {
+					byGoName[dm.Name] = tbl.TableName
+				}
 				tables = append(tables, tbl)
 			}
-			if err := collectMsgs(dm.NestedMessages); err != nil {
+			if err := collectMsgs(dm.NestedMessages, true); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if err := collectMsgs(df.Messages); err != nil {
+	if err := collectMsgs(df.Messages, false); err != nil {
 		return nil, err
 	}
+
+	// Post-pass: resolve foreign key RefTable references to physical prefixed table names
+	// when referencing another table in the schema, and validate the 63-byte limit.
+	for _, tbl := range tables {
+		for i := range tbl.ForeignKeys {
+			fk := &tbl.ForeignKeys[i]
+			if byResolvedName[fk.RefTable] == "" {
+				snakeRef := toSnakeCase(fk.RefTable)
+				if tbl.WriterService != "" {
+					normWriter := strings.ReplaceAll(strings.TrimSpace(tbl.WriterService), "-", "_")
+					candidate := normWriter + "__" + snakeRef
+					if byResolvedName[candidate] != "" {
+						fk.RefTable = candidate
+					}
+				}
+				if byResolvedName[fk.RefTable] == "" {
+					if resolved := byUnprefixedSnake[snakeRef]; resolved != "" {
+						fk.RefTable = resolved
+					} else if resolved := byGoName[fk.RefTable]; resolved != "" {
+						fk.RefTable = resolved
+					}
+				}
+			}
+			if len(fk.RefTable) > maxPostgresIdentifierBytes {
+				return nil, fmt.Errorf("table %s: foreign key %q resolved ref_table %q exceeds %d-byte identifier limit (%d bytes)",
+					tbl.TableName, fk.Name, fk.RefTable, maxPostgresIdentifierBytes, len(fk.RefTable))
+			}
+		}
+	}
+
 	return tables, nil
 }
 
@@ -749,25 +935,23 @@ func formatPostgresQuotedIdentList(cols []string) string {
 }
 
 // formatPostgresSQLDefaultValue formats the SQL DEFAULT expression for a PostgreSQL column.
+// Boolean defaults are normalized to TRUE/FALSE, numeric defaults are emitted as validated
+// numeric literals, and all other defaults (including strings, dates, timestamps, intervals,
+// network addresses, UUIDs, JSONB, and arrays) are single-quoted SQL literals.
 func formatPostgresSQLDefaultValue(c PostgresColumnDescriptor) string {
 	if c.ServerDefault != "" {
-		return c.ServerDefault
+		return strings.ToUpper(strings.TrimSpace(c.ServerDefault))
 	}
 	if c.DefaultValue == "" {
 		return ""
 	}
-	upperType := strings.ToUpper(c.SQLType)
-	if upperType == "TEXT" ||
-		strings.HasPrefix(upperType, "VARCHAR") ||
-		strings.HasPrefix(upperType, "CHARACTER VARYING") ||
-		upperType == "DATE" ||
-		upperType == "TIMESTAMPTZ" ||
-		upperType == "TIMESTAMP WITH TIME ZONE" ||
-		upperType == "UUID" ||
-		upperType == "JSONB" {
-		return "'" + c.DefaultValue + "'"
+	if isPostgresBooleanSQLType(c.SQLType) {
+		return strings.ToUpper(c.DefaultValue)
 	}
-	return c.DefaultValue
+	if isPostgresNumericSQLType(c.SQLType) {
+		return c.DefaultValue
+	}
+	return "'" + strings.ReplaceAll(c.DefaultValue, "'", "''") + "'"
 }
 
 // BuildPostgresCreateTableWithoutForeignKeysSQL renders a deterministic PostgreSQL
@@ -788,7 +972,10 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 
 	var bodyLines []string
 	for _, c := range t.Columns {
-		if !isValidSQLIdentifier(c.ColumnName) || !isValidPostgresSQLTypeSyntax(c.SQLType) {
+		if !isValidSQLIdentifier(c.ColumnName) || len(c.ColumnName) > maxPostgresIdentifierBytes || !isValidPostgresSQLTypeSyntax(c.SQLType) {
+			return ""
+		}
+		if !isValidPostgresServerDefault(c.ServerDefault) || validatePostgresDefaultValue(c.SQLType, c.DefaultValue) != nil {
 			return ""
 		}
 		line := fmt.Sprintf("    %q %s", c.ColumnName, c.SQLType)
@@ -802,6 +989,11 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 	}
 
 	if len(t.PrimaryKeys) > 0 {
+		for _, pk := range t.PrimaryKeys {
+			if !isValidSQLIdentifier(pk) || len(pk) > maxPostgresIdentifierBytes {
+				return ""
+			}
+		}
 		bodyLines = append(bodyLines, fmt.Sprintf("    PRIMARY KEY (%s)", formatPostgresQuotedIdentList(t.PrimaryKeys)))
 	}
 
@@ -811,6 +1003,14 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 	b.WriteString("\n);")
 
 	for _, idx := range t.Indexes {
+		if !isValidSQLIdentifier(idx.Name) || len(idx.Name) > maxPostgresIdentifierBytes || len(idx.Columns) == 0 {
+			return ""
+		}
+		for _, col := range idx.Columns {
+			if !isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes {
+				return ""
+			}
+		}
 		b.WriteString("\n")
 		if idx.Unique {
 			fmt.Fprintf(&b, "CREATE UNIQUE INDEX IF NOT EXISTS %q ON %q (%s);",
@@ -832,16 +1032,34 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresForeignKeysSQL() string {
 	}
 	var lines []string
 	for _, fk := range t.ForeignKeys {
-		if !isValidSQLIdentifier(fk.Name) || !isValidSQLIdentifier(fk.RefTable) || !isValidSQLIdentifier(fk.RefColumn) || len(fk.Columns) == 0 {
+		if !isValidSQLIdentifier(fk.Name) || len(fk.Name) > maxPostgresIdentifierBytes ||
+			!isValidSQLIdentifier(fk.RefTable) || len(fk.RefTable) > maxPostgresIdentifierBytes ||
+			!isValidSQLIdentifier(fk.RefColumn) || len(fk.RefColumn) > maxPostgresIdentifierBytes ||
+			len(fk.Columns) == 0 {
 			return ""
 		}
+		for _, col := range fk.Columns {
+			if !isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes {
+				return ""
+			}
+		}
+		delAct, delSQL, ok := isValidForeignKeyAction(fk.OnDelete)
+		if !ok {
+			return ""
+		}
+		_ = delAct
+		updAct, updSQL, ok := isValidForeignKeyAction(fk.OnUpdate)
+		if !ok {
+			return ""
+		}
+		_ = updAct
 		fkLine := fmt.Sprintf("ALTER TABLE %q ADD CONSTRAINT %q FOREIGN KEY (%s) REFERENCES %q (%q)",
 			t.TableName, fk.Name, formatPostgresQuotedIdentList(fk.Columns), fk.RefTable, fk.RefColumn)
-		if _, sqlAct, ok := isValidForeignKeyAction(fk.OnDelete); ok && sqlAct != "" {
-			fkLine += " ON DELETE " + sqlAct
+		if delSQL != "" {
+			fkLine += " ON DELETE " + delSQL
 		}
-		if _, sqlAct, ok := isValidForeignKeyAction(fk.OnUpdate); ok && sqlAct != "" {
-			fkLine += " ON UPDATE " + sqlAct
+		if updSQL != "" {
+			fkLine += " ON UPDATE " + updSQL
 		}
 		fkLine += ";"
 		lines = append(lines, fkLine)
