@@ -173,13 +173,16 @@ For each annotated message `<Msg>`, `proto2type` generates:
 3. **Table Descriptors, SQL DDL & Atlas HCL Builders**:
    - `func <Msg>DorisTable() DorisTableDescriptor`
    - `func (r <Msg>Doris) Descriptor() DorisTableDescriptor`
-   - `func PackageDorisTables() []DorisTableDescriptor`
+   - `var <FilePrefix>DorisTables = []DorisTableDescriptor{...}`
    - `func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, buckets int) string`
    - `func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, buckets int) string`
    - `func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) string`
    - `func (t DorisTableDescriptor) BuildDorisAlterTableSQL(after DorisTableDescriptor, tenantSlug string) ([]string, error)`
    - `func (t DorisTableDescriptor) BuildStarRocksAlterTableSQL(after DorisTableDescriptor, tenantSlug string) ([]string, error)`
    - `func (t DorisTableDescriptor) BuildIcebergAlterTableSQL(after DorisTableDescriptor, tenantSlug string) ([]string, error)`
+   - `func BuildDorisSchemaMigrationSQL(before, after []DorisTableDescriptor, tenantSlug string, buckets int) ([]string, error)`
+   - `func BuildStarRocksSchemaMigrationSQL(before, after []DorisTableDescriptor, tenantSlug string, buckets int) ([]string, error)`
+   - `func BuildIcebergSchemaMigrationSQL(before, after []DorisTableDescriptor, tenantSlug string) ([]string, error)`
    - `func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int) string`
    - `func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets int) string`
    - `func (t DorisTableDescriptor) BuildIcebergAtlasHCL(tenantSlug string) string`
@@ -211,9 +214,14 @@ for _, stmt := range stmts {
     fmt.Println(stmt)
 }
 
-// Or inspect structured violations across an entire package or parsed Atlas HCL schema:
-violations := LintDorisSchemaEvolution(oldTables, PackageDorisTables())
-for _, v := range violations {
-    fmt.Println(v.Rule, v.TableName, v.ColumnName, v.Message)
+// Or plan a full multi-table migration (ALTER TABLE for evolved tables + CREATE TABLE for new tables)
+// directly from a parsed Atlas HCL snapshot against <FilePrefix>DorisTables:
+oldTables, err := ParseDorisAtlasHCL(oldDorisHCL)
+if err != nil {
+    log.Fatalf("parse HCL: %v", err)
+}
+migrationSQL, err := BuildDorisSchemaMigrationSQL(oldTables, LakehouseDorisTables, "acme", 8)
+if err != nil {
+    log.Fatalf("unsafe schema migration:\n%v", err)
 }
 ```

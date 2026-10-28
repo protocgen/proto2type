@@ -2,6 +2,7 @@ package integration
 
 import (
 	"math"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -141,5 +142,60 @@ func TestDorisGolden_RoundTripAndSchemaEvolution(t *testing.T) {
 		if violations[i].Rule != wantRule {
 			t.Errorf("violations[%d].Rule = %s, want %s", i, violations[i].Rule, wantRule)
 		}
+	}
+
+	// 5. Parse golden lakehouse_doris.hcl and lakehouse_starrocks.hcl and verify zero drift
+	// via BuildDorisSchemaMigrationSQL and BuildStarRocksSchemaMigrationSQL against LakehouseDorisTables
+	dorisHCLBytes, err := os.ReadFile("../../testdata/golden/go/doris/lakehouse_doris.hcl")
+	if err != nil {
+		t.Fatalf("failed to read lakehouse_doris.hcl: %v", err)
+	}
+	parsedDorisTables, err := doris.ParseDorisAtlasHCL(string(dorisHCLBytes))
+	if err != nil {
+		t.Fatalf("ParseDorisAtlasHCL(lakehouse_doris.hcl) failed: %v", err)
+	}
+	if stmts, err := doris.BuildDorisSchemaMigrationSQL(parsedDorisTables, doris.LakehouseDorisTables, "acme", 8); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected zero Doris migration statements between golden lakehouse_doris.hcl and LakehouseDorisTables, got (%v, %v)", stmts, err)
+	}
+
+	srHCLBytes, err := os.ReadFile("../../testdata/golden/go/doris/lakehouse_starrocks.hcl")
+	if err != nil {
+		t.Fatalf("failed to read lakehouse_starrocks.hcl: %v", err)
+	}
+	parsedSRTables, err := doris.ParseDorisAtlasHCL(string(srHCLBytes))
+	if err != nil {
+		t.Fatalf("ParseDorisAtlasHCL(lakehouse_starrocks.hcl) failed: %v", err)
+	}
+	if stmts, err := doris.BuildStarRocksSchemaMigrationSQL(parsedSRTables, doris.LakehouseDorisTables, "acme", 8); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected zero StarRocks migration statements between golden lakehouse_starrocks.hcl and LakehouseDorisTables, got (%v, %v)", stmts, err)
+	}
+
+	// 6. Verify multi-table migration planner (ALTER TABLE + CREATE TABLE) across all dialects
+	evolvedTables := append([]doris.DorisTableDescriptor(nil), doris.LakehouseDorisTables...)
+	evolvedTables[0] = afterSafe
+	evolvedTables = append(evolvedTables, doris.DorisTableDescriptor{
+		TableName:           "patient_cohorts",
+		MessageName:         "PatientCohort",
+		DatabaseScope:       "TENANT",
+		SyncTier:            "WHOLE_TABLE",
+		IcebergCatalog:      "lakehouse",
+		UniqueKeyColumns:    []string{"patient_id", "cohort_id"},
+		DistributedByColumn: "patient_id",
+		Columns: []doris.DorisColumnDescriptor{
+			{ColumnName: "patient_id", DorisType: "VARCHAR(64)", IcebergType: "STRING", Nullable: false, IsUniqueKey: true},
+			{ColumnName: "cohort_id", DorisType: "VARCHAR(64)", IcebergType: "STRING", Nullable: false, IsUniqueKey: true},
+		},
+	})
+	dorisPlan, err := doris.BuildDorisSchemaMigrationSQL(parsedDorisTables, evolvedTables, "acme", 8)
+	if err != nil || len(dorisPlan) != 3 || !strings.HasPrefix(dorisPlan[2], "CREATE TABLE IF NOT EXISTS internal.tenant_acme.patient_cohorts (") {
+		t.Fatalf("BuildDorisSchemaMigrationSQL = (%#v, %v), want 3 statements", dorisPlan, err)
+	}
+	srPlan, err := doris.BuildStarRocksSchemaMigrationSQL(parsedSRTables, evolvedTables, "acme", 8)
+	if err != nil || len(srPlan) != 3 || !strings.HasPrefix(srPlan[2], "CREATE TABLE IF NOT EXISTS internal.tenant_acme.patient_cohorts (") {
+		t.Fatalf("BuildStarRocksSchemaMigrationSQL = (%#v, %v), want 3 statements", srPlan, err)
+	}
+	icePlan, err := doris.BuildIcebergSchemaMigrationSQL(doris.LakehouseDorisTables, evolvedTables, "acme")
+	if err != nil || len(icePlan) != 3 || !strings.HasPrefix(icePlan[2], "CREATE TABLE IF NOT EXISTS lakehouse.tenant_acme.patient_cohorts (") {
+		t.Fatalf("BuildIcebergSchemaMigrationSQL = (%#v, %v), want 3 statements", icePlan, err)
 	}
 }

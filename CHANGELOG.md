@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-27
+
+### Added
+
+- **Doris 4.x, StarRocks 4.x & Iceberg `ALTER TABLE` and multi-table schema migration planners**:
+  - Added `BuildDorisAlterTableSQL`, `BuildStarRocksAlterTableSQL`, and `BuildIcebergAlterTableSQL` (and receiver methods on `DorisTableDescriptor`) to validate `before` → `after` table descriptors and emit deterministic `MODIFY COLUMN` and `ADD COLUMN` migration statements (#229).
+  - Added slice-level `BuildDorisSchemaMigrationSQL`, `BuildStarRocksSchemaMigrationSQL`, and `BuildIcebergSchemaMigrationSQL` to plan full multi-table schema migrations (`ALTER TABLE` for evolved tables and `CREATE TABLE IF NOT EXISTS` for newly added tables while rejecting dropped tables).
+- **Emitted runtime schema evolution linter (`DORIS001` – `DORIS006`)**:
+  - Generated `<name>_doris.type.go` files now export `LintDorisTableEvolution`, `ValidateDorisTableEvolution`, `LintDorisSchemaEvolution`, `ValidateDorisSchemaEvolution`, `IsSafeDorisTypeEvolution`, and `DorisTableDescriptor.LintEvolution` directly in the generated package without importing `generator` (#227).
+- **Configurable HNSW vector dimension (`embedding_dimension`)**:
+  - Added `(proto2type.message).table.embedding_dimension` (`field 14`) and `DorisTableDescriptor.EmbeddingDimension` for Doris `USING ANN` and StarRocks `USING VECTOR` HNSW indexes (#227).
+- **Doris / StarRocks / Iceberg golden test suite**:
+  - Added `testdata/proto/lakehouse.proto`, `testdata/proto/buf.gen.doris.yaml`, checked-in golden files under `testdata/golden/go/doris/`, and round-trip + schema evolution integration tests in `tests/integration/doris_golden_test.go` (#229).
+
+### Fixed
+
+- Emit `PARTITION BY RANGE(<cols>) ()` / `PARTITION BY LIST(<cols>) ()` in `BuildDorisCreateTableSQL` and `BuildStarRocksCreateTableSQL` when partition columns are configured (#229).
+- Exclude `ARRAY<...>` columns from receiving invalid `USING BITMAP` indexes in StarRocks SQL DDL and Atlas HCL (#229).
+
+## [0.10.1] - 2026-10-26
+
+### Added
+
+- **Aligned `IsSafeDorisTypeEvolution` LSC widening rules with `atlas-doris` (`DORIS006`)**:
+  - Added support for `DATE`/`DATEV2` → `DATETIME`/`DATETIMEV2(p)`, `DATETIME(p1)` → `DATETIME(p2)` (`p2 >= p1`), `DECIMAL`/`DECIMALV3(p1, s)` → `DECIMAL`/`DECIMALV3(p2, s)` (`p2 >= p1`), `VARCHAR(m)` → `STRING`/`TEXT`, `TINYINT`/`SMALLINT`/`INT`/`BIGINT` → `LARGEINT`, and recursive `ARRAY<T1>` → `ARRAY<T2>` element widening (#226).
+
+### Fixed
+
+- Isolated `doris_mode=ddl`, `doris_mode=hcl`, and `doris_mode=both` from emitting `_starrocks.sql` and `_starrocks.hcl` artifacts unless `doris_mode=all` or a `starrocks*` mode is selected (#225).
+
+## [0.10.0] - 2026-10-25
+
+### Added
+
+- **StarRocks 4.x SQL DDL & Atlas HCL codegen (`backend=starrocks` / `doris_mode=starrocks*`)**:
+  - Added `BuildStarRocksCreateTableSQL` and `BuildStarRocksAtlasHCL` with `PRIMARY KEY` + persistent index, `GIN("parser" = "english")`, `NGRAMBF`, `VECTOR` HNSW indexes, and shared-nothing / shared-data `storage_volume` + `datacache.enable` properties (#224).
+- **Atlas HCL emitter & parser (`doris_mode=hcl`, `ParseDorisAtlasHCL`)**:
+  - Added `BuildDorisAtlasHCL`, `BuildIcebergAtlasHCL`, and `ParseDorisAtlasHCL` for round-trip inspection and schema evolution linting (#221, #222, #223).
+
 ## [0.9.0] - 2026-10-23
 
 ### Added

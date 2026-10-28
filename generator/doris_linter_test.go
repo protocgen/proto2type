@@ -632,6 +632,101 @@ func TestBuildDorisAlterTableSQL_AllDialects(t *testing.T) {
 	}
 }
 
+// TestBuildDorisSchemaMigrationSQL_AllDialects verifies slice-level multi-table schema
+// migration SQL generation (combining ALTER TABLE for evolved tables and CREATE TABLE
+// for newly added tables, while rejecting dropped tables, duplicates, or unsafe evolutions).
+func TestBuildDorisSchemaMigrationSQL_AllDialects(t *testing.T) {
+	t1Before := baseLinterTestTable()
+	t2New := DorisTableDescriptor{
+		TableName:           "patient_cohorts",
+		MessageName:         "PatientCohort",
+		DatabaseScope:       "TENANT",
+		SyncTier:            "WHOLE_TABLE",
+		UniqueKeyColumns:    []string{"patient_id", "cohort_id"},
+		DistributedByColumn: "patient_id",
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "patient_id", DorisType: "VARCHAR(64)", IcebergType: "STRING", Nullable: false, IsUniqueKey: true},
+			{ColumnName: "cohort_id", DorisType: "VARCHAR(64)", IcebergType: "STRING", Nullable: false, IsUniqueKey: true},
+		},
+	}
+
+	// 1. Reflexive multi-table slice returns empty statements and nil error.
+	if stmts, err := BuildDorisSchemaMigrationSQL([]DorisTableDescriptor{t1Before, t2New}, []DorisTableDescriptor{t1Before, t2New}, "acme", 8); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected (nil, nil) for reflexive Doris schema migration, got (%v, %v)", stmts, err)
+	}
+	if stmts, err := BuildStarRocksSchemaMigrationSQL([]DorisTableDescriptor{t1Before, t2New}, []DorisTableDescriptor{t1Before, t2New}, "acme", 8); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected (nil, nil) for reflexive StarRocks schema migration, got (%v, %v)", stmts, err)
+	}
+	if stmts, err := BuildIcebergSchemaMigrationSQL([]DorisTableDescriptor{t1Before, t2New}, []DorisTableDescriptor{t1Before, t2New}, "acme"); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected (nil, nil) for reflexive Iceberg schema migration, got (%v, %v)", stmts, err)
+	}
+
+	// 2. Evolved t1 + newly added t2 emits ALTER TABLE for t1 and CREATE TABLE for t2:
+	t1After := baseLinterTestTable()
+	t1After.Columns[1].DorisType = "VARCHAR(128)" // criterion_id widened
+	t1After.Columns = append(t1After.Columns, DorisColumnDescriptor{
+		ColumnName:  "optional_note",
+		DorisType:   "VARCHAR(256)",
+		IcebergType: "STRING",
+		Nullable:    true,
+	})
+
+	dorisMig, err := BuildDorisSchemaMigrationSQL([]DorisTableDescriptor{t1Before}, []DorisTableDescriptor{t1After, t2New}, "acme", 8)
+	if err != nil {
+		t.Fatalf("BuildDorisSchemaMigrationSQL failed: %v", err)
+	}
+	if len(dorisMig) != 3 ||
+		dorisMig[0] != "ALTER TABLE internal.tenant_acme.eligibility_criterion_results MODIFY COLUMN criterion_id VARCHAR(128) NOT NULL;" ||
+		dorisMig[1] != "ALTER TABLE internal.tenant_acme.eligibility_criterion_results ADD COLUMN optional_note VARCHAR(256);" ||
+		!strings.HasPrefix(dorisMig[2], "CREATE TABLE IF NOT EXISTS internal.tenant_acme.patient_cohorts (") {
+		t.Fatalf("unexpected Doris migration statements: %#v", dorisMig)
+	}
+
+	srMig, err := BuildStarRocksSchemaMigrationSQL([]DorisTableDescriptor{t1Before}, []DorisTableDescriptor{t1After, t2New}, "acme", 8)
+	if err != nil {
+		t.Fatalf("BuildStarRocksSchemaMigrationSQL failed: %v", err)
+	}
+	if len(srMig) != 3 ||
+		srMig[0] != "ALTER TABLE internal.tenant_acme.eligibility_criterion_results MODIFY COLUMN criterion_id VARCHAR(128) NOT NULL;" ||
+		srMig[1] != "ALTER TABLE internal.tenant_acme.eligibility_criterion_results ADD COLUMN optional_note VARCHAR(256);" ||
+		!strings.HasPrefix(srMig[2], "CREATE TABLE IF NOT EXISTS internal.tenant_acme.patient_cohorts (") {
+		t.Fatalf("unexpected StarRocks migration statements: %#v", srMig)
+	}
+
+	iceMig, err := BuildIcebergSchemaMigrationSQL([]DorisTableDescriptor{t1Before}, []DorisTableDescriptor{t1After, t2New}, "acme")
+	if err != nil {
+		t.Fatalf("BuildIcebergSchemaMigrationSQL failed: %v", err)
+	}
+	if len(iceMig) != 3 ||
+		iceMig[0] != "ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results MODIFY COLUMN criterion_id VARCHAR(128) NOT NULL;" ||
+		iceMig[1] != "ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results ADD COLUMN optional_note VARCHAR(256);" ||
+		!strings.HasPrefix(iceMig[2], "CREATE TABLE IF NOT EXISTS iceberg.tenant_acme.patient_cohorts (") {
+		t.Fatalf("unexpected Iceberg migration statements: %#v", iceMig)
+	}
+
+	// 3. Reject dropping an existing table across all dialects:
+	if _, err := BuildDorisSchemaMigrationSQL([]DorisTableDescriptor{t1Before, t2New}, []DorisTableDescriptor{t1Before}, "acme", 8); err == nil {
+		t.Fatal("expected BuildDorisSchemaMigrationSQL to reject dropping existing table")
+	}
+	if _, err := BuildStarRocksSchemaMigrationSQL([]DorisTableDescriptor{t1Before, t2New}, []DorisTableDescriptor{t1Before}, "acme", 8); err == nil {
+		t.Fatal("expected BuildStarRocksSchemaMigrationSQL to reject dropping existing table")
+	}
+	if _, err := BuildIcebergSchemaMigrationSQL([]DorisTableDescriptor{t1Before, t2New}, []DorisTableDescriptor{t1Before}, "acme"); err == nil {
+		t.Fatal("expected BuildIcebergSchemaMigrationSQL to reject dropping existing table")
+	}
+
+	// 4. Reject duplicate table identities in before or after:
+	if _, err := BuildDorisSchemaMigrationSQL([]DorisTableDescriptor{t1Before, t1Before}, []DorisTableDescriptor{t1Before}, "acme", 8); err == nil {
+		t.Fatal("expected BuildDorisSchemaMigrationSQL to reject duplicate table identities")
+	}
+	if _, err := BuildStarRocksSchemaMigrationSQL([]DorisTableDescriptor{t1Before}, []DorisTableDescriptor{t1Before, t1Before}, "acme", 8); err == nil {
+		t.Fatal("expected BuildStarRocksSchemaMigrationSQL to reject duplicate table identities")
+	}
+	if _, err := BuildIcebergSchemaMigrationSQL([]DorisTableDescriptor{t1Before}, []DorisTableDescriptor{t1Before, t1Before}, "acme"); err == nil {
+		t.Fatal("expected BuildIcebergSchemaMigrationSQL to reject duplicate table identities")
+	}
+}
+
 // TestProperty_DorisLinter_DeterminismAndReflexivity verifies reflexivity, determinism, and widening partial-order properties of the Doris schema evolution linter.
 func TestProperty_DorisLinter_DeterminismAndReflexivity(t *testing.T) {
 	intLadder := []string{"TINYINT", "SMALLINT", "INT", "BIGINT"}
