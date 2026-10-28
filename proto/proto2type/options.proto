@@ -38,6 +38,7 @@ message TableOptions {
   int32 file_cache_ttl_seconds = 13;
   string storage_vault_name = 14;
   string iceberg_catalog = 15;
+  int32 embedding_dimension = 16;
 }
 
 // Field-level options for proto2type.

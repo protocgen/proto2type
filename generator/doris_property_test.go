@@ -112,6 +112,10 @@ func encodeFullTableMetaWire(extNum protowire.Number, m DorisTableMetaIR, useEnu
 		b = protowire.AppendTag(b, 15, protowire.BytesType)
 		b = protowire.AppendString(b, m.IcebergCatalog)
 	}
+	if m.EmbeddingDimension != 0 {
+		b = protowire.AppendTag(b, 16, protowire.VarintType)
+		b = protowire.AppendVarint(b, uint64(int64(m.EmbeddingDimension)))
+	}
 	return buildWireExtension(extNum, b)
 }
 
@@ -178,6 +182,7 @@ func TestProperty_DorisWireOptions_RoundTrip(t *testing.T) {
 			DistributedByColumn:  hegel.Draw(ht, hegel.Text().MaxSize(16)),
 			DuplicateKeyColumns:  drawStringSlice(ht, 2),
 			FileCacheTTLSeconds:  int32(hegel.Draw(ht, hegel.Integers(-86400, 604800))),
+			EmbeddingDimension:   int32(hegel.Draw(ht, hegel.Integers(-1024, 4096))),
 		}
 		useEnumVarints := hegel.Draw(ht, hegel.Booleans())
 		wireBytes := encodeFullTableMetaWire(legacyTableMetaExtensionNumber, tm, useEnumVarints)

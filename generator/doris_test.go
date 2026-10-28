@@ -138,6 +138,7 @@ func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 			FileCacheTtlSeconds:  604800,
 			StorageVaultName:     "custom_vault",
 			IcebergCatalog:       "custom_catalog",
+			EmbeddingDimension:   1536,
 		},
 	})
 
@@ -240,7 +241,7 @@ func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 	if tMeta1.TableName != "patients" || tMeta1.DatabaseScope != "TENANT" || tMeta1.SyncTier != "WHOLE_TABLE" {
 		t.Errorf("unexpected NativeRecord table meta: %+v", tMeta1)
 	}
-	if tMeta1.DistributedByColumn != "patient_id" || tMeta1.FileCacheTTLSeconds != 604800 || len(tMeta1.DuplicateKeyColumns) != 1 || tMeta1.StorageVaultName != "custom_vault" || tMeta1.IcebergCatalog != "custom_catalog" {
+	if tMeta1.DistributedByColumn != "patient_id" || tMeta1.FileCacheTTLSeconds != 604800 || len(tMeta1.DuplicateKeyColumns) != 1 || tMeta1.StorageVaultName != "custom_vault" || tMeta1.IcebergCatalog != "custom_catalog" || tMeta1.EmbeddingDimension != 1536 {
 		t.Errorf("unexpected NativeRecord extended table meta: %+v", tMeta1)
 	}
 
@@ -1689,6 +1690,12 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},
 			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
 		},
+		{
+			name:      "Negative embedding_dimension rejected",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", EmbeddingDimension: -128},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
 	}
 
 	for _, tc := range cases {
@@ -2538,6 +2545,54 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	badUint32Vals[7] = int64(-5)
 	if _, err := ScanDefaultInferredAuditRecordProto(NewDorisValueScanner(badUint32Vals)); err == nil {
 		t.Fatal("expected ScanDefaultInferredAuditRecordProto to reject negative uint32 retry_count")
+	}
+
+	// Verify emitted Doris schema evolution linter (DORIS001..DORIS006) in generated code
+	beforeTbl := EligibilityCriterionResultDorisTable()
+	afterSafe := EligibilityCriterionResultDorisTable()
+	afterSafe.Columns = append(afterSafe.Columns, DorisColumnDescriptor{
+		ColumnName:  "new_nullable_note",
+		DorisType:   "VARCHAR(128)",
+		IcebergType: "STRING",
+		Nullable:    true,
+	})
+	if err := ValidateDorisTableEvolution(beforeTbl, afterSafe); err != nil {
+		t.Fatalf("expected safe evolution to pass ValidateDorisTableEvolution, got: %v", err)
+	}
+	if err := ValidateDorisSchemaEvolution([]DorisTableDescriptor{beforeTbl}, []DorisTableDescriptor{afterSafe}); err != nil {
+		t.Fatalf("expected safe evolution to pass ValidateDorisSchemaEvolution, got: %v", err)
+	}
+
+	afterUnsafe := EligibilityCriterionResultDorisTable()
+	afterUnsafe.UniqueKeyColumns = []string{"patient_id"} // mutated from [patient_id, criterion_id] -> DORIS001
+	afterUnsafe.SequenceCol = "other_seq"                 // mutated from publication_generation -> DORIS002
+	afterUnsafe.DistributedByColumn = "other_dist"        // mutated from patient_id -> DORIS003
+	afterUnsafe.Columns = afterUnsafe.Columns[1:]         // dropped first column -> DORIS004
+	afterUnsafe.Columns[0].DorisType = "INT"              // narrowed VARCHAR -> INT -> DORIS006
+	afterUnsafe.Columns = append(afterUnsafe.Columns, DorisColumnDescriptor{
+		ColumnName: "added_non_null_no_default",
+		DorisType:  "VARCHAR(32)",
+		Nullable:   false,
+	}) // DORIS005
+	violations := beforeTbl.LintEvolution(afterUnsafe)
+	if len(violations) != 6 {
+		t.Fatalf("expected 6 violations (DORIS001..DORIS006) from generated LintEvolution, got %d: %v", len(violations), violations)
+	}
+	wantRules := []DorisLintRule{
+		DORIS001_IMMUTABLE_KEY,
+		DORIS002_IMMUTABLE_SEQUENCE,
+		DORIS003_IMMUTABLE_DISTRIBUTION,
+		DORIS004_NO_COLUMN_DROP,
+		DORIS006_SAFE_TYPE_EVOLUTION,
+		DORIS005_NON_NULL_SCALAR_DEFAULT,
+	}
+	for i, wantRule := range wantRules {
+		if violations[i].Rule != wantRule {
+			t.Errorf("violation[%d].Rule = %s, want %s (%s)", i, violations[i].Rule, wantRule, violations[i].Error())
+		}
+	}
+	if err := ValidateDorisTableEvolution(beforeTbl, afterUnsafe); err == nil {
+		t.Fatal("expected ValidateDorisTableEvolution to return joined error for unsafe evolution")
 	}
 }
 
