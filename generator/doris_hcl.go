@@ -443,6 +443,9 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 	if len(bloomCols) > 0 {
 		fmt.Fprintf(&b, "    bloom_filter_columns = %q\n", strings.Join(bloomCols, ", "))
 	}
+	if t.SyncTier == "INTERNAL_ONLY" {
+		b.WriteString("    sync_tier = \"INTERNAL_ONLY\"\n")
+	}
 	b.WriteString("  }\n")
 	b.WriteString("}")
 	return b.String()
@@ -773,6 +776,9 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 	}
 	if len(bloomCols) > 0 {
 		fmt.Fprintf(&b, "    bloom_filter_columns = %q\n", strings.Join(bloomCols, ", "))
+	}
+	if t.SyncTier == "INTERNAL_ONLY" {
+		b.WriteString("    sync_tier = \"INTERNAL_ONLY\"\n")
 	}
 	b.WriteString("  }\n")
 	b.WriteString("}")
@@ -1469,7 +1475,24 @@ func applyDorisAtlasSubBlock(
 			return fmt.Errorf("partition_by: %w", err)
 		}
 		if specRaw, ok := kv["spec"]; ok {
-			desc.IcebergPartitionSpec = unquoteHCLString(specRaw)
+			spec := unquoteHCLString(specRaw)
+			desc.IcebergPartitionSpec = spec
+			if len(desc.PartitionByColumns) == 0 && spec != "" {
+				parts := strings.Split(spec, ",")
+				var cols []string
+				allValid := true
+				for _, p := range parts {
+					cName := strings.TrimSpace(p)
+					if !isValidSQLIdentifier(cName) {
+						allValid = false
+						break
+					}
+					cols = append(cols, cName)
+				}
+				if allValid && len(cols) > 0 {
+					desc.PartitionByColumns = dedupDorisColumnList(cols)
+				}
+			}
 		}
 		return nil
 
@@ -2151,6 +2174,9 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\tif len(bloomCols) > 0 {")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    bloom_filter_columns = %q\\n\", ", stringsJoin, "(bloomCols, \", \")))")
 	g.P("\t}")
+	g.P("\tif t.SyncTier == \"INTERNAL_ONLY\" {")
+	g.P("\t\tb.WriteString(\"    sync_tier = \\\"INTERNAL_ONLY\\\"\\n\")")
+	g.P("\t}")
 	g.P("\tb.WriteString(\"  }\\n\")")
 	g.P("\tb.WriteString(\"}\")")
 	g.P("\treturn b.String()")
@@ -2462,6 +2488,9 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t}")
 	g.P("\tif len(bloomCols) > 0 {")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    bloom_filter_columns = %q\\n\", ", stringsJoin, "(bloomCols, \", \")))")
+	g.P("\t}")
+	g.P("\tif t.SyncTier == \"INTERNAL_ONLY\" {")
+	g.P("\t\tb.WriteString(\"    sync_tier = \\\"INTERNAL_ONLY\\\"\\n\")")
 	g.P("\t}")
 	g.P("\tb.WriteString(\"  }\\n\")")
 	g.P("\tb.WriteString(\"}\")")
@@ -3124,7 +3153,24 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t\treturn ", fmtErrorf, "(\"partition_by: %w\", err)")
 	g.P("\t\t}")
 	g.P("\t\tif specRaw, ok := kv[\"spec\"]; ok {")
-	g.P("\t\t\tdesc.IcebergPartitionSpec = unquoteHCLString(specRaw)")
+	g.P("\t\t\tspec := unquoteHCLString(specRaw)")
+	g.P("\t\t\tdesc.IcebergPartitionSpec = spec")
+	g.P("\t\t\tif len(desc.PartitionByColumns) == 0 && spec != \"\" {")
+	g.P("\t\t\t\tparts := ", stringsSplit, "(spec, \",\")")
+	g.P("\t\t\t\tvar cols []string")
+	g.P("\t\t\t\tallValid := true")
+	g.P("\t\t\t\tfor _, p := range parts {")
+	g.P("\t\t\t\t\tcName := ", stringsTrimSpace, "(p)")
+	g.P("\t\t\t\t\tif !isValidDorisSQLIdentifier(cName) {")
+	g.P("\t\t\t\t\t\tallValid = false")
+	g.P("\t\t\t\t\t\tbreak")
+	g.P("\t\t\t\t\t}")
+	g.P("\t\t\t\t\tcols = append(cols, cName)")
+	g.P("\t\t\t\t}")
+	g.P("\t\t\t\tif allValid && len(cols) > 0 {")
+	g.P("\t\t\t\t\tdesc.PartitionByColumns = dedupDorisColumnList(cols)")
+	g.P("\t\t\t\t}")
+	g.P("\t\t\t}")
 	g.P("\t\t}")
 	g.P("\t\treturn nil")
 	g.P("\tcase ", stringsHasPrefix, "(header, \"index \"):")

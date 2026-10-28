@@ -13,6 +13,26 @@ class OptionalBool(str, Enum):
     false = 'false'
 
 
+class IndexDef(BaseModel):
+    """IndexDef defines a single or composite relational index on a table."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = ''
+    columns: list[str] = Field(default_factory=list)
+    unique: bool = False
+
+
+def apply_field_mask_index_def(dst: IndexDef, src: IndexDef, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "name":
+            dst.name = src.name
+        elif path == "columns":
+            dst.columns = copy.deepcopy(src.columns)
+        elif path == "unique":
+            dst.unique = src.unique
+
 class TableOptions(BaseModel):
     """TableOptions defines Apache Doris 4.x and Apache Iceberg lakehouse table
 metadata on a message. Wire-compatible with legacy table metadata extension 50201."""
@@ -34,6 +54,10 @@ metadata on a message. Wire-compatible with legacy table metadata extension 5020
     storage_vault_name: str = ''
     iceberg_catalog: str = ''
     embedding_dimension: int = 0
+    writer_service: str = Field(default='', description='Owning microservice that writes to this table (e.g. \"patient-service\"). For PostgreSQL tables without an explicit table_name override, prefixes the physical table name as \"<normalized_writer_service>__<snake_case_msg>\".')
+    reader_services: list[str] = Field(default_factory=list, description='Additional microservices permitted to read from this table (or \"*\" for shared read).')
+    primary_key_fields: list[str] = Field(default_factory=list, description='Explicit primary key column names for relational (PostgreSQL) tables.')
+    indexes: list[IndexDef] = Field(default_factory=list, description='Explicit composite or named indexes for relational (PostgreSQL) tables.')
 
 
 def apply_field_mask_table_options(dst: TableOptions, src: TableOptions, paths: list[str]) -> None:
@@ -72,6 +96,14 @@ def apply_field_mask_table_options(dst: TableOptions, src: TableOptions, paths: 
             dst.iceberg_catalog = src.iceberg_catalog
         elif path == "embedding_dimension":
             dst.embedding_dimension = src.embedding_dimension
+        elif path == "writer_service":
+            dst.writer_service = src.writer_service
+        elif path == "reader_services":
+            dst.reader_services = copy.deepcopy(src.reader_services)
+        elif path == "primary_key_fields":
+            dst.primary_key_fields = copy.deepcopy(src.primary_key_fields)
+        elif path == "indexes":
+            dst.indexes = copy.deepcopy(src.indexes)
 
 class MessageOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -88,6 +120,29 @@ def apply_field_mask_message_options(dst: MessageOptions, src: MessageOptions, p
             dst.skip = src.skip
         elif path == "table":
             dst.table = copy.deepcopy(src.table)
+
+class ForeignKey(BaseModel):
+    """ForeignKey defines a relational foreign key reference on a column."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    ref_table: str = ''
+    ref_column: str = ''
+    on_delete: str = ''
+    on_update: str = ''
+
+
+def apply_field_mask_foreign_key(dst: ForeignKey, src: ForeignKey, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "ref_table":
+            dst.ref_table = src.ref_table
+        elif path == "ref_column":
+            dst.ref_column = src.ref_column
+        elif path == "on_delete":
+            dst.on_delete = src.on_delete
+        elif path == "on_update":
+            dst.on_update = src.on_update
 
 class ComputedField(BaseModel):
     """ComputedField defines a derived field that is automatically populated
@@ -122,6 +177,15 @@ metadata on a field. Wire-compatible with legacy column metadata extension 50200
     strip_enum_prefix: bool = False
     column_name: str = ''
     default_value: str = ''
+    sql_type: str = Field(default='', description='Explicit PostgreSQL SQL type override (e.g. \"VARCHAR(64)\", \"NUMERIC(10,2)\", \"UUID\").')
+    jsonb: bool = Field(default=False, description='DEPRECATED/FORBIDDEN: JSONB column types are forbidden in relational PostgreSQL schemas.')
+    length: int = Field(default=0, description='Maximum character length for VARCHAR(N) in PostgreSQL.')
+    primary_key: bool = Field(default=False, description='Mark column as primary key in PostgreSQL.')
+    index: bool = Field(default=False, description='Create a non-unique index on this column in PostgreSQL.')
+    unique: bool = Field(default=False, description='Create a unique index on this column in PostgreSQL.')
+    nullable: OptionalBool | None = Field(default=None, description='Override column nullability in PostgreSQL.')
+    foreign_key: ForeignKey | None = Field(default=None, description='Relational foreign key reference for this column in PostgreSQL.')
+    postgres_type: str = Field(default='', description='Alias for sql_type: explicit PostgreSQL SQL type override (e.g. \"VARCHAR(64)\", \"NUMERIC(18, 4)\").')
 
 
 def apply_field_mask_column_options(dst: ColumnOptions, src: ColumnOptions, paths: list[str]) -> None:
@@ -148,6 +212,24 @@ def apply_field_mask_column_options(dst: ColumnOptions, src: ColumnOptions, path
             dst.column_name = src.column_name
         elif path == "default_value":
             dst.default_value = src.default_value
+        elif path == "sql_type":
+            dst.sql_type = src.sql_type
+        elif path == "jsonb":
+            dst.jsonb = src.jsonb
+        elif path == "length":
+            dst.length = src.length
+        elif path == "primary_key":
+            dst.primary_key = src.primary_key
+        elif path == "index":
+            dst.index = src.index
+        elif path == "unique":
+            dst.unique = src.unique
+        elif path == "nullable":
+            dst.nullable = src.nullable
+        elif path == "foreign_key":
+            dst.foreign_key = copy.deepcopy(src.foreign_key)
+        elif path == "postgres_type":
+            dst.postgres_type = src.postgres_type
 
 class FieldOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -162,6 +244,10 @@ class FieldOptions(BaseModel):
     encrypt: bool = Field(default=False, description='Field-level encryption: encrypt before storage write, decrypt after read. Only valid for string fields. Generates EncryptFields/DecryptFields methods.')
     computed: ComputedField | None = Field(default=None, description='Computed/derived field: auto-populated from a source field via a transform. Excluded from domain types. Used for Firestore search indexes.')
     column: ColumnOptions | None = Field(default=None, description='Apache Doris 4.x and Apache Iceberg lakehouse column metadata.')
+    primary_key: bool = Field(default=False, description='Mark this field as a primary key column in relational (PostgreSQL) tables.')
+    index: bool = Field(default=False, description='Create a non-unique B-tree index on this column in relational (PostgreSQL) tables.')
+    unique: bool = Field(default=False, description='Create a unique index/constraint on this column in relational (PostgreSQL) tables.')
+    foreign_key: ForeignKey | None = Field(default=None, description='Relational foreign key reference for this column.')
 
 
 def apply_field_mask_field_options(dst: FieldOptions, src: FieldOptions, paths: list[str]) -> None:
@@ -188,10 +274,20 @@ def apply_field_mask_field_options(dst: FieldOptions, src: FieldOptions, paths: 
             dst.computed = copy.deepcopy(src.computed)
         elif path == "column":
             dst.column = copy.deepcopy(src.column)
+        elif path == "primary_key":
+            dst.primary_key = src.primary_key
+        elif path == "index":
+            dst.index = src.index
+        elif path == "unique":
+            dst.unique = src.unique
+        elif path == "foreign_key":
+            dst.foreign_key = copy.deepcopy(src.foreign_key)
 
 
+IndexDef.model_rebuild()
 TableOptions.model_rebuild()
 MessageOptions.model_rebuild()
+ForeignKey.model_rebuild()
 ComputedField.model_rebuild()
 ColumnOptions.model_rebuild()
 FieldOptions.model_rebuild()
@@ -200,6 +296,8 @@ __all__ = [
     'ColumnOptions',
     'ComputedField',
     'FieldOptions',
+    'ForeignKey',
+    'IndexDef',
     'MessageOptions',
     'OptionalBool',
     'TableOptions',

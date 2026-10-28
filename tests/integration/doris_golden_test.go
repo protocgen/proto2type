@@ -170,6 +170,18 @@ func TestDorisGolden_RoundTripAndSchemaEvolution(t *testing.T) {
 		t.Fatalf("expected zero StarRocks migration statements between golden lakehouse_starrocks.hcl and LakehouseDorisTables, got (%v, %v)", stmts, err)
 	}
 
+	iceHCLBytes, err := os.ReadFile("../../testdata/golden/go/doris/lakehouse_iceberg.hcl")
+	if err != nil {
+		t.Fatalf("failed to read lakehouse_iceberg.hcl: %v", err)
+	}
+	parsedIcebergTables, err := doris.ParseDorisAtlasHCL(string(iceHCLBytes))
+	if err != nil {
+		t.Fatalf("ParseDorisAtlasHCL(lakehouse_iceberg.hcl) failed: %v", err)
+	}
+	if stmts, err := doris.BuildIcebergSchemaMigrationSQL(parsedIcebergTables, doris.LakehouseDorisTables, "acme"); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected zero Iceberg migration statements between golden lakehouse_iceberg.hcl and LakehouseDorisTables, got (%v, %v)", stmts, err)
+	}
+
 	// 6. Verify multi-table migration planner (ALTER TABLE + CREATE TABLE) across all dialects
 	evolvedTables := append([]doris.DorisTableDescriptor(nil), doris.LakehouseDorisTables...)
 	evolvedTables[0] = afterSafe

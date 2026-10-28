@@ -2,7 +2,6 @@ package generator
 
 import (
 	"fmt"
-	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -17,7 +16,7 @@ func generateRustPostgres(gen *protogen.Plugin, file *protogen.File, opts *Optio
 
 	g := gen.NewGeneratedFile(filename, "")
 
-	// Build IR for import scanning.
+	// Build IR for import scanning and type generation.
 	df, err := BuildDomainFile(file, opts)
 	if err != nil {
 		return err
@@ -41,30 +40,20 @@ func generateRustPostgres(gen *protogen.Plugin, file *protogen.File, opts *Optio
 	}
 	g.P()
 
-	// Build a lookup from FullName -> *protogen.Message for converter generation.
-	protoMsgMap := buildProtoMessageMap(file.Messages)
+	// Emit ConversionError type (PostgreSQL uses native DateTime<Utc>, so no epoch_ms helpers are needed).
+	generateRustConversionError(g, false)
 
-	// Emit ConversionError type (shared with SQLite backend).
-	generateRustConversionError(g, needsChrono)
-
-	// Generate helper functions if chrono is needed.
-	if needsChrono {
-		generateRustEpochMsHelpers(g)
-	}
+	msgByName := indexDomainMessages(df.Messages)
 
 	for _, dm := range df.Messages {
-		msg := protoMsgMap[dm.FullName]
-		if msg == nil {
-			return fmt.Errorf("proto2type: no protogen.Message found for IR message %q", dm.FullName)
-		}
-		generateRustPostgresMessage(g, dm, msg, protoMsgMap, opts)
+		generateRustPostgresMessage(g, dm, msgByName)
 	}
 
 	return nil
 }
 
 // generateRustPostgresMessage generates a PostgreSQL storage struct and conversions for a message.
-func generateRustPostgresMessage(g *protogen.GeneratedFile, dm *DomainMessage, msg *protogen.Message, protoMsgMap map[string]*protogen.Message, opts *Options) {
+func generateRustPostgresMessage(g *protogen.GeneratedFile, dm *DomainMessage, msgByName map[string]*DomainMessage) {
 	if dm.Skip {
 		return
 	}
@@ -73,32 +62,18 @@ func generateRustPostgresMessage(g *protogen.GeneratedFile, dm *DomainMessage, m
 	domainName := dm.Name
 
 	// Find document_id field name from IR
-	var docIDField *protogen.Field
+	var docIDField *DomainField
 	for _, f := range dm.Fields {
 		if f.Computed != nil {
 			continue
 		}
 		if f.DocID {
-			for _, field := range msg.Fields {
-				if isDocumentID(field) {
-					docIDField = field
-					break
-				}
-			}
+			docIDField = f
 			break
 		}
 	}
 
-	// Build a lookup from proto field name to NeedsBox flag.
-	needsBoxMap := make(map[string]bool)
-	for _, f := range dm.Fields {
-		if f.Computed != nil {
-			continue
-		}
-		needsBoxMap[f.Name] = f.NeedsBox
-	}
-
-	// Postgres struct with sqlx::FromRow derive
+	// Postgres struct with sqlx::FromRow derive (strictly relational types — no sqlx::types::Json / JSONB)
 	g.P("/// PostgreSQL storage representation of ", dm.FullName, ".")
 	g.P("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]")
 	g.P("pub struct ", pgName, " {")
@@ -108,13 +83,25 @@ func generateRustPostgresMessage(g *protogen.GeneratedFile, dm *DomainMessage, m
 			continue
 		}
 		if f.IsOneof {
-			// Oneof stored as JSONB via sqlx::types::Json
 			rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
-			g.P("    pub ", rustFieldName, ": Option<sqlx::types::Json<serde_json::Value>>,")
+			g.P("    pub ", rustFieldName, ": Option<String>,")
 			continue
 		}
 		if f.DocID {
 			continue // Document ID passed separately
+		}
+		if f.Inline && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap && !f.NeedsBox {
+			if nested := msgByName[f.MessageTypeName]; nested != nil {
+				for _, cf := range nested.Fields {
+					if cf.Computed != nil || cf.IsOneof {
+						continue
+					}
+					colName := escapeRustKeyword(toSnakeCase(f.Name) + "_" + toSnakeCase(cf.Name))
+					colType := rustPostgresFieldTypeFromIR(cf)
+					g.P("    pub ", colName, ": ", colType, ",")
+				}
+				continue
+			}
 		}
 
 		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
@@ -132,40 +119,43 @@ func generateRustPostgresMessage(g *protogen.GeneratedFile, dm *DomainMessage, m
 	// to_domain: convert Postgres struct to domain type
 	g.P("    /// Converts this row to the domain type.")
 	if docIDField != nil {
-		docIDRustName := escapeRustKeyword(toSnakeCase(string(docIDField.Desc.Name())))
+		docIDRustName := escapeRustKeyword(toSnakeCase(docIDField.Name))
 		g.P("    pub fn to_domain(&self, ", docIDRustName, ": String) -> Result<", domainName, ", ConversionError> {")
 	} else {
 		g.P("    pub fn to_domain(&self) -> Result<", domainName, ", ConversionError> {")
 	}
 	g.P("        Ok(", domainName, " {")
 
-	seenOneofs := map[string]bool{}
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
-			oneofName := string(field.Oneof.Desc.Name())
-			if !seenOneofs[oneofName] {
-				seenOneofs[oneofName] = true
-				rustFieldName := escapeRustKeyword(toSnakeCase(oneofName))
-				g.P("            ", rustFieldName, ": match &self.", rustFieldName, " { Some(json) => Some(serde_json::from_value(json.0.clone())?), None => None },")
-			}
+	for _, f := range dm.Fields {
+		if f.Computed != nil {
 			continue
 		}
-		if isFieldSkipped(field) {
+		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
+		if f.IsOneof {
+			g.P("            ", rustFieldName, ": match &self.", rustFieldName, " { Some(s) => Some(serde_json::from_str(s)?), None => None },")
 			continue
 		}
-		if getComputedField(field) != nil {
-			continue
-		}
-
-		protoName := string(field.Desc.Name())
-		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
-
-		if isDocumentID(field) {
+		if f.DocID {
 			g.P("            ", rustFieldName, ",")
 			continue
 		}
+		if f.Inline && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap && !f.NeedsBox {
+			if nested := msgByName[f.MessageTypeName]; nested != nil {
+				g.P("            ", rustFieldName, ": Some(", nested.Name, " {")
+				for _, cf := range nested.Fields {
+					if cf.Computed != nil || cf.IsOneof {
+						continue
+					}
+					childRustName := escapeRustKeyword(toSnakeCase(cf.Name))
+					colName := escapeRustKeyword(toSnakeCase(f.Name) + "_" + toSnakeCase(cf.Name))
+					g.P("                ", childRustName, ": ", rustPostgresToDomainFromIR(cf, colName), ",")
+				}
+				g.P("            }),")
+				continue
+			}
+		}
 
-		conversion := rustPostgresToDomainConversion(field, rustFieldName, opts, needsBoxMap[protoName])
+		conversion := rustPostgresToDomainFromIR(f, rustFieldName)
 		g.P("            ", rustFieldName, ": ", conversion, ",")
 	}
 
@@ -176,40 +166,43 @@ func generateRustPostgresMessage(g *protogen.GeneratedFile, dm *DomainMessage, m
 	// into_domain: consuming variant
 	g.P("    /// Converts this row into the domain type, consuming self.")
 	if docIDField != nil {
-		docIDRustName := escapeRustKeyword(toSnakeCase(string(docIDField.Desc.Name())))
+		docIDRustName := escapeRustKeyword(toSnakeCase(docIDField.Name))
 		g.P("    pub fn into_domain(self, ", docIDRustName, ": String) -> Result<", domainName, ", ConversionError> {")
 	} else {
 		g.P("    pub fn into_domain(self) -> Result<", domainName, ", ConversionError> {")
 	}
 	g.P("        Ok(", domainName, " {")
 
-	seenOneofs = map[string]bool{}
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
-			oneofName := string(field.Oneof.Desc.Name())
-			if !seenOneofs[oneofName] {
-				seenOneofs[oneofName] = true
-				rustFieldName := escapeRustKeyword(toSnakeCase(oneofName))
-				g.P("            ", rustFieldName, ": match self.", rustFieldName, " { Some(json) => Some(serde_json::from_value(json.0)?), None => None },")
-			}
+	for _, f := range dm.Fields {
+		if f.Computed != nil {
 			continue
 		}
-		if isFieldSkipped(field) {
+		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
+		if f.IsOneof {
+			g.P("            ", rustFieldName, ": match self.", rustFieldName, " { Some(s) => Some(serde_json::from_str(&s)?), None => None },")
 			continue
 		}
-		if getComputedField(field) != nil {
-			continue
-		}
-
-		protoName := string(field.Desc.Name())
-		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
-
-		if isDocumentID(field) {
+		if f.DocID {
 			g.P("            ", rustFieldName, ",")
 			continue
 		}
+		if f.Inline && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap && !f.NeedsBox {
+			if nested := msgByName[f.MessageTypeName]; nested != nil {
+				g.P("            ", rustFieldName, ": Some(", nested.Name, " {")
+				for _, cf := range nested.Fields {
+					if cf.Computed != nil || cf.IsOneof {
+						continue
+					}
+					childRustName := escapeRustKeyword(toSnakeCase(cf.Name))
+					colName := escapeRustKeyword(toSnakeCase(f.Name) + "_" + toSnakeCase(cf.Name))
+					g.P("                ", childRustName, ": ", rustPostgresIntoDomainFromIR(cf, colName), ",")
+				}
+				g.P("            }),")
+				continue
+			}
+		}
 
-		conversion := rustPostgresIntoDomainConversion(field, rustFieldName, opts, needsBoxMap[protoName])
+		conversion := rustPostgresIntoDomainFromIR(f, rustFieldName)
 		g.P("            ", rustFieldName, ": ", conversion, ",")
 	}
 
@@ -222,31 +215,33 @@ func generateRustPostgresMessage(g *protogen.GeneratedFile, dm *DomainMessage, m
 	g.P("    pub fn from_domain(d: &", domainName, ") -> Result<Self, ConversionError> {")
 	g.P("        Ok(Self {")
 
-	seenOneofs = map[string]bool{}
-	for _, field := range msg.Fields {
-		if field.Oneof != nil && !field.Oneof.Desc.IsSynthetic() {
-			oneofName := string(field.Oneof.Desc.Name())
-			if !seenOneofs[oneofName] {
-				seenOneofs[oneofName] = true
-				rustFieldName := escapeRustKeyword(toSnakeCase(oneofName))
-				g.P("            ", rustFieldName, ": match &d.", rustFieldName, " { Some(v) => Some(sqlx::types::Json(serde_json::to_value(v)?)), None => None },")
+	for _, f := range dm.Fields {
+		if f.Computed != nil {
+			continue
+		}
+		if f.DocID {
+			continue
+		}
+		rustFieldName := escapeRustKeyword(toSnakeCase(f.Name))
+		if f.IsOneof {
+			g.P("            ", rustFieldName, ": match &d.", rustFieldName, " { Some(v) => Some(serde_json::to_string(v)?), None => None },")
+			continue
+		}
+		if f.Inline && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap && !f.NeedsBox {
+			if nested := msgByName[f.MessageTypeName]; nested != nil {
+				for _, cf := range nested.Fields {
+					if cf.Computed != nil || cf.IsOneof {
+						continue
+					}
+					childRustName := escapeRustKeyword(toSnakeCase(cf.Name))
+					colName := escapeRustKeyword(toSnakeCase(f.Name) + "_" + toSnakeCase(cf.Name))
+					g.P("            ", colName, ": match &d.", rustFieldName, " { Some(v) => ", rustPostgresFromDomainFromIR(cf, "v."+childRustName), ", None => Default::default() },")
+				}
+				continue
 			}
-			continue
-		}
-		if isFieldSkipped(field) {
-			continue
-		}
-		if getComputedField(field) != nil {
-			continue
-		}
-		if isDocumentID(field) {
-			continue
 		}
 
-		protoName := string(field.Desc.Name())
-		rustFieldName := escapeRustKeyword(toSnakeCase(protoName))
-
-		conversion := rustPostgresFromDomainConversion(field, rustFieldName, opts, needsBoxMap[protoName])
+		conversion := rustPostgresFromDomainFromIR(f, "d."+rustFieldName)
 		g.P("            ", rustFieldName, ": ", conversion, ",")
 	}
 
@@ -277,35 +272,35 @@ func generateRustPostgresMessage(g *protogen.GeneratedFile, dm *DomainMessage, m
 
 	// Nested messages
 	for _, nested := range dm.NestedMessages {
-		nestedMsg := protoMsgMap[nested.FullName]
-		if nestedMsg == nil {
-			continue
-		}
-		generateRustPostgresMessage(g, nested, nestedMsg, protoMsgMap, opts)
+		generateRustPostgresMessage(g, nested, msgByName)
 	}
 }
 
-// rustPostgresFieldTypeFromIR returns the Postgres-appropriate Rust type for a field using the IR.
+// rustPostgresFieldTypeFromIR returns the strict relational PostgreSQL Rust type for a field using the IR.
+// Repeated 1D scalars, enums, timestamps, durations, and FieldMask map to native PostgreSQL arrays (Vec<T>);
+// complex non-relational shapes (maps, non-inlined nested messages, dynamic WKTs) map to TEXT (String / Option<String>),
+// never JSONB / sqlx::types::Json.
 func rustPostgresFieldTypeFromIR(f *DomainField) string {
-	// Repeated fields -> sqlx::types::Json<Vec<T>>
 	if f.Repeated {
-		inner := rustPostgresScalarOrMessageType(f)
-		return "sqlx::types::Json<Vec<" + inner + ">>"
+		switch f.Kind {
+		case FieldKindScalar:
+			return "Vec<" + rustSqliteScalarType(f.ScalarKind) + ">"
+		case FieldKindEnum:
+			if f.EnumAsString {
+				return "Vec<String>"
+			}
+			return "Vec<i32>"
+		case FieldKindTimestamp:
+			return "Vec<DateTime<Utc>>"
+		case FieldKindDuration:
+			return "Vec<i64>"
+		default:
+			return "Option<String>"
+		}
 	}
 
-	// Map fields -> sqlx::types::Json<HashMap<K,V>>
 	if f.IsMap {
-		keyType := rustPostgresMapKeyType(f)
-		valType := "serde_json::Value" // generic JSON for complex map values
-		if f.MapValue != nil {
-			switch f.MapValue.Kind {
-			case FieldKindScalar:
-				valType = rustSqliteScalarType(f.MapValue.ScalarKind)
-			case FieldKindEnum:
-				valType = f.MapValue.EnumTypeName
-			}
-		}
-		return "sqlx::types::Json<std::collections::HashMap<" + keyType + ", " + valType + ">>"
+		return "Option<String>"
 	}
 
 	switch f.Kind {
@@ -319,21 +314,23 @@ func rustPostgresFieldTypeFromIR(f *DomainField) string {
 			return "Option<i64>"
 		}
 		return "i64"
+	case FieldKindFieldMask:
+		return "Vec<String>"
 	case FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindAny, FieldKindEmpty:
-		return "sqlx::types::Json<serde_json::Value>"
+		return "String"
 	case FieldKindMessage:
-		typeName := f.MessageTypeName + "Postgres"
-		if f.NeedsBox {
-			return "Option<Box<" + typeName + ">>"
-		}
-		return "Option<sqlx::types::Json<" + typeName + ">>"
+		return "Option<String>"
 	case FieldKindEnum:
+		if f.EnumAsString {
+			if f.Optional {
+				return "Option<String>"
+			}
+			return "String"
+		}
 		if f.Optional {
 			return "Option<i32>"
 		}
 		return "i32"
-	case FieldKindFieldMask:
-		return "Vec<String>"
 	}
 
 	// Wrapper types -> Option<T>
@@ -348,146 +345,223 @@ func rustPostgresFieldTypeFromIR(f *DomainField) string {
 	return rustSqliteScalarType(f.ScalarKind)
 }
 
-// rustPostgresScalarOrMessageType returns the inner type for Vec/repeated fields.
-func rustPostgresScalarOrMessageType(f *DomainField) string {
+// rustPostgresToDomainFromIR generates the expression to convert a Postgres field (&self.<rustFieldName>) to domain.
+func rustPostgresToDomainFromIR(f *DomainField, rustFieldName string) string {
+	if f.Repeated {
+		switch f.Kind {
+		case FieldKindScalar:
+			switch f.ScalarKind {
+			case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+				return fmt.Sprintf("self.%s.iter().map(|&v| v as u32).collect()", rustFieldName)
+			case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+				return fmt.Sprintf("self.%s.iter().map(|&v| u64::try_from(v).map_err(|_| ConversionError::Overflow)).collect::<Result<Vec<_>, _>>()?", rustFieldName)
+			default:
+				return fmt.Sprintf("self.%s.clone()", rustFieldName)
+			}
+		case FieldKindEnum:
+			if f.EnumAsString {
+				return fmt.Sprintf("self.%s.clone()", rustFieldName)
+			}
+			return fmt.Sprintf("self.%s.iter().map(|&v| %s::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).collect::<Result<Vec<_>, _>>()?", rustFieldName, f.EnumTypeName)
+		case FieldKindTimestamp, FieldKindDuration:
+			return fmt.Sprintf("self.%s.clone()", rustFieldName)
+		default:
+			return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", rustFieldName)
+		}
+	}
+
+	if f.IsMap {
+		return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"{}\"))?", rustFieldName)
+	}
+
 	switch f.Kind {
+	case FieldKindTimestamp, FieldKindDuration:
+		return fmt.Sprintf("self.%s", rustFieldName)
+	case FieldKindFieldMask:
+		return fmt.Sprintf("self.%s.clone()", rustFieldName)
+	case FieldKindEmpty:
+		return "()"
+	case FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindAny:
+		return fmt.Sprintf("serde_json::from_str(&self.%s)?", rustFieldName)
 	case FieldKindMessage:
-		return f.MessageTypeName
+		if f.NeedsBox {
+			return fmt.Sprintf("match &self.%s { Some(s) => Some(Box::new(serde_json::from_str(s)?)), None => None }", rustFieldName)
+		}
+		return fmt.Sprintf("match &self.%s { Some(s) => Some(serde_json::from_str(s)?), None => None }", rustFieldName)
 	case FieldKindEnum:
-		return f.EnumTypeName
-	case FieldKindTimestamp:
-		return "DateTime<Utc>"
+		if f.EnumAsString {
+			return fmt.Sprintf("self.%s.clone()", rustFieldName)
+		}
+		if f.Optional {
+			return fmt.Sprintf("self.%s.map(|v| %s::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?", rustFieldName, f.EnumTypeName)
+		}
+		return fmt.Sprintf("%s::from_i32(self.%s).ok_or(ConversionError::InvalidEnumValue(self.%s))?", f.EnumTypeName, rustFieldName, rustFieldName)
+	}
+
+	if f.Kind.IsWrapper() {
+		return fmt.Sprintf("self.%s.clone()", rustFieldName)
+	}
+
+	switch f.ScalarKind {
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		if f.Optional {
+			return fmt.Sprintf("self.%s.map(|v| v as u32)", rustFieldName)
+		}
+		return fmt.Sprintf("self.%s as u32", rustFieldName)
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		if f.Optional {
+			return fmt.Sprintf("self.%s.map(|v| u64::try_from(v).map_err(|_| ConversionError::Overflow)).transpose()?", rustFieldName)
+		}
+		return fmt.Sprintf("u64::try_from(self.%s).map_err(|_| ConversionError::Overflow)?", rustFieldName)
+	case protoreflect.StringKind, protoreflect.BytesKind:
+		return fmt.Sprintf("self.%s.clone()", rustFieldName)
 	default:
-		return rustSqliteScalarType(f.ScalarKind)
+		return fmt.Sprintf("self.%s", rustFieldName)
 	}
 }
 
-// rustPostgresMapKeyType returns the Rust type for a map key field.
-func rustPostgresMapKeyType(f *DomainField) string {
-	if f.MapKey == nil {
-		return "String"
-	}
-	return rustSqliteScalarType(f.MapKey.ScalarKind)
-}
-
-// rustPostgresToDomainConversion generates the expression to convert a Postgres field to domain.
-func rustPostgresToDomainConversion(field *protogen.Field, rustFieldName string, opts *Options, needsBox bool) string {
-	// Repeated fields: unwrap Json wrapper
-	if field.Desc.IsList() {
-		return "self." + rustFieldName + ".0.clone()"
-	}
-	// Map fields: unwrap Json wrapper
-	if field.Desc.IsMap() {
-		return "self." + rustFieldName + ".0.clone()"
-	}
-	// Timestamps: DateTime<Utc> maps directly to domain
-	if isWellKnownTimestamp(field) {
-		if field.Desc.HasOptionalKeyword() {
-			return "self." + rustFieldName + ".clone()"
-		}
-		return "self." + rustFieldName + ".clone()"
-	}
-	// Duration: i64 microseconds -> domain duration
-	if isWellKnownDuration(field) {
-		return "self." + rustFieldName
-	}
-	// WKT JSON types
-	if isWellKnownStruct(field) || isWellKnownValue(field) || isWellKnownListValue(field) || isWellKnownFieldMask(field) || isWellKnownEmpty(field) || isWellKnownAny(field) {
-		return "serde_json::from_value(self." + rustFieldName + ".0.clone())?"
-	}
-	// Wrapper types
-	if isWellKnownWrapper(field) {
-		return "self." + rustFieldName + ".clone()"
-	}
-	// Nested messages: unwrap Json wrapper
-	if field.Desc.Kind() == protoreflect.MessageKind {
-		if needsBox {
-			return "self." + rustFieldName + ".as_ref().map(|b| *b.clone())"
-		}
-		return "self." + rustFieldName + ".as_ref().map(|j| j.0.clone())"
-	}
-	// Enums
-	if field.Desc.Kind() == protoreflect.EnumKind {
-		enumName := rustEnumTypeName(field)
-		if isEnumAsString(field, opts) {
-			if field.Desc.HasOptionalKeyword() {
-				return "self." + rustFieldName + ".as_ref().map(|s| s.parse()).transpose().map_err(|_| ConversionError::InvalidEnumValue(0))?"
+// rustPostgresIntoDomainFromIR generates the consuming conversion expression (self.<rustFieldName> -> domain).
+func rustPostgresIntoDomainFromIR(f *DomainField, rustFieldName string) string {
+	if f.Repeated {
+		switch f.Kind {
+		case FieldKindScalar:
+			switch f.ScalarKind {
+			case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+				return fmt.Sprintf("self.%s.into_iter().map(|v| v as u32).collect()", rustFieldName)
+			case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+				return fmt.Sprintf("self.%s.into_iter().map(|v| u64::try_from(v).map_err(|_| ConversionError::Overflow)).collect::<Result<Vec<_>, _>>()?", rustFieldName)
+			default:
+				return fmt.Sprintf("self.%s", rustFieldName)
 			}
-			return "self." + rustFieldName + `.parse().map_err(|_| ConversionError::InvalidEnumValue(0))?`
-		}
-		if field.Desc.HasOptionalKeyword() {
-			return "self." + rustFieldName + ".map(|v| " + enumName + "::try_from(v)).transpose()?"
-		}
-		return enumName + "::try_from(self." + rustFieldName + ")?"
-	}
-	// Scalars
-	return "self." + rustFieldName + ".clone()"
-}
-
-// rustPostgresIntoDomainConversion generates the consuming conversion expression.
-func rustPostgresIntoDomainConversion(field *protogen.Field, rustFieldName string, opts *Options, needsBox bool) string {
-	// For consuming conversion, replace self. references and remove .clone() where possible
-	conv := rustPostgresToDomainConversion(field, rustFieldName, opts, needsBox)
-	// Replace &self. with self. for consuming variant
-	conv = strings.ReplaceAll(conv, "&self.", "self.")
-	// Remove .clone() for owned values
-	conv = strings.ReplaceAll(conv, ".clone()", "")
-	// Fix .as_ref() to work on owned values
-	if field.Desc.Kind() == protoreflect.MessageKind && !field.Desc.IsList() && !field.Desc.IsMap() {
-		if needsBox {
-			return "self." + rustFieldName + ".map(|b| *b)"
-		}
-		return "self." + rustFieldName + ".map(|j| j.0)"
-	}
-	return conv
-}
-
-// rustPostgresFromDomainConversion generates the expression to convert from domain to Postgres.
-func rustPostgresFromDomainConversion(field *protogen.Field, rustFieldName string, opts *Options, needsBox bool) string {
-	// Repeated fields: wrap in Json
-	if field.Desc.IsList() {
-		return "sqlx::types::Json(d." + rustFieldName + ".clone())"
-	}
-	// Map fields: wrap in Json
-	if field.Desc.IsMap() {
-		return "sqlx::types::Json(d." + rustFieldName + ".clone())"
-	}
-	// Timestamps
-	if isWellKnownTimestamp(field) {
-		return "d." + rustFieldName + ".clone()"
-	}
-	// Duration
-	if isWellKnownDuration(field) {
-		return "d." + rustFieldName
-	}
-	// WKT JSON types
-	if isWellKnownStruct(field) || isWellKnownValue(field) || isWellKnownListValue(field) || isWellKnownFieldMask(field) || isWellKnownEmpty(field) || isWellKnownAny(field) {
-		return "sqlx::types::Json(serde_json::to_value(&d." + rustFieldName + ")?)"
-	}
-	// Wrapper types
-	if isWellKnownWrapper(field) {
-		return "d." + rustFieldName + ".clone()"
-	}
-	// Nested messages: wrap in Json
-	if field.Desc.Kind() == protoreflect.MessageKind {
-		if needsBox {
-			return "d." + rustFieldName + ".as_ref().map(|v| Box::new((**v).clone()))"
-		}
-		return "d." + rustFieldName + ".as_ref().map(|v| sqlx::types::Json(v.clone()))"
-	}
-	// Enums
-	if field.Desc.Kind() == protoreflect.EnumKind {
-		if isEnumAsString(field, opts) {
-			if field.Desc.HasOptionalKeyword() {
-				return "d." + rustFieldName + ".as_ref().map(|e| e.to_string())"
+		case FieldKindEnum:
+			if f.EnumAsString {
+				return fmt.Sprintf("self.%s", rustFieldName)
 			}
-			return "d." + rustFieldName + ".to_string()"
+			return fmt.Sprintf("self.%s.into_iter().map(|v| %s::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).collect::<Result<Vec<_>, _>>()?", rustFieldName, f.EnumTypeName)
+		case FieldKindTimestamp, FieldKindDuration:
+			return fmt.Sprintf("self.%s", rustFieldName)
+		default:
+			return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"[]\"))?", rustFieldName)
 		}
-		if field.Desc.HasOptionalKeyword() {
-			return "d." + rustFieldName + ".map(|e| e as i32)"
-		}
-		return "d." + rustFieldName + " as i32"
 	}
-	// Scalars
-	return "d." + rustFieldName + ".clone()"
+
+	if f.IsMap {
+		return fmt.Sprintf("serde_json::from_str(&self.%s.as_deref().unwrap_or(\"{}\"))?", rustFieldName)
+	}
+
+	switch f.Kind {
+	case FieldKindTimestamp, FieldKindDuration, FieldKindFieldMask:
+		return fmt.Sprintf("self.%s", rustFieldName)
+	case FieldKindEmpty:
+		return "()"
+	case FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindAny:
+		return fmt.Sprintf("serde_json::from_str(&self.%s)?", rustFieldName)
+	case FieldKindMessage:
+		if f.NeedsBox {
+			return fmt.Sprintf("match self.%s { Some(s) => Some(Box::new(serde_json::from_str(&s)?)), None => None }", rustFieldName)
+		}
+		return fmt.Sprintf("match self.%s { Some(s) => Some(serde_json::from_str(&s)?), None => None }", rustFieldName)
+	case FieldKindEnum:
+		if f.EnumAsString {
+			return fmt.Sprintf("self.%s", rustFieldName)
+		}
+		if f.Optional {
+			return fmt.Sprintf("self.%s.map(|v| %s::from_i32(v).ok_or(ConversionError::InvalidEnumValue(v))).transpose()?", rustFieldName, f.EnumTypeName)
+		}
+		return fmt.Sprintf("%s::from_i32(self.%s).ok_or(ConversionError::InvalidEnumValue(self.%s))?", f.EnumTypeName, rustFieldName, rustFieldName)
+	}
+
+	if f.Kind.IsWrapper() {
+		return fmt.Sprintf("self.%s", rustFieldName)
+	}
+
+	switch f.ScalarKind {
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		if f.Optional {
+			return fmt.Sprintf("self.%s.map(|v| v as u32)", rustFieldName)
+		}
+		return fmt.Sprintf("self.%s as u32", rustFieldName)
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		if f.Optional {
+			return fmt.Sprintf("self.%s.map(|v| u64::try_from(v).map_err(|_| ConversionError::Overflow)).transpose()?", rustFieldName)
+		}
+		return fmt.Sprintf("u64::try_from(self.%s).map_err(|_| ConversionError::Overflow)?", rustFieldName)
+	default:
+		return fmt.Sprintf("self.%s", rustFieldName)
+	}
+}
+
+// rustPostgresFromDomainFromIR generates the expression to convert from a domain field expression (e.g. "d.field") to Postgres.
+func rustPostgresFromDomainFromIR(f *DomainField, expr string) string {
+	if f.Repeated {
+		switch f.Kind {
+		case FieldKindScalar:
+			switch f.ScalarKind {
+			case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+				return fmt.Sprintf("%s.iter().map(|&v| v as i64).collect()", expr)
+			case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+				return fmt.Sprintf("%s.iter().map(|&v| i64::try_from(v).map_err(|_| ConversionError::Overflow)).collect::<Result<Vec<_>, _>>()?", expr)
+			default:
+				return fmt.Sprintf("%s.clone()", expr)
+			}
+		case FieldKindEnum:
+			if f.EnumAsString {
+				return fmt.Sprintf("%s.clone()", expr)
+			}
+			return fmt.Sprintf("%s.iter().map(|&e| e as i32).collect()", expr)
+		case FieldKindTimestamp, FieldKindDuration:
+			return fmt.Sprintf("%s.clone()", expr)
+		default:
+			return fmt.Sprintf("Some(serde_json::to_string(&%s)?)", expr)
+		}
+	}
+
+	if f.IsMap {
+		return fmt.Sprintf("Some(serde_json::to_string(&%s)?)", expr)
+	}
+
+	switch f.Kind {
+	case FieldKindTimestamp, FieldKindDuration:
+		return expr
+	case FieldKindFieldMask:
+		return fmt.Sprintf("%s.clone()", expr)
+	case FieldKindEmpty:
+		return `"()".to_string()`
+	case FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindAny:
+		return fmt.Sprintf("serde_json::to_string(&%s)?", expr)
+	case FieldKindMessage:
+		if f.NeedsBox {
+			return fmt.Sprintf("match &%s { Some(v) => Some(serde_json::to_string(v.as_ref())?), None => None }", expr)
+		}
+		return fmt.Sprintf("match &%s { Some(v) => Some(serde_json::to_string(v)?), None => None }", expr)
+	case FieldKindEnum:
+		if f.EnumAsString {
+			return fmt.Sprintf("%s.clone()", expr)
+		}
+		if f.Optional {
+			return fmt.Sprintf("%s.map(|e| e as i32)", expr)
+		}
+		return fmt.Sprintf("%s as i32", expr)
+	}
+
+	if f.Kind.IsWrapper() {
+		return fmt.Sprintf("%s.clone()", expr)
+	}
+
+	switch f.ScalarKind {
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		if f.Optional {
+			return fmt.Sprintf("%s.map(|v| v as i64)", expr)
+		}
+		return fmt.Sprintf("%s as i64", expr)
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		if f.Optional {
+			return fmt.Sprintf("%s.map(|v| i64::try_from(v).map_err(|_| ConversionError::Overflow)).transpose()?", expr)
+		}
+		return fmt.Sprintf("i64::try_from(%s).map_err(|_| ConversionError::Overflow)?", expr)
+	case protoreflect.StringKind, protoreflect.BytesKind:
+		return fmt.Sprintf("%s.clone()", expr)
+	default:
+		return expr
+	}
 }

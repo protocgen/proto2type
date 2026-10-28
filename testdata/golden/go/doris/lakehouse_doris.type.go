@@ -2106,6 +2106,9 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 	if len(bloomCols) > 0 {
 		b.WriteString(fmt.Sprintf("    bloom_filter_columns = %q\n", strings.Join(bloomCols, ", ")))
 	}
+	if t.SyncTier == "INTERNAL_ONLY" {
+		b.WriteString("    sync_tier = \"INTERNAL_ONLY\"\n")
+	}
 	b.WriteString("  }\n")
 	b.WriteString("}")
 	return b.String()
@@ -2416,6 +2419,9 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 	}
 	if len(bloomCols) > 0 {
 		b.WriteString(fmt.Sprintf("    bloom_filter_columns = %q\n", strings.Join(bloomCols, ", ")))
+	}
+	if t.SyncTier == "INTERNAL_ONLY" {
+		b.WriteString("    sync_tier = \"INTERNAL_ONLY\"\n")
 	}
 	b.WriteString("  }\n")
 	b.WriteString("}")
@@ -3066,7 +3072,24 @@ func applyDorisAtlasSubBlock(desc *DorisTableDescriptor, blockHeader, blockBody 
 			return fmt.Errorf("partition_by: %w", err)
 		}
 		if specRaw, ok := kv["spec"]; ok {
-			desc.IcebergPartitionSpec = unquoteHCLString(specRaw)
+			spec := unquoteHCLString(specRaw)
+			desc.IcebergPartitionSpec = spec
+			if len(desc.PartitionByColumns) == 0 && spec != "" {
+				parts := strings.Split(spec, ",")
+				var cols []string
+				allValid := true
+				for _, p := range parts {
+					cName := strings.TrimSpace(p)
+					if !isValidDorisSQLIdentifier(cName) {
+						allValid = false
+						break
+					}
+					cols = append(cols, cName)
+				}
+				if allValid && len(cols) > 0 {
+					desc.PartitionByColumns = dedupDorisColumnList(cols)
+				}
+			}
 		}
 		return nil
 	case strings.HasPrefix(header, "index "):
@@ -3271,62 +3294,65 @@ func LintDorisTableEvolution(before, after DorisTableDescriptor) []DorisEvolutio
 		tableName = strings.TrimSpace(before.TableName)
 	}
 	var violations []DorisEvolutionViolation
-	beforeUKs := effectiveDorisUniqueKeys(before)
-	afterUKs := effectiveDorisUniqueKeys(after)
-	if !dorisStringSlicesEqual(beforeUKs, afterUKs) {
-		violations = append(violations, DorisEvolutionViolation{
-			Rule:      DORIS001_IMMUTABLE_KEY,
-			TableName: tableName,
-			Message:   fmt.Sprintf("UNIQUE KEY columns cannot be mutated on existing table (before=%v, after=%v)", beforeUKs, afterUKs),
-		})
-	}
-	beforeDKs := effectiveDorisDuplicateKeys(before)
-	afterDKs := effectiveDorisDuplicateKeys(after)
-	if !dorisStringSlicesEqual(beforeDKs, afterDKs) {
-		violations = append(violations, DorisEvolutionViolation{
-			Rule:      DORIS001_IMMUTABLE_KEY,
-			TableName: tableName,
-			Message:   fmt.Sprintf("DUPLICATE KEY columns cannot be mutated on existing table (before=%v, after=%v)", beforeDKs, afterDKs),
-		})
-	}
-	beforeSeq := effectiveDorisSequenceCol(before)
-	afterSeq := effectiveDorisSequenceCol(after)
-	if beforeSeq != afterSeq {
-		seqCol := afterSeq
-		if seqCol == "" {
-			seqCol = beforeSeq
+	pureIceberg := isPureIcebergDescriptor(before) || isPureIcebergDescriptor(after)
+	if !pureIceberg {
+		beforeUKs := effectiveDorisUniqueKeys(before)
+		afterUKs := effectiveDorisUniqueKeys(after)
+		if !dorisStringSlicesEqual(beforeUKs, afterUKs) {
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:      DORIS001_IMMUTABLE_KEY,
+				TableName: tableName,
+				Message:   fmt.Sprintf("UNIQUE KEY columns cannot be mutated on existing table (before=%v, after=%v)", beforeUKs, afterUKs),
+			})
 		}
-		violations = append(violations, DorisEvolutionViolation{
-			Rule:       DORIS002_IMMUTABLE_SEQUENCE,
-			TableName:  tableName,
-			ColumnName: seqCol,
-			Message:    fmt.Sprintf("sequence_col cannot be mutated on existing table (before=%q, after=%q)", beforeSeq, afterSeq),
-		})
-	}
-	beforeDist := effectiveDorisDistributionCols(before)
-	afterDist := effectiveDorisDistributionCols(after)
-	if !dorisStringSlicesEqual(beforeDist, afterDist) {
-		beforeDistStr := strings.Join(beforeDist, ", ")
-		afterDistStr := strings.Join(afterDist, ", ")
-		distCol := afterDistStr
-		if distCol == "" {
-			distCol = beforeDistStr
+		beforeDKs := effectiveDorisDuplicateKeys(before)
+		afterDKs := effectiveDorisDuplicateKeys(after)
+		if !dorisStringSlicesEqual(beforeDKs, afterDKs) {
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:      DORIS001_IMMUTABLE_KEY,
+				TableName: tableName,
+				Message:   fmt.Sprintf("DUPLICATE KEY columns cannot be mutated on existing table (before=%v, after=%v)", beforeDKs, afterDKs),
+			})
 		}
-		violations = append(violations, DorisEvolutionViolation{
-			Rule:       DORIS003_IMMUTABLE_DISTRIBUTION,
-			TableName:  tableName,
-			ColumnName: distCol,
-			Message:    fmt.Sprintf("distributed_by_column cannot be mutated on existing table (before=%q, after=%q)", beforeDistStr, afterDistStr),
-		})
-	}
-	beforeColocate := strings.TrimSpace(before.ColocateGroup)
-	afterColocate := strings.TrimSpace(after.ColocateGroup)
-	if beforeColocate != afterColocate {
-		violations = append(violations, DorisEvolutionViolation{
-			Rule:      DORIS003_IMMUTABLE_DISTRIBUTION,
-			TableName: tableName,
-			Message:   fmt.Sprintf("colocate_with group cannot be mutated on existing table (before=%q, after=%q)", beforeColocate, afterColocate),
-		})
+		beforeSeq := effectiveDorisSequenceCol(before)
+		afterSeq := effectiveDorisSequenceCol(after)
+		if beforeSeq != afterSeq {
+			seqCol := afterSeq
+			if seqCol == "" {
+				seqCol = beforeSeq
+			}
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:       DORIS002_IMMUTABLE_SEQUENCE,
+				TableName:  tableName,
+				ColumnName: seqCol,
+				Message:    fmt.Sprintf("sequence_col cannot be mutated on existing table (before=%q, after=%q)", beforeSeq, afterSeq),
+			})
+		}
+		beforeDist := effectiveDorisDistributionCols(before)
+		afterDist := effectiveDorisDistributionCols(after)
+		if !dorisStringSlicesEqual(beforeDist, afterDist) {
+			beforeDistStr := strings.Join(beforeDist, ", ")
+			afterDistStr := strings.Join(afterDist, ", ")
+			distCol := afterDistStr
+			if distCol == "" {
+				distCol = beforeDistStr
+			}
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:       DORIS003_IMMUTABLE_DISTRIBUTION,
+				TableName:  tableName,
+				ColumnName: distCol,
+				Message:    fmt.Sprintf("distributed_by_column cannot be mutated on existing table (before=%q, after=%q)", beforeDistStr, afterDistStr),
+			})
+		}
+		beforeColocate := strings.TrimSpace(before.ColocateGroup)
+		afterColocate := strings.TrimSpace(after.ColocateGroup)
+		if beforeColocate != afterColocate {
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:      DORIS003_IMMUTABLE_DISTRIBUTION,
+				TableName: tableName,
+				Message:   fmt.Sprintf("colocate_with group cannot be mutated on existing table (before=%q, after=%q)", beforeColocate, afterColocate),
+			})
+		}
 	}
 	beforeColByName := make(map[string]DorisColumnDescriptor, len(before.Columns))
 	for _, c := range before.Columns {
@@ -3360,6 +3386,19 @@ func LintDorisTableEvolution(before, after DorisTableDescriptor) []DorisEvolutio
 		}
 	}
 	for _, ac := range after.Columns {
+		if isDorisForbiddenJSONType(ac.DorisType) || isDorisForbiddenJSONType(ac.IcebergType) {
+			badType := strings.TrimSpace(ac.DorisType)
+			if !isDorisForbiddenJSONType(badType) {
+				badType = strings.TrimSpace(ac.IcebergType)
+			}
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:       DORIS006_SAFE_TYPE_EVOLUTION,
+				TableName:  tableName,
+				ColumnName: ac.ColumnName,
+				Message:    fmt.Sprintf("JSON/JSONB/VARIANT column type %q on column %q is forbidden in relational Doris/StarRocks/Iceberg schemas", badType, ac.ColumnName),
+			})
+			continue
+		}
 		bc, existed := beforeColByName[ac.ColumnName]
 		if !existed {
 			continue
@@ -3491,6 +3530,22 @@ func LintDorisSchemaEvolution(before, after []DorisTableDescriptor) []DorisEvolu
 		seen[key] = true
 		if beforeTbl, _, ok := matchBeforeDorisTable(afterTbl, beforeByKey, beforeByScope, beforeScopeCount, afterScopeCount); ok {
 			violations = append(violations, LintDorisTableEvolution(beforeTbl, afterTbl)...)
+			continue
+		}
+		tblName := strings.TrimSpace(afterTbl.TableName)
+		for _, ac := range afterTbl.Columns {
+			if isDorisForbiddenJSONType(ac.DorisType) || isDorisForbiddenJSONType(ac.IcebergType) {
+				badType := strings.TrimSpace(ac.DorisType)
+				if !isDorisForbiddenJSONType(badType) {
+					badType = strings.TrimSpace(ac.IcebergType)
+				}
+				violations = append(violations, DorisEvolutionViolation{
+					Rule:       DORIS006_SAFE_TYPE_EVOLUTION,
+					TableName:  tblName,
+					ColumnName: ac.ColumnName,
+					Message:    fmt.Sprintf("JSON/JSONB/VARIANT column type %q on column %q is forbidden in relational Doris/StarRocks/Iceberg schemas", badType, ac.ColumnName),
+				})
+			}
 		}
 	}
 	return violations
@@ -3696,7 +3751,9 @@ func BuildIcebergAlterTableSQL(before, after DorisTableDescriptor, tenantSlug st
 	}
 	beforeParts := effectiveDorisPartitionCols(before)
 	afterParts := effectiveDorisPartitionCols(after)
-	if !dorisStringSlicesEqual(beforeParts, afterParts) || strings.TrimSpace(before.IcebergPartitionSpec) != strings.TrimSpace(after.IcebergPartitionSpec) {
+	beforeSpec := effectiveIcebergPartitionSpec(before)
+	afterSpec := effectiveIcebergPartitionSpec(after)
+	if !dorisStringSlicesEqual(beforeParts, afterParts) || beforeSpec != afterSpec {
 		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing Iceberg table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
 	}
 	fullTableName := icebergQualifiedTableName(after, slug)
@@ -3989,6 +4046,35 @@ func hasIcebergTargetTable(t DorisTableDescriptor) bool {
 	return t.SyncTier != "INTERNAL_ONLY"
 }
 
+func isPureIcebergDescriptor(t DorisTableDescriptor) bool {
+	if strings.EqualFold(strings.TrimSpace(t.SyncTier), "ICEBERG_ONLY") {
+		return true
+	}
+	if len(t.UniqueKeyColumns) > 0 || len(t.DuplicateKeyColumns) > 0 || len(t.DistributionColumns) > 0 || strings.TrimSpace(t.DistributedByColumn) != "" {
+		return false
+	}
+	if strings.TrimSpace(t.IcebergCatalog) != "" {
+		return len(t.Columns) > 0
+	}
+	for _, c := range t.Columns {
+		if strings.TrimSpace(c.DorisType) != "" || c.IsUniqueKey || c.IsSequenceCol {
+			return false
+		}
+	}
+	return len(t.Columns) > 0
+}
+
+func effectiveIcebergPartitionSpec(t DorisTableDescriptor) string {
+	if spec := strings.TrimSpace(t.IcebergPartitionSpec); spec != "" {
+		return spec
+	}
+	cols := effectiveDorisPartitionCols(t)
+	if len(cols) == 0 {
+		return ""
+	}
+	return strings.Join(cols, ", ")
+}
+
 func effectiveDorisPartitionCols(t DorisTableDescriptor) []string {
 	if len(t.PartitionByColumns) > 0 {
 		return dedupDorisColumnList(t.PartitionByColumns)
@@ -4075,11 +4161,16 @@ func formatDorisAlterColumnClause(c DorisColumnDescriptor, colType string, inclu
 
 func isDorisNonScalarColumnType(dorisType string) bool {
 	dt := strings.ToUpper(strings.TrimSpace(dorisType))
+	return strings.HasPrefix(dt, "ARRAY<") || strings.HasPrefix(dt, "MAP<") || strings.HasPrefix(dt, "STRUCT<")
+}
+
+func isDorisForbiddenJSONType(colType string) bool {
+	dt := strings.ToUpper(strings.TrimSpace(colType))
 	switch dt {
 	case "JSON", "JSONB", "VARIANT":
 		return true
 	}
-	return strings.HasPrefix(dt, "ARRAY<") || strings.HasPrefix(dt, "MAP<") || strings.HasPrefix(dt, "STRUCT<")
+	return strings.Contains(dt, "<JSON>") || strings.Contains(dt, "<JSONB>") || strings.Contains(dt, "<VARIANT>")
 }
 
 func effectiveDorisUniqueKeys(t DorisTableDescriptor) []string {
@@ -4180,6 +4271,9 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 	canonBefore := dorisColumnStarRocksDDLType(bt, "")
 	canonAfter := dorisColumnStarRocksDDLType(at, "")
 	if canonBefore == canonAfter {
+		return true
+	}
+	if (canonBefore == "LARGEINT" && canonAfter == "DECIMAL(38, 0)") || (canonBefore == "DECIMAL(38, 0)" && canonAfter == "LARGEINT") {
 		return true
 	}
 	if m, okB := parseDorisVarcharLength(canonBefore); okB {

@@ -10,7 +10,6 @@ use chrono::{DateTime, Utc};
 #[derive(Debug)]
 pub enum ConversionError {
     Json(serde_json::Error),
-    InvalidTimestamp(i64),
     InvalidEnumValue(i32),
     Overflow,
 }
@@ -19,7 +18,6 @@ impl std::fmt::Display for ConversionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Json(e) => write!(f, "json: {e}"),
-            Self::InvalidTimestamp(ms) => write!(f, "invalid timestamp: {ms}ms"),
             Self::InvalidEnumValue(v) => write!(f, "invalid enum value: {v}"),
             Self::Overflow => write!(f, "integer overflow during conversion"),
         }
@@ -34,18 +32,6 @@ impl From<serde_json::Error> for ConversionError {
     }
 }
 
-/// Converts epoch milliseconds to a chrono DateTime<Utc>.
-#[allow(dead_code)]
-fn epoch_ms_to_datetime(ms: i64) -> Result<DateTime<Utc>, ConversionError> {
-    DateTime::from_timestamp_millis(ms).ok_or(ConversionError::InvalidTimestamp(ms))
-}
-
-/// Converts a chrono DateTime<Utc> to epoch milliseconds.
-#[allow(dead_code)]
-fn datetime_to_epoch_ms(dt: &DateTime<Utc>) -> i64 {
-    dt.timestamp_millis()
-}
-
 /// PostgreSQL storage representation of test.v1.ModelCatalogEntry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ModelCatalogEntryPostgres {
@@ -57,7 +43,7 @@ pub struct ModelCatalogEntryPostgres {
     pub category: String,
     pub context_window: i64,
     pub discount_percent: f64,
-    pub aliases: sqlx::types::Json<Vec<String>>,
+    pub aliases: Vec<String>,
     pub provider_model_id: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -72,16 +58,16 @@ impl ModelCatalogEntryPostgres {
             model_id,
             provider: self.provider.clone(),
             display_name: self.display_name.clone(),
-            input_per_million: self.input_per_million.clone(),
-            output_per_million: self.output_per_million.clone(),
-            enabled: self.enabled.clone(),
+            input_per_million: self.input_per_million,
+            output_per_million: self.output_per_million,
+            enabled: self.enabled,
             category: self.category.clone(),
-            context_window: self.context_window.clone(),
-            discount_percent: self.discount_percent.clone(),
-            aliases: self.aliases.0.clone(),
+            context_window: self.context_window,
+            discount_percent: self.discount_percent,
+            aliases: self.aliases.clone(),
             provider_model_id: self.provider_model_id.clone(),
-            created_at: self.created_at.clone(),
-            updated_at: self.updated_at.clone(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
             notes: self.notes.clone(),
             region: self.region.clone(),
         })
@@ -99,10 +85,10 @@ impl ModelCatalogEntryPostgres {
             category: self.category,
             context_window: self.context_window,
             discount_percent: self.discount_percent,
-            aliases: self.aliases.0,
+            aliases: self.aliases,
             provider_model_id: self.provider_model_id,
-            created_at: self.created_at.map(|j| j.0),
-            updated_at: self.updated_at.map(|j| j.0),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
             notes: self.notes,
             region: self.region,
         })
@@ -113,16 +99,16 @@ impl ModelCatalogEntryPostgres {
         Ok(Self {
             provider: d.provider.clone(),
             display_name: d.display_name.clone(),
-            input_per_million: d.input_per_million.clone(),
-            output_per_million: d.output_per_million.clone(),
-            enabled: d.enabled.clone(),
+            input_per_million: d.input_per_million,
+            output_per_million: d.output_per_million,
+            enabled: d.enabled,
             category: d.category.clone(),
-            context_window: d.context_window.clone(),
-            discount_percent: d.discount_percent.clone(),
-            aliases: sqlx::types::Json(d.aliases.clone()),
+            context_window: d.context_window,
+            discount_percent: d.discount_percent,
+            aliases: d.aliases.clone(),
             provider_model_id: d.provider_model_id.clone(),
-            created_at: d.created_at.clone(),
-            updated_at: d.updated_at.clone(),
+            created_at: d.created_at,
+            updated_at: d.updated_at,
             notes: d.notes.clone(),
             region: d.region.clone(),
         })

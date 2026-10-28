@@ -15,10 +15,15 @@ type PostgresColumnDescriptor struct {
 	ColumnName     string
 	ProtoFieldName string
 	SQLType        string
+	PostgresType   string
 	HCLType        string
 	Nullable       bool
+	IsPrimaryKey   bool
+	IsPartitionKey bool
+	InvertedIndex  bool
 	DefaultValue   string
 	ServerDefault  string
+	Comment        string
 }
 
 // PostgresIndexDescriptor describes a single or composite index on a PostgreSQL table.
@@ -26,6 +31,8 @@ type PostgresIndexDescriptor struct {
 	Name    string
 	Columns []string
 	Unique  bool
+	Using   string // "BTREE", "GIN", "HNSW"
+	Ops     string // e.g. "vector_l2_ops"
 }
 
 // PostgresForeignKeyDescriptor describes a foreign key constraint on a PostgreSQL table.
@@ -52,16 +59,34 @@ type PostgresTableSchemaDescriptor struct {
 	ForeignKeys    []PostgresForeignKeyDescriptor
 }
 
+// IsForbiddenPostgresColumnType reports whether pgType is a forbidden non-relational
+// JSON/JSONB/VARIANT column type (or array thereof).
+func IsForbiddenPostgresColumnType(pgType string) bool {
+	dt := strings.ToUpper(strings.TrimSpace(pgType))
+	for strings.HasSuffix(dt, "[]") {
+		dt = strings.TrimSpace(strings.TrimSuffix(dt, "[]"))
+	}
+	if strings.HasPrefix(dt, "ARRAY<") && strings.HasSuffix(dt, ">") {
+		dt = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(dt, "ARRAY<"), ">"))
+	}
+	switch dt {
+	case "JSON", "JSONB", "VARIANT":
+		return true
+	default:
+		return false
+	}
+}
+
 var (
-	// validPostgresSQLTypeRe matches safe, standard PostgreSQL column type expressions
+	// validPostgresSQLTypeRe matches safe, standard relational PostgreSQL column type expressions
 	// (including optional type parameters and trailing array dimensions), rejecting
-	// injected DDL constraints such as "VARCHAR(10) REFERENCES other(id)".
+	// non-relational JSON/JSONB/VARIANT types and injected DDL constraints such as "VARCHAR(10) REFERENCES other(id)".
 	validPostgresSQLTypeRe = regexp.MustCompile(
 		`^(?i)(?:` +
 			`SMALLINT|INT2|INTEGER|INT|INT4|BIGINT|INT8|` +
 			`SMALLSERIAL|SERIAL2|SERIAL|SERIAL4|BIGSERIAL|SERIAL8|` +
 			`REAL|FLOAT4|DOUBLE PRECISION|FLOAT8|` +
-			`BOOLEAN|BOOL|TEXT|CITEXT|BYTEA|DATE|UUID|JSON|JSONB|` +
+			`BOOLEAN|BOOL|TEXT|CITEXT|BYTEA|DATE|UUID|` +
 			`INET|CIDR|MACADDR|MACADDR8|POINT|LINE|LSEG|BOX|PATH|POLYGON|CIRCLE|` +
 			`XML|MONEY|TSVECTOR|TSQUERY|` +
 			`INT4RANGE|INT8RANGE|NUMRANGE|TSRANGE|TSTZRANGE|DATERANGE|` +
@@ -77,12 +102,12 @@ var (
 	strictNumericLiteralRe = regexp.MustCompile(`^-?[0-9]+(?:\.[0-9]+)?$`)
 )
 
-// isValidPostgresSQLTypeSyntax reports whether s is a safe PostgreSQL column type expression
+// isValidPostgresSQLTypeSyntax reports whether s is a safe relational PostgreSQL column type expression
 // matching the strict PostgreSQL type allowlist (e.g. "TEXT", "VARCHAR(64)", "NUMERIC(20,0)",
-// "DOUBLE PRECISION", "TIMESTAMP WITH TIME ZONE", "TEXT[]", "UUID", "JSONB").
+// "DOUBLE PRECISION", "TIMESTAMP WITH TIME ZONE", "TEXT[]", "UUID").
 func isValidPostgresSQLTypeSyntax(s string) bool {
 	s = strings.TrimSpace(s)
-	if len(s) == 0 {
+	if len(s) == 0 || IsForbiddenPostgresColumnType(s) {
 		return false
 	}
 	return validPostgresSQLTypeRe.MatchString(s)
@@ -212,13 +237,8 @@ func isValidForeignKeyAction(action string) (string, string, bool) {
 
 // mapScalarPostgresTypes returns (ddlType, hclType) for a protobuf scalar kind.
 func mapScalarPostgresTypes(kind protoreflect.Kind, colMeta *DorisColumnMetaIR) (string, string) {
-	if colMeta != nil {
-		if colMeta.JSONB {
-			return "JSONB", "jsonb"
-		}
-		if kind == protoreflect.StringKind && colMeta.Length > 0 {
-			return fmt.Sprintf("VARCHAR(%d)", colMeta.Length), fmt.Sprintf("varchar(%d)", colMeta.Length)
-		}
+	if colMeta != nil && kind == protoreflect.StringKind && colMeta.Length > 0 {
+		return fmt.Sprintf("VARCHAR(%d)", colMeta.Length), fmt.Sprintf("varchar(%d)", colMeta.Length)
 	}
 	switch kind {
 	case protoreflect.BoolKind:
@@ -243,9 +263,33 @@ func mapScalarPostgresTypes(kind protoreflect.Kind, colMeta *DorisColumnMetaIR) 
 	}
 }
 
+// isNonRelationalPostgresField reports whether f is a non-relational protobuf field
+// (map, repeated message, or non-WKT singular message) that cannot be stored as a
+// scalar/1D-array PostgreSQL column without inline/inline_nested flattening.
+func isNonRelationalPostgresField(f *DomainField) bool {
+	if f.IsMap {
+		return true
+	}
+	if f.ProtoField != nil && isWellKnownDate(f.ProtoField) {
+		return false
+	}
+	switch f.Kind {
+	case FieldKindMessage, FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindAny, FieldKindEmpty:
+		return true
+	default:
+		return false
+	}
+}
+
 // resolvePostgresFieldTypes maps a DomainField and optional ColumnConfig to (ddlType, hclType, error).
 func resolvePostgresFieldTypes(f *DomainField, colMeta *DorisColumnMetaIR, opts *Options) (string, string, error) {
+	if colMeta != nil && colMeta.JSONB {
+		return "", "", fmt.Errorf("field %s: JSON/JSONB/VARIANT column types are forbidden in relational PostgreSQL schemas", f.Name)
+	}
 	if colMeta != nil && colMeta.SQLType != "" {
+		if IsForbiddenPostgresColumnType(colMeta.SQLType) {
+			return "", "", fmt.Errorf("field %s: JSON/JSONB/VARIANT column types are forbidden in relational PostgreSQL schemas (got %q)", f.Name, colMeta.SQLType)
+		}
 		if !isValidPostgresSQLTypeSyntax(colMeta.SQLType) {
 			return "", "", fmt.Errorf("field %s: invalid PostgreSQL sql_type %q", f.Name, colMeta.SQLType)
 		}
@@ -253,18 +297,13 @@ func resolvePostgresFieldTypes(f *DomainField, colMeta *DorisColumnMetaIR, opts 
 		hcl := strings.ToLower(strings.TrimSpace(colMeta.SQLType))
 		return ddl, hcl, nil
 	}
-	if colMeta != nil && colMeta.JSONB {
-		return "JSONB", "jsonb", nil
-	}
 
-	if f.IsMap {
-		return "JSONB", "jsonb", nil
+	if isNonRelationalPostgresField(f) {
+		return "", "", fmt.Errorf("field %s: message or map field cannot be a relational PostgreSQL column without inline/inline_nested", f.Name)
 	}
 
 	if f.Repeated {
 		switch f.Kind {
-		case FieldKindMessage, FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindAny:
-			return "JSONB", "jsonb", nil
 		case FieldKindTimestamp:
 			return "TIMESTAMPTZ[]", "timestamptz[]", nil
 		case FieldKindDuration:
@@ -311,12 +350,8 @@ func resolvePostgresFieldTypes(f *DomainField, colMeta *DorisColumnMetaIR, opts 
 		return "TIMESTAMPTZ", "timestamptz", nil
 	case FieldKindDuration:
 		return "BIGINT", "bigint", nil
-	case FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindAny, FieldKindMessage:
-		return "JSONB", "jsonb", nil
 	case FieldKindFieldMask:
 		return "TEXT[]", "text[]", nil
-	case FieldKindEmpty:
-		return "JSONB", "jsonb", nil
 	case FieldKindEnum:
 		if f.EnumAsString || (colMeta != nil && colMeta.StripEnumPrefix) || (opts != nil && opts.EnumAsString) {
 			if colMeta != nil && colMeta.Length > 0 {
@@ -352,16 +387,19 @@ func resolvePostgresFieldTypes(f *DomainField, colMeta *DorisColumnMetaIR, opts 
 
 // resolveOneofVariantPostgresTypes maps a OneofVariant and optional ColumnConfig to (ddlType, hclType, error).
 func resolveOneofVariantPostgresTypes(v *OneofVariant, colMeta *DorisColumnMetaIR, opts *Options) (string, string, error) {
+	if colMeta != nil && colMeta.JSONB {
+		return "", "", fmt.Errorf("oneof variant %s: JSON/JSONB/VARIANT column types are forbidden in relational PostgreSQL schemas", v.ProtoName)
+	}
 	if colMeta != nil && colMeta.SQLType != "" {
+		if IsForbiddenPostgresColumnType(colMeta.SQLType) {
+			return "", "", fmt.Errorf("oneof variant %s: JSON/JSONB/VARIANT column types are forbidden in relational PostgreSQL schemas (got %q)", v.ProtoName, colMeta.SQLType)
+		}
 		if !isValidPostgresSQLTypeSyntax(colMeta.SQLType) {
 			return "", "", fmt.Errorf("oneof variant %s: invalid PostgreSQL sql_type %q", v.ProtoName, colMeta.SQLType)
 		}
 		ddl := strings.ToUpper(strings.TrimSpace(colMeta.SQLType))
 		hcl := strings.ToLower(strings.TrimSpace(colMeta.SQLType))
 		return ddl, hcl, nil
-	}
-	if colMeta != nil && colMeta.JSONB {
-		return "JSONB", "jsonb", nil
 	}
 	if v.ProtoField != nil && isWellKnownDate(v.ProtoField) {
 		return "DATE", "date", nil
@@ -372,7 +410,7 @@ func resolveOneofVariantPostgresTypes(v *OneofVariant, colMeta *DorisColumnMetaI
 	case FieldKindDuration:
 		return "BIGINT", "bigint", nil
 	case FieldKindMessage, FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindAny, FieldKindEmpty:
-		return "JSONB", "jsonb", nil
+		return "", "", fmt.Errorf("oneof variant %s: message type cannot be a relational PostgreSQL column without inline/inline_nested", v.ProtoName)
 	case FieldKindFieldMask:
 		return "TEXT[]", "text[]", nil
 	case FieldKindEnum:
@@ -443,7 +481,7 @@ func isPostgresFieldNullable(f *DomainField, colMeta *DorisColumnMetaIR, isPK bo
 }
 
 // buildPostgresTableSchema builds a PostgresTableSchemaDescriptor for a DomainMessage.
-func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableSchemaDescriptor, error) {
+func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMessage, opts *Options) (*PostgresTableSchemaDescriptor, error) {
 	meta := extractTableMeta(dm.ProtoMsg)
 	if err := validateTableServiceMeta(dm.FullName, meta); err != nil {
 		return nil, err
@@ -482,7 +520,8 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 	var rawCols []rawColInfo
 	colSet := make(map[string]bool)
 
-	for _, f := range dm.Fields {
+	effectiveDM, _ := cloneDomainMessageWithFlattenedInline(dm, msgByName)
+	for _, f := range effectiveDM.Fields {
 		if f.IsOneof {
 			oneof := findOneof(dm, f.OneofTypeName)
 			for _, v := range oneof.Variants {
@@ -545,6 +584,7 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 						ColumnName:     colName,
 						ProtoFieldName: v.ProtoName,
 						SQLType:        ddlType,
+						PostgresType:   ddlType,
 						HCLType:        hclType,
 						Nullable:       nullable,
 						DefaultValue:   defVal,
@@ -560,6 +600,15 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 		var colMeta *DorisColumnMetaIR
 		if f.ProtoField != nil {
 			colMeta = extractColumnMeta(f.ProtoField)
+		}
+
+		// Non-relational map and non-inline message fields cannot be stored as JSONB;
+		// reject if explicitly column-annotated, otherwise skip from relational schema.
+		if isNonRelationalPostgresField(f) && (colMeta == nil || (!colMeta.JSONB && colMeta.SQLType == "")) {
+			if colMeta != nil {
+				return nil, fmt.Errorf("field %s in %s: message or map field cannot be a relational PostgreSQL column without inline/inline_nested", f.Name, dm.FullName)
+			}
+			continue
 		}
 
 		colName := storageFieldName(f.Name)
@@ -619,6 +668,7 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 				ColumnName:     colName,
 				ProtoFieldName: f.Name,
 				SQLType:        ddlType,
+				PostgresType:   ddlType,
 				HCLType:        hclType,
 				Nullable:       isPostgresFieldNullable(f, colMeta, isFieldPK || explicitPKSet[colName]),
 				DefaultValue:   defVal,
@@ -794,7 +844,11 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 			}
 		}
 		for _, idxDef := range meta.Indexes {
-			if err := addIndex(PostgresIndexDescriptor(idxDef), idxDef.Name == ""); err != nil {
+			if err := addIndex(PostgresIndexDescriptor{
+				Name:    idxDef.Name,
+				Columns: idxDef.Columns,
+				Unique:  idxDef.Unique,
+			}, idxDef.Name == ""); err != nil {
 				return nil, err
 			}
 		}
@@ -823,6 +877,7 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 // collectPostgresTableSchemas extracts all top-level and explicitly table-annotated nested
 // messages from df in declaration order, resolving intra-schema foreign key RefTable prefixes.
 func collectPostgresTableSchemas(df *DomainFile, opts *Options) ([]*PostgresTableSchemaDescriptor, error) {
+	msgByName := indexDomainMessages(df.Messages)
 	embeddedMsgs := make(map[string]bool)
 	var markEmbedded func(msgs []*DomainMessage)
 	markEmbedded = func(msgs []*DomainMessage) {
@@ -875,7 +930,7 @@ func collectPostgresTableSchemas(df *DomainFile, opts *Options) ([]*PostgresTabl
 			meta := extractTableMeta(dm.ProtoMsg)
 			isEligible := (!isNested && (meta != nil || !embeddedMsgs[dm.Name])) || (isNested && meta != nil)
 			if isEligible && len(dm.Fields) > 0 {
-				tbl, err := buildPostgresTableSchema(dm, opts)
+				tbl, err := buildPostgresTableSchema(dm, msgByName, opts)
 				if err != nil {
 					return err
 				}

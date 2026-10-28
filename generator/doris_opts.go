@@ -129,6 +129,7 @@ type DorisColumnMetaIR struct {
 	StripEnumPrefix bool
 	ColumnName      string
 	DefaultValue    string
+	PostgresType    string
 	SQLType         string
 	JSONB           bool
 	Length          int32
@@ -140,7 +141,7 @@ type DorisColumnMetaIR struct {
 }
 
 // isEmpty reports whether m is nil or has no Doris/Iceberg column metadata set.
-// PostgreSQL-only fields (SQLType, JSONB, Length, PrimaryKey, Index, Unique,
+// PostgreSQL-only fields (PostgresType, SQLType, JSONB, Length, PrimaryKey, Index, Unique,
 // Nullable, ForeignKey) are intentionally excluded so Postgres-annotated fields
 // do not trigger Doris column filtering in messageHasAnnotatedDorisColumns.
 func (m *DorisColumnMetaIR) isEmpty() bool {
@@ -168,7 +169,8 @@ func (m *DorisColumnMetaIR) isAllEmpty() bool {
 	if !m.isEmpty() {
 		return false
 	}
-	return m.SQLType == "" &&
+	return m.PostgresType == "" &&
+		m.SQLType == "" &&
 		!m.JSONB &&
 		m.Length == 0 &&
 		!m.PrimaryKey &&
@@ -1105,8 +1107,17 @@ func mergeColumnMeta(dst, src *DorisColumnMetaIR) {
 	if dst.DefaultValue == "" && src.DefaultValue != "" {
 		dst.DefaultValue = src.DefaultValue
 	}
+	if dst.PostgresType == "" && src.PostgresType != "" {
+		dst.PostgresType = src.PostgresType
+	}
 	if dst.SQLType == "" && src.SQLType != "" {
 		dst.SQLType = src.SQLType
+	}
+	if dst.SQLType == "" && dst.PostgresType != "" {
+		dst.SQLType = dst.PostgresType
+	}
+	if dst.PostgresType == "" && dst.SQLType != "" {
+		dst.PostgresType = dst.SQLType
 	}
 	if !dst.JSONB && src.JSONB {
 		dst.JSONB = true
@@ -1169,6 +1180,14 @@ func extractColumnMetaInternal(field *protogen.Field, includePostgres bool) *Dor
 		if fk == nil {
 			fk = foreignKeyIRFromProto(fo.GetForeignKey())
 		}
+		sqlType := strings.TrimSpace(c.GetSqlType())
+		pgType := strings.TrimSpace(c.GetPostgresType())
+		if sqlType == "" {
+			sqlType = pgType
+		}
+		if pgType == "" {
+			pgType = sqlType
+		}
 		out := &DorisColumnMetaIR{
 			DorisType:       c.GetDorisType(),
 			IcebergType:     c.GetIcebergType(),
@@ -1180,8 +1199,9 @@ func extractColumnMetaInternal(field *protogen.Field, includePostgres bool) *Dor
 			StripEnumPrefix: c.GetStripEnumPrefix(),
 			ColumnName:      c.GetColumnName(),
 			DefaultValue:    c.GetDefaultValue(),
-			SQLType:         strings.TrimSpace(c.GetSqlType()),
-			JSONB:           c.GetJsonb(),
+			PostgresType:    pgType,
+			SQLType:         sqlType,
+			JSONB:           c.GetJsonb(), //nolint:staticcheck // backward-compatible decoding of deprecated jsonb option
 			Length:          c.GetLength(),
 			PrimaryKey:      c.GetPrimaryKey() || fo.GetPrimaryKey(),
 			Index:           c.GetIndex() || fo.GetIndex(),
@@ -1457,10 +1477,12 @@ func parseColumnMetaBytes(b []byte, dst *DorisColumnMetaIR) {
 					continue
 				}
 			}
-		case 11: // string sql_type = 11
+		case 11, 19: // string sql_type = 11 / string postgres_type = 19
 			if typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
-					dst.SQLType = strings.TrimSpace(string(v))
+					s := strings.TrimSpace(string(v))
+					dst.SQLType = s
+					dst.PostgresType = s
 					b = b[m:]
 					continue
 				}

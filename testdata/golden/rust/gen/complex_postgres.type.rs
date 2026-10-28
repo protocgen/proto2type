@@ -42,7 +42,7 @@ impl SettingsPostgres {
     /// Converts this row to the domain type.
     pub fn to_domain(&self) -> Result<Settings, ConversionError> {
         Ok(Settings {
-            theme: Theme::try_from(self.theme)?,
+            theme: SettingsTheme::from_i32(self.theme).ok_or(ConversionError::InvalidEnumValue(self.theme))?,
             locale: self.locale.clone(),
         })
     }
@@ -50,7 +50,7 @@ impl SettingsPostgres {
     /// Converts this row into the domain type, consuming self.
     pub fn into_domain(self) -> Result<Settings, ConversionError> {
         Ok(Settings {
-            theme: Theme::try_from(self.theme)?,
+            theme: SettingsTheme::from_i32(self.theme).ok_or(ConversionError::InvalidEnumValue(self.theme))?,
             locale: self.locale,
         })
     }
@@ -82,7 +82,7 @@ impl TryFrom<SettingsPostgres> for Settings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct OrganizationPostgres {
     pub name: String,
-    pub departments: sqlx::types::Json<Vec<OrganizationDepartment>>,
+    pub departments: Option<String>,
 }
 
 impl OrganizationPostgres {
@@ -90,7 +90,7 @@ impl OrganizationPostgres {
     pub fn to_domain(&self) -> Result<Organization, ConversionError> {
         Ok(Organization {
             name: self.name.clone(),
-            departments: self.departments.0.clone(),
+            departments: serde_json::from_str(&self.departments.as_deref().unwrap_or("[]"))?,
         })
     }
 
@@ -98,7 +98,7 @@ impl OrganizationPostgres {
     pub fn into_domain(self) -> Result<Organization, ConversionError> {
         Ok(Organization {
             name: self.name,
-            departments: self.departments.0,
+            departments: serde_json::from_str(&self.departments.as_deref().unwrap_or("[]"))?,
         })
     }
 
@@ -106,7 +106,7 @@ impl OrganizationPostgres {
     pub fn from_domain(d: &Organization) -> Result<Self, ConversionError> {
         Ok(Self {
             name: d.name.clone(),
-            departments: sqlx::types::Json(d.departments.clone()),
+            departments: Some(serde_json::to_string(&d.departments)?),
         })
     }
 }
@@ -129,7 +129,7 @@ impl TryFrom<OrganizationPostgres> for Organization {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct OrganizationDepartmentPostgres {
     pub name: String,
-    pub teams: sqlx::types::Json<Vec<OrganizationDepartmentTeam>>,
+    pub teams: Option<String>,
 }
 
 impl OrganizationDepartmentPostgres {
@@ -137,7 +137,7 @@ impl OrganizationDepartmentPostgres {
     pub fn to_domain(&self) -> Result<OrganizationDepartment, ConversionError> {
         Ok(OrganizationDepartment {
             name: self.name.clone(),
-            teams: self.teams.0.clone(),
+            teams: serde_json::from_str(&self.teams.as_deref().unwrap_or("[]"))?,
         })
     }
 
@@ -145,7 +145,7 @@ impl OrganizationDepartmentPostgres {
     pub fn into_domain(self) -> Result<OrganizationDepartment, ConversionError> {
         Ok(OrganizationDepartment {
             name: self.name,
-            teams: self.teams.0,
+            teams: serde_json::from_str(&self.teams.as_deref().unwrap_or("[]"))?,
         })
     }
 
@@ -153,7 +153,7 @@ impl OrganizationDepartmentPostgres {
     pub fn from_domain(d: &OrganizationDepartment) -> Result<Self, ConversionError> {
         Ok(Self {
             name: d.name.clone(),
-            teams: sqlx::types::Json(d.teams.clone()),
+            teams: Some(serde_json::to_string(&d.teams)?),
         })
     }
 }
@@ -176,7 +176,7 @@ impl TryFrom<OrganizationDepartmentPostgres> for OrganizationDepartment {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct OrganizationDepartmentTeamPostgres {
     pub name: String,
-    pub members: sqlx::types::Json<Vec<String>>,
+    pub members: Vec<String>,
 }
 
 impl OrganizationDepartmentTeamPostgres {
@@ -184,7 +184,7 @@ impl OrganizationDepartmentTeamPostgres {
     pub fn to_domain(&self) -> Result<OrganizationDepartmentTeam, ConversionError> {
         Ok(OrganizationDepartmentTeam {
             name: self.name.clone(),
-            members: self.members.0.clone(),
+            members: self.members.clone(),
         })
     }
 
@@ -192,7 +192,7 @@ impl OrganizationDepartmentTeamPostgres {
     pub fn into_domain(self) -> Result<OrganizationDepartmentTeam, ConversionError> {
         Ok(OrganizationDepartmentTeam {
             name: self.name,
-            members: self.members.0,
+            members: self.members,
         })
     }
 
@@ -200,7 +200,7 @@ impl OrganizationDepartmentTeamPostgres {
     pub fn from_domain(d: &OrganizationDepartmentTeam) -> Result<Self, ConversionError> {
         Ok(Self {
             name: d.name.clone(),
-            members: sqlx::types::Json(d.members.clone()),
+            members: d.members.clone(),
         })
     }
 }
@@ -223,8 +223,8 @@ impl TryFrom<OrganizationDepartmentTeamPostgres> for OrganizationDepartmentTeam 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct NotificationPostgres {
     pub id: String,
-    pub channel: Option<sqlx::types::Json<serde_json::Value>>,
-    pub content: Option<sqlx::types::Json<serde_json::Value>>,
+    pub channel: Option<String>,
+    pub content: Option<String>,
     pub priority: i32,
 }
 
@@ -233,9 +233,9 @@ impl NotificationPostgres {
     pub fn to_domain(&self) -> Result<Notification, ConversionError> {
         Ok(Notification {
             id: self.id.clone(),
-            channel: match &self.channel { Some(json) => Some(serde_json::from_value(json.0.clone())?), None => None },
-            content: match &self.content { Some(json) => Some(serde_json::from_value(json.0.clone())?), None => None },
-            priority: Priority::try_from(self.priority)?,
+            channel: match &self.channel { Some(s) => Some(serde_json::from_str(s)?), None => None },
+            content: match &self.content { Some(s) => Some(serde_json::from_str(s)?), None => None },
+            priority: Priority::from_i32(self.priority).ok_or(ConversionError::InvalidEnumValue(self.priority))?,
         })
     }
 
@@ -243,9 +243,9 @@ impl NotificationPostgres {
     pub fn into_domain(self) -> Result<Notification, ConversionError> {
         Ok(Notification {
             id: self.id,
-            channel: match self.channel { Some(json) => Some(serde_json::from_value(json.0)?), None => None },
-            content: match self.content { Some(json) => Some(serde_json::from_value(json.0)?), None => None },
-            priority: Priority::try_from(self.priority)?,
+            channel: match self.channel { Some(s) => Some(serde_json::from_str(&s)?), None => None },
+            content: match self.content { Some(s) => Some(serde_json::from_str(&s)?), None => None },
+            priority: Priority::from_i32(self.priority).ok_or(ConversionError::InvalidEnumValue(self.priority))?,
         })
     }
 
@@ -253,8 +253,8 @@ impl NotificationPostgres {
     pub fn from_domain(d: &Notification) -> Result<Self, ConversionError> {
         Ok(Self {
             id: d.id.clone(),
-            channel: match &d.channel { Some(v) => Some(sqlx::types::Json(serde_json::to_value(v)?)), None => None },
-            content: match &d.content { Some(v) => Some(sqlx::types::Json(serde_json::to_value(v)?)), None => None },
+            channel: match &d.channel { Some(v) => Some(serde_json::to_string(v)?), None => None },
+            content: match &d.content { Some(v) => Some(serde_json::to_string(v)?), None => None },
             priority: d.priority as i32,
         })
     }
@@ -278,14 +278,14 @@ impl TryFrom<NotificationPostgres> for Notification {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DocumentPostgres {
     pub id: String,
-    pub settings_map: sqlx::types::Json<std::collections::HashMap<String, serde_json::Value>>,
-    pub code_names: sqlx::types::Json<std::collections::HashMap<i32, String>>,
-    pub metadata: sqlx::types::Json<serde_json::Value>,
-    pub extension: sqlx::types::Json<serde_json::Value>,
+    pub settings_map: Option<String>,
+    pub code_names: Option<String>,
+    pub metadata: String,
+    pub extension: String,
     pub update_mask: Vec<String>,
     pub archived: Option<bool>,
     pub view_count: Option<i64>,
-    pub placeholders: sqlx::types::Json<Vec<String>>,
+    pub placeholders: Option<String>,
 }
 
 impl DocumentPostgres {
@@ -293,14 +293,14 @@ impl DocumentPostgres {
     pub fn to_domain(&self) -> Result<Document, ConversionError> {
         Ok(Document {
             id: self.id.clone(),
-            settings_map: self.settings_map.0.clone(),
-            code_names: self.code_names.0.clone(),
-            metadata: serde_json::from_value(self.metadata.0.clone())?,
-            extension: serde_json::from_value(self.extension.0.clone())?,
-            update_mask: serde_json::from_value(self.update_mask.0.clone())?,
+            settings_map: serde_json::from_str(&self.settings_map.as_deref().unwrap_or("{}"))?,
+            code_names: serde_json::from_str(&self.code_names.as_deref().unwrap_or("{}"))?,
+            metadata: serde_json::from_str(&self.metadata)?,
+            extension: serde_json::from_str(&self.extension)?,
+            update_mask: self.update_mask.clone(),
             archived: self.archived.clone(),
             view_count: self.view_count.clone(),
-            placeholders: self.placeholders.0.clone(),
+            placeholders: serde_json::from_str(&self.placeholders.as_deref().unwrap_or("[]"))?,
         })
     }
 
@@ -308,14 +308,14 @@ impl DocumentPostgres {
     pub fn into_domain(self) -> Result<Document, ConversionError> {
         Ok(Document {
             id: self.id,
-            settings_map: self.settings_map.0,
-            code_names: self.code_names.0,
-            metadata: self.metadata.map(|j| j.0),
-            extension: self.extension.map(|j| j.0),
-            update_mask: self.update_mask.map(|j| j.0),
-            archived: self.archived.map(|j| j.0),
-            view_count: self.view_count.map(|j| j.0),
-            placeholders: self.placeholders.0,
+            settings_map: serde_json::from_str(&self.settings_map.as_deref().unwrap_or("{}"))?,
+            code_names: serde_json::from_str(&self.code_names.as_deref().unwrap_or("{}"))?,
+            metadata: serde_json::from_str(&self.metadata)?,
+            extension: serde_json::from_str(&self.extension)?,
+            update_mask: self.update_mask,
+            archived: self.archived,
+            view_count: self.view_count,
+            placeholders: serde_json::from_str(&self.placeholders.as_deref().unwrap_or("[]"))?,
         })
     }
 
@@ -323,14 +323,14 @@ impl DocumentPostgres {
     pub fn from_domain(d: &Document) -> Result<Self, ConversionError> {
         Ok(Self {
             id: d.id.clone(),
-            settings_map: sqlx::types::Json(d.settings_map.clone()),
-            code_names: sqlx::types::Json(d.code_names.clone()),
-            metadata: sqlx::types::Json(serde_json::to_value(&d.metadata)?),
-            extension: sqlx::types::Json(serde_json::to_value(&d.extension)?),
-            update_mask: sqlx::types::Json(serde_json::to_value(&d.update_mask)?),
+            settings_map: Some(serde_json::to_string(&d.settings_map)?),
+            code_names: Some(serde_json::to_string(&d.code_names)?),
+            metadata: serde_json::to_string(&d.metadata)?,
+            extension: serde_json::to_string(&d.extension)?,
+            update_mask: d.update_mask.clone(),
             archived: d.archived.clone(),
             view_count: d.view_count.clone(),
-            placeholders: sqlx::types::Json(d.placeholders.clone()),
+            placeholders: Some(serde_json::to_string(&d.placeholders)?),
         })
     }
 }
@@ -353,8 +353,8 @@ impl TryFrom<DocumentPostgres> for Document {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct TreeNodePostgres {
     pub value: String,
-    pub children: sqlx::types::Json<Vec<TreeNode>>,
-    pub parent: Option<Box<TreeNodePostgres>>,
+    pub children: Option<String>,
+    pub parent: Option<String>,
 }
 
 impl TreeNodePostgres {
@@ -362,8 +362,8 @@ impl TreeNodePostgres {
     pub fn to_domain(&self) -> Result<TreeNode, ConversionError> {
         Ok(TreeNode {
             value: self.value.clone(),
-            children: self.children.0.clone(),
-            parent: self.parent.as_ref().map(|b| *b.clone()),
+            children: serde_json::from_str(&self.children.as_deref().unwrap_or("[]"))?,
+            parent: match &self.parent { Some(s) => Some(Box::new(serde_json::from_str(s)?)), None => None },
         })
     }
 
@@ -371,8 +371,8 @@ impl TreeNodePostgres {
     pub fn into_domain(self) -> Result<TreeNode, ConversionError> {
         Ok(TreeNode {
             value: self.value,
-            children: self.children.0,
-            parent: self.parent.map(|b| *b),
+            children: serde_json::from_str(&self.children.as_deref().unwrap_or("[]"))?,
+            parent: match self.parent { Some(s) => Some(Box::new(serde_json::from_str(&s)?)), None => None },
         })
     }
 
@@ -380,8 +380,8 @@ impl TreeNodePostgres {
     pub fn from_domain(d: &TreeNode) -> Result<Self, ConversionError> {
         Ok(Self {
             value: d.value.clone(),
-            children: sqlx::types::Json(d.children.clone()),
-            parent: d.parent.as_ref().map(|v| Box::new((**v).clone())),
+            children: Some(serde_json::to_string(&d.children)?),
+            parent: match &d.parent { Some(v) => Some(serde_json::to_string(v.as_ref())?), None => None },
         })
     }
 }
@@ -446,7 +446,7 @@ impl TryFrom<&AuditLog> for AuditLogPostgres {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct EventPostgres {
     pub id: String,
-    pub payload: Option<sqlx::types::Json<serde_json::Value>>,
+    pub payload: Option<String>,
 }
 
 impl EventPostgres {
@@ -454,7 +454,7 @@ impl EventPostgres {
     pub fn to_domain(&self) -> Result<Event, ConversionError> {
         Ok(Event {
             id: self.id.clone(),
-            payload: match &self.payload { Some(json) => Some(serde_json::from_value(json.0.clone())?), None => None },
+            payload: match &self.payload { Some(s) => Some(serde_json::from_str(s)?), None => None },
         })
     }
 
@@ -462,7 +462,7 @@ impl EventPostgres {
     pub fn into_domain(self) -> Result<Event, ConversionError> {
         Ok(Event {
             id: self.id,
-            payload: match self.payload { Some(json) => Some(serde_json::from_value(json.0)?), None => None },
+            payload: match self.payload { Some(s) => Some(serde_json::from_str(&s)?), None => None },
         })
     }
 
@@ -470,7 +470,7 @@ impl EventPostgres {
     pub fn from_domain(d: &Event) -> Result<Self, ConversionError> {
         Ok(Self {
             id: d.id.clone(),
-            payload: match &d.payload { Some(v) => Some(sqlx::types::Json(serde_json::to_value(v)?)), None => None },
+            payload: match &d.payload { Some(v) => Some(serde_json::to_string(v)?), None => None },
         })
     }
 }
@@ -493,7 +493,7 @@ impl TryFrom<EventPostgres> for Event {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct WktPayloadPostgres {
     pub id: String,
-    pub content: Option<sqlx::types::Json<serde_json::Value>>,
+    pub content: Option<String>,
 }
 
 impl WktPayloadPostgres {
@@ -501,7 +501,7 @@ impl WktPayloadPostgres {
     pub fn to_domain(&self) -> Result<WktPayload, ConversionError> {
         Ok(WktPayload {
             id: self.id.clone(),
-            content: match &self.content { Some(json) => Some(serde_json::from_value(json.0.clone())?), None => None },
+            content: match &self.content { Some(s) => Some(serde_json::from_str(s)?), None => None },
         })
     }
 
@@ -509,7 +509,7 @@ impl WktPayloadPostgres {
     pub fn into_domain(self) -> Result<WktPayload, ConversionError> {
         Ok(WktPayload {
             id: self.id,
-            content: match self.content { Some(json) => Some(serde_json::from_value(json.0)?), None => None },
+            content: match self.content { Some(s) => Some(serde_json::from_str(&s)?), None => None },
         })
     }
 
@@ -517,7 +517,7 @@ impl WktPayloadPostgres {
     pub fn from_domain(d: &WktPayload) -> Result<Self, ConversionError> {
         Ok(Self {
             id: d.id.clone(),
-            content: match &d.content { Some(v) => Some(sqlx::types::Json(serde_json::to_value(v)?)), None => None },
+            content: match &d.content { Some(v) => Some(serde_json::to_string(v)?), None => None },
         })
     }
 }

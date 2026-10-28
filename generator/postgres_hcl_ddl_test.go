@@ -634,11 +634,16 @@ func TestPostgresModesAndComprehensiveHCLAndDDL(t *testing.T) {
 		},
 	})
 
-	jsonbStringOpts := &descriptorpb.FieldOptions{}
-	proto.SetExtension(jsonbStringOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+	textPayloadOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(textPayloadOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
 		Column: &proto2typepb.ColumnOptions{
-			Jsonb: true,
+			SqlType: "TEXT",
 		},
+	})
+
+	inlineAddressOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(inlineAddressOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		Inline: true,
 	})
 
 	serverTSOpts := &descriptorpb.FieldOptions{}
@@ -766,7 +771,7 @@ func TestPostgresModesAndComprehensiveHCLAndDDL(t *testing.T) {
 						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
 						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
 						JsonName: proto.String("fhirBundleJson"),
-						Options:  jsonbStringOpts,
+						Options:  textPayloadOpts,
 					},
 					{
 						Name:     proto.String("tags"),
@@ -782,6 +787,7 @@ func TestPostgresModesAndComprehensiveHCLAndDDL(t *testing.T) {
 						Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
 						TypeName: proto.String(".patient.v1.Address"),
 						JsonName: proto.String("address"),
+						Options:  inlineAddressOpts,
 					},
 					{
 						Name:     proto.String("birth_date"),
@@ -836,8 +842,10 @@ func TestPostgresModesAndComprehensiveHCLAndDDL(t *testing.T) {
 		{mode: "none", wantORM: false, wantHCL: false, wantDDL: false},
 		{mode: "hcl", wantORM: false, wantHCL: true, wantDDL: false},
 		{mode: "ddl", wantORM: false, wantHCL: false, wantDDL: true},
-		{mode: "both", wantORM: true, wantHCL: true, wantDDL: true},
-		{mode: "tables", wantORM: true, wantHCL: true, wantDDL: true},
+		{mode: "both", wantORM: true, wantHCL: false, wantDDL: true},
+		{mode: "tables", wantORM: true, wantHCL: false, wantDDL: false},
+		{mode: "ddl+hcl", wantORM: false, wantHCL: true, wantDDL: true},
+		{mode: "types+hcl", wantORM: true, wantHCL: true, wantDDL: false},
 		{mode: "all", wantORM: true, wantHCL: true, wantDDL: true},
 	}
 
@@ -895,9 +903,9 @@ func TestPostgresModesAndComprehensiveHCLAndDDL(t *testing.T) {
 					"  column \"risk_score\" {\n    null = false\n    type = double_precision\n  }",
 					"  column \"active\" {\n    null = false\n    type = boolean\n  }",
 					"  column \"raw_payload\" {\n    null = false\n    type = bytea\n  }",
-					"  column \"fhir_bundle_json\" {\n    null = false\n    type = jsonb\n  }",
+					"  column \"fhir_bundle_json\" {\n    null = false\n    type = text\n  }",
 					"  column \"tags\" {\n    null = false\n    type = sql(\"text[]\")\n  }",
-					"  column \"address\" {\n    null = true\n    type = jsonb\n  }",
+					"  column \"address_city\" {\n    null = false\n    type = text\n  }",
 					"  column \"birth_date\" {\n    null = true\n    type = date\n  }",
 					"  column \"created_at\" {\n    null = false\n    type = timestamptz\n    default = sql(\"now()\")\n  }",
 					"  column \"processing_duration\" {\n    null = false\n    type = bigint\n  }",
@@ -936,9 +944,9 @@ func TestPostgresModesAndComprehensiveHCLAndDDL(t *testing.T) {
 					`"risk_score" DOUBLE PRECISION NOT NULL`,
 					`"active" BOOLEAN NOT NULL`,
 					`"raw_payload" BYTEA NOT NULL`,
-					`"fhir_bundle_json" JSONB NOT NULL`,
+					`"fhir_bundle_json" TEXT NOT NULL`,
 					`"tags" TEXT[] NOT NULL`,
-					`"address" JSONB`,
+					`"address_city" TEXT NOT NULL`,
 					`"birth_date" DATE`,
 					`"created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
 					`"processing_duration" BIGINT NOT NULL`,
@@ -1914,7 +1922,7 @@ func TestPostgresHardening_DefaultValueQuotingMatrix(t *testing.T) {
 	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
 		Lang:         "go",
 		Backend:      "postgres",
-		PostgresMode: "both",
+		PostgresMode: "all",
 		Domain:       false,
 	}); err != nil {
 		t.Fatalf("GenerateFile failed: %v", err)
@@ -2068,7 +2076,7 @@ func TestPostgresHardening_MapAndNestedMessagesNotStandaloneTables(t *testing.T)
 	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
 		Lang:         "go",
 		Backend:      "postgres",
-		PostgresMode: "both",
+		PostgresMode: "all",
 		Domain:       false,
 	}); err != nil {
 		t.Fatalf("GenerateFile failed: %v", err)
@@ -2082,8 +2090,8 @@ func TestPostgresHardening_MapAndNestedMessagesNotStandaloneTables(t *testing.T)
 	ddl := gotFiles["maps_nested_postgres.sql"]
 	hcl := gotFiles["maps_nested_postgres.hcl"]
 
-	if !strings.Contains(ddl, `CREATE TABLE IF NOT EXISTS "main_container"`) || !strings.Contains(ddl, `"meta_by_key" JSONB NOT NULL`) {
-		t.Errorf("expected main_container with meta_by_key JSONB in DDL:\n%s", ddl)
+	if !strings.Contains(ddl, `CREATE TABLE IF NOT EXISTS "main_container"`) || strings.Contains(strings.ToUpper(ddl), "JSONB") {
+		t.Errorf("expected main_container without JSONB in DDL:\n%s", ddl)
 	}
 	if !strings.Contains(ddl, `CREATE TABLE IF NOT EXISTS "explicit_nested_events"`) {
 		t.Errorf("expected explicit_nested_events in DDL:\n%s", ddl)
@@ -2167,7 +2175,7 @@ func TestPostgresHardening_Identifier63ByteCompactionAndValidation(t *testing.T)
 	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
 		Lang:         "go",
 		Backend:      "postgres",
-		PostgresMode: "both",
+		PostgresMode: "all",
 		Domain:       false,
 	}); err != nil {
 		t.Fatalf("GenerateFile failed: %v", err)
@@ -2327,7 +2335,7 @@ func TestPostgresHardening_CompositeAndOneofPKAndRedundantUniqueIndex(t *testing
 	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
 		Lang:         "go",
 		Backend:      "postgres",
-		PostgresMode: "both",
+		PostgresMode: "all",
 		Domain:       false,
 	}); err != nil {
 		t.Fatalf("GenerateFile failed: %v", err)
@@ -2660,7 +2668,7 @@ func TestPostgresHardening_ExplicitIndexNameAmbiguousFKAndHCLTemplateEscape(t *t
 	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
 		Lang:         "go",
 		Backend:      "postgres",
-		PostgresMode: "both",
+		PostgresMode: "all",
 		Domain:       false,
 	}); err != nil {
 		t.Fatalf("GenerateFile failed: %v", err)

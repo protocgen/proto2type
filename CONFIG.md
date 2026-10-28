@@ -111,11 +111,11 @@ Can be combined with `domain=true` (default) to generate both domain and storage
 
 ### `doris_mode`
 
-Controls the Apache Doris 4.x, StarRocks 4.x & Apache Iceberg lakehouse backend output when `backend=doris` or `backend=starrocks`.
+Controls the Apache Doris 4.x, StarRocks 4.x & Apache Iceberg lakehouse backend output when `backend=doris` or `backend=starrocks`. Supports single targets, shorthands (`both`, `all`), and composable `+`- or `,`-separated combinations (e.g. `go+hcl`, `ddl+hcl`, `go+starrocks_hcl`).
 
 | Default | `""` (`go` for `backend=doris`, emitting `*_doris.type.go`; `go` + `starrocks` for `backend=starrocks`, emitting `*_doris.type.go`, `*_starrocks.sql`, `*_starrocks.hcl`) |
 |---|---|
-| Values | `""` / `go` (Go storage structs + SQL scanners), `ddl` (`*_doris.sql` + `*_iceberg.sql`), `hcl` (`*_doris.hcl` + `*_iceberg.hcl`), `both` (`*_doris.type.go` + `*_doris.sql` + `*_iceberg.sql`), `all` (all 3 dialects: `*_doris.type.go` + `*_doris.sql` + `*_doris.hcl` + `*_starrocks.sql` + `*_starrocks.hcl` + `*_iceberg.sql` + `*_iceberg.hcl`), `starrocks` (`*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_both` (`*_doris.type.go` + `*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_ddl` (`*_starrocks.sql`), `starrocks_hcl` (`*_starrocks.hcl`) |
+| Values | `""` / `go` / `types` (Go storage structs + SQL scanners), `ddl` (`*_doris.sql` + `*_iceberg.sql`), `hcl` (`*_doris.hcl` + `*_iceberg.hcl`), `both` (`go+ddl`), `all` (all 3 dialects: `*_doris.type.go` + `*_doris.sql` + `*_doris.hcl` + `*_starrocks.sql` + `*_starrocks.hcl` + `*_iceberg.sql` + `*_iceberg.hcl`), `starrocks` (`*_starrocks.sql` + `*_starrocks.hcl`), `starrocks_both` (`go+starrocks`), `starrocks_ddl` (`*_starrocks.sql`), `starrocks_hcl` (`*_starrocks.hcl`), or any `+`-separated combination (e.g. `go+hcl`, `ddl+hcl`) |
 
 ### `doris_storage_vault`
 
@@ -133,11 +133,11 @@ Default Apache Iceberg catalog prefix for `CREATE TABLE IF NOT EXISTS <catalog>.
 
 ### `postgres_mode`
 
-Controls the PostgreSQL backend behavior when `backend=postgres`.
+Controls the PostgreSQL backend output when `backend=postgres`. Supports single targets, shorthands (`both`, `all`), and composable `+`- or `,`-separated combinations (e.g. `types+hcl`, `ddl+hcl`, `search_index+hcl`).
 
-| Default | `""` / `orm` (struct-per-message with `db:""` tags in `*_postgres.type.go`) |
+| Default | `""` (`types` / `go` / `tables`: struct-per-message with `db:""` tags) |
 |---|---|
-| Values | `""` / `orm` (`*_postgres.type.go`), `none` (disabled), `hcl` (Atlas HCL in `*_postgres.hcl`), `ddl` (PostgreSQL DDL in `*_postgres.sql`), `both` / `tables` / `all` (`*_postgres.type.go` + `*_postgres.hcl` + `*_postgres.sql`), `search_index` (HAPI-style FHIR search index extraction functions; requires `postgres_search_params`) |
+| Values | `""` / `types` / `go` / `tables` (`*_postgres.type.go` or `*_postgres.type.rs`), `ddl` (`*_postgres.sql` relational DDL), `hcl` (`*_postgres.hcl` Atlas HCL), `both` (`types+ddl`), `all` (`types+ddl+hcl`), `search_index` (`*_search_index.go`; requires `postgres_search_params`), `search_index_ddl` (`*_search_index.sql`), `search_index_hcl` (`*_search_index.hcl`), or any `+`-separated combination (e.g. `types+hcl`, `ddl+hcl`, `search_index+ddl+hcl`) |
 
 ### `domain`
 
@@ -218,10 +218,10 @@ Behavior per language:
 |---|---|---|
 | `lang` | `go` | target language: go, python, kotlin, typescript |
 | `backend` | _(none)_ | storage backend: firestore, mongo, postgres, doris, starrocks, dynamodb, datastore, spanner, sqlite, buffa, jsonrpc |
-| `doris_mode` | _(none)_ | doris/starrocks backend mode: '' / 'go' (Go storage structs + SQL scanners), 'ddl', 'hcl', 'both', 'all', 'starrocks', 'starrocks_ddl', 'starrocks_hcl' |
+| `doris_mode` | _(none)_ | doris/starrocks backend mode: '' / 'go' / 'types', 'ddl', 'hcl', 'both', 'all', 'starrocks', 'starrocks_ddl', 'starrocks_hcl', or '+' combinations (e.g. 'go+hcl', 'ddl+hcl') |
 | `doris_storage_vault` | _(none)_ | default Apache Doris storage vault name for DDL properties (omitted when empty) |
 | `iceberg_catalog` | _(none)_ | default Apache Iceberg catalog prefix for DDL (defaults to 'iceberg' when empty) |
-| `postgres_mode` | _(none)_ | postgres backend mode: '' (struct), 'search_index' (HAPI-style FHIR search index extraction) |
+| `postgres_mode` | _(none)_ | postgres backend mode: '' / 'types' / 'go' / 'tables', 'ddl', 'hcl', 'both', 'all', 'search_index', 'search_index_ddl', 'search_index_hcl', or '+' combinations (e.g. 'types+hcl', 'ddl+hcl') |
 | `postgres_search_params` | _(none)_ | path to FHIR SearchParameter JSON bundle (required for postgres_mode=search_index) |
 | `domain` | `true` | generate domain types + proto converters |
 | `output_file` | _(none)_ | override output filename |
@@ -351,6 +351,7 @@ Flattens a nested message's fields into the parent struct.
 | Backend | Effect |
 |---|---|
 | MongoDB | Adds `bson:",inline"` to the struct tag — embeds nested document fields at the parent level |
+| PostgreSQL | Flattens nested message fields into `<parent>_<child>` relational columns on `<Name>Postgres` (Go & Rust) and in `_postgres.sql` / `_postgres.hcl` |
 | Firestore | No direct equivalent — nested message is stored as a sub-map |
 | _(domain)_ | No effect — field remains a pointer to the nested struct |
 

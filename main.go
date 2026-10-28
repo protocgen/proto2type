@@ -117,21 +117,18 @@ func main() {
 		}
 
 		if opts.PostgresMode != "" {
-			switch opts.PostgresMode {
-			case "orm", "none", "hcl", "ddl", "both", "tables", "all", "search_index":
-			default:
-				return fmt.Errorf("unknown postgres_mode: %q (must be '', 'orm', 'none', 'hcl', 'ddl', 'both', 'tables', 'all', or 'search_index')", opts.PostgresMode)
+			pgTargets, err := opts.ParsePostgresMode()
+			if err != nil {
+				return err
 			}
-			if opts.PostgresMode == "search_index" && opts.PostgresSearchParams == "" {
-				return fmt.Errorf("postgres_mode=search_index requires postgres_search_params to be specified")
+			if pgTargets.NeedsSearchParams() && opts.PostgresSearchParams == "" {
+				return fmt.Errorf("postgres_mode=%s requires postgres_search_params to be specified", opts.PostgresMode)
 			}
 		}
 
 		if opts.DorisMode != "" {
-			switch opts.DorisMode {
-			case "go", "ddl", "hcl", "both", "all", "starrocks", "starrocks_both", "starrocks_ddl", "starrocks_hcl":
-			default:
-				return fmt.Errorf("unknown doris_mode: %q (must be '', 'go', 'ddl', 'hcl', 'both', 'all', 'starrocks', 'starrocks_ddl', or 'starrocks_hcl')", opts.DorisMode)
+			if _, err := opts.ParseDorisMode(); err != nil {
+				return err
 			}
 		}
 

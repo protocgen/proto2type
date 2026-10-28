@@ -22,7 +22,49 @@ func generateRust(gen *protogen.Plugin, file *protogen.File, opts *Options) erro
 		case "sqlite":
 			return generateRustSqlite(gen, file, opts)
 		case "postgres":
-			return generateRustPostgres(gen, file, opts)
+			pgTargets, err := opts.ParsePostgresMode()
+			if err != nil {
+				return err
+			}
+			if pgTargets.EmitTypes {
+				if err := generateRustPostgres(gen, file, opts); err != nil {
+					return err
+				}
+			}
+			if pgTargets.EmitDDL || pgTargets.EmitHCL {
+				if fileHasLakehousePostgresTables(file) {
+					if pgTargets.EmitDDL {
+						if err := generateLakehousePostgresDDLFile(gen, file, opts); err != nil {
+							return err
+						}
+					}
+					if pgTargets.EmitHCL {
+						if err := generateLakehousePostgresHCLFile(gen, file, opts); err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+				df, err := BuildDomainFile(file, opts)
+				if err != nil {
+					return err
+				}
+				tables, err := collectPostgresTableSchemas(df, opts)
+				if err != nil {
+					return err
+				}
+				if pgTargets.EmitDDL {
+					if err := generatePostgresDDLFile(gen, file, tables); err != nil {
+						return err
+					}
+				}
+				if pgTargets.EmitHCL {
+					if err := generatePostgresHCLFile(gen, file, tables); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
 		case "buffa":
 			return generateRustBuffa(gen, file, opts)
 		case "jsonrpc":
