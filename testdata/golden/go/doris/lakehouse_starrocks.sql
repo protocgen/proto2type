@@ -14,10 +14,10 @@ CREATE TABLE IF NOT EXISTS internal.tenant_${TENANT_SLUG}.eligibility_criterion_
     citation_page_number INT NOT NULL,
     citation_bbox_coords ARRAY<FLOAT> NOT NULL DEFAULT "[]",
     publication_generation BIGINT NOT NULL DEFAULT "0",
-    INDEX idx_eligibility_criterion_results_all_mrns (all_mrns) USING BITMAP,
     INDEX idx_ngram_eligibility_criterion_results_criterion_id (criterion_id) USING NGRAMBF ("gram_num" = "3", "bloom_filter_fpp" = "0.05")
 )
 PRIMARY KEY(patient_id, criterion_id)
+PARTITION BY RANGE(event_month) ()
 DISTRIBUTED BY HASH(patient_id) BUCKETS ${TENANT_BUCKETS}
 PROPERTIES (
     "storage_volume" = "lakehouse_vault",

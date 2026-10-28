@@ -144,7 +144,9 @@ jobs:
           buf generate --template buf.gen.kotlin.yaml
 
       - name: Check for golden file drift
-        run: git diff --exit-code testdata/golden/
+        run: |
+          git diff --exit-code testdata/golden/
+          test -z "$(git status --porcelain --untracked-files=all -- testdata/golden/)"
 
 
   rust-compile-check:

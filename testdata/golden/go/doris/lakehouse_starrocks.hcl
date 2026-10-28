@@ -59,10 +59,6 @@ table "eligibility_criterion_results" {
   partition_by_range {
     columns = [column.event_month]
   }
-  index "idx_eligibility_criterion_results_all_mrns" {
-    columns = [column.all_mrns]
-    using = "BITMAP"
-  }
   index "idx_ngram_eligibility_criterion_results_criterion_id" {
     columns = [column.criterion_id]
     using = "NGRAMBF"

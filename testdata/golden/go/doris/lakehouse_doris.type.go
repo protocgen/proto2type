@@ -1216,17 +1216,37 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 			}
 		}
 	}
+	var partCols []string
+	if len(t.PartitionByColumns) > 0 {
+		partCols = dedupDorisColumnList(t.PartitionByColumns)
+	} else {
+		for _, c := range orderedCols {
+			if c.IsPartitionKey {
+				partCols = append(partCols, c.ColumnName)
+			}
+		}
+		partCols = dedupDorisColumnList(partCols)
+	}
+	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
+		for _, c := range orderedCols {
+			if c.ColumnName == "event_month" {
+				partCols = append(partCols, "event_month")
+				break
+			}
+		}
+	}
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
 	b.WriteString(fullTableName)
 	b.WriteString(" (\n")
 	b.WriteString(strings.Join(bodyLines, ",\n"))
 	b.WriteString("\n)\n")
+	var distCol string
 	if len(uks) > 0 {
 		b.WriteString("UNIQUE KEY(")
 		b.WriteString(formatDorisDDLColumnIdentList(uks))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" {
 			if len(uks) > 1 && uks[0] == "tenant_id" {
 				distCol = uks[1]
@@ -1234,32 +1254,35 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 				distCol = uks[0]
 			}
 		}
-		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
-		b.WriteString("\n")
 	} else if len(dupKeys) > 0 {
 		b.WriteString("DUPLICATE KEY(")
 		b.WriteString(formatDorisDDLColumnIdentList(dupKeys))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" {
 			distCol = dupKeys[0]
 		}
-		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
-		b.WriteString("\n")
 	} else if len(orderedCols) > 0 {
 		b.WriteString("DUPLICATE KEY(")
 		b.WriteString(formatDorisDDLColumnIdent(orderedCols[0].ColumnName))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" {
 			distCol = orderedCols[0].ColumnName
 		}
+	}
+	if len(partCols) > 0 {
+		partKind := "LIST"
+		if strings.HasPrefix(colTypes[partCols[0]], "DATE") {
+			partKind = "RANGE"
+		}
+		b.WriteString("PARTITION BY ")
+		b.WriteString(partKind)
+		b.WriteString("(")
+		b.WriteString(formatDorisDDLColumnIdentList(partCols))
+		b.WriteString(") ()\n")
+	}
+	if distCol != "" {
 		b.WriteString("DISTRIBUTED BY HASH(")
 		b.WriteString(formatDorisDDLColumnIdent(distCol))
 		b.WriteString(") BUCKETS ")
@@ -1435,7 +1458,7 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	for _, idxCol := range invCols {
 		if colTypes[idxCol] == "STRING" || colTypes[idxCol] == "TEXT" {
 			bodyLines = append(bodyLines, fmt.Sprintf(`    INDEX idx_%s_bm25 (%s) USING GIN("parser" = "english")`, idxCol, formatDorisDDLColumnIdent(idxCol)))
-		} else {
+		} else if !strings.HasPrefix(colTypes[idxCol], "ARRAY<") {
 			bodyLines = append(bodyLines, fmt.Sprintf("    INDEX idx_%s_%s (%s) USING BITMAP", t.TableName, idxCol, formatDorisDDLColumnIdent(idxCol)))
 		}
 	}
@@ -1451,17 +1474,37 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 			}
 		}
 	}
+	var partCols []string
+	if len(t.PartitionByColumns) > 0 {
+		partCols = dedupDorisColumnList(t.PartitionByColumns)
+	} else {
+		for _, c := range orderedCols {
+			if c.IsPartitionKey {
+				partCols = append(partCols, c.ColumnName)
+			}
+		}
+		partCols = dedupDorisColumnList(partCols)
+	}
+	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
+		for _, c := range orderedCols {
+			if c.ColumnName == "event_month" {
+				partCols = append(partCols, "event_month")
+				break
+			}
+		}
+	}
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
 	b.WriteString(fullTableName)
 	b.WriteString(" (\n")
 	b.WriteString(strings.Join(bodyLines, ",\n"))
 	b.WriteString("\n)\n")
+	var distCol string
 	if len(uks) > 0 {
 		b.WriteString("PRIMARY KEY(")
 		b.WriteString(formatDorisDDLColumnIdentList(uks))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" && len(t.DistributionColumns) > 0 {
 			distCol = t.DistributionColumns[0]
 		}
@@ -1472,38 +1515,41 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 				distCol = uks[0]
 			}
 		}
-		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
-		b.WriteString("\n")
 	} else if len(dupKeys) > 0 {
 		b.WriteString("DUPLICATE KEY(")
 		b.WriteString(formatDorisDDLColumnIdentList(dupKeys))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" && len(t.DistributionColumns) > 0 {
 			distCol = t.DistributionColumns[0]
 		}
 		if distCol == "" {
 			distCol = dupKeys[0]
 		}
-		b.WriteString("DISTRIBUTED BY HASH(")
-		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
-		b.WriteString("\n")
 	} else if len(orderedCols) > 0 {
 		b.WriteString("DUPLICATE KEY(")
 		b.WriteString(formatDorisDDLColumnIdent(orderedCols[0].ColumnName))
 		b.WriteString(")\n")
-		distCol := t.DistributedByColumn
+		distCol = t.DistributedByColumn
 		if distCol == "" && len(t.DistributionColumns) > 0 {
 			distCol = t.DistributionColumns[0]
 		}
 		if distCol == "" {
 			distCol = orderedCols[0].ColumnName
 		}
+	}
+	if len(partCols) > 0 {
+		partKind := "LIST"
+		if strings.HasPrefix(colTypes[partCols[0]], "DATE") {
+			partKind = "RANGE"
+		}
+		b.WriteString("PARTITION BY ")
+		b.WriteString(partKind)
+		b.WriteString("(")
+		b.WriteString(formatDorisDDLColumnIdentList(partCols))
+		b.WriteString(") ()\n")
+	}
+	if distCol != "" {
 		b.WriteString("DISTRIBUTED BY HASH(")
 		b.WriteString(formatDorisDDLColumnIdent(distCol))
 		b.WriteString(") BUCKETS ")
@@ -2245,7 +2291,7 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 			b.WriteString("      parser = \"english\"\n")
 			b.WriteString("    }\n")
 			b.WriteString("  }\n")
-		} else {
+		} else if !strings.HasPrefix(colTypes[idxCol], "ARRAY<") {
 			idxName := fmt.Sprintf("idx_%s_%s", t.TableName, idxCol)
 			emittedIdx[idxName] = true
 			b.WriteString(fmt.Sprintf("  index %q {\n", idxName))
@@ -2289,12 +2335,13 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 		if idx.Name == "" || emittedIdx[idx.Name] || len(idx.Columns) == 0 {
 			continue
 		}
-		emittedIdx[idx.Name] = true
 		using := strings.ToUpper(strings.TrimSpace(idx.Using))
 		switch using {
 		case "", "INVERTED":
 			if (len(idx.Columns) == 1 && (colTypes[idx.Columns[0]] == "TEXT" || colTypes[idx.Columns[0]] == "STRING")) || idx.Properties["parser"] != "" {
 				using = "GIN"
+			} else if len(idx.Columns) == 1 && strings.HasPrefix(colTypes[idx.Columns[0]], "ARRAY<") {
+				continue
 			} else {
 				using = "BITMAP"
 			}
@@ -2303,6 +2350,7 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 		case "ANN":
 			using = "VECTOR"
 		}
+		emittedIdx[idx.Name] = true
 		b.WriteString(fmt.Sprintf("  index %q {\n", idx.Name))
 		b.WriteString(fmt.Sprintf("    columns = %s\n", formatAtlasHCLColRefList(idx.Columns)))
 		b.WriteString(fmt.Sprintf("    using = %q\n", using))
@@ -3414,7 +3462,7 @@ func (t DorisTableDescriptor) BuildIcebergAlterTableSQL(after DorisTableDescript
 // BuildDorisAlterTableSQL validates evolving before into after and returns the ordered
 // Apache Doris 4.x ALTER TABLE statements (MODIFY COLUMN for widened columns, then
 // ADD COLUMN for new columns). Returns (nil, nil) when no changes are required or when
-// the table is Iceberg-only.
+// the table is Iceberg-only in both before and after.
 func BuildDorisAlterTableSQL(before, after DorisTableDescriptor, tenantSlug string) ([]string, error) {
 	if !validateDorisDescriptor(before) || !validateDorisDescriptor(after) {
 		return nil, fmt.Errorf("invalid DorisTableDescriptor identifiers in BuildDorisAlterTableSQL")
@@ -3429,13 +3477,18 @@ func BuildDorisAlterTableSQL(before, after DorisTableDescriptor, tenantSlug stri
 	if err := ValidateDorisTableEvolution(before, after); err != nil {
 		return nil, err
 	}
-	if after.SyncTier == "ICEBERG_ONLY" {
+	beforeHasDoris := hasDorisTargetTable(before)
+	afterHasDoris := hasDorisTargetTable(after)
+	if !beforeHasDoris && !afterHasDoris {
 		return nil, nil
 	}
-	afterUKs := effectiveDorisUniqueKeys(after)
-	afterDKs := dedupDorisColumnList(after.DuplicateKeyColumns)
-	if after.DatabaseScope == "GLOBAL_TERMINOLOGY" && after.SyncTier == "RELEASE_PARTITIONED" && len(afterUKs) == 0 && len(afterDKs) == 0 {
-		return nil, nil
+	if beforeHasDoris != afterHasDoris {
+		return nil, fmt.Errorf("cannot generate Doris ALTER TABLE across sync_tier target transition (%q -> %q) for table %q", before.SyncTier, after.SyncTier, after.TableName)
+	}
+	beforeParts := effectiveDorisPartitionCols(before)
+	afterParts := effectiveDorisPartitionCols(after)
+	if !dorisStringSlicesEqual(beforeParts, afterParts) {
+		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
 	}
 	fullTableName := dorisQualifiedTableName(after, slug)
 	beforeColByName := make(map[string]DorisColumnDescriptor, len(before.Columns))
@@ -3450,7 +3503,10 @@ func BuildDorisAlterTableSQL(before, after DorisTableDescriptor, tenantSlug stri
 		}
 		beforeType := resolveDorisAlterColumnType(bc)
 		afterType := resolveDorisAlterColumnType(ac)
-		if beforeType != afterType {
+		if beforeType == "" || afterType == "" {
+			return nil, fmt.Errorf("column %q in table %q has empty DorisType and IcebergType", ac.ColumnName, after.TableName)
+		}
+		if beforeType != afterType || bc.Nullable != ac.Nullable {
 			stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterType, true)))
 		}
 	}
@@ -3459,6 +3515,9 @@ func BuildDorisAlterTableSQL(before, after DorisTableDescriptor, tenantSlug stri
 			continue
 		}
 		afterType := resolveDorisAlterColumnType(ac)
+		if afterType == "" {
+			return nil, fmt.Errorf("column %q in table %q has empty DorisType and IcebergType", ac.ColumnName, after.TableName)
+		}
 		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterType, true)))
 	}
 	return stmts, nil
@@ -3467,7 +3526,7 @@ func BuildDorisAlterTableSQL(before, after DorisTableDescriptor, tenantSlug stri
 // BuildStarRocksAlterTableSQL validates evolving before into after and returns the ordered
 // StarRocks 4.x ALTER TABLE statements (MODIFY COLUMN for widened columns, then
 // ADD COLUMN for new columns). Returns (nil, nil) when no changes are required or when
-// the table is Iceberg-only.
+// the table is Iceberg-only in both before and after.
 func BuildStarRocksAlterTableSQL(before, after DorisTableDescriptor, tenantSlug string) ([]string, error) {
 	if !validateDorisDescriptor(before) || !validateDorisDescriptor(after) {
 		return nil, fmt.Errorf("invalid DorisTableDescriptor identifiers in BuildStarRocksAlterTableSQL")
@@ -3482,13 +3541,18 @@ func BuildStarRocksAlterTableSQL(before, after DorisTableDescriptor, tenantSlug 
 	if err := ValidateDorisTableEvolution(before, after); err != nil {
 		return nil, err
 	}
-	if after.SyncTier == "ICEBERG_ONLY" {
+	beforeHasSR := hasDorisTargetTable(before)
+	afterHasSR := hasDorisTargetTable(after)
+	if !beforeHasSR && !afterHasSR {
 		return nil, nil
 	}
-	afterUKs := effectiveDorisUniqueKeys(after)
-	afterDKs := dedupDorisColumnList(after.DuplicateKeyColumns)
-	if after.DatabaseScope == "GLOBAL_TERMINOLOGY" && after.SyncTier == "RELEASE_PARTITIONED" && len(afterUKs) == 0 && len(afterDKs) == 0 {
-		return nil, nil
+	if beforeHasSR != afterHasSR {
+		return nil, fmt.Errorf("cannot generate StarRocks ALTER TABLE across sync_tier target transition (%q -> %q) for table %q", before.SyncTier, after.SyncTier, after.TableName)
+	}
+	beforeParts := effectiveDorisPartitionCols(before)
+	afterParts := effectiveDorisPartitionCols(after)
+	if !dorisStringSlicesEqual(beforeParts, afterParts) {
+		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
 	}
 	fullTableName := dorisQualifiedTableName(after, slug)
 	beforeColByName := make(map[string]DorisColumnDescriptor, len(before.Columns))
@@ -3503,7 +3567,10 @@ func BuildStarRocksAlterTableSQL(before, after DorisTableDescriptor, tenantSlug 
 		}
 		beforeSR := dorisColumnStarRocksDDLType(bc.DorisType, bc.IcebergType)
 		afterSR := dorisColumnStarRocksDDLType(ac.DorisType, ac.IcebergType)
-		if beforeSR != afterSR {
+		if beforeSR == "" || afterSR == "" {
+			return nil, fmt.Errorf("column %q in table %q has empty DorisType and IcebergType", ac.ColumnName, after.TableName)
+		}
+		if beforeSR != afterSR || bc.Nullable != ac.Nullable {
 			stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterSR, true)))
 		}
 	}
@@ -3512,6 +3579,9 @@ func BuildStarRocksAlterTableSQL(before, after DorisTableDescriptor, tenantSlug 
 			continue
 		}
 		afterSR := dorisColumnStarRocksDDLType(ac.DorisType, ac.IcebergType)
+		if afterSR == "" {
+			return nil, fmt.Errorf("column %q in table %q has empty DorisType and IcebergType", ac.ColumnName, after.TableName)
+		}
 		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterSR, true)))
 	}
 	return stmts, nil
@@ -3520,7 +3590,7 @@ func BuildStarRocksAlterTableSQL(before, after DorisTableDescriptor, tenantSlug 
 // BuildIcebergAlterTableSQL validates evolving before into after and returns the ordered
 // Apache Iceberg ALTER TABLE statements (MODIFY COLUMN for widened columns, then
 // ADD COLUMN for new columns). Returns (nil, nil) when no changes are required or when
-// SyncTier == "INTERNAL_ONLY".
+// SyncTier == "INTERNAL_ONLY" in both before and after.
 func BuildIcebergAlterTableSQL(before, after DorisTableDescriptor, tenantSlug string) ([]string, error) {
 	if !validateDorisDescriptor(before) || !validateDorisDescriptor(after) {
 		return nil, fmt.Errorf("invalid DorisTableDescriptor identifiers in BuildIcebergAlterTableSQL")
@@ -3535,8 +3605,18 @@ func BuildIcebergAlterTableSQL(before, after DorisTableDescriptor, tenantSlug st
 	if err := ValidateDorisTableEvolution(before, after); err != nil {
 		return nil, err
 	}
-	if after.SyncTier == "INTERNAL_ONLY" {
+	beforeHasIce := hasIcebergTargetTable(before)
+	afterHasIce := hasIcebergTargetTable(after)
+	if !beforeHasIce && !afterHasIce {
 		return nil, nil
+	}
+	if beforeHasIce != afterHasIce {
+		return nil, fmt.Errorf("cannot generate Iceberg ALTER TABLE across sync_tier target transition (%q -> %q) for table %q", before.SyncTier, after.SyncTier, after.TableName)
+	}
+	beforeParts := effectiveDorisPartitionCols(before)
+	afterParts := effectiveDorisPartitionCols(after)
+	if !dorisStringSlicesEqual(beforeParts, afterParts) || strings.TrimSpace(before.IcebergPartitionSpec) != strings.TrimSpace(after.IcebergPartitionSpec) {
+		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing Iceberg table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
 	}
 	fullTableName := icebergQualifiedTableName(after, slug)
 	beforeColByName := make(map[string]DorisColumnDescriptor, len(before.Columns))
@@ -3551,7 +3631,10 @@ func BuildIcebergAlterTableSQL(before, after DorisTableDescriptor, tenantSlug st
 		}
 		beforeIce := dorisColumnIcebergDDLType(bc.DorisType, bc.IcebergType)
 		afterIce := dorisColumnIcebergDDLType(ac.DorisType, ac.IcebergType)
-		if beforeIce != afterIce {
+		if beforeIce == "" || afterIce == "" {
+			return nil, fmt.Errorf("column %q in table %q has empty DorisType and IcebergType", ac.ColumnName, after.TableName)
+		}
+		if beforeIce != afterIce || bc.Nullable != ac.Nullable {
 			stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterIce, false)))
 		}
 	}
@@ -3560,9 +3643,59 @@ func BuildIcebergAlterTableSQL(before, after DorisTableDescriptor, tenantSlug st
 			continue
 		}
 		afterIce := dorisColumnIcebergDDLType(ac.DorisType, ac.IcebergType)
+		if afterIce == "" {
+			return nil, fmt.Errorf("column %q in table %q has empty DorisType and IcebergType", ac.ColumnName, after.TableName)
+		}
+		if !ac.Nullable && !isDorisNonScalarColumnType(afterIce) {
+			return nil, fmt.Errorf("cannot add NOT NULL scalar column %q to existing Iceberg table %q: Iceberg ALTER TABLE ADD COLUMN does not support initial DEFAULT values", ac.ColumnName, after.TableName)
+		}
 		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterIce, false)))
 	}
 	return stmts, nil
+}
+
+func hasDorisTargetTable(t DorisTableDescriptor) bool {
+	if t.SyncTier == "ICEBERG_ONLY" {
+		return false
+	}
+	uks := effectiveDorisUniqueKeys(t)
+	dks := dedupDorisColumnList(t.DuplicateKeyColumns)
+	if t.DatabaseScope == "GLOBAL_TERMINOLOGY" && t.SyncTier == "RELEASE_PARTITIONED" && len(uks) == 0 && len(dks) == 0 {
+		return false
+	}
+	return true
+}
+
+func hasIcebergTargetTable(t DorisTableDescriptor) bool {
+	return t.SyncTier != "INTERNAL_ONLY"
+}
+
+func effectiveDorisPartitionCols(t DorisTableDescriptor) []string {
+	if len(t.PartitionByColumns) > 0 {
+		return dedupDorisColumnList(t.PartitionByColumns)
+	}
+	var cols []string
+	for _, c := range t.Columns {
+		if c.IsPartitionKey {
+			cols = append(cols, c.ColumnName)
+		}
+	}
+	cols = dedupDorisColumnList(cols)
+	if len(cols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
+		for _, c := range t.Columns {
+			if c.ColumnName == "event_month" {
+				return []string{"event_month"}
+			}
+		}
+	}
+	if len(cols) == 0 && t.SyncTier == "RELEASE_PARTITIONED" {
+		for _, c := range t.Columns {
+			if c.ColumnName == "release_id" {
+				return []string{"release_id"}
+			}
+		}
+	}
+	return cols
 }
 
 func resolveDorisAlterColumnType(c DorisColumnDescriptor) string {

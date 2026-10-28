@@ -500,7 +500,20 @@ func TestBuildDorisAlterTableSQL_AllDialects(t *testing.T) {
 		t.Fatalf("BuildStarRocksAlterTableSQL mismatch:\ngot:  %#v\nwant: %#v", srStmts, wantDoris)
 	}
 
-	iceStmts, err := before.BuildIcebergAlterTableSQL(after, "acme")
+	// Iceberg rejects adding a NOT NULL scalar column (`record_status`) because Iceberg SQL
+	// ALTER TABLE ADD COLUMN does not support initial DEFAULT values.
+	if _, err := before.BuildIcebergAlterTableSQL(after, "acme"); err == nil {
+		t.Fatal("expected BuildIcebergAlterTableSQL to reject adding NOT NULL scalar column without Iceberg default support")
+	}
+
+	iceAfter := baseLinterTestTable()
+	iceAfter.Columns[1].DorisType = "VARCHAR(128)" // criterion_id: VARCHAR(64) -> VARCHAR(128)
+	iceAfter.Columns[2].DorisType = "INT"          // display_order: SMALLINT -> INT
+	iceAfter.Columns = append(iceAfter.Columns,
+		DorisColumnDescriptor{ColumnName: "optional_note", DorisType: "VARCHAR(256)", IcebergType: "STRING", Nullable: true},
+		DorisColumnDescriptor{ColumnName: "tags", DorisType: "ARRAY<VARCHAR(64)>", IcebergType: "LIST<STRING>", Nullable: false},
+	)
+	iceStmts, err := before.BuildIcebergAlterTableSQL(iceAfter, "acme")
 	if err != nil {
 		t.Fatalf("BuildIcebergAlterTableSQL failed: %v", err)
 	}
@@ -508,15 +521,28 @@ func TestBuildDorisAlterTableSQL_AllDialects(t *testing.T) {
 		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results MODIFY COLUMN criterion_id VARCHAR(128) NOT NULL;`,
 		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results MODIFY COLUMN display_order INT NOT NULL;`,
 		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results ADD COLUMN optional_note VARCHAR(256);`,
-		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results ADD COLUMN record_status VARCHAR(32) NOT NULL;`,
 		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results ADD COLUMN tags ARRAY<VARCHAR(64)> NOT NULL;`,
 	}
 	if !reflect.DeepEqual(iceStmts, wantIce) {
 		t.Fatalf("BuildIcebergAlterTableSQL mismatch:\ngot:  %#v\nwant: %#v", iceStmts, wantIce)
 	}
 
-	// 3. Engine-specific skip tiers (ICEBERG_ONLY vs INTERNAL_ONLY):
-	iceOnlyBefore := before
+	// 2b. Nullability change on an existing column emits MODIFY COLUMN across all dialects:
+	nullableAfter := baseLinterTestTable()
+	nullableAfter.Columns[3].Nullable = false // score: Nullable=true -> Nullable=false
+	nullableAfter.Columns[3].DefaultValue = "0.0"
+	if stmts, err := before.BuildDorisAlterTableSQL(nullableAfter, "acme"); err != nil || len(stmts) != 1 || stmts[0] != `ALTER TABLE internal.tenant_acme.eligibility_criterion_results MODIFY COLUMN score FLOAT NOT NULL DEFAULT "0.0";` {
+		t.Fatalf("expected Doris MODIFY COLUMN for nullability change, got (%v, %v)", stmts, err)
+	}
+	if stmts, err := before.BuildStarRocksAlterTableSQL(nullableAfter, "acme"); err != nil || len(stmts) != 1 || stmts[0] != `ALTER TABLE internal.tenant_acme.eligibility_criterion_results MODIFY COLUMN score FLOAT NOT NULL DEFAULT "0.0";` {
+		t.Fatalf("expected StarRocks MODIFY COLUMN for nullability change, got (%v, %v)", stmts, err)
+	}
+	if stmts, err := before.BuildIcebergAlterTableSQL(nullableAfter, "acme"); err != nil || len(stmts) != 1 || stmts[0] != `ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results MODIFY COLUMN score FLOAT NOT NULL;` {
+		t.Fatalf("expected Iceberg MODIFY COLUMN for nullability change, got (%v, %v)", stmts, err)
+	}
+
+	// 3. Engine-specific skip tiers (ICEBERG_ONLY vs INTERNAL_ONLY) when both before and after match:
+	iceOnlyBefore := baseLinterTestTable()
 	iceOnlyBefore.SyncTier = "ICEBERG_ONLY"
 	iceOnlyAfter := after
 	iceOnlyAfter.SyncTier = "ICEBERG_ONLY"
@@ -527,7 +553,7 @@ func TestBuildDorisAlterTableSQL_AllDialects(t *testing.T) {
 		t.Fatalf("expected ICEBERG_ONLY table to return empty StarRocks ALTER TABLE, got (%v, %v)", stmts, err)
 	}
 
-	internalBefore := before
+	internalBefore := baseLinterTestTable()
 	internalBefore.SyncTier = "INTERNAL_ONLY"
 	internalAfter := after
 	internalAfter.SyncTier = "INTERNAL_ONLY"
@@ -535,19 +561,74 @@ func TestBuildDorisAlterTableSQL_AllDialects(t *testing.T) {
 		t.Fatalf("expected INTERNAL_ONLY table to return empty Iceberg ALTER TABLE, got (%v, %v)", stmts, err)
 	}
 
-	// 4. Reject unsafe evolutions, mismatched table identities, and invalid tenant slugs:
+	// 3b. Cross-tier target transitions (ICEBERG_ONLY <-> MONTHLY_PARTITIONED or INTERNAL_ONLY <-> MONTHLY_PARTITIONED) must error:
+	if _, err := iceOnlyBefore.BuildDorisAlterTableSQL(after, "acme"); err == nil {
+		t.Fatal("expected BuildDorisAlterTableSQL to reject ICEBERG_ONLY -> MONTHLY_PARTITIONED transition")
+	}
+	if _, err := iceOnlyBefore.BuildStarRocksAlterTableSQL(after, "acme"); err == nil {
+		t.Fatal("expected BuildStarRocksAlterTableSQL to reject ICEBERG_ONLY -> MONTHLY_PARTITIONED transition")
+	}
+	if _, err := internalBefore.BuildIcebergAlterTableSQL(iceAfter, "acme"); err == nil {
+		t.Fatal("expected BuildIcebergAlterTableSQL to reject INTERNAL_ONLY -> MONTHLY_PARTITIONED transition")
+	}
+
+	// 4. Reject unsafe evolutions, partition mutations, empty column types, mismatched table identities, and invalid tenant slugs across all dialects:
 	unsafeAfter := baseLinterTestTable()
 	unsafeAfter.UniqueKeyColumns = []string{"patient_id"}
 	if _, err := before.BuildDorisAlterTableSQL(unsafeAfter, "acme"); err == nil {
 		t.Fatal("expected BuildDorisAlterTableSQL to return error on DORIS001 violation")
 	}
-	otherTable := after
+	if _, err := before.BuildStarRocksAlterTableSQL(unsafeAfter, "acme"); err == nil {
+		t.Fatal("expected BuildStarRocksAlterTableSQL to return error on DORIS001 violation")
+	}
+	if _, err := before.BuildIcebergAlterTableSQL(unsafeAfter, "acme"); err == nil {
+		t.Fatal("expected BuildIcebergAlterTableSQL to return error on DORIS001 violation")
+	}
+
+	partMutated := baseLinterTestTable()
+	partMutated.PartitionByColumns = []string{"patient_id"}
+	if _, err := before.BuildDorisAlterTableSQL(partMutated, "acme"); err == nil {
+		t.Fatal("expected BuildDorisAlterTableSQL to reject partition_by_columns mutation")
+	}
+	if _, err := before.BuildStarRocksAlterTableSQL(partMutated, "acme"); err == nil {
+		t.Fatal("expected BuildStarRocksAlterTableSQL to reject partition_by_columns mutation")
+	}
+	if _, err := before.BuildIcebergAlterTableSQL(partMutated, "acme"); err == nil {
+		t.Fatal("expected BuildIcebergAlterTableSQL to reject partition_by_columns mutation")
+	}
+
+	emptyTypeAfter := baseLinterTestTable()
+	emptyTypeAfter.Columns = append(emptyTypeAfter.Columns, DorisColumnDescriptor{ColumnName: "untyped_col", Nullable: true})
+	if _, err := before.BuildDorisAlterTableSQL(emptyTypeAfter, "acme"); err == nil {
+		t.Fatal("expected BuildDorisAlterTableSQL to reject column with empty DorisType and IcebergType")
+	}
+	if _, err := before.BuildStarRocksAlterTableSQL(emptyTypeAfter, "acme"); err == nil {
+		t.Fatal("expected BuildStarRocksAlterTableSQL to reject column with empty DorisType and IcebergType")
+	}
+	if _, err := before.BuildIcebergAlterTableSQL(emptyTypeAfter, "acme"); err == nil {
+		t.Fatal("expected BuildIcebergAlterTableSQL to reject column with empty DorisType and IcebergType")
+	}
+
+	otherTable := iceAfter
 	otherTable.TableName = "other_table"
 	if _, err := before.BuildDorisAlterTableSQL(otherTable, "acme"); err == nil {
 		t.Fatal("expected BuildDorisAlterTableSQL to reject mismatched table identity")
 	}
+	if _, err := before.BuildStarRocksAlterTableSQL(otherTable, "acme"); err == nil {
+		t.Fatal("expected BuildStarRocksAlterTableSQL to reject mismatched table identity")
+	}
+	if _, err := before.BuildIcebergAlterTableSQL(otherTable, "acme"); err == nil {
+		t.Fatal("expected BuildIcebergAlterTableSQL to reject mismatched table identity")
+	}
+
 	if _, err := before.BuildDorisAlterTableSQL(after, "bad;slug"); err == nil {
 		t.Fatal("expected BuildDorisAlterTableSQL to reject invalid tenantSlug")
+	}
+	if _, err := before.BuildStarRocksAlterTableSQL(after, "bad;slug"); err == nil {
+		t.Fatal("expected BuildStarRocksAlterTableSQL to reject invalid tenantSlug")
+	}
+	if _, err := before.BuildIcebergAlterTableSQL(iceAfter, "bad;slug"); err == nil {
+		t.Fatal("expected BuildIcebergAlterTableSQL to reject invalid tenantSlug")
 	}
 }
 

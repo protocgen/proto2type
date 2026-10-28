@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS internal.tenant_${TENANT_SLUG}.eligibility_criterion_
     INDEX idx_ngram_eligibility_criterion_results_criterion_id (criterion_id) USING NGRAM_BF PROPERTIES ("gram_size" = "3", "bf_size" = "1024")
 )
 UNIQUE KEY(patient_id, criterion_id)
+PARTITION BY RANGE(event_month) ()
 DISTRIBUTED BY HASH(patient_id) BUCKETS ${TENANT_BUCKETS}
 PROPERTIES (
     "storage_vault_name" = "lakehouse_vault",
