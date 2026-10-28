@@ -13,10 +13,71 @@ class OptionalBool(str, Enum):
     false = 'false'
 
 
+class TableOptions(BaseModel):
+    """TableOptions defines Apache Doris 4.x and Apache Iceberg lakehouse table
+metadata on a message. Wire-compatible with legacy table metadata extension 50201."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    table_name: str = ''
+    database_scope: str = ''
+    sync_tier: str = ''
+    unique_key_columns: list[str] = Field(default_factory=list)
+    partition_by_columns: list[str] = Field(default_factory=list)
+    colocate_group: str = ''
+    sequence_col: str = ''
+    inverted_index_columns: list[str] = Field(default_factory=list)
+    ngram_bf_columns: list[str] = Field(default_factory=list)
+    bloom_filter_columns: list[str] = Field(default_factory=list)
+    distributed_by_column: str = ''
+    duplicate_key_columns: list[str] = Field(default_factory=list)
+    file_cache_ttl_seconds: int = 0
+    storage_vault_name: str = ''
+    iceberg_catalog: str = ''
+    embedding_dimension: int = 0
+
+
+def apply_field_mask_table_options(dst: TableOptions, src: TableOptions, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "table_name":
+            dst.table_name = src.table_name
+        elif path == "database_scope":
+            dst.database_scope = src.database_scope
+        elif path == "sync_tier":
+            dst.sync_tier = src.sync_tier
+        elif path == "unique_key_columns":
+            dst.unique_key_columns = copy.deepcopy(src.unique_key_columns)
+        elif path == "partition_by_columns":
+            dst.partition_by_columns = copy.deepcopy(src.partition_by_columns)
+        elif path == "colocate_group":
+            dst.colocate_group = src.colocate_group
+        elif path == "sequence_col":
+            dst.sequence_col = src.sequence_col
+        elif path == "inverted_index_columns":
+            dst.inverted_index_columns = copy.deepcopy(src.inverted_index_columns)
+        elif path == "ngram_bf_columns":
+            dst.ngram_bf_columns = copy.deepcopy(src.ngram_bf_columns)
+        elif path == "bloom_filter_columns":
+            dst.bloom_filter_columns = copy.deepcopy(src.bloom_filter_columns)
+        elif path == "distributed_by_column":
+            dst.distributed_by_column = src.distributed_by_column
+        elif path == "duplicate_key_columns":
+            dst.duplicate_key_columns = copy.deepcopy(src.duplicate_key_columns)
+        elif path == "file_cache_ttl_seconds":
+            dst.file_cache_ttl_seconds = src.file_cache_ttl_seconds
+        elif path == "storage_vault_name":
+            dst.storage_vault_name = src.storage_vault_name
+        elif path == "iceberg_catalog":
+            dst.iceberg_catalog = src.iceberg_catalog
+        elif path == "embedding_dimension":
+            dst.embedding_dimension = src.embedding_dimension
+
 class MessageOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     skip: bool = Field(default=False, description='Skip generating types for this message.')
+    table: TableOptions | None = Field(default=None, description='Apache Doris 4.x and Apache Iceberg lakehouse table metadata.')
 
 
 def apply_field_mask_message_options(dst: MessageOptions, src: MessageOptions, paths: list[str]) -> None:
@@ -25,6 +86,8 @@ def apply_field_mask_message_options(dst: MessageOptions, src: MessageOptions, p
     for path in paths:
         if path == "skip":
             dst.skip = src.skip
+        elif path == "table":
+            dst.table = copy.deepcopy(src.table)
 
 class ComputedField(BaseModel):
     """ComputedField defines a derived field that is automatically populated
@@ -44,6 +107,48 @@ def apply_field_mask_computed_field(dst: ComputedField, src: ComputedField, path
         elif path == "transform":
             dst.transform = src.transform
 
+class ColumnOptions(BaseModel):
+    """ColumnOptions defines Apache Doris 4.x and Apache Iceberg lakehouse column
+metadata on a field. Wire-compatible with legacy column metadata extension 50200."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    doris_type: str = ''
+    iceberg_type: str = ''
+    inverted_index: bool = False
+    is_unique_key: bool = False
+    is_sequence_col: bool = False
+    inline_nested: bool = False
+    is_partition_key: bool = False
+    strip_enum_prefix: bool = False
+    column_name: str = ''
+    default_value: str = ''
+
+
+def apply_field_mask_column_options(dst: ColumnOptions, src: ColumnOptions, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "doris_type":
+            dst.doris_type = src.doris_type
+        elif path == "iceberg_type":
+            dst.iceberg_type = src.iceberg_type
+        elif path == "inverted_index":
+            dst.inverted_index = src.inverted_index
+        elif path == "is_unique_key":
+            dst.is_unique_key = src.is_unique_key
+        elif path == "is_sequence_col":
+            dst.is_sequence_col = src.is_sequence_col
+        elif path == "inline_nested":
+            dst.inline_nested = src.inline_nested
+        elif path == "is_partition_key":
+            dst.is_partition_key = src.is_partition_key
+        elif path == "strip_enum_prefix":
+            dst.strip_enum_prefix = src.strip_enum_prefix
+        elif path == "column_name":
+            dst.column_name = src.column_name
+        elif path == "default_value":
+            dst.default_value = src.default_value
+
 class FieldOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -56,6 +161,7 @@ class FieldOptions(BaseModel):
     enum_as_string: OptionalBool | None = Field(default=None, description='Store this enum field as its string name instead of int32. Per-field override for the global enum_as_string plugin option.')
     encrypt: bool = Field(default=False, description='Field-level encryption: encrypt before storage write, decrypt after read. Only valid for string fields. Generates EncryptFields/DecryptFields methods.')
     computed: ComputedField | None = Field(default=None, description='Computed/derived field: auto-populated from a source field via a transform. Excluded from domain types. Used for Firestore search indexes.')
+    column: ColumnOptions | None = Field(default=None, description='Apache Doris 4.x and Apache Iceberg lakehouse column metadata.')
 
 
 def apply_field_mask_field_options(dst: FieldOptions, src: FieldOptions, paths: list[str]) -> None:
@@ -80,16 +186,22 @@ def apply_field_mask_field_options(dst: FieldOptions, src: FieldOptions, paths: 
             dst.encrypt = src.encrypt
         elif path == "computed":
             dst.computed = copy.deepcopy(src.computed)
+        elif path == "column":
+            dst.column = copy.deepcopy(src.column)
 
 
+TableOptions.model_rebuild()
 MessageOptions.model_rebuild()
 ComputedField.model_rebuild()
+ColumnOptions.model_rebuild()
 FieldOptions.model_rebuild()
 
 __all__ = [
+    'ColumnOptions',
     'ComputedField',
     'FieldOptions',
     'MessageOptions',
     'OptionalBool',
+    'TableOptions',
 ]
 

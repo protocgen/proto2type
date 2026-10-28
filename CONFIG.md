@@ -424,6 +424,7 @@ message PatientRecord {
     inverted_index_columns: ["mrn"]
     storage_vault_name: "lakehouse_vault"
     iceberg_catalog: "lakehouse_catalog"
+    embedding_dimension: 768
   };
 
   string patient_id = 1 [(proto2type.field).column = {
@@ -456,9 +457,11 @@ message PatientRecord {
 | File suffixes | `_doris.type.go` (Go), `_doris.sql` / `_doris.hcl` (Doris 4.x DDL & HCL), `_starrocks.sql` / `_starrocks.hcl` (StarRocks 4.x DDL & HCL), `_iceberg.sql` / `_iceberg.hcl` (Iceberg DDL & HCL) |
 | Row scanning | `TableName()`, `Columns()`, `Values()`, `ScanRow(scanner)`, `Scan<Name>Proto(scanner)`, `<Name>ProtoValues(m)` |
 | DDL & HCL helpers | `<Name>DorisTable()`, `DorisTableDescriptor.BuildDorisCreateTableSQL(tenantSlug, buckets)`, `BuildStarRocksCreateTableSQL(tenantSlug, buckets)`, `BuildIcebergCreateTableSQL(tenantSlug)`, `BuildDorisAtlasHCL(tenantSlug, buckets)`, `BuildStarRocksAtlasHCL(tenantSlug, buckets)`, `BuildIcebergAtlasHCL(tenantSlug)`, `ParseDorisAtlasHCL(hclContent)` |
-| Evolution linter | `LintDorisTableEvolution(oldTable, newTable)`, `LintEvolution(oldTable, newTable)` |
+| Evolution linter | `LintDorisTableEvolution(oldTable, newTable)`, `ValidateDorisTableEvolution(oldTable, newTable)`, `LintDorisSchemaEvolution(oldTables, newTables)`, `DorisTableDescriptor.LintEvolution(newTable)` |
 | Inline nested | `inline_nested = true` recursively flattens child message columns |
 | Converters | `ToProto()` / `FromProto()` |
+
+See [docs/doris.md](docs/doris.md) for the complete Apache Doris 4.x, StarRocks 4.x & Apache Iceberg guide.
 
 ### Firestore
 

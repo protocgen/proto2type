@@ -144,6 +144,7 @@ type TableOptions struct {
 	FileCacheTtlSeconds  int32                  `protobuf:"varint,13,opt,name=file_cache_ttl_seconds,json=fileCacheTtlSeconds,proto3" json:"file_cache_ttl_seconds,omitempty"`
 	StorageVaultName     string                 `protobuf:"bytes,14,opt,name=storage_vault_name,json=storageVaultName,proto3" json:"storage_vault_name,omitempty"`
 	IcebergCatalog       string                 `protobuf:"bytes,15,opt,name=iceberg_catalog,json=icebergCatalog,proto3" json:"iceberg_catalog,omitempty"`
+	EmbeddingDimension   int32                  `protobuf:"varint,16,opt,name=embedding_dimension,json=embeddingDimension,proto3" json:"embedding_dimension,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -281,6 +282,13 @@ func (x *TableOptions) GetIcebergCatalog() string {
 		return x.IcebergCatalog
 	}
 	return ""
+}
+
+func (x *TableOptions) GetEmbeddingDimension() int32 {
+	if x != nil {
+		return x.EmbeddingDimension
+	}
+	return 0
 }
 
 type FieldOptions struct {
@@ -627,7 +635,7 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"proto2type\x1a google/protobuf/descriptor.proto\"T\n" +
 	"\x0eMessageOptions\x12\x12\n" +
 	"\x04skip\x18\x01 \x01(\bR\x04skip\x12.\n" +
-	"\x05table\x18\x02 \x01(\v2\x18.proto2type.TableOptionsR\x05table\"\xa1\x05\n" +
+	"\x05table\x18\x02 \x01(\v2\x18.proto2type.TableOptionsR\x05table\"\xd2\x05\n" +
 	"\fTableOptions\x12\x1d\n" +
 	"\n" +
 	"table_name\x18\x01 \x01(\tR\ttableName\x12%\n" +
@@ -645,7 +653,8 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\x15duplicate_key_columns\x18\f \x03(\tR\x13duplicateKeyColumns\x123\n" +
 	"\x16file_cache_ttl_seconds\x18\r \x01(\x05R\x13fileCacheTtlSeconds\x12,\n" +
 	"\x12storage_vault_name\x18\x0e \x01(\tR\x10storageVaultName\x12'\n" +
-	"\x0ficeberg_catalog\x18\x0f \x01(\tR\x0eicebergCatalog\"\x96\x03\n" +
+	"\x0ficeberg_catalog\x18\x0f \x01(\tR\x0eicebergCatalog\x12/\n" +
+	"\x13embedding_dimension\x18\x10 \x01(\x05R\x12embeddingDimension\"\x96\x03\n" +
 	"\fFieldOptions\x12\x1f\n" +
 	"\vdocument_id\x18\x01 \x01(\bR\n" +
 	"documentId\x12)\n" +

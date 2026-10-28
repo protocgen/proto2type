@@ -15,6 +15,30 @@ extend google.protobuf.MessageOptions {
 message MessageOptions {
   // Skip generating types for this message.
   bool skip = 1;
+
+  // Apache Doris 4.x and Apache Iceberg lakehouse table metadata.
+  TableOptions table = 2;
+}
+
+// TableOptions defines Apache Doris 4.x and Apache Iceberg lakehouse table
+// metadata on a message. Wire-compatible with legacy table metadata extension 50201.
+message TableOptions {
+  string table_name = 1;
+  string database_scope = 2;
+  string sync_tier = 3;
+  repeated string unique_key_columns = 4;
+  repeated string partition_by_columns = 5;
+  string colocate_group = 6;
+  string sequence_col = 7;
+  repeated string inverted_index_columns = 8;
+  repeated string ngram_bf_columns = 9;
+  repeated string bloom_filter_columns = 10;
+  string distributed_by_column = 11;
+  repeated string duplicate_key_columns = 12;
+  int32 file_cache_ttl_seconds = 13;
+  string storage_vault_name = 14;
+  string iceberg_catalog = 15;
+  int32 embedding_dimension = 16;
 }
 
 // Field-level options for proto2type.
@@ -54,6 +78,24 @@ message FieldOptions {
   // Computed/derived field: auto-populated from a source field via a transform.
   // Excluded from domain types. Used for Firestore search indexes.
   ComputedField computed = 9;
+
+  // Apache Doris 4.x and Apache Iceberg lakehouse column metadata.
+  ColumnOptions column = 10;
+}
+
+// ColumnOptions defines Apache Doris 4.x and Apache Iceberg lakehouse column
+// metadata on a field. Wire-compatible with legacy column metadata extension 50200.
+message ColumnOptions {
+  string doris_type = 1;
+  string iceberg_type = 2;
+  bool inverted_index = 3;
+  bool is_unique_key = 4;
+  bool is_sequence_col = 5;
+  bool inline_nested = 6;
+  bool is_partition_key = 7;
+  bool strip_enum_prefix = 8;
+  string column_name = 9;
+  string default_value = 10;
 }
 
 // ComputedField defines a derived field that is automatically populated

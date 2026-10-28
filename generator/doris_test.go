@@ -138,6 +138,7 @@ func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 			FileCacheTtlSeconds:  604800,
 			StorageVaultName:     "custom_vault",
 			IcebergCatalog:       "custom_catalog",
+			EmbeddingDimension:   1536,
 		},
 	})
 
@@ -221,6 +222,52 @@ func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 				Name:    proto.String("EmptyTableOptsRecord"),
 				Options: msgOptsEmpty,
 			},
+			{
+				Name: proto.String("VectorSearchRecord"),
+				Options: func() *descriptorpb.MessageOptions {
+					mo := &descriptorpb.MessageOptions{}
+					proto.SetExtension(mo, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+						Table: &proto2typepb.TableOptions{
+							TableName:           "vector_search_concepts",
+							DatabaseScope:       "GLOBAL_TERMINOLOGY_RAG",
+							SyncTier:            "INTERNAL_ONLY",
+							DuplicateKeyColumns: []string{"concept_id"},
+							EmbeddingDimension:  1536,
+						},
+					})
+					return mo
+				}(),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("concept_id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("conceptId"),
+						Options: func() *descriptorpb.FieldOptions {
+							fo := &descriptorpb.FieldOptions{}
+							proto.SetExtension(fo, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+								Column: &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},
+							})
+							return fo
+						}(),
+					},
+					{
+						Name:     proto.String("embedding"),
+						Number:   proto.Int32(2),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_FLOAT.Enum(),
+						JsonName: proto.String("embedding"),
+						Options: func() *descriptorpb.FieldOptions {
+							fo := &descriptorpb.FieldOptions{}
+							proto.SetExtension(fo, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+								Column: &proto2typepb.ColumnOptions{DorisType: "ARRAY<FLOAT>"},
+							})
+							return fo
+						}(),
+					},
+				},
+			},
 		},
 	}
 
@@ -228,6 +275,7 @@ func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 	nativeMsg := findMessage(t, gen, "NativeRecord")
 	wireMsg := findMessage(t, gen, "WireRecord")
 	emptyMsg := findMessage(t, gen, "EmptyTableOptsRecord")
+	vectorMsg := findMessage(t, gen, "VectorSearchRecord")
 
 	if extractDorisTableMeta(emptyMsg) != nil {
 		t.Error("expected extractDorisTableMeta(EmptyTableOptsRecord) to return nil for empty TableOptions")
@@ -240,7 +288,7 @@ func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 	if tMeta1.TableName != "patients" || tMeta1.DatabaseScope != "TENANT" || tMeta1.SyncTier != "WHOLE_TABLE" {
 		t.Errorf("unexpected NativeRecord table meta: %+v", tMeta1)
 	}
-	if tMeta1.DistributedByColumn != "patient_id" || tMeta1.FileCacheTTLSeconds != 604800 || len(tMeta1.DuplicateKeyColumns) != 1 || tMeta1.StorageVaultName != "custom_vault" || tMeta1.IcebergCatalog != "custom_catalog" {
+	if tMeta1.DistributedByColumn != "patient_id" || tMeta1.FileCacheTTLSeconds != 604800 || len(tMeta1.DuplicateKeyColumns) != 1 || tMeta1.StorageVaultName != "custom_vault" || tMeta1.IcebergCatalog != "custom_catalog" || tMeta1.EmbeddingDimension != 1536 {
 		t.Errorf("unexpected NativeRecord extended table meta: %+v", tMeta1)
 	}
 
@@ -266,6 +314,54 @@ func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 	}
 	if cMeta2.DorisType != "VARCHAR(64)" || !cMeta2.IsPartitionKey || cMeta2.DefaultValue != "20260101" {
 		t.Errorf("unexpected WireRecord column meta: %+v", cMeta2)
+	}
+
+	// Verify end-to-end propagation of EmbeddingDimension into buildDorisTableIR,
+	// emitted _doris.type.go descriptor literal, emitted runtime linter functions, and DDL.
+	vecMeta := extractDorisTableMeta(vectorMsg)
+	if vecMeta == nil {
+		t.Fatal("extractDorisTableMeta(VectorSearchRecord) returned nil")
+	}
+	vecIR, err := buildDorisTableIR(vectorMsg, vecMeta, &Options{Lang: "go", Backend: "doris"})
+	if err != nil {
+		t.Fatalf("buildDorisTableIR(VectorSearchRecord) failed: %v", err)
+	}
+	if vecIR.Descriptor.EmbeddingDimension != 1536 {
+		t.Fatalf("vecIR.Descriptor.EmbeddingDimension = %d, want 1536", vecIR.Descriptor.EmbeddingDimension)
+	}
+	vecFDP := &descriptorpb.FileDescriptorProto{
+		Syntax:      proto.String("proto3"),
+		Name:        proto.String("vec_opts.proto"),
+		Package:     proto.String("test.v1"),
+		Options:     &descriptorpb.FileOptions{GoPackage: proto.String("example.com/test/v1;testv1")},
+		MessageType: []*descriptorpb.DescriptorProto{fdp.MessageType[3]},
+	}
+	vecGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{vecFDP}}, []string{"vec_opts.proto"})
+	if err := NewRunner().GenerateFile(vecGen, vecGen.Files[0], &Options{Lang: "go", Backend: "doris", DorisMode: "both"}); err != nil {
+		t.Fatalf("GenerateFile(vec_opts.proto) failed: %v", err)
+	}
+	var gotVecGo, gotVecDDL string
+	for _, gf := range vecGen.Response().File {
+		switch filepath.Base(gf.GetName()) {
+		case "vec_opts_doris.type.go":
+			gotVecGo = gf.GetContent()
+		case "vec_opts_doris.sql":
+			gotVecDDL = gf.GetContent()
+		}
+	}
+	for _, wantGoSubstr := range []string{
+		"EmbeddingDimension:   1536,",
+		"func LintDorisTableEvolution(",
+		"func ValidateDorisTableEvolution(",
+		"func LintDorisSchemaEvolution(",
+		"func dorisTableEvolutionIdentity(",
+	} {
+		if !strings.Contains(gotVecGo, wantGoSubstr) {
+			t.Errorf("generated vec_opts_doris.type.go missing %q", wantGoSubstr)
+		}
+	}
+	if !strings.Contains(gotVecDDL, `"dim" = "1536"`) {
+		t.Errorf("generated vec_opts_doris.sql missing dim=1536 HNSW index:\n%s", gotVecDDL)
 	}
 }
 
@@ -1689,6 +1785,30 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},
 			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
 		},
+		{
+			name:      "Negative embedding_dimension rejected",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", EmbeddingDimension: -128},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
+		{
+			name:      "Positive embedding_dimension with unique_key_columns rejected",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", UniqueKeyColumns: []string{"id"}, EmbeddingDimension: 768},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)", IsUniqueKey: true},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
+		{
+			name:      "Positive embedding_dimension with field-level is_unique_key rejected",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", EmbeddingDimension: 768},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)", IsUniqueKey: true},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
+		{
+			name:      "Positive embedding_dimension without embedding column rejected",
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", EmbeddingDimension: 768},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"},
+			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
+		},
 	}
 
 	for _, tc := range cases {
@@ -1698,6 +1818,50 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 				t.Errorf("expected error for %s, but GenerateFile succeeded", tc.name)
 			}
 		})
+	}
+
+	// Verify duplicate physical table identity within the same proto file is rejected:
+	dupTblOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(dupTblOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{TableName: "duplicate_patients", DatabaseScope: "TENANT"},
+	})
+	dupFDP := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("dup_table.proto"),
+		Package: proto.String("test.v1"),
+		Options: &descriptorpb.FileOptions{GoPackage: proto.String("example.com/test/v1;testv1")},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("FirstPatientRecord"),
+				Options: dupTblOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+				},
+			},
+			{
+				Name:    proto.String("SecondPatientRecord"),
+				Options: dupTblOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+				},
+			},
+		},
+	}
+	genDup := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{dupFDP}}, []string{"dup_table.proto"})
+	if err := runner.GenerateFile(genDup, genDup.Files[0], opts); err == nil {
+		t.Error("expected error for duplicate table_name in the same file, got nil")
 	}
 
 	// Also verify invalid doris_mode returns an error:
@@ -2538,6 +2702,54 @@ func TestDorisDateAndTimeHelpers_EdgeCases(t *testing.T) {
 	badUint32Vals[7] = int64(-5)
 	if _, err := ScanDefaultInferredAuditRecordProto(NewDorisValueScanner(badUint32Vals)); err == nil {
 		t.Fatal("expected ScanDefaultInferredAuditRecordProto to reject negative uint32 retry_count")
+	}
+
+	// Verify emitted Doris schema evolution linter (DORIS001..DORIS006) in generated code
+	beforeTbl := EligibilityCriterionResultDorisTable()
+	afterSafe := EligibilityCriterionResultDorisTable()
+	afterSafe.Columns = append(afterSafe.Columns, DorisColumnDescriptor{
+		ColumnName:  "new_nullable_note",
+		DorisType:   "VARCHAR(128)",
+		IcebergType: "STRING",
+		Nullable:    true,
+	})
+	if err := ValidateDorisTableEvolution(beforeTbl, afterSafe); err != nil {
+		t.Fatalf("expected safe evolution to pass ValidateDorisTableEvolution, got: %v", err)
+	}
+	if err := ValidateDorisSchemaEvolution([]DorisTableDescriptor{beforeTbl}, []DorisTableDescriptor{afterSafe}); err != nil {
+		t.Fatalf("expected safe evolution to pass ValidateDorisSchemaEvolution, got: %v", err)
+	}
+
+	afterUnsafe := EligibilityCriterionResultDorisTable()
+	afterUnsafe.UniqueKeyColumns = []string{"patient_id"} // mutated from [patient_id, criterion_id] -> DORIS001
+	afterUnsafe.SequenceCol = "other_seq"                 // mutated from publication_generation -> DORIS002
+	afterUnsafe.DistributedByColumn = "other_dist"        // mutated from patient_id -> DORIS003
+	afterUnsafe.Columns = afterUnsafe.Columns[1:]         // dropped first column -> DORIS004
+	afterUnsafe.Columns[0].DorisType = "INT"              // narrowed VARCHAR -> INT -> DORIS006
+	afterUnsafe.Columns = append(afterUnsafe.Columns, DorisColumnDescriptor{
+		ColumnName: "added_non_null_no_default",
+		DorisType:  "VARCHAR(32)",
+		Nullable:   false,
+	}) // DORIS005
+	violations := beforeTbl.LintEvolution(afterUnsafe)
+	if len(violations) != 6 {
+		t.Fatalf("expected 6 violations (DORIS001..DORIS006) from generated LintEvolution, got %d: %v", len(violations), violations)
+	}
+	wantRules := []DorisLintRule{
+		DORIS001_IMMUTABLE_KEY,
+		DORIS002_IMMUTABLE_SEQUENCE,
+		DORIS003_IMMUTABLE_DISTRIBUTION,
+		DORIS004_NO_COLUMN_DROP,
+		DORIS005_NON_NULL_SCALAR_DEFAULT,
+		DORIS006_SAFE_TYPE_EVOLUTION,
+	}
+	for i, wantRule := range wantRules {
+		if violations[i].Rule != wantRule {
+			t.Errorf("violation[%d].Rule = %s, want %s (%s)", i, violations[i].Rule, wantRule, violations[i].Error())
+		}
+	}
+	if err := ValidateDorisTableEvolution(beforeTbl, afterUnsafe); err == nil {
+		t.Fatal("expected ValidateDorisTableEvolution to return joined error for unsafe evolution")
 	}
 }
 

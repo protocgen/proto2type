@@ -155,23 +155,27 @@ func LintDorisTableEvolution(before, after DorisTableDescriptor) []DorisEvolutio
 		}
 	}
 
-	// DORIS005_NON_NULL_SCALAR_DEFAULT & DORIS006_SAFE_TYPE_EVOLUTION
+	// DORIS005_NON_NULL_SCALAR_DEFAULT: Newly added NOT NULL scalar columns require an explicit DefaultValue.
+	for _, ac := range after.Columns {
+		if _, existed := beforeColByName[ac.ColumnName]; existed {
+			continue
+		}
+		if !ac.Nullable && !isDorisNonScalarColumnType(ac.DorisType) && strings.TrimSpace(ac.DefaultValue) == "" {
+			violations = append(violations, DorisEvolutionViolation{
+				Rule:       DORIS005_NON_NULL_SCALAR_DEFAULT,
+				TableName:  tableName,
+				ColumnName: ac.ColumnName,
+				Message:    fmt.Sprintf("newly added NOT NULL scalar column %q (%s) requires an explicit DefaultValue", ac.ColumnName, ac.DorisType),
+			})
+		}
+	}
+
+	// DORIS006_SAFE_TYPE_EVOLUTION: Existing columns may only undergo safe widening type evolutions.
 	for _, ac := range after.Columns {
 		bc, existed := beforeColByName[ac.ColumnName]
 		if !existed {
-			// Newly added column: check DORIS005_NON_NULL_SCALAR_DEFAULT.
-			if !ac.Nullable && !isDorisNonScalarColumnType(ac.DorisType) && strings.TrimSpace(ac.DefaultValue) == "" {
-				violations = append(violations, DorisEvolutionViolation{
-					Rule:       DORIS005_NON_NULL_SCALAR_DEFAULT,
-					TableName:  tableName,
-					ColumnName: ac.ColumnName,
-					Message:    fmt.Sprintf("newly added NOT NULL scalar column %q (%s) requires an explicit DefaultValue", ac.ColumnName, ac.DorisType),
-				})
-			}
 			continue
 		}
-
-		// Existing column: check DORIS006_SAFE_TYPE_EVOLUTION.
 		beforeType := strings.TrimSpace(bc.DorisType)
 		afterType := strings.TrimSpace(ac.DorisType)
 		if beforeType == "" && afterType == "" {
@@ -205,24 +209,45 @@ func ValidateDorisTableEvolution(before, after DorisTableDescriptor) error {
 	return errors.Join(errs...)
 }
 
+// dorisTableEvolutionIdentity computes the canonical physical table identity
+// (DatabaseScope, IcebergCatalog, TableName) used to pair before and after
+// table descriptors in LintDorisSchemaEvolution.
+func dorisTableEvolutionIdentity(t DorisTableDescriptor) string {
+	tableName := strings.TrimSpace(t.TableName)
+	if tableName == "" {
+		return ""
+	}
+	scope := strings.TrimSpace(t.DatabaseScope)
+	if scope == "" || scope == "UNSPECIFIED" {
+		scope = "TENANT"
+	}
+	catalog := strings.TrimSpace(t.IcebergCatalog)
+	if catalog == "" {
+		catalog = "iceberg"
+	}
+	return scope + "\x00" + catalog + "\x00" + tableName
+}
+
 // LintDorisSchemaEvolution validates evolving a slice of before table descriptors
-// into after table descriptors. Tables present in both slices (matched by TableName)
-// are validated in deterministic order.
+// into after table descriptors. Tables present in both slices (matched by physical
+// table identity: DatabaseScope, IcebergCatalog, and TableName) are validated in
+// deterministic order.
 func LintDorisSchemaEvolution(before, after []DorisTableDescriptor) []DorisEvolutionViolation {
-	beforeByName := make(map[string]DorisTableDescriptor, len(before))
+	beforeByKey := make(map[string]DorisTableDescriptor, len(before))
 	for _, t := range before {
-		if t.TableName != "" {
-			beforeByName[t.TableName] = t
+		if key := dorisTableEvolutionIdentity(t); key != "" {
+			beforeByKey[key] = t
 		}
 	}
 	var violations []DorisEvolutionViolation
 	seen := make(map[string]bool, len(after))
 	for _, afterTbl := range after {
-		if afterTbl.TableName == "" || seen[afterTbl.TableName] {
+		key := dorisTableEvolutionIdentity(afterTbl)
+		if key == "" || seen[key] {
 			continue
 		}
-		seen[afterTbl.TableName] = true
-		if beforeTbl, ok := beforeByName[afterTbl.TableName]; ok {
+		seen[key] = true
+		if beforeTbl, ok := beforeByKey[key]; ok {
 			violations = append(violations, LintDorisTableEvolution(beforeTbl, afterTbl)...)
 		}
 	}

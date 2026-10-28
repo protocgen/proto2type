@@ -38,6 +38,7 @@ type DorisTableMetaIR struct {
 	FileCacheTTLSeconds  int32
 	StorageVaultName     string
 	IcebergCatalog       string
+	EmbeddingDimension   int32
 }
 
 // isEmpty reports whether m is nil or has all zero-valued fields.
@@ -59,7 +60,8 @@ func (m *DorisTableMetaIR) isEmpty() bool {
 		len(m.DuplicateKeyColumns) == 0 &&
 		m.FileCacheTTLSeconds == 0 &&
 		m.StorageVaultName == "" &&
-		m.IcebergCatalog == ""
+		m.IcebergCatalog == "" &&
+		m.EmbeddingDimension == 0
 }
 
 // DorisColumnMetaIR holds Apache Doris 4.x and Apache Iceberg column-level
@@ -326,6 +328,7 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 			FileCacheTTLSeconds:  t.GetFileCacheTtlSeconds(),
 			StorageVaultName:     t.GetStorageVaultName(),
 			IcebergCatalog:       t.GetIcebergCatalog(),
+			EmbeddingDimension:   t.GetEmbeddingDimension(),
 		}
 		if !out.isEmpty() {
 			return out
@@ -568,6 +571,20 @@ func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultA
 			if includeVaultAndCatalog && typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
 					dst.IcebergCatalog = string(v)
+					b = b[m:]
+					continue
+				}
+			}
+		case 16: // int32 embedding_dimension = 16
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					if v <= math.MaxInt32 {
+						dst.EmbeddingDimension = int32(v)
+					} else if negMag := ^v + 1; negMag <= math.MaxInt32 {
+						dst.EmbeddingDimension = -int32(negMag) // #nosec G115 -- bounded by negMag <= math.MaxInt32
+					} else if ^v+1 == 1<<31 {
+						dst.EmbeddingDimension = math.MinInt32
+					}
 					b = b[m:]
 					continue
 				}
