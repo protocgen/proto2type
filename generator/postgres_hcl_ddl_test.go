@@ -2088,6 +2088,9 @@ func TestPostgresHardening_MapAndNestedMessagesNotStandaloneTables(t *testing.T)
 	if !strings.Contains(ddl, `CREATE TABLE IF NOT EXISTS "explicit_nested_events"`) {
 		t.Errorf("expected explicit_nested_events in DDL:\n%s", ddl)
 	}
+	if !strings.Contains(hcl, `table "explicit_nested_events"`) {
+		t.Errorf("expected explicit_nested_events in HCL:\n%s", hcl)
+	}
 	if strings.Contains(ddl, `"sub_meta"`) || strings.Contains(hcl, `table "sub_meta"`) {
 		t.Errorf("map value message SubMeta must not be emitted as a standalone table:\nDDL:\n%s\nHCL:\n%s", ddl, hcl)
 	}
@@ -2175,8 +2178,14 @@ func TestPostgresHardening_Identifier63ByteCompactionAndValidation(t *testing.T)
 	}
 	ddl := gotFiles["long_names_postgres.sql"]
 	hcl := gotFiles["long_names_postgres.hcl"]
-	if !strings.Contains(ddl, "CREATE INDEX IF NOT EXISTS \"idx_") || !strings.Contains(ddl, "CREATE UNIQUE INDEX IF NOT EXISTS \"uq_") || !strings.Contains(ddl, "ADD CONSTRAINT \"fk_") {
-		t.Fatalf("expected compacted idx_, uq_, and fk_ identifiers in DDL:\n%s", ddl)
+	if n := strings.Count(ddl, "CREATE INDEX IF NOT EXISTS \"idx_"); n != 2 {
+		t.Fatalf("expected 2 compacted idx_ indexes in DDL, got %d:\n%s", n, ddl)
+	}
+	if n := strings.Count(ddl, "CREATE UNIQUE INDEX IF NOT EXISTS \"uq_"); n != 2 {
+		t.Fatalf("expected 2 compacted uq_ indexes in DDL, got %d:\n%s", n, ddl)
+	}
+	if !strings.Contains(ddl, "ADD CONSTRAINT \"fk_") {
+		t.Fatalf("expected compacted fk_ constraint in DDL:\n%s", ddl)
 	}
 	for _, line := range strings.Split(ddl, "\n") {
 		for _, pfx := range []string{`"idx_`, `"uq_`, `"fk_`} {
@@ -2570,3 +2579,202 @@ func TestPostgresHardening_CrossFileDuplicateTableNamesAllModes(t *testing.T) {
 		})
 	}
 }
+
+// TestPostgresHardening_ExplicitIndexNameAmbiguousFKAndHCLTemplateEscape verifies that:
+// 1. Explicitly named indexes override auto-generated indexes on the same column;
+// 2. HCL template interpolation openers (${ and %{) in default values are escaped;
+// 3. Long message-name aliases (>63 bytes) in ref_table resolve when the target has a valid table_name;
+// 4. Ambiguous unprefixed ref_table targets across multiple writer services are rejected.
+func TestPostgresHardening_ExplicitIndexNameAmbiguousFKAndHCLTemplateEscape(t *testing.T) {
+	shortTargetOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(shortTargetOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			TableName: "short_target",
+		},
+	})
+
+	longAliasName := "OrganizationEnterpriseHierarchicalDepartmentalConfigurationTarget" // 65 bytes
+	fkColOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(fkColOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		Index: true,
+		Column: &proto2typepb.ColumnOptions{
+			DefaultValue: "tpl-${env}-%{region}",
+		},
+		ForeignKey: &proto2typepb.ForeignKey{
+			RefTable:  longAliasName,
+			RefColumn: "id",
+		},
+	})
+
+	refTblOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(refTblOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			Indexes: []*proto2typepb.IndexDef{
+				{
+					Name:    "idx_custom_lookup",
+					Columns: []string{"target_id"},
+				},
+			},
+		},
+	})
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("explicit_idx_fk.proto"),
+		Package: proto.String("explicitidxfk.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/explicitidxfk/v1;explicitidxfkv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String(longAliasName),
+				Options: shortTargetOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+				},
+			},
+			{
+				Name:    proto.String("RefHolder"),
+				Options: refTblOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("target_id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("targetId"),
+						Options:  fkColOpts,
+					},
+				},
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"explicit_idx_fk.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "both",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+	ddl := gotFiles["explicit_idx_fk_postgres.sql"]
+	hcl := gotFiles["explicit_idx_fk_postgres.hcl"]
+
+	if !strings.Contains(ddl, `"idx_custom_lookup"`) || strings.Contains(ddl, `"idx_ref_holder_target_id"`) {
+		t.Errorf("expected explicit index idx_custom_lookup to replace auto-named index in DDL:\n%s", ddl)
+	}
+	if !strings.Contains(hcl, `index "idx_custom_lookup"`) || strings.Contains(hcl, `index "idx_ref_holder_target_id"`) {
+		t.Errorf("expected explicit index idx_custom_lookup to replace auto-named index in HCL:\n%s", hcl)
+	}
+	if !strings.Contains(ddl, `REFERENCES "short_target" ("id")`) {
+		t.Errorf("expected >63-byte message alias to resolve to short_target in DDL:\n%s", ddl)
+	}
+	if !strings.Contains(hcl, `default = "tpl-$${env}-%%{region}"`) {
+		t.Errorf("expected HCL template interpolation sequences to be escaped in HCL:\n%s", hcl)
+	}
+
+	// Verify ambiguous unprefixed ref_table across two writer services is rejected for a third writer service.
+	billingOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(billingOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{WriterService: "billing"},
+	})
+	shippingOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(shippingOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{WriterService: "shipping"},
+	})
+	auditOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(auditOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{WriterService: "audit"},
+	})
+	ambigFKOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(ambigFKOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		ForeignKey: &proto2typepb.ForeignKey{
+			RefTable:  "order",
+			RefColumn: "id",
+		},
+	})
+
+	ambigFDP := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("ambig_fk.proto"),
+		Package: proto.String("ambigfk.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/ambigfk/v1;ambigfkv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: proto.String("BillingScope"),
+				NestedType: []*descriptorpb.DescriptorProto{
+					{
+						Name:    proto.String("Order"),
+						Options: billingOpts,
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:     proto.String("id"),
+								Number:   proto.Int32(1),
+								Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+								JsonName: proto.String("id"),
+							},
+						},
+					},
+				},
+			},
+			{
+				Name: proto.String("ShippingScope"),
+				NestedType: []*descriptorpb.DescriptorProto{
+					{
+						Name:    proto.String("Order"),
+						Options: shippingOpts,
+						Field: []*descriptorpb.FieldDescriptorProto{
+							{
+								Name:     proto.String("id"),
+								Number:   proto.Int32(1),
+								Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+								Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+								JsonName: proto.String("id"),
+							},
+						},
+					},
+				},
+			},
+			{
+				Name:    proto.String("AuditEntry"),
+				Options: auditOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("order_id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("orderId"),
+						Options:  ambigFKOpts,
+					},
+				},
+			},
+		},
+	}
+
+	genAmbig := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{ambigFDP}}, []string{"ambig_fk.proto"})
+	if err := NewRunner().GenerateFile(genAmbig, genAmbig.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "ddl",
+		Domain:       false,
+	}); err == nil || !strings.Contains(err.Error(), "ambiguous unprefixed ref_table") {
+		t.Errorf("expected ambiguous unprefixed ref_table error, got %v", err)
+	}
+}
+

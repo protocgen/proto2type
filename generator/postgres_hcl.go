@@ -26,7 +26,7 @@ func formatPostgresHCLDefaultValue(c PostgresColumnDescriptor) string {
 	if isPostgresNumericSQLType(sqlType) {
 		return c.DefaultValue
 	}
-	return strconv.Quote(c.DefaultValue)
+	return strconv.Quote(strings.NewReplacer("${", "$${", "%{", "%%{").Replace(c.DefaultValue))
 }
 
 // formatPostgresHCLType normalizes a PostgreSQL type expression into a valid Atlas HCL type attribute.

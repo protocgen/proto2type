@@ -529,7 +529,7 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 				isVariantPK := colMeta != nil && (colMeta.PrimaryKey || colMeta.IsUniqueKey)
 				isVariantServerTS := v.ProtoField != nil && isServerTimestamp(v.ProtoField)
 				nullable := true
-				if isVariantPK || explicitPKSet[colName] || isVariantServerTS {
+				if isVariantPK || explicitPKSet[colName] || (isVariantServerTS && isPostgresTimestampSQLType(ddlType)) {
 					nullable = false
 				} else if colMeta != nil && colMeta.Nullable != nil {
 					nullable = *colMeta.Nullable
@@ -665,6 +665,7 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 	var indexes []PostgresIndexDescriptor
 	seenIdx := make(map[string]PostgresIndexDescriptor)
 	seenIdxCols := make(map[string]bool)
+	seenAutoIdxPos := make(map[string]int)
 	addIndex := func(idx PostgresIndexDescriptor, autoNamed bool) error {
 		if idx.Name == "" {
 			autoNamed = true
@@ -706,7 +707,16 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 			return nil
 		}
 		colSig := fmt.Sprintf("%t:%s", idx.Unique, strings.Join(idx.Columns, ","))
-		if seenIdxCols[colSig] {
+		if autoNamed {
+			if seenIdxCols[colSig] {
+				return nil
+			}
+			seenAutoIdxPos[colSig] = len(indexes)
+		} else if pos, hasAuto := seenAutoIdxPos[colSig]; hasAuto {
+			delete(seenIdx, indexes[pos].Name)
+			delete(seenAutoIdxPos, colSig)
+			indexes[pos] = idx
+			seenIdx[idx.Name] = idx
 			return nil
 		}
 		seenIdx[idx.Name] = idx
@@ -742,10 +752,6 @@ func buildPostgresTableSchema(dm *DomainMessage, opts *Options) (*PostgresTableS
 			refTable := cm.ForeignKey.RefTable
 			if !isValidSQLIdentifier(refTable) {
 				return nil, fmt.Errorf("field %s in %s: invalid foreign key ref_table %q", colName, dm.FullName, refTable)
-			}
-			if len(refTable) > maxPostgresIdentifierBytes {
-				return nil, fmt.Errorf("field %s in %s: foreign key ref_table %q exceeds %d-byte identifier limit (%d bytes)",
-					colName, dm.FullName, refTable, maxPostgresIdentifierBytes, len(refTable))
 			}
 			refCol := cm.ForeignKey.RefColumn
 			if refCol == "" {
@@ -845,8 +851,20 @@ func collectPostgresTableSchemas(df *DomainFile, opts *Options) ([]*PostgresTabl
 	var tables []*PostgresTableSchemaDescriptor
 	seenTables := make(map[string]string)
 	byResolvedName := make(map[string]string)
-	byUnprefixedSnake := make(map[string]string)
-	byGoName := make(map[string]string)
+	byUnprefixedSnake := make(map[string][]string)
+	byGoName := make(map[string][]string)
+
+	addAlias := func(m map[string][]string, key, tableName string) {
+		if key == "" {
+			return
+		}
+		for _, existing := range m[key] {
+			if existing == tableName {
+				return
+			}
+		}
+		m[key] = append(m[key], tableName)
+	}
 
 	var collectMsgs func(msgs []*DomainMessage, isNested bool) error
 	collectMsgs = func(msgs []*DomainMessage, isNested bool) error {
@@ -870,16 +888,20 @@ func collectPostgresTableSchemas(df *DomainFile, opts *Options) ([]*PostgresTabl
 				}
 				seenTables[tbl.TableName] = owner
 				byResolvedName[tbl.TableName] = tbl.TableName
-				unprefixed := toSnakeCase(dm.Name)
+				addAlias(byUnprefixedSnake, toSnakeCase(dm.Name), tbl.TableName)
 				if dm.ProtoMsg != nil {
-					unprefixed = toSnakeCase(dm.ProtoMsg.GoIdent.GoName)
+					addAlias(byUnprefixedSnake, toSnakeCase(dm.ProtoMsg.GoIdent.GoName), tbl.TableName)
+					leafName := string(dm.ProtoMsg.Desc.Name())
+					addAlias(byUnprefixedSnake, toSnakeCase(leafName), tbl.TableName)
+					addAlias(byGoName, leafName, tbl.TableName)
 				}
-				if unprefixed != "" && byUnprefixedSnake[unprefixed] == "" {
-					byUnprefixedSnake[unprefixed] = tbl.TableName
+				if tbl.WriterService != "" {
+					normWriter := strings.ReplaceAll(strings.TrimSpace(tbl.WriterService), "-", "_")
+					if rest, ok := strings.CutPrefix(tbl.TableName, normWriter+"__"); ok && rest != "" {
+						addAlias(byUnprefixedSnake, rest, tbl.TableName)
+					}
 				}
-				if dm.Name != "" && byGoName[dm.Name] == "" {
-					byGoName[dm.Name] = tbl.TableName
-				}
+				addAlias(byGoName, dm.Name, tbl.TableName)
 				tables = append(tables, tbl)
 			}
 			if err := collectMsgs(dm.NestedMessages, true); err != nil {
@@ -907,10 +929,16 @@ func collectPostgresTableSchemas(df *DomainFile, opts *Options) ([]*PostgresTabl
 					}
 				}
 				if byResolvedName[fk.RefTable] == "" {
-					if resolved := byUnprefixedSnake[snakeRef]; resolved != "" {
-						fk.RefTable = resolved
-					} else if resolved := byGoName[fk.RefTable]; resolved != "" {
-						fk.RefTable = resolved
+					matches := byUnprefixedSnake[snakeRef]
+					if len(matches) == 0 {
+						matches = byGoName[fk.RefTable]
+					}
+					if len(matches) > 1 {
+						return nil, fmt.Errorf("table %s: foreign key %q has ambiguous unprefixed ref_table %q (matches physical tables: %s)",
+							tbl.TableName, fk.Name, fk.RefTable, strings.Join(matches, ", "))
+					}
+					if len(matches) == 1 {
+						fk.RefTable = matches[0]
 					}
 				}
 			}
