@@ -127,6 +127,7 @@ func (gg *goGenerator) generateGoDoris(gen *protogen.Plugin, file *protogen.File
 // buildDorisTablesForFile extracts all table-annotated messages from file in declaration order.
 func buildDorisTablesForFile(file *protogen.File, opts *Options) ([]*dorisTableIR, error) {
 	var tables []*dorisTableIR
+	seenTables := make(map[string]protoreflect.FullName)
 	for _, msg := range file.Messages {
 		if isMessageSkipped(msg) {
 			continue
@@ -142,6 +143,11 @@ func buildDorisTablesForFile(file *protogen.File, opts *Options) ([]*dorisTableI
 		if err != nil {
 			return nil, err
 		}
+		id := dorisTableEvolutionIdentity(tbl.Descriptor)
+		if prev, exists := seenTables[id]; exists {
+			return nil, fmt.Errorf("message %s: duplicate table identity %q (already declared by %s)", msg.Desc.FullName(), meta.TableName, prev)
+		}
+		seenTables[id] = msg.Desc.FullName()
 		tables = append(tables, tbl)
 	}
 	return tables, nil
@@ -177,6 +183,9 @@ func validateDorisTableMeta(msg *protogen.Message, meta *DorisTableMetaIR) error
 	}
 	if meta.EmbeddingDimension < 0 {
 		return fmt.Errorf("message %s: embedding_dimension cannot be negative (%d)", fullName, meta.EmbeddingDimension)
+	}
+	if meta.EmbeddingDimension > 0 && len(meta.UniqueKeyColumns) > 0 {
+		return fmt.Errorf("message %s: embedding_dimension (%d) requires a DUPLICATE KEY table and cannot be combined with unique_key_columns", fullName, meta.EmbeddingDimension)
 	}
 	checkList := func(label string, items []string) error {
 		for _, item := range items {
@@ -519,6 +528,15 @@ func buildDorisTableIR(msg *protogen.Message, meta *DorisTableMetaIR, opts *Opti
 			if c := colByName[meta.DistributedByColumn]; c != nil && !isDorisKeyEligibleType(c.ColDesc.DorisType) {
 				return nil, fmt.Errorf("message %s: distributed_by_column %q has disallowed Doris hash distribution type %q", msg.Desc.FullName(), meta.DistributedByColumn, c.ColDesc.DorisType)
 			}
+		}
+	}
+	if meta.EmbeddingDimension > 0 {
+		if len(uks) > 0 {
+			return nil, fmt.Errorf("message %s: embedding_dimension (%d) requires a DUPLICATE KEY table and cannot be combined with UNIQUE KEY columns", msg.Desc.FullName(), meta.EmbeddingDimension)
+		}
+		embCol := colByName["embedding"]
+		if embCol == nil || embCol.ColDesc.Nullable || strings.ToUpper(strings.TrimSpace(embCol.ColDesc.DorisType)) != "ARRAY<FLOAT>" {
+			return nil, fmt.Errorf("message %s: embedding_dimension (%d) requires a non-nullable ARRAY<FLOAT> column named \"embedding\"", msg.Desc.FullName(), meta.EmbeddingDimension)
 		}
 	}
 
@@ -2796,16 +2814,21 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tfor _, ac := range after.Columns {")
+	g.P("\t\tif _, existed := beforeColByName[ac.ColumnName]; existed {")
+	g.P("\t\t\tcontinue")
+	g.P("\t\t}")
+	g.P("\t\tif !ac.Nullable && !isDorisNonScalarColumnType(ac.DorisType) && ", stringsTrimSpace, "(ac.DefaultValue) == \"\" {")
+	g.P("\t\t\tviolations = append(violations, DorisEvolutionViolation{")
+	g.P("\t\t\t\tRule:       DORIS005_NON_NULL_SCALAR_DEFAULT,")
+	g.P("\t\t\t\tTableName:  tableName,")
+	g.P("\t\t\t\tColumnName: ac.ColumnName,")
+	g.P("\t\t\t\tMessage:    ", fmtSprintf, "(\"newly added NOT NULL scalar column %q (%s) requires an explicit DefaultValue\", ac.ColumnName, ac.DorisType),")
+	g.P("\t\t\t})")
+	g.P("\t\t}")
+	g.P("\t}")
+	g.P("\tfor _, ac := range after.Columns {")
 	g.P("\t\tbc, existed := beforeColByName[ac.ColumnName]")
 	g.P("\t\tif !existed {")
-	g.P("\t\t\tif !ac.Nullable && !isDorisNonScalarColumnType(ac.DorisType) && ", stringsTrimSpace, "(ac.DefaultValue) == \"\" {")
-	g.P("\t\t\t\tviolations = append(violations, DorisEvolutionViolation{")
-	g.P("\t\t\t\t\tRule:       DORIS005_NON_NULL_SCALAR_DEFAULT,")
-	g.P("\t\t\t\t\tTableName:  tableName,")
-	g.P("\t\t\t\t\tColumnName: ac.ColumnName,")
-	g.P("\t\t\t\t\tMessage:    ", fmtSprintf, "(\"newly added NOT NULL scalar column %q (%s) requires an explicit DefaultValue\", ac.ColumnName, ac.DorisType),")
-	g.P("\t\t\t\t})")
-	g.P("\t\t\t}")
 	g.P("\t\t\tcontinue")
 	g.P("\t\t}")
 	g.P("\t\tbeforeType := ", stringsTrimSpace, "(bc.DorisType)")
@@ -2840,24 +2863,42 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\treturn ", errorsJoin, "(errs...)")
 	g.P("}")
 	g.P()
+	g.P("func dorisTableEvolutionIdentity(t DorisTableDescriptor) string {")
+	g.P("\ttableName := ", stringsTrimSpace, "(t.TableName)")
+	g.P("\tif tableName == \"\" {")
+	g.P("\t\treturn \"\"")
+	g.P("\t}")
+	g.P("\tscope := ", stringsTrimSpace, "(t.DatabaseScope)")
+	g.P("\tif scope == \"\" || scope == \"UNSPECIFIED\" {")
+	g.P("\t\tscope = \"TENANT\"")
+	g.P("\t}")
+	g.P("\tcatalog := ", stringsTrimSpace, "(t.IcebergCatalog)")
+	g.P("\tif catalog == \"\" {")
+	g.P("\t\tcatalog = \"iceberg\"")
+	g.P("\t}")
+	g.P("\treturn scope + \"\\x00\" + catalog + \"\\x00\" + tableName")
+	g.P("}")
+	g.P()
 	g.P("// LintDorisSchemaEvolution validates evolving a slice of before table descriptors")
-	g.P("// into after table descriptors. Tables present in both slices (matched by TableName)")
-	g.P("// are validated in deterministic order.")
+	g.P("// into after table descriptors. Tables present in both slices (matched by physical")
+	g.P("// table identity: DatabaseScope, IcebergCatalog, and TableName) are validated in")
+	g.P("// deterministic order.")
 	g.P("func LintDorisSchemaEvolution(before, after []DorisTableDescriptor) []DorisEvolutionViolation {")
-	g.P("\tbeforeByName := make(map[string]DorisTableDescriptor, len(before))")
+	g.P("\tbeforeByKey := make(map[string]DorisTableDescriptor, len(before))")
 	g.P("\tfor _, t := range before {")
-	g.P("\t\tif t.TableName != \"\" {")
-	g.P("\t\t\tbeforeByName[t.TableName] = t")
+	g.P("\t\tif key := dorisTableEvolutionIdentity(t); key != \"\" {")
+	g.P("\t\t\tbeforeByKey[key] = t")
 	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tvar violations []DorisEvolutionViolation")
 	g.P("\tseen := make(map[string]bool, len(after))")
 	g.P("\tfor _, afterTbl := range after {")
-	g.P("\t\tif afterTbl.TableName == \"\" || seen[afterTbl.TableName] {")
+	g.P("\t\tkey := dorisTableEvolutionIdentity(afterTbl)")
+	g.P("\t\tif key == \"\" || seen[key] {")
 	g.P("\t\t\tcontinue")
 	g.P("\t\t}")
-	g.P("\t\tseen[afterTbl.TableName] = true")
-	g.P("\t\tif beforeTbl, ok := beforeByName[afterTbl.TableName]; ok {")
+	g.P("\t\tseen[key] = true")
+	g.P("\t\tif beforeTbl, ok := beforeByKey[key]; ok {")
 	g.P("\t\t\tviolations = append(violations, LintDorisTableEvolution(beforeTbl, afterTbl)...)")
 	g.P("\t\t}")
 	g.P("\t}")

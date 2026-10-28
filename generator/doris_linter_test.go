@@ -382,6 +382,73 @@ func TestLintDorisSchemaEvolution_MultiTableSlice(t *testing.T) {
 	); err != nil {
 		t.Fatalf("expected nil error for safe multi-table evolution, got %v", err)
 	}
+
+	// Verify that tables sharing the same TableName across different DatabaseScopes
+	// (e.g., TENANT vs GLOBAL_TELEMETRY) or IcebergCatalogs are paired by full physical
+	// table identity and do not overwrite or cross-pair each other.
+	tenantEventsBefore := DorisTableDescriptor{
+		TableName:        "audit_events",
+		DatabaseScope:    "TENANT",
+		UniqueKeyColumns: []string{"tenant_id", "event_id"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "tenant_id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+			{ColumnName: "event_id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+		},
+	}
+	globalEventsBefore := DorisTableDescriptor{
+		TableName:        "audit_events",
+		DatabaseScope:    "GLOBAL_TELEMETRY",
+		UniqueKeyColumns: []string{"event_id"},
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "event_id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+		},
+	}
+	tenantEventsAfter := tenantEventsBefore
+	tenantEventsAfter.Columns = append([]DorisColumnDescriptor(nil), tenantEventsBefore.Columns...)
+	tenantEventsAfter.Columns[1].DorisType = "VARCHAR(128)" // Safe widening
+
+	globalEventsAfter := globalEventsBefore
+	globalEventsAfter.UniqueKeyColumns = []string{"event_id", "extra_key"} // Violates DORIS001 on GLOBAL_TELEMETRY only
+
+	scopedViolations := LintDorisSchemaEvolution(
+		[]DorisTableDescriptor{tenantEventsBefore, globalEventsBefore},
+		[]DorisTableDescriptor{tenantEventsAfter, globalEventsAfter},
+	)
+	if len(scopedViolations) != 1 || scopedViolations[0].Rule != DORIS001_IMMUTABLE_KEY {
+		t.Fatalf("expected 1 DORIS001 violation on GLOBAL_TELEMETRY audit_events, got %v", scopedViolations)
+	}
+
+	// Verify deterministic rule ordering DORIS001..DORIS006 even when an existing narrowed
+	// column (DORIS006) precedes a newly added NOT NULL scalar column without DefaultValue (DORIS005).
+	orderBefore := baseLinterTestTable()
+	orderAfter := baseLinterTestTable()
+	orderAfter.UniqueKeyColumns = []string{"patient_id"}
+	orderAfter.SequenceCol = "other_seq"
+	orderAfter.DistributedByColumn = "other_dist"
+	orderAfter.Columns = orderAfter.Columns[1:] // drop patient_id -> DORIS004
+	orderAfter.Columns[0].DorisType = "INT"     // narrow criterion_id -> DORIS006
+	orderAfter.Columns = append(orderAfter.Columns, DorisColumnDescriptor{
+		ColumnName: "added_required_col",
+		DorisType:  "VARCHAR(32)",
+		Nullable:   false,
+	}) // -> DORIS005
+	orderViolations := LintDorisTableEvolution(orderBefore, orderAfter)
+	wantOrder := []DorisLintRule{
+		DORIS001_IMMUTABLE_KEY,
+		DORIS002_IMMUTABLE_SEQUENCE,
+		DORIS003_IMMUTABLE_DISTRIBUTION,
+		DORIS004_NO_COLUMN_DROP,
+		DORIS005_NON_NULL_SCALAR_DEFAULT,
+		DORIS006_SAFE_TYPE_EVOLUTION,
+	}
+	if len(orderViolations) != len(wantOrder) {
+		t.Fatalf("expected %d violations in rule order, got %d: %v", len(wantOrder), len(orderViolations), orderViolations)
+	}
+	for i, wantRule := range wantOrder {
+		if orderViolations[i].Rule != wantRule {
+			t.Errorf("orderViolations[%d].Rule = %s, want %s", i, orderViolations[i].Rule, wantRule)
+		}
+	}
 }
 
 // TestProperty_DorisLinter_DeterminismAndReflexivity verifies reflexivity, determinism, and widening partial-order properties of the Doris schema evolution linter.

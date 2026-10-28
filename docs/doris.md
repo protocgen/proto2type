@@ -131,7 +131,7 @@ message EligibilityCriterionResult {
 | `file_cache_ttl_seconds` | `13` | `int32` | Doris `"file_cache_ttl_seconds"` property |
 | `storage_vault_name` | `14` | `string` | Per-table override for Doris `"storage_vault_name"` / StarRocks `"storage_volume"` |
 | `iceberg_catalog` | `15` | `string` | Per-table override for Iceberg catalog name |
-| `embedding_dimension` | `16` | `int32` | Positive vector dimension for HNSW `USING ANN` (Doris) / `USING VECTOR` (StarRocks) index on `ARRAY<FLOAT>` `embedding` column |
+| `embedding_dimension` | `16` | `int32` | Positive vector dimension for HNSW `USING ANN` (Doris) / `USING VECTOR` (StarRocks) index. Requires a `DUPLICATE KEY` table (`unique_key_columns` empty) with a non-nullable `ARRAY<FLOAT>` column named `embedding` |
 
 ### `ColumnOptions` Reference (`(proto2type.field).column`)
 
