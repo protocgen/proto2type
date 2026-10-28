@@ -725,6 +725,67 @@ func TestBuildDorisSchemaMigrationSQL_AllDialects(t *testing.T) {
 	if _, err := BuildIcebergSchemaMigrationSQL([]DorisTableDescriptor{t1Before}, []DorisTableDescriptor{t1Before, t1Before}, "acme"); err == nil {
 		t.Fatal("expected BuildIcebergSchemaMigrationSQL to reject duplicate table identities")
 	}
+
+	// 5. Same-name Doris/StarRocks target tables differing only by IcebergCatalog are rejected
+	// by Doris and StarRocks migration planners, while Iceberg accepts them across catalogs:
+	catA := t2New
+	catA.IcebergCatalog = "lake_a"
+	catB := t2New
+	catB.IcebergCatalog = "lake_b"
+	if _, err := BuildDorisSchemaMigrationSQL(nil, []DorisTableDescriptor{catA, catB}, "acme", 8); err == nil {
+		t.Fatal("expected BuildDorisSchemaMigrationSQL to reject same-name Doris tables across different catalogs")
+	}
+	if _, err := BuildStarRocksSchemaMigrationSQL(nil, []DorisTableDescriptor{catA, catB}, "acme", 8); err == nil {
+		t.Fatal("expected BuildStarRocksSchemaMigrationSQL to reject same-name StarRocks tables across different catalogs")
+	}
+	crossCatIce, err := BuildIcebergSchemaMigrationSQL(nil, []DorisTableDescriptor{catA, catB}, "acme")
+	if err != nil {
+		t.Fatalf("expected BuildIcebergSchemaMigrationSQL to accept cross-catalog Iceberg tables, got %v", err)
+	}
+	if len(crossCatIce) != 2 ||
+		!strings.HasPrefix(crossCatIce[0], "CREATE TABLE IF NOT EXISTS lake_a.tenant_acme.patient_cohorts (") ||
+		!strings.HasPrefix(crossCatIce[1], "CREATE TABLE IF NOT EXISTS lake_b.tenant_acme.patient_cohorts (") {
+		t.Fatalf("unexpected cross-catalog Iceberg CREATE statements: %#v", crossCatIce)
+	}
+
+	// 6. Reject new target descriptor with zero columns:
+	emptyColsTbl := DorisTableDescriptor{
+		TableName:     "empty_table",
+		DatabaseScope: "TENANT",
+		SyncTier:      "WHOLE_TABLE",
+	}
+	if stmts, err := BuildDorisSchemaMigrationSQL(nil, []DorisTableDescriptor{emptyColsTbl}, "acme", 8); err == nil || len(stmts) != 0 {
+		t.Fatalf("expected BuildDorisSchemaMigrationSQL to reject zero-column new table, got (%v, %v)", stmts, err)
+	}
+	if stmts, err := BuildStarRocksSchemaMigrationSQL(nil, []DorisTableDescriptor{emptyColsTbl}, "acme", 8); err == nil || len(stmts) != 0 {
+		t.Fatalf("expected BuildStarRocksSchemaMigrationSQL to reject zero-column new table, got (%v, %v)", stmts, err)
+	}
+	if stmts, err := BuildIcebergSchemaMigrationSQL(nil, []DorisTableDescriptor{emptyColsTbl}, "acme"); err == nil || len(stmts) != 0 {
+		t.Fatalf("expected BuildIcebergSchemaMigrationSQL to reject zero-column new table, got (%v, %v)", stmts, err)
+	}
+
+	// 7. Report ambiguous catalog omission separately from forbidden drops when an
+	// ICEBERG_ONLY sibling shares (DatabaseScope, TableName) with a Doris target:
+	iceOnlySibling := catB
+	iceOnlySibling.SyncTier = "ICEBERG_ONLY"
+	omittedCatAfter := t2New
+	omittedCatAfter.IcebergCatalog = ""
+	if _, err := BuildDorisSchemaMigrationSQL(
+		[]DorisTableDescriptor{catA, iceOnlySibling},
+		[]DorisTableDescriptor{omittedCatAfter, iceOnlySibling},
+		"acme",
+		8,
+	); err == nil || !strings.Contains(err.Error(), "ambiguous IcebergCatalog omission") {
+		t.Fatalf("expected ambiguous IcebergCatalog omission error from BuildDorisSchemaMigrationSQL, got %v", err)
+	}
+	if _, err := BuildStarRocksSchemaMigrationSQL(
+		[]DorisTableDescriptor{catA, iceOnlySibling},
+		[]DorisTableDescriptor{omittedCatAfter, iceOnlySibling},
+		"acme",
+		8,
+	); err == nil || !strings.Contains(err.Error(), "ambiguous IcebergCatalog omission") {
+		t.Fatalf("expected ambiguous IcebergCatalog omission error from BuildStarRocksSchemaMigrationSQL, got %v", err)
+	}
 }
 
 // TestProperty_DorisLinter_DeterminismAndReflexivity verifies reflexivity, determinism, and widening partial-order properties of the Doris schema evolution linter.
