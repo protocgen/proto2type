@@ -51,6 +51,10 @@ func TestParsePostgresMode_ComposableVariations(t *testing.T) {
 	if _, err := invalidOpts.ParsePostgresMode(); err == nil {
 		t.Fatal("expected error for invalid postgres_mode")
 	}
+	noneComboOpts := &Options{Backend: "postgres", PostgresMode: "none+ddl"}
+	if _, err := noneComboOpts.ParsePostgresMode(); err == nil {
+		t.Fatal("expected error for 'none+ddl' postgres_mode")
+	}
 }
 
 func TestParseDorisMode_ComposableVariations(t *testing.T) {
@@ -130,7 +134,7 @@ func TestPostgresDDLAndHCL_LakehouseProto(t *testing.T) {
 		t.Errorf("lakehouse_postgres.sql must not contain JSON/JSONB:\n%s", sqlOut)
 	}
 
-	// Parse generated lakehouse_postgres.hcl and verify zero migration drift
+	// Parse generated lakehouse_postgres.hcl and verify zero migration drift against source descriptors
 	parsedTables, err := ParsePostgresAtlasHCL(hclOut)
 	if err != nil {
 		t.Fatalf("ParsePostgresAtlasHCL(lakehouse_postgres.hcl) failed: %v\nHCL:\n%s", err, hclOut)
@@ -138,9 +142,21 @@ func TestPostgresDDLAndHCL_LakehouseProto(t *testing.T) {
 	if len(parsedTables) != 2 {
 		t.Fatalf("expected 2 parsed tables from lakehouse_postgres.hcl, got %d", len(parsedTables))
 	}
-	stmts, err := BuildPostgresSchemaMigrationSQL(parsedTables, parsedTables, "acme")
+	var wantDescs []PostgresTableDescriptor
+	for _, f := range gen.Files {
+		if f.Generate {
+			tbls, err := buildPostgresTablesForFile(f, opts)
+			if err != nil {
+				t.Fatalf("buildPostgresTablesForFile failed: %v", err)
+			}
+			for _, tbl := range tbls {
+				wantDescs = append(wantDescs, tbl.Descriptor)
+			}
+		}
+	}
+	stmts, err := BuildPostgresSchemaMigrationSQL(parsedTables, wantDescs, "acme")
 	if err != nil || len(stmts) != 0 {
-		t.Fatalf("expected zero migration drift on round-tripped lakehouse_postgres.hcl, got (%v, %v)", stmts, err)
+		t.Fatalf("expected zero migration drift between parsed lakehouse_postgres.hcl and source descriptors, got (%v, %v)", stmts, err)
 	}
 }
 
@@ -269,10 +285,29 @@ func TestGoPostgres_InlineNestedFlattening(t *testing.T) {
 		DocumentId: true,
 	})
 
-	fileProto := &descriptorpb.FileDescriptorProto{
-		Name:    proto.String("inline_pg.proto"),
-		Package: proto.String("test.v1"),
+	tsFileProto := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("google/protobuf/timestamp.proto"),
+		Package: proto.String("google.protobuf"),
 		Syntax:  proto.String("proto3"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("google.golang.org/protobuf/types/known/timestamppb"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: proto.String("Timestamp"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{Name: proto.String("seconds"), Number: proto.Int32(1), Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), Type: descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum()},
+					{Name: proto.String("nanos"), Number: proto.Int32(2), Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), Type: descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum()},
+				},
+			},
+		},
+	}
+
+	fileProto := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("inline_pg.proto"),
+		Package:    proto.String("test.v1"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{"google/protobuf/timestamp.proto"},
 		Options: &descriptorpb.FileOptions{
 			GoPackage: proto.String("github.com/protocgen/proto2type/testdata/golden/go/pb;pb"),
 		},
@@ -292,6 +327,18 @@ func TestGoPostgres_InlineNestedFlattening(t *testing.T) {
 						Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
 						Type:   descriptorpb.FieldDescriptorProto_TYPE_DOUBLE.Enum(),
 					},
+					{
+						Name:           proto.String("recorded_at"),
+						Number:         proto.Int32(3),
+						Label:          descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:           descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+						TypeName:       proto.String(".google.protobuf.Timestamp"),
+						Proto3Optional: proto.Bool(true),
+						OneofIndex:     proto.Int32(0),
+					},
+				},
+				OneofDecl: []*descriptorpb.OneofDescriptorProto{
+					{Name: proto.String("_recorded_at")},
 				},
 			},
 			{
@@ -317,7 +364,7 @@ func TestGoPostgres_InlineNestedFlattening(t *testing.T) {
 		},
 	}
 
-	fds := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fileProto}}
+	fds := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{tsFileProto, fileProto}}
 	gen := newPlugin(t, fds, []string{"inline_pg.proto"})
 	runner := NewRunner()
 	opts := &Options{
@@ -336,18 +383,26 @@ func TestGoPostgres_InlineNestedFlattening(t *testing.T) {
 		}
 	}
 
+	domainContent := extractPluginOutput(t, gen, "inline_pg.type.go")
 	goContent := extractPluginOutput(t, gen, "inline_pg_postgres.type.go")
 	sqlContent := extractPluginOutput(t, gen, "inline_pg_postgres.sql")
 	hclContent := extractPluginOutput(t, gen, "inline_pg_postgres.hcl")
 
 	fset := token.NewFileSet()
+	if _, err := parser.ParseFile(fset, "inline_pg.type.go", domainContent, parser.AllErrors); err != nil {
+		t.Fatalf("generated inline_pg.type.go has invalid Go syntax: %v\n%s", err, domainContent)
+	}
 	if _, err := parser.ParseFile(fset, "inline_pg_postgres.type.go", goContent, parser.AllErrors); err != nil {
 		t.Fatalf("generated inline_pg_postgres.type.go has invalid Go syntax: %v\n%s", err, goContent)
 	}
 
 	for _, wantGo := range []string{
-		`CoordsLat float64 ` + "`db:\"coords_lat\"`",
-		`CoordsLng float64 ` + "`db:\"coords_lng\"`",
+		"`db:\"coords_lat\"`",
+		"`db:\"coords_lng\"`",
+		`CoordsRecordedAt time.Time ` + "`db:\"coords_recorded_at\"`",
+		`vCoordsRecordedAt := c.CoordsRecordedAt`,
+		`d.Coords.RecordedAt = &vCoordsRecordedAt`,
+		`c.CoordsRecordedAt = *d.Coords.RecordedAt`,
 	} {
 		if !strings.Contains(goContent, wantGo) {
 			t.Errorf("inline_pg_postgres.type.go missing %q\nContent:\n%s", wantGo, goContent)
@@ -356,6 +411,7 @@ func TestGoPostgres_InlineNestedFlattening(t *testing.T) {
 	for _, wantSQL := range []string{
 		`"coords_lat" DOUBLE PRECISION NOT NULL`,
 		`"coords_lng" DOUBLE PRECISION NOT NULL`,
+		`"coords_recorded_at" TIMESTAMPTZ`,
 	} {
 		if !strings.Contains(sqlContent, wantSQL) {
 			t.Errorf("inline_pg_postgres.sql missing %q\nSQL:\n%s", wantSQL, sqlContent)

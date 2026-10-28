@@ -230,7 +230,7 @@ func buildDomainField(field *protogen.Field, opts *Options) (*DomainField, error
 		ServerTimestamp: isServerTimestamp(field),
 		FieldSkip:       isFieldSkipped(field),
 		NameOverride:    fieldNameOverride(field),
-		Inline:          isInline(field),
+		Inline:          isInline(field) || (extractColumnMeta(field) != nil && extractColumnMeta(field).InlineNested),
 		EnumAsString:    isEnumAsString(field, opts),
 		Omitempty:       shouldOmitempty(field, opts),
 		Deprecated:      isDeprecated,

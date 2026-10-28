@@ -206,7 +206,7 @@ func TestDorisGolden_RoundTripAndSchemaEvolution(t *testing.T) {
 	if err != nil || len(srPlan) != 3 || !strings.HasPrefix(srPlan[2], "CREATE TABLE IF NOT EXISTS internal.tenant_acme.patient_cohorts (") {
 		t.Fatalf("BuildStarRocksSchemaMigrationSQL = (%#v, %v), want 3 statements", srPlan, err)
 	}
-	icePlan, err := doris.BuildIcebergSchemaMigrationSQL(doris.LakehouseDorisTables, evolvedTables, "acme")
+	icePlan, err := doris.BuildIcebergSchemaMigrationSQL(parsedIcebergTables, evolvedTables, "acme")
 	if err != nil || len(icePlan) != 3 || !strings.HasPrefix(icePlan[2], "CREATE TABLE IF NOT EXISTS lakehouse.tenant_acme.patient_cohorts (") {
 		t.Fatalf("BuildIcebergSchemaMigrationSQL = (%#v, %v), want 3 statements", icePlan, err)
 	}

@@ -286,15 +286,22 @@ func resolvePostgresFieldTypes(f *DomainField, colMeta *DorisColumnMetaIR, opts 
 	if colMeta != nil && colMeta.JSONB {
 		return "", "", fmt.Errorf("field %s: JSON/JSONB/VARIANT column types are forbidden in relational PostgreSQL schemas", f.Name)
 	}
-	if colMeta != nil && colMeta.SQLType != "" {
-		if IsForbiddenPostgresColumnType(colMeta.SQLType) {
-			return "", "", fmt.Errorf("field %s: JSON/JSONB/VARIANT column types are forbidden in relational PostgreSQL schemas (got %q)", f.Name, colMeta.SQLType)
+	if colMeta != nil && colMeta.SQLType != "" && colMeta.PostgresType != "" && !strings.EqualFold(strings.TrimSpace(colMeta.SQLType), strings.TrimSpace(colMeta.PostgresType)) {
+		return "", "", fmt.Errorf("field %s: conflicting sql_type %q and postgres_type %q", f.Name, colMeta.SQLType, colMeta.PostgresType)
+	}
+	if colMeta != nil && (colMeta.SQLType != "" || colMeta.PostgresType != "") {
+		rawType := colMeta.PostgresType
+		if rawType == "" {
+			rawType = colMeta.SQLType
 		}
-		if !isValidPostgresSQLTypeSyntax(colMeta.SQLType) {
-			return "", "", fmt.Errorf("field %s: invalid PostgreSQL sql_type %q", f.Name, colMeta.SQLType)
+		if IsForbiddenPostgresColumnType(rawType) {
+			return "", "", fmt.Errorf("field %s: JSON/JSONB/VARIANT column types are forbidden in relational PostgreSQL schemas (got %q)", f.Name, rawType)
 		}
-		ddl := strings.ToUpper(strings.TrimSpace(colMeta.SQLType))
-		hcl := strings.ToLower(strings.TrimSpace(colMeta.SQLType))
+		if !isValidPostgresSQLTypeSyntax(rawType) {
+			return "", "", fmt.Errorf("field %s: invalid PostgreSQL sql_type %q", f.Name, rawType)
+		}
+		ddl := strings.ToUpper(strings.TrimSpace(rawType))
+		hcl := strings.ToLower(strings.TrimSpace(rawType))
 		return ddl, hcl, nil
 	}
 

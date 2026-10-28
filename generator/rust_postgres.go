@@ -315,6 +315,9 @@ func rustPostgresFieldTypeFromIR(f *DomainField) string {
 		}
 		return "i64"
 	case FieldKindFieldMask:
+		if f.Optional {
+			return "Option<Vec<String>>"
+		}
 		return "Vec<String>"
 	case FieldKindStruct, FieldKindValue, FieldKindListValue, FieldKindAny, FieldKindEmpty:
 		return "String"
@@ -352,7 +355,7 @@ func rustPostgresToDomainFromIR(f *DomainField, rustFieldName string) string {
 		case FieldKindScalar:
 			switch f.ScalarKind {
 			case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-				return fmt.Sprintf("self.%s.iter().map(|&v| v as u32).collect()", rustFieldName)
+				return fmt.Sprintf("self.%s.iter().map(|&v| u32::try_from(v).map_err(|_| ConversionError::Overflow)).collect::<Result<Vec<_>, _>>()?", rustFieldName)
 			case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 				return fmt.Sprintf("self.%s.iter().map(|&v| u64::try_from(v).map_err(|_| ConversionError::Overflow)).collect::<Result<Vec<_>, _>>()?", rustFieldName)
 			default:
@@ -405,9 +408,9 @@ func rustPostgresToDomainFromIR(f *DomainField, rustFieldName string) string {
 	switch f.ScalarKind {
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
 		if f.Optional {
-			return fmt.Sprintf("self.%s.map(|v| v as u32)", rustFieldName)
+			return fmt.Sprintf("self.%s.map(|v| u32::try_from(v).map_err(|_| ConversionError::Overflow)).transpose()?", rustFieldName)
 		}
-		return fmt.Sprintf("self.%s as u32", rustFieldName)
+		return fmt.Sprintf("u32::try_from(self.%s).map_err(|_| ConversionError::Overflow)?", rustFieldName)
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		if f.Optional {
 			return fmt.Sprintf("self.%s.map(|v| u64::try_from(v).map_err(|_| ConversionError::Overflow)).transpose()?", rustFieldName)
@@ -427,7 +430,7 @@ func rustPostgresIntoDomainFromIR(f *DomainField, rustFieldName string) string {
 		case FieldKindScalar:
 			switch f.ScalarKind {
 			case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-				return fmt.Sprintf("self.%s.into_iter().map(|v| v as u32).collect()", rustFieldName)
+				return fmt.Sprintf("self.%s.into_iter().map(|v| u32::try_from(v).map_err(|_| ConversionError::Overflow)).collect::<Result<Vec<_>, _>>()?", rustFieldName)
 			case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 				return fmt.Sprintf("self.%s.into_iter().map(|v| u64::try_from(v).map_err(|_| ConversionError::Overflow)).collect::<Result<Vec<_>, _>>()?", rustFieldName)
 			default:
@@ -478,9 +481,9 @@ func rustPostgresIntoDomainFromIR(f *DomainField, rustFieldName string) string {
 	switch f.ScalarKind {
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
 		if f.Optional {
-			return fmt.Sprintf("self.%s.map(|v| v as u32)", rustFieldName)
+			return fmt.Sprintf("self.%s.map(|v| u32::try_from(v).map_err(|_| ConversionError::Overflow)).transpose()?", rustFieldName)
 		}
-		return fmt.Sprintf("self.%s as u32", rustFieldName)
+		return fmt.Sprintf("u32::try_from(self.%s).map_err(|_| ConversionError::Overflow)?", rustFieldName)
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		if f.Optional {
 			return fmt.Sprintf("self.%s.map(|v| u64::try_from(v).map_err(|_| ConversionError::Overflow)).transpose()?", rustFieldName)

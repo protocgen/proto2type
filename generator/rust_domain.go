@@ -43,25 +43,35 @@ func generateRust(gen *protogen.Plugin, file *protogen.File, opts *Options) erro
 							return err
 						}
 					}
-					return nil
-				}
-				df, err := BuildDomainFile(file, opts)
-				if err != nil {
-					return err
-				}
-				tables, err := collectPostgresTableSchemas(df, opts)
-				if err != nil {
-					return err
-				}
-				if pgTargets.EmitDDL {
-					if err := generatePostgresDDLFile(gen, file, tables); err != nil {
+				} else {
+					df, err := BuildDomainFile(file, opts)
+					if err != nil {
 						return err
 					}
-				}
-				if pgTargets.EmitHCL {
-					if err := generatePostgresHCLFile(gen, file, tables); err != nil {
+					tables, err := collectPostgresTableSchemas(df, opts)
+					if err != nil {
 						return err
 					}
+					if pgTargets.EmitDDL {
+						if err := generatePostgresDDLFile(gen, file, tables); err != nil {
+							return err
+						}
+					}
+					if pgTargets.EmitHCL {
+						if err := generatePostgresHCLFile(gen, file, tables); err != nil {
+							return err
+						}
+					}
+				}
+			}
+			if pgTargets.EmitSearchIndexDDL {
+				if err := generatePostgresSearchIndexDDLFile(gen, file); err != nil {
+					return err
+				}
+			}
+			if pgTargets.EmitSearchIndexHCL {
+				if err := generatePostgresSearchIndexHCLFile(gen, file); err != nil {
+					return err
 				}
 			}
 			return nil

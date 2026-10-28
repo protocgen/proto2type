@@ -220,7 +220,7 @@ func (o *Options) ParsePostgresMode() (PostgresModeTargets, error) {
 	for _, tok := range tokens {
 		switch tok {
 		case "none":
-			// No-op target
+			return PostgresModeTargets{}, fmt.Errorf("unknown postgres_mode: %q ('none' cannot be combined with other mode tokens)", o.PostgresMode)
 		case "tables", "types", "orm", "go", "rust":
 			targets.EmitTypes = true
 		case "ddl", "sql":

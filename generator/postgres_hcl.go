@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -279,7 +278,7 @@ func isValidPostgresScalarTypeSyntax(s string) bool {
 	case "DOUBLE PRECISION", "CHARACTER VARYING", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP WITHOUT TIME ZONE":
 		return true
 	}
-	return isValidSQLTypeSyntax(s)
+	return isValidPostgresSQLTypeSyntax(s)
 }
 
 func isValidPostgresDatabaseScope(scope string) bool {
@@ -307,7 +306,10 @@ func validatePostgresDescriptor(t PostgresTableDescriptor) bool {
 		if colType == "" || !isValidPostgresTypeSyntax(colType) || IsForbiddenPostgresColumnType(colType) {
 			return false
 		}
-		if c.DefaultValue != "" && !isValidDorisDefaultValue(c.DefaultValue) {
+		if c.DefaultValue != "" && (!isValidDorisDefaultValue(c.DefaultValue) || validatePostgresDefaultValue(colType, c.DefaultValue) != nil) {
+			return false
+		}
+		if !isValidPostgresServerDefault(c.ServerDefault) {
 			return false
 		}
 		colSet[c.ColumnName] = true
@@ -390,6 +392,9 @@ func defaultPostgresSQLType(field *protogen.Field, colMeta *DorisColumnMetaIR, t
 	if colMeta != nil && colMeta.JSONB {
 		return "", fmt.Errorf("field %s: JSON/JSONB/VARIANT column types are forbidden in relational PostgreSQL schemas", field.Desc.FullName())
 	}
+	if colMeta != nil && colMeta.SQLType != "" && colMeta.PostgresType != "" && !strings.EqualFold(strings.TrimSpace(colMeta.SQLType), strings.TrimSpace(colMeta.PostgresType)) {
+		return "", fmt.Errorf("field %s: conflicting sql_type %q and postgres_type %q", field.Desc.FullName(), colMeta.SQLType, colMeta.PostgresType)
+	}
 	if colMeta != nil && (colMeta.PostgresType != "" || colMeta.SQLType != "") {
 		raw := colMeta.PostgresType
 		if raw == "" {
@@ -401,6 +406,9 @@ func defaultPostgresSQLType(field *protogen.Field, colMeta *DorisColumnMetaIR, t
 		}
 		if !isValidPostgresTypeSyntax(pt) {
 			return "", fmt.Errorf("field %s: invalid postgres_type %q", field.Desc.FullName(), raw)
+		}
+		if field.Desc.IsList() && !strings.HasSuffix(pt, "[]") && !strings.HasPrefix(pt, "VECTOR(") {
+			pt += "[]"
 		}
 		return pt, nil
 	}
@@ -572,11 +580,27 @@ func messageHasAnnotatedPostgresColumns(msg *protogen.Message, visited map[proto
 }
 
 func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgresTableIR, error) {
-	hasAnyTableMeta := false
+	inlineTargetMsgs := make(map[protoreflect.FullName]bool)
+	var collectInlineTargets func(msg *protogen.Message, visited map[protoreflect.FullName]bool)
+	collectInlineTargets = func(msg *protogen.Message, visited map[protoreflect.FullName]bool) {
+		if msg == nil || visited[msg.Desc.FullName()] {
+			return
+		}
+		visited[msg.Desc.FullName()] = true
+		for _, f := range msg.Fields {
+			if isFieldSkipped(f) || f.Message == nil {
+				continue
+			}
+			cm := extractColumnMeta(f)
+			if (cm != nil && cm.InlineNested) || isInline(f) {
+				inlineTargetMsgs[f.Message.Desc.FullName()] = true
+				collectInlineTargets(f.Message, visited)
+			}
+		}
+	}
 	for _, msg := range file.Messages {
-		if !isMessageSkipped(msg) && extractDorisTableMeta(msg) != nil {
-			hasAnyTableMeta = true
-			break
+		if !isMessageSkipped(msg) {
+			collectInlineTargets(msg, make(map[protoreflect.FullName]bool))
 		}
 	}
 
@@ -586,10 +610,11 @@ func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgres
 		if isMessageSkipped(msg) {
 			continue
 		}
-		meta := extractDorisTableMeta(msg)
-		if hasAnyTableMeta && meta == nil {
+		origMeta := extractDorisTableMeta(msg)
+		if origMeta == nil && inlineTargetMsgs[msg.Desc.FullName()] {
 			continue
 		}
+		meta := origMeta
 		if meta == nil {
 			meta = &DorisTableMetaIR{
 				TableName:     toSnakeCase(string(msg.Desc.Name())),
@@ -600,7 +625,7 @@ func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgres
 			metaCopy.TableName = resolvePostgresTableName(msg, meta)
 			meta = &metaCopy
 		}
-		tbl, err := buildPostgresTableIR(msg, meta, hasAnyTableMeta, opts)
+		tbl, err := buildPostgresTableIR(msg, meta, origMeta != nil, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -645,9 +670,6 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 		if !isValidSQLIdentifier(dk) {
 			return nil, fmt.Errorf("message %s: invalid SQL identifier %q in duplicate_key_columns", msg.Desc.FullName(), dk)
 		}
-		if len(meta.UniqueKeyColumns) == 0 && len(meta.PrimaryKeyFields) == 0 {
-			pkSet[dk] = true
-		}
 	}
 	partSet := make(map[string]bool)
 	for _, pk := range meta.PartitionByColumns {
@@ -661,6 +683,8 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 	usedColNames := make(map[string]bool)
 	var cols []PostgresColumnDescriptor
 	var docIDCols []string
+	var indexes []PostgresIndexDescriptor
+	var fks []PostgresForeignKeyDescriptor
 
 	var walkFields func(fields []*protogen.Field, chain []*protogen.Field, visited map[protoreflect.FullName]bool, parentHasAnnotated bool) error
 	walkFields = func(fields []*protogen.Field, chain []*protogen.Field, visited map[protoreflect.FullName]bool, parentHasAnnotated bool) error {
@@ -769,10 +793,18 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 			if err != nil {
 				return err
 			}
+			if colMeta != nil && colMeta.DefaultValue != "" {
+				if err := validatePostgresDefaultValue(pgType, colMeta.DefaultValue); err != nil {
+					return fmt.Errorf("field %s: %w", field.Desc.FullName(), err)
+				}
+			}
 
 			isRealOneof := field.Oneof != nil && !field.Oneof.Desc.IsSynthetic()
 			nullable := field.Desc.HasOptionalKeyword() || isRealOneof || isPostgresWrapperWKT(field) ||
 				(isWellKnownTimestamp(field) && !isPK && !isPart && !isSeq && !isServerTimestamp(field) && colName != "created_at" && colName != "updated_at")
+			if colMeta != nil && colMeta.Nullable != nil {
+				nullable = *colMeta.Nullable
+			}
 			if isPK || isPart || isSeq {
 				nullable = false
 			}
@@ -791,6 +823,45 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 				}
 			}
 
+			var srvDef string
+			if isServerTimestamp(field) {
+				srvDef = "NOW()"
+			}
+
+			if colMeta != nil && colMeta.Unique {
+				indexes = append(indexes, PostgresIndexDescriptor{
+					Name:    fmt.Sprintf("idx_%s_%s_key", meta.TableName, colName),
+					Columns: []string{colName},
+					Unique:  true,
+					Using:   "BTREE",
+				})
+			} else if colMeta != nil && colMeta.Index && !isPK {
+				indexes = append(indexes, PostgresIndexDescriptor{
+					Name:    fmt.Sprintf("idx_%s_%s", meta.TableName, colName),
+					Columns: []string{colName},
+					Using:   "BTREE",
+				})
+			}
+
+			if colMeta != nil && colMeta.ForeignKey != nil && strings.TrimSpace(colMeta.ForeignKey.RefTable) != "" {
+				refTable := strings.TrimSpace(colMeta.ForeignKey.RefTable)
+				refCol := strings.TrimSpace(colMeta.ForeignKey.RefColumn)
+				if refCol == "" {
+					refCol = "id"
+				}
+				if !isValidSQLIdentifier(refTable) || !isValidSQLIdentifier(refCol) {
+					return fmt.Errorf("field %s: invalid foreign_key reference %q.%q", field.Desc.FullName(), refTable, refCol)
+				}
+				fks = append(fks, PostgresForeignKeyDescriptor{
+					Name:      fmt.Sprintf("fk_%s_%s", meta.TableName, colName),
+					Columns:   []string{colName},
+					RefTable:  refTable,
+					RefColumn: refCol,
+					OnDelete:  strings.TrimSpace(colMeta.ForeignKey.OnDelete),
+					OnUpdate:  strings.TrimSpace(colMeta.ForeignKey.OnUpdate),
+				})
+			}
+
 			cols = append(cols, PostgresColumnDescriptor{
 				ColumnName:     colName,
 				ProtoFieldName: protoFieldName,
@@ -802,6 +873,7 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 				IsPartitionKey: isPart,
 				InvertedIndex:  colMeta != nil && colMeta.InvertedIndex,
 				DefaultValue:   defVal,
+				ServerDefault:  srvDef,
 				Comment:        cleanComment(string(field.Comments.Leading)),
 			})
 		}
@@ -820,8 +892,6 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 		pks = dedupDorisColumnList(meta.UniqueKeyColumns)
 	} else if len(meta.PrimaryKeyFields) > 0 {
 		pks = dedupDorisColumnList(meta.PrimaryKeyFields)
-	} else if len(meta.DuplicateKeyColumns) > 0 {
-		pks = dedupDorisColumnList(meta.DuplicateKeyColumns)
 	} else if len(docIDCols) > 0 {
 		pks = dedupDorisColumnList(docIDCols)
 	} else {
@@ -832,7 +902,7 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 		}
 		pks = dedupDorisColumnList(pks)
 	}
-	if len(pks) == 0 {
+	if len(pks) == 0 && len(meta.DuplicateKeyColumns) == 0 {
 		for i := range cols {
 			if (cols[i].ColumnName == "id" || cols[i].ColumnName == meta.TableName+"_id") && !cols[i].Nullable && !strings.HasSuffix(effectiveColPostgresType(cols[i]), "[]") {
 				cols[i].IsPrimaryKey = true
@@ -840,6 +910,34 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 				break
 			}
 		}
+	}
+	if len(pks) == 0 && len(meta.DuplicateKeyColumns) > 0 {
+		indexes = append(indexes, PostgresIndexDescriptor{
+			Name:    fmt.Sprintf("idx_%s_dup_key", meta.TableName),
+			Columns: dedupDorisColumnList(meta.DuplicateKeyColumns),
+			Using:   "BTREE",
+		})
+	}
+	for _, idxIR := range meta.Indexes {
+		idxCols := dedupDorisColumnList(idxIR.Columns)
+		if len(idxCols) == 0 {
+			continue
+		}
+		idxName := strings.TrimSpace(idxIR.Name)
+		if idxName == "" {
+			suffix := strings.Join(idxCols, "_")
+			if idxIR.Unique {
+				idxName = fmt.Sprintf("idx_%s_%s_key", meta.TableName, suffix)
+			} else {
+				idxName = fmt.Sprintf("idx_%s_%s", meta.TableName, suffix)
+			}
+		}
+		indexes = append(indexes, PostgresIndexDescriptor{
+			Name:    idxName,
+			Columns: idxCols,
+			Unique:  idxIR.Unique,
+			Using:   "BTREE",
+		})
 	}
 
 	var partCols []string
@@ -893,6 +991,9 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 	if err := checkColExists("unique_key_columns", pks); err != nil {
 		return nil, err
 	}
+	if err := checkColExists("duplicate_key_columns", meta.DuplicateKeyColumns); err != nil {
+		return nil, err
+	}
 	if err := checkColExists("partition_by_columns", partCols); err != nil {
 		return nil, err
 	}
@@ -901,6 +1002,11 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 	}
 	if err := checkColExists("ngram_bf_columns", ngramCols); err != nil {
 		return nil, err
+	}
+	for _, idx := range indexes {
+		if err := checkColExists("indexes", idx.Columns); err != nil {
+			return nil, err
+		}
 	}
 
 	desc := PostgresTableDescriptor{
@@ -914,6 +1020,8 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 		InvertedIndexColumns: invCols,
 		NgramBfColumns:       ngramCols,
 		EmbeddingDimension:   meta.EmbeddingDimension,
+		Indexes:              indexes,
+		ForeignKeys:          fks,
 		Columns:              cols,
 	}
 
@@ -927,13 +1035,6 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 func resolvePostgresSchemaName(scope, tenantSlug string) (string, bool) {
 	switch scope {
 	case "PUBLIC":
-		if strings.TrimSpace(tenantSlug) != "" && tenantSlug != "${TENANT_SLUG}" {
-			slug, ok := sanitizeDorisTenantSlug(tenantSlug)
-			if !ok {
-				return "", false
-			}
-			return slug, true
-		}
 		return "public", true
 	case "GLOBAL_TERMINOLOGY":
 		return "terminology", true
@@ -960,16 +1061,15 @@ func formatPostgresDefaultLiteral(pgType, defVal string) string {
 		if strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'") {
 			return trimmed
 		}
-		return fmt.Sprintf("'%s'", trimmed)
+		return fmt.Sprintf("'%s'", strings.ReplaceAll(trimmed, "'", "''"))
 	}
-	switch upper {
-	case "SMALLINT", "INTEGER", "INT", "BIGINT", "REAL", "DOUBLE PRECISION", "BOOLEAN", "BOOL":
+	if isPostgresBooleanSQLType(upper) && validatePostgresDefaultValue(upper, trimmed) == nil {
+		return strings.ToLower(trimmed)
+	}
+	if isPostgresNumericSQLType(upper) && validatePostgresDefaultValue(upper, trimmed) == nil {
 		return trimmed
 	}
-	if strings.HasPrefix(upper, "NUMERIC(") || strings.HasPrefix(upper, "DECIMAL(") {
-		return trimmed
-	}
-	return fmt.Sprintf("'%s'", trimmed)
+	return fmt.Sprintf("'%s'", strings.ReplaceAll(trimmed, "'", "''"))
 }
 
 // BuildPostgresCreateTableSQL renders a deterministic PostgreSQL CREATE TABLE statement
@@ -1081,14 +1181,36 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 			continue
 		}
 		emittedIdx[idx.Name] = true
+		uniqueKw := ""
+		if idx.Unique {
+			uniqueKw = "UNIQUE "
+		}
 		using := strings.ToLower(strings.TrimSpace(idx.Using))
 		if using == "" || using == "btree" {
-			fmt.Fprintf(&b, "\nCREATE INDEX IF NOT EXISTS %s ON %s.%s (%s);", idx.Name, schemaName, t.TableName, strings.Join(idx.Columns, ", "))
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, strings.Join(idx.Columns, ", "))
 		} else if idx.Ops != "" && len(idx.Columns) == 1 {
-			fmt.Fprintf(&b, "\nCREATE INDEX IF NOT EXISTS %s ON %s.%s USING %s (%s %s);", idx.Name, schemaName, t.TableName, using, idx.Columns[0], idx.Ops)
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s %s);", uniqueKw, idx.Name, schemaName, t.TableName, using, idx.Columns[0], idx.Ops)
 		} else {
-			fmt.Fprintf(&b, "\nCREATE INDEX IF NOT EXISTS %s ON %s.%s USING %s (%s);", idx.Name, schemaName, t.TableName, using, strings.Join(idx.Columns, ", "))
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, using, strings.Join(idx.Columns, ", "))
 		}
+	}
+	for _, fk := range t.ForeignKeys {
+		if fk.Name == "" || fk.RefTable == "" || len(fk.Columns) == 0 {
+			continue
+		}
+		refCol := fk.RefColumn
+		if refCol == "" {
+			refCol = "id"
+		}
+		clause := fmt.Sprintf("\nALTER TABLE %s.%s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s.%s (%s)",
+			schemaName, t.TableName, fk.Name, strings.Join(fk.Columns, ", "), schemaName, fk.RefTable, refCol)
+		if _, delSQL, ok := isValidForeignKeyAction(fk.OnDelete); ok && delSQL != "" {
+			clause += " ON DELETE " + delSQL
+		}
+		if _, updSQL, ok := isValidForeignKeyAction(fk.OnUpdate); ok && updSQL != "" {
+			clause += " ON UPDATE " + updSQL
+		}
+		b.WriteString(clause + ";")
 	}
 	return b.String()
 }
@@ -1258,10 +1380,32 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 			using = "BTREE"
 		}
 		fmt.Fprintf(&b, "  index %q {\n", idx.Name)
+		if idx.Unique {
+			b.WriteString("    unique = true\n")
+		}
 		fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
 		fmt.Fprintf(&b, "    type = %q\n", using)
 		if idx.Ops != "" {
 			fmt.Fprintf(&b, "    ops = %q\n", idx.Ops)
+		}
+		b.WriteString("  }\n")
+	}
+	for _, fk := range t.ForeignKeys {
+		if fk.Name == "" || fk.RefTable == "" || len(fk.Columns) == 0 {
+			continue
+		}
+		refCol := fk.RefColumn
+		if refCol == "" {
+			refCol = "id"
+		}
+		fmt.Fprintf(&b, "  foreign_key %q {\n", fk.Name)
+		fmt.Fprintf(&b, "    columns     = %s\n", formatAtlasHCLColRefList(fk.Columns))
+		fmt.Fprintf(&b, "    ref_columns = [table.%s.column.%s]\n", fk.RefTable, refCol)
+		if delHCL, _, ok := isValidForeignKeyAction(fk.OnDelete); ok && delHCL != "" {
+			fmt.Fprintf(&b, "    on_delete   = %s\n", delHCL)
+		}
+		if updHCL, _, ok := isValidForeignKeyAction(fk.OnUpdate); ok && updHCL != "" {
+			fmt.Fprintf(&b, "    on_update   = %s\n", updHCL)
 		}
 		b.WriteString("  }\n")
 	}
@@ -1580,11 +1724,25 @@ func applyPostgresAtlasSubBlock(
 				return fmt.Errorf("foreign_key %q: %w", fkName, err)
 			}
 		}
+		var refTable, refCol string
+		if refRaw, ok := kv["ref_columns"]; ok {
+			trimmedRef := strings.TrimSpace(refRaw)
+			if strings.HasPrefix(trimmedRef, "[") && strings.HasSuffix(trimmedRef, "]") {
+				innerRef := strings.TrimSpace(trimmedRef[1 : len(trimmedRef)-1])
+				parts := strings.Split(innerRef, ".")
+				if len(parts) == 4 && parts[0] == "table" && parts[2] == "column" {
+					refTable = unquoteHCLString(parts[1])
+					refCol = unquoteHCLString(parts[3])
+				}
+			}
+		}
 		desc.ForeignKeys = append(desc.ForeignKeys, PostgresForeignKeyDescriptor{
-			Name:     fkName,
-			Columns:  cols,
-			OnDelete: unquoteHCLString(kv["on_delete"]),
-			OnUpdate: unquoteHCLString(kv["on_update"]),
+			Name:      fkName,
+			Columns:   cols,
+			RefTable:  refTable,
+			RefColumn: refCol,
+			OnDelete:  unquoteHCLString(kv["on_delete"]),
+			OnUpdate:  unquoteHCLString(kv["on_update"]),
 		})
 		return nil
 
@@ -1802,7 +1960,7 @@ func LintPostgresTableEvolution(before, after PostgresTableDescriptor) []Postgre
 		}
 		acType := effectiveColPostgresType(ac)
 		if !ac.Nullable && !strings.HasSuffix(strings.ToUpper(acType), "[]") &&
-			!IsForbiddenPostgresColumnType(acType) && strings.TrimSpace(ac.DefaultValue) == "" {
+			!IsForbiddenPostgresColumnType(acType) && strings.TrimSpace(ac.DefaultValue) == "" && strings.TrimSpace(ac.ServerDefault) == "" {
 			violations = append(violations, PostgresEvolutionViolation{
 				Rule:       PG005_NON_NULL_SCALAR_DEFAULT,
 				TableName:  tableName,
@@ -1978,6 +2136,15 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 				stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL;", fullTableName, ac.ColumnName))
 			}
 		}
+		if bc.DefaultValue != ac.DefaultValue || bc.ServerDefault != ac.ServerDefault {
+			if ac.DefaultValue != "" {
+				stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;", fullTableName, ac.ColumnName, formatPostgresDefaultLiteral(afterType, ac.DefaultValue)))
+			} else if ac.ServerDefault != "" {
+				stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;", fullTableName, ac.ColumnName, strings.ToUpper(strings.TrimSpace(ac.ServerDefault))))
+			} else {
+				stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;", fullTableName, ac.ColumnName))
+			}
+		}
 	}
 	for _, ac := range after.Columns {
 		if _, existed := beforeColByName[ac.ColumnName]; existed {
@@ -1990,8 +2157,72 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 		}
 		if ac.DefaultValue != "" {
 			clause += " DEFAULT " + formatPostgresDefaultLiteral(afterType, ac.DefaultValue)
+		} else if ac.ServerDefault != "" {
+			clause += " DEFAULT " + strings.ToUpper(strings.TrimSpace(ac.ServerDefault))
 		}
 		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", fullTableName, clause))
+	}
+	beforeIdx := make(map[string]bool)
+	for _, c := range before.Columns {
+		if c.InvertedIndex {
+			beforeIdx[fmt.Sprintf("idx_%s_%s", before.TableName, c.ColumnName)] = true
+		}
+	}
+	for _, ic := range before.InvertedIndexColumns {
+		if ic != "" {
+			beforeIdx[fmt.Sprintf("idx_%s_%s", before.TableName, ic)] = true
+		}
+	}
+	for _, ngCol := range dedupDorisColumnList(before.NgramBfColumns) {
+		beforeIdx[fmt.Sprintf("idx_ngram_%s_%s", before.TableName, ngCol)] = true
+	}
+	for _, idx := range before.Indexes {
+		if idx.Name != "" {
+			beforeIdx[idx.Name] = true
+		}
+	}
+	for _, idx := range after.Indexes {
+		if idx.Name == "" || beforeIdx[idx.Name] || len(idx.Columns) == 0 {
+			continue
+		}
+		beforeIdx[idx.Name] = true
+		uniqueKw := ""
+		if idx.Unique {
+			uniqueKw = "UNIQUE "
+		}
+		using := strings.ToLower(strings.TrimSpace(idx.Using))
+		if using == "" || using == "btree" {
+			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s);", uniqueKw, idx.Name, fullTableName, strings.Join(idx.Columns, ", ")))
+		} else if idx.Ops != "" && len(idx.Columns) == 1 {
+			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s %s);", uniqueKw, idx.Name, fullTableName, using, idx.Columns[0], idx.Ops))
+		} else {
+			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s);", uniqueKw, idx.Name, fullTableName, using, strings.Join(idx.Columns, ", ")))
+		}
+	}
+	beforeFK := make(map[string]bool, len(before.ForeignKeys))
+	for _, fk := range before.ForeignKeys {
+		if fk.Name != "" {
+			beforeFK[fk.Name] = true
+		}
+	}
+	for _, fk := range after.ForeignKeys {
+		if fk.Name == "" || beforeFK[fk.Name] || fk.RefTable == "" || len(fk.Columns) == 0 {
+			continue
+		}
+		beforeFK[fk.Name] = true
+		refCol := fk.RefColumn
+		if refCol == "" {
+			refCol = "id"
+		}
+		clause := fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s.%s (%s)",
+			fullTableName, fk.Name, strings.Join(fk.Columns, ", "), schemaName, fk.RefTable, refCol)
+		if _, delSQL, ok := isValidForeignKeyAction(fk.OnDelete); ok && delSQL != "" {
+			clause += " ON DELETE " + delSQL
+		}
+		if _, updSQL, ok := isValidForeignKeyAction(fk.OnUpdate); ok && updSQL != "" {
+			clause += " ON UPDATE " + updSQL
+		}
+		stmts = append(stmts, clause+";")
 	}
 	return stmts, nil
 }
@@ -2239,7 +2470,10 @@ func generateLakehousePostgresHCLFile(gen *protogen.Plugin, file *protogen.File,
 }
 
 func generatePostgresSearchIndexDDLFile(gen *protogen.Plugin, file *protogen.File) error {
-	filename := filepath.Base(file.GeneratedFilenamePrefix) + "_search_index.sql"
+	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_search_index.sql")
+	if err != nil {
+		return err
+	}
 	g := gen.NewGeneratedFile(filename, "")
 	g.P("-- Code generated by proto2type. DO NOT EDIT.")
 	g.P("-- source: ", file.Desc.Path())
@@ -2257,7 +2491,10 @@ func generatePostgresSearchIndexDDLFile(gen *protogen.Plugin, file *protogen.Fil
 }
 
 func generatePostgresSearchIndexHCLFile(gen *protogen.Plugin, file *protogen.File) error {
-	filename := filepath.Base(file.GeneratedFilenamePrefix) + "_search_index.hcl"
+	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_search_index.hcl")
+	if err != nil {
+		return err
+	}
 	g := gen.NewGeneratedFile(filename, "")
 	g.P("# Code generated by proto2type. DO NOT EDIT.")
 	g.P("# source: ", file.Desc.Path())

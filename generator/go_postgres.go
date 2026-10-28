@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // maxPostgresIdentifierBytes is the PostgreSQL NAMEDATALEN-1 identifier byte limit (63 bytes).
@@ -274,45 +275,64 @@ func isDomainFieldInlineNested(f *DomainField) bool {
 }
 
 func cloneDomainMessageWithFlattenedInline(dm *DomainMessage, msgByName map[string]*DomainMessage) (*DomainMessage, bool) {
-	hasInline := false
-	for _, f := range dm.Fields {
-		if isDomainFieldInlineNested(f) && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap && msgByName[f.MessageTypeName] != nil {
-			hasInline = true
-			break
-		}
-	}
-	if !hasInline {
+	visited := map[string]bool{dm.Name: true}
+	flatFields, flattened := flattenInlineDomainFields(dm.Fields, "", "", msgByName, visited)
+	if !flattened {
 		return dm, false
 	}
 	cp := *dm
+	cp.Fields = flatFields
+	return &cp, true
+}
+
+func flattenInlineDomainFields(
+	fields []*DomainField,
+	pascalPrefix string,
+	snakePrefix string,
+	msgByName map[string]*DomainMessage,
+	visited map[string]bool,
+) ([]*DomainField, bool) {
 	var flatFields []*DomainField
-	for _, f := range dm.Fields {
+	flattened := false
+	for _, f := range fields {
+		if pascalPrefix != "" && f.IsOneof {
+			continue
+		}
 		if isDomainFieldInlineNested(f) && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
-			if nested := msgByName[f.MessageTypeName]; nested != nil {
-				parentPrefixSnake := storageFieldName(f.Name)
+			if nested := msgByName[f.MessageTypeName]; nested != nil && !visited[nested.Name] {
+				flattened = true
+				fieldSnake := storageFieldName(f.Name)
 				if f.NameOverride != "" {
-					parentPrefixSnake = f.NameOverride
+					fieldSnake = f.NameOverride
 				}
-				for _, cf := range nested.Fields {
-					if cf.IsOneof {
-						continue
-					}
-					cfCopy := *cf
-					cfCopy.PascalName = f.PascalName + cf.PascalName
-					if cf.NameOverride != "" {
-						cfCopy.NameOverride = cf.NameOverride
-					} else {
-						cfCopy.NameOverride = parentPrefixSnake + "_" + storageFieldName(cf.Name)
-					}
-					flatFields = append(flatFields, &cfCopy)
+				nextSnake := fieldSnake
+				if snakePrefix != "" && f.NameOverride == "" {
+					nextSnake = snakePrefix + "_" + fieldSnake
 				}
+				nextVisited := make(map[string]bool, len(visited)+1)
+				for k, v := range visited {
+					nextVisited[k] = v
+				}
+				nextVisited[nested.Name] = true
+				childFields, _ := flattenInlineDomainFields(nested.Fields, pascalPrefix+f.PascalName, nextSnake, msgByName, nextVisited)
+				flatFields = append(flatFields, childFields...)
 				continue
 			}
 		}
-		flatFields = append(flatFields, f)
+		if pascalPrefix == "" {
+			flatFields = append(flatFields, f)
+			continue
+		}
+		cfCopy := *f
+		cfCopy.PascalName = pascalPrefix + f.PascalName
+		if f.NameOverride != "" {
+			cfCopy.NameOverride = f.NameOverride
+		} else {
+			cfCopy.NameOverride = snakePrefix + "_" + storageFieldName(f.Name)
+		}
+		flatFields = append(flatFields, &cfCopy)
 	}
-	cp.Fields = flatFields
-	return &cp, true
+	return flatFields, flattened
 }
 
 // generateGoPostgresMessage generates a PostgreSQL storage struct for a message.
@@ -431,6 +451,9 @@ func generateFlattenedInlinePostgresConverters(g *protogen.GeneratedFile, dm *Do
 	structName := dm.Name + "Postgres"
 	protoType := g.QualifiedGoIdent(dm.ProtoGoIdent)
 	recv := receiverName(structName)
+	if recv == "d" {
+		recv = "s"
+	}
 
 	// ToProto
 	g.P("// ToProto converts to the protobuf message.")
@@ -458,32 +481,229 @@ func generateFlattenedInlinePostgresConverters(g *protogen.GeneratedFile, dm *Do
 	g.P("}")
 	g.P()
 
+	var emitToDomainFields func(curDM *DomainMessage, domainPath string, pascalPrefix string, visited map[string]bool)
+	emitToDomainFields = func(curDM *DomainMessage, domainPath string, pascalPrefix string, visited map[string]bool) {
+		for _, f := range curDM.Fields {
+			if f.Computed != nil {
+				continue
+			}
+			if f.IsOneof {
+				if pascalPrefix != "" {
+					continue
+				}
+				oneof := findOneof(curDM, f.OneofTypeName)
+				for _, v := range oneof.Variants {
+					if v.Kind == FieldKindMessage {
+						g.P("\tif ", recv, ".", v.Name, " != nil {")
+						g.P("\t\t", domainPath, ".", v.Name, " = ", recv, ".", v.Name, ".ToDomain()")
+						g.P("\t}")
+					} else {
+						g.P("\t", domainPath, ".", v.Name, " = ", recv, ".", v.Name)
+					}
+				}
+				continue
+			}
+			if isDomainFieldInlineNested(f) && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
+				if nested := msgByName[f.MessageTypeName]; nested != nil && !visited[nested.Name] {
+					g.P("\t", domainPath, ".", f.PascalName, " = &", nested.Name, "{}")
+					nextVisited := make(map[string]bool, len(visited)+1)
+					for k, v := range visited {
+						nextVisited[k] = v
+					}
+					nextVisited[nested.Name] = true
+					emitToDomainFields(nested, domainPath+"."+f.PascalName, pascalPrefix+f.PascalName, nextVisited)
+					continue
+				}
+			}
+			storageField := recv + "." + pascalPrefix + f.PascalName
+			targetField := domainPath + "." + f.PascalName
+			switch {
+			case f.Kind == FieldKindTimestamp && f.Optional && !f.Repeated:
+				vVar := "v" + pascalPrefix + f.PascalName
+				g.P("\t", vVar, " := ", storageField)
+				g.P("\tif !", vVar, ".IsZero() {")
+				g.P("\t\t", targetField, " = &", vVar)
+				g.P("\t}")
+			case f.Kind == FieldKindDuration && f.Optional && !f.Repeated:
+				vVar := "v" + pascalPrefix + f.PascalName
+				g.P("\t", vVar, " := ", storageField)
+				g.P("\tif ", vVar, " != 0 {")
+				g.P("\t\t", targetField, " = &", vVar)
+				g.P("\t}")
+			case f.Kind == FieldKindEnum && f.Optional && !f.Repeated:
+				vVar := "v" + pascalPrefix + f.PascalName
+				g.P("\t", vVar, " := ", storageField)
+				if f.EnumAsString {
+					g.P("\tif ", vVar, " != \"\" {")
+				} else {
+					g.P("\tif ", vVar, " != 0 {")
+				}
+				g.P("\t\t", targetField, " = &", vVar)
+				g.P("\t}")
+			case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && !f.Repeated:
+				if f.Optional {
+					g.P("\tif ", storageField, " != nil {")
+					g.P("\t\tb := make([]byte, len(*", storageField, "))")
+					g.P("\t\tcopy(b, *", storageField, ")")
+					g.P("\t\t", targetField, " = &b")
+					g.P("\t}")
+				} else {
+					g.P("\tif ", storageField, " != nil {")
+					g.P("\t\t", targetField, " = make([]byte, len(", storageField, "))")
+					g.P("\t\tcopy(", targetField, ", ", storageField, ")")
+					g.P("\t}")
+				}
+			case f.Kind == FieldKindMessage && !f.IsMap:
+				if f.Repeated {
+					g.P("\tif len(", storageField, ") > 0 {")
+					g.P("\t\t", targetField, " = make([]*", f.MessageTypeName, ", len(", storageField, "))")
+					g.P("\t\tfor i, v := range ", storageField, " {")
+					g.P("\t\t\tif v != nil {")
+					g.P("\t\t\t\t", targetField, "[i] = v.ToDomain()")
+					g.P("\t\t\t}")
+					g.P("\t\t}")
+					g.P("\t}")
+				} else {
+					g.P("\tif ", storageField, " != nil {")
+					g.P("\t\t", targetField, " = ", storageField, ".ToDomain()")
+					g.P("\t}")
+				}
+			default:
+				g.P("\t", targetField, " = ", storageField)
+			}
+		}
+	}
+
+	var emitZeroFlattenedFields func(curDM *DomainMessage, pascalPrefix string, visited map[string]bool, indent string)
+	emitZeroFlattenedFields = func(curDM *DomainMessage, pascalPrefix string, visited map[string]bool, indent string) {
+		for _, cf := range curDM.Fields {
+			if cf.Computed != nil || cf.IsOneof {
+				continue
+			}
+			if isDomainFieldInlineNested(cf) && cf.Kind == FieldKindMessage && !cf.Repeated && !cf.IsMap {
+				if nested := msgByName[cf.MessageTypeName]; nested != nil && !visited[nested.Name] {
+					nextVisited := make(map[string]bool, len(visited)+1)
+					for k, v := range visited {
+						nextVisited[k] = v
+					}
+					nextVisited[nested.Name] = true
+					emitZeroFlattenedFields(nested, pascalPrefix+cf.PascalName, nextVisited, indent)
+					continue
+				}
+			}
+			dstField := recv + "." + pascalPrefix + cf.PascalName
+			zeroVar := "zero" + pascalPrefix + cf.PascalName
+			g.P(indent, "var ", zeroVar, " ", goStorageFieldTypeFromIR(cf, "Postgres"))
+			g.P(indent, dstField, " = ", zeroVar)
+		}
+	}
+
+	var emitFromDomainFields func(curDM *DomainMessage, domainPath string, pascalPrefix string, visited map[string]bool, indent string)
+	emitFromDomainFields = func(curDM *DomainMessage, domainPath string, pascalPrefix string, visited map[string]bool, indent string) {
+		for _, f := range curDM.Fields {
+			if f.Computed != nil {
+				continue
+			}
+			if f.IsOneof {
+				if pascalPrefix != "" {
+					continue
+				}
+				oneof := findOneof(curDM, f.OneofTypeName)
+				for _, v := range oneof.Variants {
+					if v.Kind == FieldKindMessage {
+						g.P(indent, "if ", domainPath, ".", v.Name, " != nil {")
+						g.P(indent, "\t", recv, ".", v.Name, " = &", v.TypeName, "Postgres{}")
+						g.P(indent, "\t", recv, ".", v.Name, ".FromDomain(", domainPath, ".", v.Name, ")")
+						g.P(indent, "} else {")
+						g.P(indent, "\t", recv, ".", v.Name, " = nil")
+						g.P(indent, "}")
+					} else {
+						g.P(indent, recv, ".", v.Name, " = ", domainPath, ".", v.Name)
+					}
+				}
+				continue
+			}
+			if isDomainFieldInlineNested(f) && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
+				if nested := msgByName[f.MessageTypeName]; nested != nil && !visited[nested.Name] {
+					nextVisited := make(map[string]bool, len(visited)+1)
+					for k, v := range visited {
+						nextVisited[k] = v
+					}
+					nextVisited[nested.Name] = true
+					g.P(indent, "if ", domainPath, ".", f.PascalName, " != nil {")
+					emitFromDomainFields(nested, domainPath+"."+f.PascalName, pascalPrefix+f.PascalName, nextVisited, indent+"\t")
+					g.P(indent, "} else {")
+					emitZeroFlattenedFields(nested, pascalPrefix+f.PascalName, nextVisited, indent+"\t")
+					g.P(indent, "}")
+					continue
+				}
+			}
+			dstField := recv + "." + pascalPrefix + f.PascalName
+			srcField := domainPath + "." + f.PascalName
+			switch {
+			case (f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration || f.Kind == FieldKindEnum) && f.Optional && !f.Repeated:
+				g.P(indent, "if ", srcField, " != nil {")
+				g.P(indent, "\t", dstField, " = *", srcField)
+				g.P(indent, "} else {")
+				zeroVar := "zero" + pascalPrefix + f.PascalName
+				g.P(indent, "\tvar ", zeroVar, " ", goStorageFieldTypeFromIR(f, "Postgres"))
+				g.P(indent, "\t", dstField, " = ", zeroVar)
+				g.P(indent, "}")
+			case f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.BytesKind && !f.Repeated:
+				if f.Optional {
+					g.P(indent, "if ", srcField, " != nil {")
+					g.P(indent, "\tb := make([]byte, len(*", srcField, "))")
+					g.P(indent, "\tcopy(b, *", srcField, ")")
+					g.P(indent, "\t", dstField, " = &b")
+					g.P(indent, "} else {")
+					g.P(indent, "\t", dstField, " = nil")
+					g.P(indent, "}")
+				} else {
+					g.P(indent, "if ", srcField, " != nil {")
+					g.P(indent, "\t", dstField, " = make([]byte, len(", srcField, "))")
+					g.P(indent, "\tcopy(", dstField, ", ", srcField, ")")
+					g.P(indent, "} else {")
+					g.P(indent, "\t", dstField, " = nil")
+					g.P(indent, "}")
+				}
+			case f.Kind == FieldKindMessage && !f.IsMap:
+				if f.Repeated {
+					g.P(indent, "if len(", srcField, ") > 0 {")
+					g.P(indent, "\t", dstField, " = make([]*", f.MessageTypeName, "Postgres, len(", srcField, "))")
+					g.P(indent, "\tfor i, v := range ", srcField, " {")
+					g.P(indent, "\t\tif v != nil {")
+					g.P(indent, "\t\t\telem := &", f.MessageTypeName, "Postgres{}")
+					g.P(indent, "\t\t\telem.FromDomain(v)")
+					g.P(indent, "\t\t\t", dstField, "[i] = elem")
+					g.P(indent, "\t\t}")
+					g.P(indent, "\t}")
+					g.P(indent, "} else {")
+					g.P(indent, "\t", dstField, " = nil")
+					g.P(indent, "}")
+				} else {
+					g.P(indent, "if ", srcField, " != nil {")
+					g.P(indent, "\t", dstField, " = &", f.MessageTypeName, "Postgres{}")
+					g.P(indent, "\t", dstField, ".FromDomain(", srcField, ")")
+					g.P(indent, "} else {")
+					g.P(indent, "\t", dstField, " = nil")
+					g.P(indent, "}")
+				}
+			default:
+				g.P(indent, dstField, " = ", srcField)
+			}
+		}
+	}
+
 	// ToDomain
 	g.P("// ToDomain converts to the domain type.")
+	g.P("// Note: inline nested messages are flattened into parent columns without a synthetic")
+	g.P("// presence column, so an absent inline nested message round-trips as a zero-valued struct.")
 	g.P("func (", recv, " *", structName, ") ToDomain() *", dm.Name, " {")
 	g.P("\tif ", recv, " == nil {")
 	g.P("\t\treturn nil")
 	g.P("\t}")
 	g.P("\td := &", dm.Name, "{}")
-	for _, f := range dm.Fields {
-		if f.IsOneof {
-			continue
-		}
-		if f.Inline && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
-			if nested := msgByName[f.MessageTypeName]; nested != nil {
-				g.P("\td.", f.PascalName, " = &", nested.Name, "{")
-				for _, cf := range nested.Fields {
-					if cf.IsOneof {
-						continue
-					}
-					g.P("\t\t", cf.PascalName, ": ", recv, ".", f.PascalName, cf.PascalName, ",")
-				}
-				g.P("\t}")
-				continue
-			}
-		}
-		g.P("\td.", f.PascalName, " = ", recv, ".", f.PascalName)
-	}
+	emitToDomainFields(dm, "d", "", map[string]bool{dm.Name: true})
 	g.P("\treturn d")
 	g.P("}")
 	g.P()
@@ -494,25 +714,7 @@ func generateFlattenedInlinePostgresConverters(g *protogen.GeneratedFile, dm *Do
 	g.P("\tif d == nil {")
 	g.P("\t\treturn")
 	g.P("\t}")
-	for _, f := range dm.Fields {
-		if f.IsOneof {
-			continue
-		}
-		if f.Inline && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
-			if nested := msgByName[f.MessageTypeName]; nested != nil {
-				g.P("\tif d.", f.PascalName, " != nil {")
-				for _, cf := range nested.Fields {
-					if cf.IsOneof {
-						continue
-					}
-					g.P("\t\t", recv, ".", f.PascalName, cf.PascalName, " = d.", f.PascalName, ".", cf.PascalName)
-				}
-				g.P("\t}")
-				continue
-			}
-		}
-		g.P("\t", recv, ".", f.PascalName, " = d.", f.PascalName)
-	}
+	emitFromDomainFields(dm, "d", "", map[string]bool{dm.Name: true}, "\t")
 	g.P("}")
 	g.P()
 }

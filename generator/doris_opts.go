@@ -1113,12 +1113,6 @@ func mergeColumnMeta(dst, src *DorisColumnMetaIR) {
 	if dst.SQLType == "" && src.SQLType != "" {
 		dst.SQLType = src.SQLType
 	}
-	if dst.SQLType == "" && dst.PostgresType != "" {
-		dst.SQLType = dst.PostgresType
-	}
-	if dst.PostgresType == "" && dst.SQLType != "" {
-		dst.PostgresType = dst.SQLType
-	}
 	if !dst.JSONB && src.JSONB {
 		dst.JSONB = true
 	}
@@ -1182,12 +1176,6 @@ func extractColumnMetaInternal(field *protogen.Field, includePostgres bool) *Dor
 		}
 		sqlType := strings.TrimSpace(c.GetSqlType())
 		pgType := strings.TrimSpace(c.GetPostgresType())
-		if sqlType == "" {
-			sqlType = pgType
-		}
-		if pgType == "" {
-			pgType = sqlType
-		}
 		out := &DorisColumnMetaIR{
 			DorisType:       c.GetDorisType(),
 			IcebergType:     c.GetIcebergType(),
@@ -1231,6 +1219,14 @@ func extractColumnMetaInternal(field *protogen.Field, includePostgres bool) *Dor
 		merged = typedOut
 	default:
 		merged = wireOut
+	}
+	if merged != nil {
+		if merged.SQLType == "" && merged.PostgresType != "" {
+			merged.SQLType = merged.PostgresType
+		}
+		if merged.PostgresType == "" && merged.SQLType != "" {
+			merged.PostgresType = merged.SQLType
+		}
 	}
 
 	if includePostgres {
@@ -1477,12 +1473,18 @@ func parseColumnMetaBytes(b []byte, dst *DorisColumnMetaIR) {
 					continue
 				}
 			}
-		case 11, 19: // string sql_type = 11 / string postgres_type = 19
+		case 11: // string sql_type = 11
 			if typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
-					s := strings.TrimSpace(string(v))
-					dst.SQLType = s
-					dst.PostgresType = s
+					dst.SQLType = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 19: // string postgres_type = 19
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					dst.PostgresType = strings.TrimSpace(string(v))
 					b = b[m:]
 					continue
 				}

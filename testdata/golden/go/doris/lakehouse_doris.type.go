@@ -3074,22 +3074,6 @@ func applyDorisAtlasSubBlock(desc *DorisTableDescriptor, blockHeader, blockBody 
 		if specRaw, ok := kv["spec"]; ok {
 			spec := unquoteHCLString(specRaw)
 			desc.IcebergPartitionSpec = spec
-			if len(desc.PartitionByColumns) == 0 && spec != "" {
-				parts := strings.Split(spec, ",")
-				var cols []string
-				allValid := true
-				for _, p := range parts {
-					cName := strings.TrimSpace(p)
-					if !isValidDorisSQLIdentifier(cName) {
-						allValid = false
-						break
-					}
-					cols = append(cols, cName)
-				}
-				if allValid && len(cols) > 0 {
-					desc.PartitionByColumns = dedupDorisColumnList(cols)
-				}
-			}
 		}
 		return nil
 	case strings.HasPrefix(header, "index "):
@@ -3294,7 +3278,7 @@ func LintDorisTableEvolution(before, after DorisTableDescriptor) []DorisEvolutio
 		tableName = strings.TrimSpace(before.TableName)
 	}
 	var violations []DorisEvolutionViolation
-	pureIceberg := isPureIcebergDescriptor(before) || isPureIcebergDescriptor(after)
+	pureIceberg := isPureIcebergDescriptor(before) && isPureIcebergDescriptor(after)
 	if !pureIceberg {
 		beforeUKs := effectiveDorisUniqueKeys(before)
 		afterUKs := effectiveDorisUniqueKeys(after)
@@ -3738,23 +3722,27 @@ func BuildIcebergAlterTableSQL(before, after DorisTableDescriptor, tenantSlug st
 	if !ok {
 		return nil, fmt.Errorf("invalid tenantSlug %q in BuildIcebergAlterTableSQL", tenantSlug)
 	}
-	if err := ValidateDorisTableEvolution(before, after); err != nil {
-		return nil, err
-	}
 	beforeHasIce := hasIcebergTargetTable(before)
 	afterHasIce := hasIcebergTargetTable(after)
-	if !beforeHasIce && !afterHasIce {
-		return nil, nil
-	}
 	if beforeHasIce != afterHasIce {
 		return nil, fmt.Errorf("cannot generate Iceberg ALTER TABLE across sync_tier target transition (%q -> %q) for table %q", before.SyncTier, after.SyncTier, after.TableName)
+	}
+	afterForLint := after
+	if isPureIcebergDescriptor(before) && afterHasIce {
+		afterForLint = toPureIcebergDescriptor(after)
+	}
+	if err := ValidateDorisTableEvolution(before, afterForLint); err != nil {
+		return nil, err
+	}
+	if !beforeHasIce && !afterHasIce {
+		return nil, nil
 	}
 	beforeParts := effectiveDorisPartitionCols(before)
 	afterParts := effectiveDorisPartitionCols(after)
 	beforeSpec := effectiveIcebergPartitionSpec(before)
 	afterSpec := effectiveIcebergPartitionSpec(after)
-	if !dorisStringSlicesEqual(beforeParts, afterParts) || beforeSpec != afterSpec {
-		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing Iceberg table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
+	if beforeSpec != afterSpec || (len(beforeParts) > 0 && len(afterParts) > 0 && !dorisStringSlicesEqual(beforeParts, afterParts)) {
+		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing Iceberg table %q (before=%q, after=%q)", after.TableName, beforeSpec, afterSpec)
 	}
 	fullTableName := icebergQualifiedTableName(after, slug)
 	beforeColByName := make(map[string]DorisColumnDescriptor, len(before.Columns))
@@ -3993,7 +3981,16 @@ func BuildIcebergSchemaMigrationSQL(before, after []DorisTableDescriptor, tenant
 	if err != nil {
 		return nil, err
 	}
-	if err := ValidateDorisSchemaEvolution(before, after); err != nil {
+	afterForLint := make([]DorisTableDescriptor, len(after))
+	for i, afterTbl := range after {
+		key := dorisTableEvolutionIdentity(afterTbl)
+		if beforeTbl, ok := beforeByKey[key]; ok && isPureIcebergDescriptor(beforeTbl) && hasIcebergTargetTable(afterTbl) {
+			afterForLint[i] = toPureIcebergDescriptor(afterTbl)
+		} else {
+			afterForLint[i] = afterTbl
+		}
+	}
+	if err := ValidateDorisSchemaEvolution(before, afterForLint); err != nil {
 		return nil, err
 	}
 	matchedBeforeKeys := make(map[string]bool, len(before))
@@ -4047,26 +4044,63 @@ func hasIcebergTargetTable(t DorisTableDescriptor) bool {
 }
 
 func isPureIcebergDescriptor(t DorisTableDescriptor) bool {
-	if strings.EqualFold(strings.TrimSpace(t.SyncTier), "ICEBERG_ONLY") {
-		return true
-	}
-	if len(t.UniqueKeyColumns) > 0 || len(t.DuplicateKeyColumns) > 0 || len(t.DistributionColumns) > 0 || strings.TrimSpace(t.DistributedByColumn) != "" {
+	if len(t.UniqueKeyColumns) > 0 || len(t.DuplicateKeyColumns) > 0 {
 		return false
 	}
-	if strings.TrimSpace(t.IcebergCatalog) != "" {
-		return len(t.Columns) > 0
-	}
 	for _, c := range t.Columns {
-		if strings.TrimSpace(c.DorisType) != "" || c.IsUniqueKey || c.IsSequenceCol {
+		if c.IsUniqueKey || c.IsSequenceCol {
 			return false
 		}
 	}
-	return len(t.Columns) > 0
+	if strings.TrimSpace(t.DistributedByColumn) != "" || len(t.DistributionColumns) > 0 {
+		return false
+	}
+	if strings.TrimSpace(t.SequenceCol) != "" || strings.TrimSpace(t.SequenceColumn) != "" {
+		return false
+	}
+	if strings.TrimSpace(t.ColocateGroup) != "" {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(t.SyncTier), "ICEBERG_ONLY") {
+		return len(t.Columns) > 0
+	}
+	if strings.TrimSpace(t.SyncTier) != "" {
+		return false
+	}
+	return strings.TrimSpace(t.IcebergCatalog) != "" && len(t.Columns) > 0
+}
+
+func toPureIcebergDescriptor(t DorisTableDescriptor) DorisTableDescriptor {
+	t.SyncTier = "ICEBERG_ONLY"
+	t.UniqueKeyColumns = nil
+	t.DuplicateKeyColumns = nil
+	t.DistributedByColumn = ""
+	t.DistributionColumns = nil
+	t.SequenceCol = ""
+	t.SequenceColumn = ""
+	t.ColocateGroup = ""
+	if len(t.Columns) > 0 {
+		cols := make([]DorisColumnDescriptor, len(t.Columns))
+		copy(cols, t.Columns)
+		for i := range cols {
+			cols[i].IsUniqueKey = false
+			cols[i].IsSequenceCol = false
+		}
+		t.Columns = cols
+	}
+	return t
 }
 
 func effectiveIcebergPartitionSpec(t DorisTableDescriptor) string {
 	if spec := strings.TrimSpace(t.IcebergPartitionSpec); spec != "" {
-		return spec
+		parts := strings.Split(spec, ",")
+		var norm []string
+		for _, p := range parts {
+			if s := strings.TrimSpace(p); s != "" {
+				norm = append(norm, s)
+			}
+		}
+		return strings.Join(norm, ", ")
 	}
 	cols := effectiveDorisPartitionCols(t)
 	if len(cols) == 0 {
@@ -4165,12 +4199,17 @@ func isDorisNonScalarColumnType(dorisType string) bool {
 }
 
 func isDorisForbiddenJSONType(colType string) bool {
-	dt := strings.ToUpper(strings.TrimSpace(colType))
+	dt := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(colType)), " ", "")
 	switch dt {
 	case "JSON", "JSONB", "VARIANT":
 		return true
 	}
-	return strings.Contains(dt, "<JSON>") || strings.Contains(dt, "<JSONB>") || strings.Contains(dt, "<VARIANT>")
+	for _, tok := range []string{"JSON", "JSONB", "VARIANT"} {
+		if strings.Contains(dt, "<"+tok+">") || strings.Contains(dt, "<"+tok+",") || strings.Contains(dt, ","+tok+">") || strings.Contains(dt, ","+tok+",") || strings.Contains(dt, ":"+tok+">") || strings.Contains(dt, ":"+tok+",") {
+			return true
+		}
+	}
+	return false
 }
 
 func effectiveDorisUniqueKeys(t DorisTableDescriptor) []string {
@@ -4273,9 +4312,6 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 	if canonBefore == canonAfter {
 		return true
 	}
-	if (canonBefore == "LARGEINT" && canonAfter == "DECIMAL(38, 0)") || (canonBefore == "DECIMAL(38, 0)" && canonAfter == "LARGEINT") {
-		return true
-	}
 	if m, okB := parseDorisVarcharLength(canonBefore); okB {
 		if n, okA := parseDorisVarcharLength(canonAfter); okA {
 			return n >= m
@@ -4286,7 +4322,7 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 		if p2, s2, okA := parseDorisDecimalParams(canonAfter); okA {
 			return p2 >= p1 && s1 == s2
 		}
-		return false
+		return p1 == 38 && s1 == 0 && canonAfter == "LARGEINT"
 	}
 	switch canonBefore {
 	case "TINYINT":
