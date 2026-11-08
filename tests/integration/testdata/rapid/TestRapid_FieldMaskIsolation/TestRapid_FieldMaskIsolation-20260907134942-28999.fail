@@ -1,0 +1,144 @@
+# 2026/09/07 13:49:42.127809 [TestRapid_FieldMaskIsolation] [rapid] draw id: ""
+# 2026/09/07 13:49:42.127813 [TestRapid_FieldMaskIsolation] [rapid] draw email: ""
+# 2026/09/07 13:49:42.127813 [TestRapid_FieldMaskIsolation] [rapid] draw display_name: ""
+# 2026/09/07 13:49:42.127814 [TestRapid_FieldMaskIsolation] [rapid] draw active: false
+# 2026/09/07 13:49:42.127815 [TestRapid_FieldMaskIsolation] [rapid] draw age: 0
+# 2026/09/07 13:49:42.127815 [TestRapid_FieldMaskIsolation] [rapid] draw status: 0
+# 2026/09/07 13:49:42.127816 [TestRapid_FieldMaskIsolation] [rapid] draw created_at: 0
+# 2026/09/07 13:49:42.127816 [TestRapid_FieldMaskIsolation] [rapid] draw timeout: 0
+# 2026/09/07 13:49:42.127817 [TestRapid_FieldMaskIsolation] [rapid] draw old_field: ""
+# 2026/09/07 13:49:42.127817 [TestRapid_FieldMaskIsolation] [rapid] draw optional_name: ""
+# 2026/09/07 13:49:42.127818 [TestRapid_FieldMaskIsolation] [rapid] draw big_number: 0
+# 2026/09/07 13:49:42.127818 [TestRapid_FieldMaskIsolation] [rapid] draw handle: ""
+# 2026/09/07 13:49:42.127819 [TestRapid_FieldMaskIsolation] [rapid] draw roles: []string{}
+# 2026/09/07 13:49:42.127821 [TestRapid_FieldMaskIsolation] [rapid] draw has_metadata: false
+# 2026/09/07 13:49:42.127821 [TestRapid_FieldMaskIsolation] [rapid] draw has_address: false
+# 2026/09/07 13:49:42.127821 [TestRapid_FieldMaskIsolation] [rapid] draw has_phone: false
+# 2026/09/07 13:49:42.127822 [TestRapid_FieldMaskIsolation] [rapid] draw has_nickname: false
+# 2026/09/07 13:49:42.127822 [TestRapid_FieldMaskIsolation] [rapid] draw has_avatar: false
+# 2026/09/07 13:49:42.127823 [TestRapid_FieldMaskIsolation] [rapid] draw has_thumb: false
+# 2026/09/07 13:49:42.127823 [TestRapid_FieldMaskIsolation] [rapid] draw n_tags: 0
+# 2026/09/07 13:49:42.127823 [TestRapid_FieldMaskIsolation] [rapid] draw has_deleted_at: false
+# 2026/09/07 13:49:42.127824 [TestRapid_FieldMaskIsolation] [rapid] draw has_prev_status: false
+# 2026/09/07 13:49:42.127824 [TestRapid_FieldMaskIsolation] [rapid] draw update_mask: []string{}
+# 2026/09/07 13:49:42.127825 [TestRapid_FieldMaskIsolation] [rapid] draw has_event_times: false
+# 2026/09/07 13:49:42.127825 [TestRapid_FieldMaskIsolation] [rapid] draw oneof_contact: 0
+# 2026/09/07 13:49:42.127825 [TestRapid_FieldMaskIsolation] [rapid] draw has_labels: false
+# 2026/09/07 13:49:42.127825 [TestRapid_FieldMaskIsolation] [rapid] draw has_scores: false
+# 2026/09/07 13:49:42.127826 [TestRapid_FieldMaskIsolation] [rapid] draw id: ""
+# 2026/09/07 13:49:42.127826 [TestRapid_FieldMaskIsolation] [rapid] draw email: ""
+# 2026/09/07 13:49:42.127827 [TestRapid_FieldMaskIsolation] [rapid] draw display_name: ""
+# 2026/09/07 13:49:42.127827 [TestRapid_FieldMaskIsolation] [rapid] draw active: false
+# 2026/09/07 13:49:42.127827 [TestRapid_FieldMaskIsolation] [rapid] draw age: 0
+# 2026/09/07 13:49:42.127828 [TestRapid_FieldMaskIsolation] [rapid] draw status: 0
+# 2026/09/07 13:49:42.127828 [TestRapid_FieldMaskIsolation] [rapid] draw created_at: 0
+# 2026/09/07 13:49:42.127829 [TestRapid_FieldMaskIsolation] [rapid] draw timeout: 0
+# 2026/09/07 13:49:42.127829 [TestRapid_FieldMaskIsolation] [rapid] draw old_field: ""
+# 2026/09/07 13:49:42.127829 [TestRapid_FieldMaskIsolation] [rapid] draw optional_name: ""
+# 2026/09/07 13:49:42.127830 [TestRapid_FieldMaskIsolation] [rapid] draw big_number: 0
+# 2026/09/07 13:49:42.127830 [TestRapid_FieldMaskIsolation] [rapid] draw handle: ""
+# 2026/09/07 13:49:42.127831 [TestRapid_FieldMaskIsolation] [rapid] draw roles: []string{}
+# 2026/09/07 13:49:42.127831 [TestRapid_FieldMaskIsolation] [rapid] draw has_metadata: false
+# 2026/09/07 13:49:42.127831 [TestRapid_FieldMaskIsolation] [rapid] draw has_address: false
+# 2026/09/07 13:49:42.127831 [TestRapid_FieldMaskIsolation] [rapid] draw has_phone: false
+# 2026/09/07 13:49:42.127832 [TestRapid_FieldMaskIsolation] [rapid] draw has_nickname: false
+# 2026/09/07 13:49:42.127832 [TestRapid_FieldMaskIsolation] [rapid] draw has_avatar: false
+# 2026/09/07 13:49:42.127832 [TestRapid_FieldMaskIsolation] [rapid] draw has_thumb: true
+# 2026/09/07 13:49:42.127833 [TestRapid_FieldMaskIsolation] [rapid] draw thumb: []byte{}
+# 2026/09/07 13:49:42.127833 [TestRapid_FieldMaskIsolation] [rapid] draw n_tags: 0
+# 2026/09/07 13:49:42.127834 [TestRapid_FieldMaskIsolation] [rapid] draw has_deleted_at: false
+# 2026/09/07 13:49:42.127834 [TestRapid_FieldMaskIsolation] [rapid] draw has_prev_status: false
+# 2026/09/07 13:49:42.127834 [TestRapid_FieldMaskIsolation] [rapid] draw update_mask: []string{}
+# 2026/09/07 13:49:42.127835 [TestRapid_FieldMaskIsolation] [rapid] draw has_event_times: false
+# 2026/09/07 13:49:42.127835 [TestRapid_FieldMaskIsolation] [rapid] draw oneof_contact: 0
+# 2026/09/07 13:49:42.127835 [TestRapid_FieldMaskIsolation] [rapid] draw has_labels: false
+# 2026/09/07 13:49:42.127835 [TestRapid_FieldMaskIsolation] [rapid] draw has_scores: false
+# 2026/09/07 13:49:42.127836 [TestRapid_FieldMaskIsolation] [rapid] draw n_ref_paths: 1
+# 
+v0.4.8#10632706393259140199
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
