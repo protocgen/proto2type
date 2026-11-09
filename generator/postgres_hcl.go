@@ -131,18 +131,26 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 		} else {
 			fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
 		}
+		if idx.Where != "" {
+			fmt.Fprintf(&b, "    where   = %q\n", idx.Where)
+		}
 		b.WriteString("  }\n")
 	}
 
 	for _, fk := range t.ForeignKeys {
+		refCols := fk.EffectiveRefColumns()
 		if !isValidSQLIdentifier(fk.Name) || len(fk.Name) > maxPostgresIdentifierBytes ||
 			!isValidSQLIdentifier(fk.RefTable) || len(fk.RefTable) > maxPostgresIdentifierBytes ||
-			!isValidSQLIdentifier(fk.RefColumn) || len(fk.RefColumn) > maxPostgresIdentifierBytes ||
-			len(fk.Columns) == 0 {
+			len(refCols) == 0 || len(refCols) != len(fk.Columns) {
 			return ""
 		}
 		for _, col := range fk.Columns {
 			if !isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes {
+				return ""
+			}
+		}
+		for _, rc := range refCols {
+			if !isValidSQLIdentifier(rc) || len(rc) > maxPostgresIdentifierBytes {
 				return ""
 			}
 		}
@@ -154,9 +162,13 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 		if !ok {
 			return ""
 		}
+		refColRefs := make([]string, 0, len(refCols))
+		for _, rc := range refCols {
+			refColRefs = append(refColRefs, fmt.Sprintf("table.%s.column.%s", fk.RefTable, rc))
+		}
 		fmt.Fprintf(&b, "  foreign_key %q {\n", fk.Name)
 		fmt.Fprintf(&b, "    columns     = %s\n", formatAtlasHCLColRefList(fk.Columns))
-		fmt.Fprintf(&b, "    ref_columns = [table.%s.column.%s]\n", fk.RefTable, fk.RefColumn)
+		fmt.Fprintf(&b, "    ref_columns = [%s]\n", strings.Join(refColRefs, ", "))
 		if delHCL != "" {
 			fmt.Fprintf(&b, "    on_delete   = %s\n", delHCL)
 		}
@@ -343,6 +355,26 @@ func validatePostgresDescriptor(t PostgresTableDescriptor) bool {
 	}
 	for _, part := range t.PartitionByColumns {
 		if !isValidSQLIdentifier(part) || !colSet[part] {
+			return false
+		}
+	}
+	for _, idx := range t.Indexes {
+		if idx.Name != "" && !isValidSQLIdentifier(idx.Name) {
+			return false
+		}
+		if idx.Where != "" && !isValidPostgresCheckExpr(idx.Where) {
+			return false
+		}
+	}
+	for _, fk := range t.ForeignKeys {
+		if fk.Name != "" && !isValidSQLIdentifier(fk.Name) {
+			return false
+		}
+		if fk.RefTable != "" && !isValidSQLIdentifier(fk.RefTable) {
+			return false
+		}
+		refCols := fk.EffectiveRefColumns()
+		if len(fk.Columns) > 0 && len(refCols) != len(fk.Columns) {
 			return false
 		}
 	}
@@ -960,6 +992,30 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 			Unique:      idxIR.Unique,
 			Using:       "BTREE",
 			DescColumns: idxIR.DescColumns,
+			Where:       idxIR.Where,
+		})
+	}
+	for _, fkIR := range meta.ForeignKeys {
+		cols := dedupDorisColumnList(fkIR.Columns)
+		if len(cols) == 0 || fkIR.RefTable == "" {
+			continue
+		}
+		refCols := dedupDorisColumnList(fkIR.RefColumns)
+		if len(refCols) == 0 {
+			refCols = []string{"id"}
+		}
+		fkName := strings.TrimSpace(fkIR.Name)
+		if fkName == "" {
+			fkName = fmt.Sprintf("fk_%s_%s", meta.TableName, strings.Join(cols, "_"))
+		}
+		fks = append(fks, PostgresForeignKeyDescriptor{
+			Name:       fkName,
+			Columns:    cols,
+			RefTable:   fkIR.RefTable,
+			RefColumn:  refCols[0],
+			RefColumns: refCols,
+			OnDelete:   fkIR.OnDelete,
+			OnUpdate:   fkIR.OnUpdate,
 		})
 	}
 
@@ -1300,24 +1356,25 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 			colParts = append(colParts, part)
 		}
 		using := strings.ToLower(strings.TrimSpace(idx.Using))
+		whereClause := ""
+		if idx.Where != "" {
+			whereClause = " WHERE " + idx.Where
+		}
 		if using == "" || using == "btree" {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, strings.Join(colParts, ", "))
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s)%s;", uniqueKw, idx.Name, schemaName, t.TableName, strings.Join(colParts, ", "), whereClause)
 		} else if idx.Ops != "" && len(idx.Columns) == 1 {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s %s);", uniqueKw, idx.Name, schemaName, t.TableName, using, colParts[0], idx.Ops)
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s %s)%s;", uniqueKw, idx.Name, schemaName, t.TableName, using, colParts[0], idx.Ops, whereClause)
 		} else {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, using, strings.Join(colParts, ", "))
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s)%s;", uniqueKw, idx.Name, schemaName, t.TableName, using, strings.Join(colParts, ", "), whereClause)
 		}
 	}
 	for _, fk := range t.ForeignKeys {
 		if fk.Name == "" || fk.RefTable == "" || len(fk.Columns) == 0 {
 			continue
 		}
-		refCol := fk.RefColumn
-		if refCol == "" {
-			refCol = "id"
-		}
+		refCols := fk.EffectiveRefColumns()
 		clause := fmt.Sprintf("\nALTER TABLE %s.%s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s.%s (%s)",
-			schemaName, t.TableName, fk.Name, strings.Join(fk.Columns, ", "), schemaName, fk.RefTable, refCol)
+			schemaName, t.TableName, fk.Name, strings.Join(fk.Columns, ", "), schemaName, fk.RefTable, strings.Join(refCols, ", "))
 		if _, delSQL, ok := isValidForeignKeyAction(fk.OnDelete); ok && delSQL != "" {
 			clause += " ON DELETE " + delSQL
 		}
@@ -1513,19 +1570,23 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 		if idx.Ops != "" {
 			fmt.Fprintf(&b, "    ops = %q\n", idx.Ops)
 		}
+		if idx.Where != "" {
+			fmt.Fprintf(&b, "    where = %q\n", idx.Where)
+		}
 		b.WriteString("  }\n")
 	}
 	for _, fk := range t.ForeignKeys {
 		if fk.Name == "" || fk.RefTable == "" || len(fk.Columns) == 0 {
 			continue
 		}
-		refCol := fk.RefColumn
-		if refCol == "" {
-			refCol = "id"
+		refCols := fk.EffectiveRefColumns()
+		refColRefs := make([]string, 0, len(refCols))
+		for _, rc := range refCols {
+			refColRefs = append(refColRefs, fmt.Sprintf("table.%s.column.%s", fk.RefTable, rc))
 		}
 		fmt.Fprintf(&b, "  foreign_key %q {\n", fk.Name)
 		fmt.Fprintf(&b, "    columns     = %s\n", formatAtlasHCLColRefList(fk.Columns))
-		fmt.Fprintf(&b, "    ref_columns = [table.%s.column.%s]\n", fk.RefTable, refCol)
+		fmt.Fprintf(&b, "    ref_columns = [%s]\n", strings.Join(refColRefs, ", "))
 		if delHCL, _, ok := isValidForeignKeyAction(fk.OnDelete); ok && delHCL != "" {
 			fmt.Fprintf(&b, "    on_delete   = %s\n", delHCL)
 		}
@@ -1697,6 +1758,43 @@ func parsePostgresAtlasTableBlock(tableName, body string) (PostgresTableDescript
 	}
 	desc.Columns = cols
 	return desc, nil
+}
+
+// parseHCLForeignKeyRefColumns parses a bracketed Atlas HCL ref_columns expression like
+// "[table.parent.column.id]" or "[table.parent.column.c1, table.parent.column.c2]" into
+// the referenced table name and list of referenced columns.
+func parseHCLForeignKeyRefColumns(raw string) (string, []string, error) {
+	s := strings.TrimSpace(raw)
+	if !strings.HasPrefix(s, "[") || !strings.HasSuffix(s, "]") {
+		return "", nil, fmt.Errorf("expected bracketed ref_columns list, got %q", raw)
+	}
+	inner := strings.TrimSpace(s[1 : len(s)-1])
+	if inner == "" {
+		return "", nil, fmt.Errorf("empty ref_columns list in %q", raw)
+	}
+	parts := strings.Split(inner, ",")
+	var refTable string
+	var refCols []string
+	for _, p := range parts {
+		item := strings.TrimSpace(p)
+		item = unquoteHCLString(item)
+		subParts := strings.Split(item, ".")
+		if len(subParts) != 4 || subParts[0] != "table" || subParts[2] != "column" {
+			return "", nil, fmt.Errorf("invalid foreign key ref_column format %q (expected table.<ref_table>.column.<ref_col>)", p)
+		}
+		tbl := unquoteHCLString(subParts[1])
+		col := unquoteHCLString(subParts[3])
+		if !isValidSQLIdentifier(tbl) || !isValidSQLIdentifier(col) {
+			return "", nil, fmt.Errorf("invalid identifier in ref_column %q", p)
+		}
+		if refTable == "" {
+			refTable = tbl
+		} else if refTable != tbl {
+			return "", nil, fmt.Errorf("foreign key references multiple tables: %q and %q", refTable, tbl)
+		}
+		refCols = append(refCols, col)
+	}
+	return refTable, refCols, nil
 }
 
 func applyPostgresAtlasSubBlock(
@@ -1872,6 +1970,13 @@ func applyPostgresAtlasSubBlock(
 				return fmt.Errorf("index %q: %w", idxName, err)
 			}
 		}
+		whereExpr := ""
+		if wRaw, hasWhere := kv["where"]; hasWhere {
+			whereExpr = unquoteHCLString(wRaw)
+			if !isValidPostgresCheckExpr(whereExpr) {
+				return fmt.Errorf("index %q: invalid where predicate %q", idxName, whereExpr)
+			}
+		}
 		unique := false
 		if uRaw, hasUnique := kv["unique"]; hasUnique {
 			unique, _ = strconv.ParseBool(unquoteHCLString(uRaw))
@@ -1891,6 +1996,7 @@ func applyPostgresAtlasSubBlock(
 			Using:       using,
 			Ops:         ops,
 			DescColumns: descCols,
+			Where:       whereExpr,
 		})
 		if using == "GIN" {
 			if strings.HasPrefix(idxName, "idx_ngram_") {
@@ -1918,24 +2024,29 @@ func applyPostgresAtlasSubBlock(
 			}
 		}
 		var refTable, refCol string
+		var refCols []string
 		if refRaw, ok := kv["ref_columns"]; ok {
-			trimmedRef := strings.TrimSpace(refRaw)
-			if strings.HasPrefix(trimmedRef, "[") && strings.HasSuffix(trimmedRef, "]") {
-				innerRef := strings.TrimSpace(trimmedRef[1 : len(trimmedRef)-1])
-				parts := strings.Split(innerRef, ".")
-				if len(parts) == 4 && parts[0] == "table" && parts[2] == "column" {
-					refTable = unquoteHCLString(parts[1])
-					refCol = unquoteHCLString(parts[3])
-				}
+			var err error
+			refTable, refCols, err = parseHCLForeignKeyRefColumns(refRaw)
+			if err != nil {
+				return fmt.Errorf("foreign_key %q: %w", fkName, err)
+			}
+			if len(refCols) > 0 {
+				refCol = refCols[0]
 			}
 		}
+		if len(cols) != len(refCols) {
+			return fmt.Errorf("foreign_key %q: columns count (%d) does not match ref_columns count (%d)",
+				fkName, len(cols), len(refCols))
+		}
 		desc.ForeignKeys = append(desc.ForeignKeys, PostgresForeignKeyDescriptor{
-			Name:      fkName,
-			Columns:   cols,
-			RefTable:  refTable,
-			RefColumn: refCol,
-			OnDelete:  unquoteHCLString(kv["on_delete"]),
-			OnUpdate:  unquoteHCLString(kv["on_update"]),
+			Name:       fkName,
+			Columns:    cols,
+			RefTable:   refTable,
+			RefColumn:  refCol,
+			RefColumns: refCols,
+			OnDelete:   unquoteHCLString(kv["on_delete"]),
+			OnUpdate:   unquoteHCLString(kv["on_update"]),
 		})
 		return nil
 
@@ -2407,12 +2518,16 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 			uniqueKw = "UNIQUE "
 		}
 		using := strings.ToLower(strings.TrimSpace(idx.Using))
+		whereClause := ""
+		if idx.Where != "" {
+			whereClause = " WHERE " + idx.Where
+		}
 		if using == "" || using == "btree" {
-			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s);", uniqueKw, idx.Name, fullTableName, strings.Join(idx.Columns, ", ")))
+			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s)%s;", uniqueKw, idx.Name, fullTableName, strings.Join(idx.Columns, ", "), whereClause))
 		} else if idx.Ops != "" && len(idx.Columns) == 1 {
-			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s %s);", uniqueKw, idx.Name, fullTableName, using, idx.Columns[0], idx.Ops))
+			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s %s)%s;", uniqueKw, idx.Name, fullTableName, using, idx.Columns[0], idx.Ops, whereClause))
 		} else {
-			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s);", uniqueKw, idx.Name, fullTableName, using, strings.Join(idx.Columns, ", ")))
+			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s)%s;", uniqueKw, idx.Name, fullTableName, using, strings.Join(idx.Columns, ", "), whereClause))
 		}
 	}
 	beforeFK := make(map[string]bool, len(before.ForeignKeys))
@@ -2426,12 +2541,9 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 			continue
 		}
 		beforeFK[fk.Name] = true
-		refCol := fk.RefColumn
-		if refCol == "" {
-			refCol = "id"
-		}
+		refCols := fk.EffectiveRefColumns()
 		clause := fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s.%s (%s)",
-			fullTableName, fk.Name, strings.Join(fk.Columns, ", "), schemaName, fk.RefTable, refCol)
+			fullTableName, fk.Name, strings.Join(fk.Columns, ", "), schemaName, fk.RefTable, strings.Join(refCols, ", "))
 		if _, delSQL, ok := isValidForeignKeyAction(fk.OnDelete); ok && delSQL != "" {
 			clause += " ON DELETE " + delSQL
 		}

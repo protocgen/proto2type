@@ -20,6 +20,8 @@ class IndexDef(BaseModel):
     name: str = ''
     columns: list[str] = Field(default_factory=list)
     unique: bool = False
+    desc_columns: list[str] = Field(default_factory=list, description='Column names that should be indexed in descending (DESC) order.')
+    where: str = Field(default='', description="Partial index filter predicate (e.g. \"(status <> \'TERMINATED\')\").")
 
 
 def apply_field_mask_index_def(dst: IndexDef, src: IndexDef, paths: list[str]) -> None:
@@ -32,6 +34,56 @@ def apply_field_mask_index_def(dst: IndexDef, src: IndexDef, paths: list[str]) -
             dst.columns = copy.deepcopy(src.columns)
         elif path == "unique":
             dst.unique = src.unique
+        elif path == "desc_columns":
+            dst.desc_columns = copy.deepcopy(src.desc_columns)
+        elif path == "where":
+            dst.where = src.where
+
+class CheckDef(BaseModel):
+    """CheckDef defines a SQL check constraint on a table."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = ''
+    expr: str = ''
+
+
+def apply_field_mask_check_def(dst: CheckDef, src: CheckDef, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "name":
+            dst.name = src.name
+        elif path == "expr":
+            dst.expr = src.expr
+
+class ForeignKeyDef(BaseModel):
+    """ForeignKeyDef defines a single or composite relational foreign key constraint on a table."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = ''
+    columns: list[str] = Field(default_factory=list)
+    ref_table: str = ''
+    ref_columns: list[str] = Field(default_factory=list)
+    on_delete: str = ''
+    on_update: str = ''
+
+
+def apply_field_mask_foreign_key_def(dst: ForeignKeyDef, src: ForeignKeyDef, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "name":
+            dst.name = src.name
+        elif path == "columns":
+            dst.columns = copy.deepcopy(src.columns)
+        elif path == "ref_table":
+            dst.ref_table = src.ref_table
+        elif path == "ref_columns":
+            dst.ref_columns = copy.deepcopy(src.ref_columns)
+        elif path == "on_delete":
+            dst.on_delete = src.on_delete
+        elif path == "on_update":
+            dst.on_update = src.on_update
 
 class TableOptions(BaseModel):
     """TableOptions defines Apache Doris 4.x and Apache Iceberg lakehouse table
@@ -58,6 +110,9 @@ metadata on a message. Wire-compatible with legacy table metadata extension 5020
     reader_services: list[str] = Field(default_factory=list, description='Additional microservices permitted to read from this table (or \"*\" for shared read).')
     primary_key_fields: list[str] = Field(default_factory=list, description='Explicit primary key column names for relational (PostgreSQL) tables.')
     indexes: list[IndexDef] = Field(default_factory=list, description='Explicit composite or named indexes for relational (PostgreSQL) tables.')
+    checks: list[CheckDef] = Field(default_factory=list, description='Explicit check constraints for relational (PostgreSQL) tables.')
+    is_singleton: bool = Field(default=False, description='Mark table as a single-row singleton table (generates singleton boolean PK and CHECK).')
+    foreign_keys: list[ForeignKeyDef] = Field(default_factory=list, description='Explicit table-level or composite foreign keys for relational (PostgreSQL) tables.')
 
 
 def apply_field_mask_table_options(dst: TableOptions, src: TableOptions, paths: list[str]) -> None:
@@ -104,6 +159,12 @@ def apply_field_mask_table_options(dst: TableOptions, src: TableOptions, paths: 
             dst.primary_key_fields = copy.deepcopy(src.primary_key_fields)
         elif path == "indexes":
             dst.indexes = copy.deepcopy(src.indexes)
+        elif path == "checks":
+            dst.checks = copy.deepcopy(src.checks)
+        elif path == "is_singleton":
+            dst.is_singleton = src.is_singleton
+        elif path == "foreign_keys":
+            dst.foreign_keys = copy.deepcopy(src.foreign_keys)
 
 class MessageOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -285,6 +346,8 @@ def apply_field_mask_field_options(dst: FieldOptions, src: FieldOptions, paths: 
 
 
 IndexDef.model_rebuild()
+CheckDef.model_rebuild()
+ForeignKeyDef.model_rebuild()
 TableOptions.model_rebuild()
 MessageOptions.model_rebuild()
 ForeignKey.model_rebuild()
@@ -293,10 +356,12 @@ ColumnOptions.model_rebuild()
 FieldOptions.model_rebuild()
 
 __all__ = [
+    'CheckDef',
     'ColumnOptions',
     'ComputedField',
     'FieldOptions',
     'ForeignKey',
+    'ForeignKeyDef',
     'IndexDef',
     'MessageOptions',
     'OptionalBool',

@@ -34,6 +34,7 @@ type PostgresIndexDescriptor struct {
 	Using       string // "BTREE", "GIN", "HNSW"
 	Ops         string // e.g. "vector_l2_ops"
 	DescColumns []string
+	Where       string
 }
 
 // IsDesc reports whether col is indexed in descending order.
@@ -54,12 +55,24 @@ type PostgresCheckDescriptor struct {
 
 // PostgresForeignKeyDescriptor describes a foreign key constraint on a PostgreSQL table.
 type PostgresForeignKeyDescriptor struct {
-	Name      string
-	Columns   []string
-	RefTable  string
-	RefColumn string
-	OnDelete  string
-	OnUpdate  string
+	Name       string
+	Columns    []string
+	RefTable   string
+	RefColumn  string
+	RefColumns []string
+	OnDelete   string
+	OnUpdate   string
+}
+
+// EffectiveRefColumns returns RefColumns if set, or RefColumn as a single-element slice.
+func (fk PostgresForeignKeyDescriptor) EffectiveRefColumns() []string {
+	if len(fk.RefColumns) > 0 {
+		return fk.RefColumns
+	}
+	if fk.RefColumn != "" {
+		return []string{fk.RefColumn}
+	}
+	return nil
 }
 
 // PostgresTableSchemaDescriptor describes the complete relational schema of a PostgreSQL table
@@ -928,8 +941,12 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 				return fmt.Errorf("message %s: index %q desc_columns references column %q which is not in index columns", dm.FullName, idx.Name, dCol)
 			}
 		}
+		idx.Where = strings.TrimSpace(idx.Where)
+		if idx.Where != "" && !isValidPostgresCheckExpr(idx.Where) {
+			return fmt.Errorf("message %s: invalid where expression %q for index %q", dm.FullName, idx.Where, idx.Name)
+		}
 		if prev, exists := seenIdx[idx.Name]; exists {
-			if prev.Unique != idx.Unique || strings.Join(prev.Columns, ",") != strings.Join(idx.Columns, ",") || strings.Join(prev.DescColumns, ",") != strings.Join(idx.DescColumns, ",") {
+			if prev.Unique != idx.Unique || strings.Join(prev.Columns, ",") != strings.Join(idx.Columns, ",") || strings.Join(prev.DescColumns, ",") != strings.Join(idx.DescColumns, ",") || prev.Where != idx.Where {
 				return fmt.Errorf("message %s: conflicting definitions for index %q", dm.FullName, idx.Name)
 			}
 			return nil
@@ -946,7 +963,7 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 			}
 			colParts = append(colParts, part)
 		}
-		colSig := fmt.Sprintf("%t:%s", idx.Unique, strings.Join(colParts, ","))
+		colSig := fmt.Sprintf("%t:%s:%s", idx.Unique, strings.Join(colParts, ","), idx.Where)
 		if autoNamed {
 			if seenIdxCols[colSig] {
 				return nil
@@ -1039,9 +1056,52 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 				Columns:     idxDef.Columns,
 				Unique:      idxDef.Unique,
 				DescColumns: idxDef.DescColumns,
+				Where:       idxDef.Where,
 			}, idxDef.Name == ""); err != nil {
 				return nil, err
 			}
+		}
+		for _, fkDef := range meta.ForeignKeys {
+			if len(fkDef.Columns) == 0 || fkDef.RefTable == "" {
+				continue
+			}
+			for _, col := range fkDef.Columns {
+				if !colSet[col] {
+					return nil, fmt.Errorf("message %s: foreign_key references unknown column %q", dm.FullName, col)
+				}
+			}
+			if !isValidSQLIdentifier(fkDef.RefTable) || len(fkDef.RefTable) > maxPostgresIdentifierBytes {
+				return nil, fmt.Errorf("message %s: foreign_key invalid ref_table %q", dm.FullName, fkDef.RefTable)
+			}
+			refCols := fkDef.RefColumns
+			if len(refCols) == 0 {
+				refCols = []string{"id"}
+			}
+			for _, rc := range refCols {
+				if !isValidSQLIdentifier(rc) || len(rc) > maxPostgresIdentifierBytes {
+					return nil, fmt.Errorf("message %s: foreign_key invalid ref_column %q", dm.FullName, rc)
+				}
+			}
+			if len(fkDef.Columns) != len(refCols) {
+				return nil, fmt.Errorf("message %s: foreign_key columns count (%d) does not match ref_columns count (%d)",
+					dm.FullName, len(fkDef.Columns), len(refCols))
+			}
+			fkName := fkDef.Name
+			if fkName == "" {
+				fkName = compactPostgresIdentifier("fk", tableName+"_"+strings.Join(fkDef.Columns, "_"))
+			}
+			if !isValidSQLIdentifier(fkName) || len(fkName) > maxPostgresIdentifierBytes {
+				return nil, fmt.Errorf("message %s: invalid foreign key name %q", dm.FullName, fkName)
+			}
+			fks = append(fks, PostgresForeignKeyDescriptor{
+				Name:       fkName,
+				Columns:    fkDef.Columns,
+				RefTable:   fkDef.RefTable,
+				RefColumn:  refCols[0],
+				RefColumns: refCols,
+				OnDelete:   fkDef.OnDelete,
+				OnUpdate:   fkDef.OnUpdate,
+			})
 		}
 	}
 
@@ -1373,13 +1433,17 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 			}
 			colParts = append(colParts, part)
 		}
+		whereClause := ""
+		if idx.Where != "" {
+			whereClause = " WHERE " + idx.Where
+		}
 		b.WriteString("\n")
 		if idx.Unique {
-			fmt.Fprintf(&b, "CREATE UNIQUE INDEX IF NOT EXISTS %q ON %q (%s);",
-				idx.Name, t.TableName, strings.Join(colParts, ", "))
+			fmt.Fprintf(&b, "CREATE UNIQUE INDEX IF NOT EXISTS %q ON %q (%s)%s;",
+				idx.Name, t.TableName, strings.Join(colParts, ", "), whereClause)
 		} else {
-			fmt.Fprintf(&b, "CREATE INDEX IF NOT EXISTS %q ON %q (%s);",
-				idx.Name, t.TableName, strings.Join(colParts, ", "))
+			fmt.Fprintf(&b, "CREATE INDEX IF NOT EXISTS %q ON %q (%s)%s;",
+				idx.Name, t.TableName, strings.Join(colParts, ", "), whereClause)
 		}
 	}
 
@@ -1411,14 +1475,19 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresForeignKeysSQL() string {
 	}
 	var lines []string
 	for _, fk := range t.ForeignKeys {
+		refCols := fk.EffectiveRefColumns()
 		if !isValidSQLIdentifier(fk.Name) || len(fk.Name) > maxPostgresIdentifierBytes ||
 			!isValidSQLIdentifier(fk.RefTable) || len(fk.RefTable) > maxPostgresIdentifierBytes ||
-			!isValidSQLIdentifier(fk.RefColumn) || len(fk.RefColumn) > maxPostgresIdentifierBytes ||
-			len(fk.Columns) == 0 {
+			len(refCols) == 0 || len(refCols) != len(fk.Columns) {
 			return ""
 		}
 		for _, col := range fk.Columns {
 			if !isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes {
+				return ""
+			}
+		}
+		for _, rc := range refCols {
+			if !isValidSQLIdentifier(rc) || len(rc) > maxPostgresIdentifierBytes {
 				return ""
 			}
 		}
@@ -1432,8 +1501,8 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresForeignKeysSQL() string {
 			return ""
 		}
 		_ = updAct
-		fkLine := fmt.Sprintf("ALTER TABLE %q ADD CONSTRAINT %q FOREIGN KEY (%s) REFERENCES %q (%q)",
-			t.TableName, fk.Name, formatPostgresQuotedIdentList(fk.Columns), fk.RefTable, fk.RefColumn)
+		fkLine := fmt.Sprintf("ALTER TABLE %q ADD CONSTRAINT %q FOREIGN KEY (%s) REFERENCES %q (%s)",
+			t.TableName, fk.Name, formatPostgresQuotedIdentList(fk.Columns), fk.RefTable, formatPostgresQuotedIdentList(refCols))
 		if delSQL != "" {
 			fkLine += " ON DELETE " + delSQL
 		}

@@ -3292,3 +3292,277 @@ func TestPostgresLakehouseCreateTableSQLWithChecksAndDesc(t *testing.T) {
 		t.Errorf("expected lakehouse BuildPostgresCreateTableSQL to emit directional index with DESC:\n%s", sql)
 	}
 }
+
+func TestPostgresPartialIndexEmissionAndParsing(t *testing.T) {
+	desc := PostgresTableSchemaDescriptor{
+		TableName: "facilities",
+		Columns: []PostgresColumnDescriptor{
+			{ColumnName: "tenant_id", SQLType: "TEXT", HCLType: "text", Nullable: false},
+			{ColumnName: "facility_id", SQLType: "TEXT", HCLType: "text", Nullable: false},
+			{ColumnName: "status", SQLType: "TEXT", HCLType: "text", Nullable: false},
+			{ColumnName: "dismissed_at", SQLType: "TIMESTAMPTZ", HCLType: "timestamptz", Nullable: true},
+		},
+		PrimaryKeys: []string{"tenant_id", "facility_id"},
+		Indexes: []PostgresIndexDescriptor{
+			{
+				Name:    "idx_facility_active",
+				Columns: []string{"tenant_id", "status"},
+				Unique:  true,
+				Where:   "(dismissed_at IS NULL)",
+			},
+			{
+				Name:        "idx_facility_status_desc",
+				Columns:     []string{"tenant_id", "status"},
+				DescColumns: []string{"status"},
+				Where:       "(status <> 'FACILITY_STATUS_TERMINATED'::text)",
+			},
+		},
+	}
+
+	// 1. BuildPostgresCreateTableWithoutForeignKeysSQL
+	sql := desc.BuildPostgresCreateTableWithoutForeignKeysSQL()
+	expectedIdx1 := `CREATE UNIQUE INDEX IF NOT EXISTS "idx_facility_active" ON "facilities" ("tenant_id", "status") WHERE (dismissed_at IS NULL);`
+	expectedIdx2 := `CREATE INDEX IF NOT EXISTS "idx_facility_status_desc" ON "facilities" ("tenant_id", "status" DESC) WHERE (status <> 'FACILITY_STATUS_TERMINATED'::text);`
+	if !strings.Contains(sql, expectedIdx1) {
+		t.Errorf("expected partial unique index in SQL:\n%s\nGot:\n%s", expectedIdx1, sql)
+	}
+	if !strings.Contains(sql, expectedIdx2) {
+		t.Errorf("expected partial directional index in SQL:\n%s\nGot:\n%s", expectedIdx2, sql)
+	}
+
+	// 2. BuildPostgresAtlasHCL
+	hcl := desc.BuildPostgresAtlasHCL()
+	if !strings.Contains(hcl, `where   = "(dismissed_at IS NULL)"`) {
+		t.Errorf("expected where predicate in HCL:\n%s", hcl)
+	}
+	if !strings.Contains(hcl, `where   = "(status <> 'FACILITY_STATUS_TERMINATED'::text)"`) {
+		t.Errorf("expected where predicate in HCL:\n%s", hcl)
+	}
+
+	// 3. ParsePostgresAtlasHCL round-trip
+	parsed, err := ParsePostgresAtlasHCL(hcl)
+	if err != nil {
+		t.Fatalf("ParsePostgresAtlasHCL failed: %v", err)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("expected 1 table parsed, got %d", len(parsed))
+	}
+	tbl := parsed[0]
+	if len(tbl.Indexes) != 2 {
+		t.Fatalf("expected 2 indexes parsed, got %d", len(tbl.Indexes))
+	}
+	idx0 := tbl.Indexes[0]
+	if idx0.Name != "idx_facility_active" || !idx0.Unique || idx0.Where != "(dismissed_at IS NULL)" {
+		t.Errorf("unexpected parsed index 0: %+v", idx0)
+	}
+	idx1 := tbl.Indexes[1]
+	if idx1.Name != "idx_facility_status_desc" || idx1.Unique || idx1.Where != "(status <> 'FACILITY_STATUS_TERMINATED'::text)" {
+		t.Errorf("unexpected parsed index 1: %+v", idx1)
+	}
+	if !idx1.IsDesc("status") {
+		t.Errorf("expected status column to be DESC in parsed index 1")
+	}
+
+	// 4. BuildPostgresCreateTableSQL (lakehouse descriptor)
+	lakehouseDesc := PostgresTableDescriptor{
+		TableName:     desc.TableName,
+		DatabaseScope: "PUBLIC",
+		Columns:       desc.Columns,
+		Indexes:       desc.Indexes,
+	}
+	lakehouseSQL := lakehouseDesc.BuildPostgresCreateTableSQL("")
+	if !strings.Contains(lakehouseSQL, "CREATE UNIQUE INDEX IF NOT EXISTS idx_facility_active ON public.facilities (tenant_id, status) WHERE (dismissed_at IS NULL);") {
+		t.Errorf("expected partial index in lakehouse SQL:\n%s", lakehouseSQL)
+	}
+
+	// 5. BuildPostgresAlterTableSQL
+	beforeDesc := lakehouseDesc
+	beforeDesc.Indexes = nil
+	afterDesc := lakehouseDesc
+	alterStmts, err := BuildPostgresAlterTableSQL(beforeDesc, afterDesc, "")
+	if err != nil {
+		t.Fatalf("BuildPostgresAlterTableSQL failed: %v", err)
+	}
+	joinedAlter := strings.Join(alterStmts, "\n")
+	if !strings.Contains(joinedAlter, "CREATE UNIQUE INDEX IF NOT EXISTS idx_facility_active ON public.facilities (tenant_id, status) WHERE (dismissed_at IS NULL);") {
+		t.Errorf("expected partial index in alter statements:\n%s", joinedAlter)
+	}
+}
+
+func TestPostgresTableLevelForeignKeysEmissionAndParsing(t *testing.T) {
+	desc := PostgresTableSchemaDescriptor{
+		TableName: "facility_departments",
+		Columns: []PostgresColumnDescriptor{
+			{ColumnName: "tenant_id", SQLType: "TEXT", HCLType: "text", Nullable: false},
+			{ColumnName: "facility_id", SQLType: "TEXT", HCLType: "text", Nullable: false},
+			{ColumnName: "department_id", SQLType: "TEXT", HCLType: "text", Nullable: false},
+			{ColumnName: "manager_id", SQLType: "TEXT", HCLType: "text", Nullable: true},
+		},
+		PrimaryKeys: []string{"tenant_id", "facility_id", "department_id"},
+		ForeignKeys: []PostgresForeignKeyDescriptor{
+			{
+				Name:       "fk_dept_facility",
+				Columns:    []string{"tenant_id", "facility_id"},
+				RefTable:   "facilities",
+				RefColumns: []string{"tenant_id", "facility_id"},
+				OnDelete:   "CASCADE",
+				OnUpdate:   "RESTRICT",
+			},
+			{
+				Name:       "fk_dept_manager",
+				Columns:    []string{"manager_id"},
+				RefTable:   "staff",
+				RefColumn:  "id",
+				RefColumns: []string{"id"},
+				OnDelete:   "SET NULL",
+			},
+		},
+	}
+
+	// 1. BuildPostgresForeignKeysSQL
+	fkSQL := desc.BuildPostgresForeignKeysSQL()
+	expectedFK1 := `ALTER TABLE "facility_departments" ADD CONSTRAINT "fk_dept_facility" FOREIGN KEY ("tenant_id", "facility_id") REFERENCES "facilities" ("tenant_id", "facility_id") ON DELETE CASCADE ON UPDATE RESTRICT;`
+	expectedFK2 := `ALTER TABLE "facility_departments" ADD CONSTRAINT "fk_dept_manager" FOREIGN KEY ("manager_id") REFERENCES "staff" ("id") ON DELETE SET NULL;`
+	if !strings.Contains(fkSQL, expectedFK1) {
+		t.Errorf("expected composite FK in SQL:\n%s\nGot:\n%s", expectedFK1, fkSQL)
+	}
+	if !strings.Contains(fkSQL, expectedFK2) {
+		t.Errorf("expected single-col FK in SQL:\n%s\nGot:\n%s", expectedFK2, fkSQL)
+	}
+
+	// 2. BuildPostgresAtlasHCL
+	hcl := desc.BuildPostgresAtlasHCL()
+	if !strings.Contains(hcl, `foreign_key "fk_dept_facility" {`) {
+		t.Fatalf("expected foreign_key fk_dept_facility in HCL:\n%s", hcl)
+	}
+	if !strings.Contains(hcl, `ref_columns = [table.facilities.column.tenant_id, table.facilities.column.facility_id]`) {
+		t.Errorf("expected composite ref_columns in HCL:\n%s", hcl)
+	}
+	if !strings.Contains(hcl, `on_delete   = CASCADE`) || !strings.Contains(hcl, `on_update   = RESTRICT`) {
+		t.Errorf("expected on_delete/on_update in HCL:\n%s", hcl)
+	}
+	if !strings.Contains(hcl, `ref_columns = [table.staff.column.id]`) {
+		t.Errorf("expected single ref_columns in HCL:\n%s", hcl)
+	}
+
+	// 3. ParsePostgresAtlasHCL round-trip
+	parsed, err := ParsePostgresAtlasHCL(hcl)
+	if err != nil {
+		t.Fatalf("ParsePostgresAtlasHCL failed: %v", err)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("expected 1 table parsed, got %d", len(parsed))
+	}
+	tbl := parsed[0]
+	if len(tbl.ForeignKeys) != 2 {
+		t.Fatalf("expected 2 foreign keys parsed, got %d", len(tbl.ForeignKeys))
+	}
+	fk0 := tbl.ForeignKeys[0]
+	if fk0.Name != "fk_dept_facility" || fk0.RefTable != "facilities" ||
+		strings.Join(fk0.Columns, ",") != "tenant_id,facility_id" ||
+		strings.Join(fk0.EffectiveRefColumns(), ",") != "tenant_id,facility_id" ||
+		fk0.OnDelete != "CASCADE" || fk0.OnUpdate != "RESTRICT" {
+		t.Errorf("unexpected parsed FK 0: %+v", fk0)
+	}
+	fk1 := tbl.ForeignKeys[1]
+	if fk1.Name != "fk_dept_manager" || fk1.RefTable != "staff" ||
+		strings.Join(fk1.Columns, ",") != "manager_id" ||
+		strings.Join(fk1.EffectiveRefColumns(), ",") != "id" ||
+		(fk1.OnDelete != "SET_NULL" && fk1.OnDelete != "SET NULL") {
+		t.Errorf("unexpected parsed FK 1: %+v", fk1)
+	}
+
+	// 4. BuildPostgresCreateTableSQL (lakehouse descriptor)
+	lakehouseDesc := PostgresTableDescriptor{
+		TableName:     desc.TableName,
+		DatabaseScope: "PUBLIC",
+		Columns:       desc.Columns,
+		ForeignKeys:   desc.ForeignKeys,
+	}
+	lakehouseSQL := lakehouseDesc.BuildPostgresCreateTableSQL("")
+	if !strings.Contains(lakehouseSQL, "ALTER TABLE public.facility_departments ADD CONSTRAINT fk_dept_facility FOREIGN KEY (tenant_id, facility_id) REFERENCES public.facilities (tenant_id, facility_id) ON DELETE CASCADE ON UPDATE RESTRICT;") {
+		t.Errorf("expected composite FK in lakehouse SQL:\n%s", lakehouseSQL)
+	}
+
+	// 5. BuildPostgresAlterTableSQL
+	beforeDesc := lakehouseDesc
+	beforeDesc.ForeignKeys = nil
+	afterDesc := lakehouseDesc
+	alterStmts, err := BuildPostgresAlterTableSQL(beforeDesc, afterDesc, "")
+	if err != nil {
+		t.Fatalf("BuildPostgresAlterTableSQL failed: %v", err)
+	}
+	joinedAlter := strings.Join(alterStmts, "\n")
+	if !strings.Contains(joinedAlter, "ALTER TABLE public.facility_departments ADD CONSTRAINT fk_dept_facility FOREIGN KEY (tenant_id, facility_id) REFERENCES public.facilities (tenant_id, facility_id) ON DELETE CASCADE ON UPDATE RESTRICT;") {
+		t.Errorf("expected composite FK in alter statements:\n%s", joinedAlter)
+	}
+}
+
+func TestPostgresPartialIndexAndForeignKeyValidation(t *testing.T) {
+	// 1. Where clause validation in isValidPostgresCheckExpr
+	invalidWheres := []string{
+		"(dismissed_at IS NULL); DROP TABLE x; --",
+		"(dismissed_at IS NULL) -- comment",
+		"(dismissed_at IS NULL) /* comment */",
+		"((dismissed_at IS NULL)",
+		"(status = 'ACTIVE)",
+	}
+	for _, expr := range invalidWheres {
+		if isValidPostgresCheckExpr(expr) {
+			t.Errorf("expected where expr %q to be rejected, but it passed", expr)
+		}
+	}
+
+	// 2. Reject mismatched column count in ForeignKeys during HCL parsing
+	badHCLCount := `table "t" {
+  schema = schema.public
+  column "c1" {
+    null = false
+    type = text
+  }
+  foreign_key "fk_bad" {
+    columns     = [column.c1]
+    ref_columns = [table.other.column.x, table.other.column.y]
+  }
+}`
+	if _, err := ParsePostgresAtlasHCL(badHCLCount); err == nil {
+		t.Errorf("expected error parsing foreign key with mismatched column and ref_column count")
+	}
+
+	// 3. Reject foreign key referencing multiple tables in HCL parsing
+	badHCLMultiTable := `table "t" {
+  schema = schema.public
+  column "c1" {
+    null = false
+    type = text
+  }
+  column "c2" {
+    null = false
+    type = text
+  }
+  foreign_key "fk_bad_tables" {
+    columns     = [column.c1, column.c2]
+    ref_columns = [table.t1.column.x, table.t2.column.y]
+  }
+}`
+	if _, err := ParsePostgresAtlasHCL(badHCLMultiTable); err == nil {
+		t.Errorf("expected error parsing foreign key referencing multiple tables")
+	}
+
+	// 4. Reject invalid where predicate in HCL parsing
+	badHCLWhere := `table "t" {
+  schema = schema.public
+  column "c1" {
+    null = false
+    type = text
+  }
+  index "idx_bad" {
+    columns = [column.c1]
+    type    = "BTREE"
+    where   = "c1 IS NULL; DROP TABLE x; --"
+  }
+}`
+	if _, err := ParsePostgresAtlasHCL(badHCLWhere); err == nil {
+		t.Errorf("expected error parsing index with SQL injection in where predicate")
+	}
+}
