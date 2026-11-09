@@ -27,6 +27,17 @@ type IndexDefIR struct {
 	Columns     []string
 	Unique      bool
 	DescColumns []string
+	Where       string
+}
+
+// ForeignKeyDefIR holds a table-level foreign key definition from TableOptions.foreign_keys.
+type ForeignKeyDefIR struct {
+	Name       string
+	Columns    []string
+	RefTable   string
+	RefColumns []string
+	OnDelete   string
+	OnUpdate   string
 }
 
 // CheckDefIR holds a check constraint definition from TableOptions.checks.
@@ -69,6 +80,7 @@ type DorisTableMetaIR struct {
 	Indexes              []IndexDefIR
 	Checks               []CheckDefIR
 	IsSingleton          bool
+	ForeignKeys          []ForeignKeyDefIR
 }
 
 // isEmpty reports whether m is nil or has all zero-valued fields.
@@ -97,7 +109,8 @@ func (m *DorisTableMetaIR) isEmpty() bool {
 		len(m.PrimaryKeyFields) == 0 &&
 		len(m.Indexes) == 0 &&
 		len(m.Checks) == 0 &&
-		!m.IsSingleton
+		!m.IsSingleton &&
+		len(m.ForeignKeys) == 0
 }
 
 // hasDorisSpecificFields reports whether m has any Doris, StarRocks, or Iceberg
@@ -608,6 +621,7 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 					Columns:     cols,
 					Unique:      idx.GetUnique(),
 					DescColumns: trimNonEmptyStrings(idx.GetDescColumns()),
+					Where:       strings.TrimSpace(idx.GetWhere()),
 				})
 			}
 		}
@@ -622,6 +636,26 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 				checks = append(checks, CheckDefIR{
 					Name: name,
 					Expr: expr,
+				})
+			}
+		}
+		var fks []ForeignKeyDefIR
+		for _, fk := range t.GetForeignKeys() {
+			if fk == nil {
+				continue
+			}
+			cols := trimNonEmptyStrings(fk.GetColumns())
+			refCols := trimNonEmptyStrings(fk.GetRefColumns())
+			refTable := strings.TrimSpace(fk.GetRefTable())
+			name := strings.TrimSpace(fk.GetName())
+			if len(cols) > 0 && refTable != "" {
+				fks = append(fks, ForeignKeyDefIR{
+					Name:       name,
+					Columns:    cols,
+					RefTable:   refTable,
+					RefColumns: refCols,
+					OnDelete:   strings.TrimSpace(fk.GetOnDelete()),
+					OnUpdate:   strings.TrimSpace(fk.GetOnUpdate()),
 				})
 			}
 		}
@@ -648,6 +682,7 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 			Indexes:              indexes,
 			Checks:               checks,
 			IsSingleton:          t.GetIsSingleton(),
+			ForeignKeys:          fks,
 		}
 		if !out.isEmpty() {
 			typedOut = out
@@ -818,6 +853,14 @@ func parseIndexDefBytes(b []byte) IndexDefIR {
 					continue
 				}
 			}
+		case 5: // string where = 5
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					idx.Where = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
 		}
 		m := protowire.ConsumeFieldValue(num, typ, b)
 		if m < 0 {
@@ -826,6 +869,78 @@ func parseIndexDefBytes(b []byte) IndexDefIR {
 		b = b[m:]
 	}
 	return idx
+}
+
+// parseForeignKeyDefBytes decodes a serialized ForeignKeyDef message into ForeignKeyDefIR.
+func parseForeignKeyDefBytes(b []byte) ForeignKeyDefIR {
+	var fk ForeignKeyDefIR
+	for len(b) > 0 {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			break
+		}
+		b = b[n:]
+		switch num {
+		case 1: // string name = 1
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					fk.Name = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 2: // repeated string columns = 2
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if col := strings.TrimSpace(string(v)); col != "" {
+						fk.Columns = append(fk.Columns, col)
+					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 3: // string ref_table = 3
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					fk.RefTable = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 4: // repeated string ref_columns = 4
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if col := strings.TrimSpace(string(v)); col != "" {
+						fk.RefColumns = append(fk.RefColumns, col)
+					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 5: // string on_delete = 5
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					fk.OnDelete = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 6: // string on_update = 6
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					fk.OnUpdate = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		}
+		m := protowire.ConsumeFieldValue(num, typ, b)
+		if m < 0 {
+			break
+		}
+		b = b[m:]
+	}
+	return fk
 }
 
 // parseCheckDefBytes decodes a serialized CheckDef message into CheckDefIR.
@@ -1132,6 +1247,16 @@ func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultA
 			if includeVaultAndCatalog && typ == protowire.VarintType {
 				if v, m := protowire.ConsumeVarint(b); m >= 0 {
 					dst.IsSingleton = v != 0
+					b = b[m:]
+					continue
+				}
+			}
+		case 23: // repeated ForeignKeyDef foreign_keys = 23 (TableOptions 1307)
+			if includeVaultAndCatalog && typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if fk := parseForeignKeyDefBytes(v); len(fk.Columns) > 0 && fk.RefTable != "" {
+						dst.ForeignKeys = append(dst.ForeignKeys, fk)
+					}
 					b = b[m:]
 					continue
 				}

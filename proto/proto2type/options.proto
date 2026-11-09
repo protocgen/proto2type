@@ -55,6 +55,8 @@ message TableOptions {
   repeated CheckDef checks = 21;
   // Mark table as a single-row singleton table (generates singleton boolean PK and CHECK).
   bool is_singleton = 22;
+  // Explicit table-level or composite foreign keys for relational (PostgreSQL) tables.
+  repeated ForeignKeyDef foreign_keys = 23;
 }
 
 // IndexDef defines a single or composite relational index on a table.
@@ -64,6 +66,18 @@ message IndexDef {
   bool unique = 3;
   // Column names that should be indexed in descending (DESC) order.
   repeated string desc_columns = 4;
+  // Partial index filter predicate (e.g. "(status <> 'TERMINATED')").
+  string where = 5;
+}
+
+// ForeignKeyDef defines a single or composite relational foreign key constraint on a table.
+message ForeignKeyDef {
+  string name = 1;
+  repeated string columns = 2;
+  string ref_table = 3;
+  repeated string ref_columns = 4;
+  string on_delete = 5;
+  string on_update = 6;
 }
 
 // CheckDef defines a SQL check constraint on a table.
