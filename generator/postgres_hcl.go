@@ -119,7 +119,18 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 		if idx.Unique {
 			b.WriteString("    unique  = true\n")
 		}
-		fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
+		if len(idx.DescColumns) > 0 {
+			for _, col := range idx.Columns {
+				b.WriteString("    on {\n")
+				if idx.IsDesc(col) {
+					b.WriteString("      desc   = true\n")
+				}
+				fmt.Fprintf(&b, "      column = column.%s\n", col)
+				b.WriteString("    }\n")
+			}
+		} else {
+			fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
+		}
 		b.WriteString("  }\n")
 	}
 
@@ -152,6 +163,15 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 		if updHCL != "" {
 			fmt.Fprintf(&b, "    on_update   = %s\n", updHCL)
 		}
+		b.WriteString("  }\n")
+	}
+
+	for _, chk := range t.Checks {
+		if !isValidSQLIdentifier(chk.Name) || len(chk.Name) > maxPostgresIdentifierBytes || !isValidPostgresCheckExpr(chk.Expr) {
+			return ""
+		}
+		fmt.Fprintf(&b, "  check %q {\n", chk.Name)
+		fmt.Fprintf(&b, "    expr = %q\n", chk.Expr)
 		b.WriteString("  }\n")
 	}
 
@@ -216,6 +236,8 @@ type PostgresTableDescriptor struct {
 	Indexes              []PostgresIndexDescriptor
 	ForeignKeys          []PostgresForeignKeyDescriptor
 	Columns              []PostgresColumnDescriptor
+	Checks               []PostgresCheckDescriptor
+	IsSingleton          bool
 }
 
 type postgresTableIR struct {
@@ -933,10 +955,65 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 			}
 		}
 		indexes = append(indexes, PostgresIndexDescriptor{
-			Name:    idxName,
-			Columns: idxCols,
-			Unique:  idxIR.Unique,
-			Using:   "BTREE",
+			Name:        idxName,
+			Columns:     idxCols,
+			Unique:      idxIR.Unique,
+			Using:       "BTREE",
+			DescColumns: idxIR.DescColumns,
+		})
+	}
+
+	var checks []PostgresCheckDescriptor
+	if meta.IsSingleton {
+		hasSingletonCol := false
+		for _, c := range cols {
+			if c.ColumnName == "singleton" {
+				if c.DefaultValue != "" && (strings.EqualFold(c.DefaultValue, "false") || c.DefaultValue == "0") {
+					return nil, fmt.Errorf("message %s: singleton table cannot have singleton column with default false", msg.Desc.FullName())
+				}
+				hasSingletonCol = true
+				break
+			}
+		}
+		if !hasSingletonCol {
+			cols = append([]PostgresColumnDescriptor{{
+				ColumnName:   "singleton",
+				SQLType:      "BOOLEAN",
+				PostgresType: "BOOLEAN",
+				HCLType:      "boolean",
+				Nullable:     false,
+				DefaultValue: "true",
+				IsPrimaryKey: true,
+			}}, cols...)
+		}
+		pks = []string{"singleton"}
+		checks = append(checks, PostgresCheckDescriptor{
+			Name: compactPostgresIdentifier("chk", meta.TableName+"_singleton"),
+			Expr: "(singleton = true)",
+		})
+	}
+	seenChk := make(map[string]bool)
+	for _, c := range checks {
+		seenChk[c.Name] = true
+	}
+	for _, chkIR := range meta.Checks {
+		chkName := chkIR.Name
+		if chkName == "" {
+			chkName = compactPostgresIdentifier("chk", meta.TableName+"_"+fmt.Sprintf("%d", len(checks)+1))
+		}
+		if !isValidSQLIdentifier(chkName) || len(chkName) > maxPostgresIdentifierBytes {
+			return nil, fmt.Errorf("message %s: invalid check constraint name %q", msg.Desc.FullName(), chkName)
+		}
+		if seenChk[chkName] {
+			return nil, fmt.Errorf("message %s: duplicate check constraint name %q", msg.Desc.FullName(), chkName)
+		}
+		if !isValidPostgresCheckExpr(chkIR.Expr) {
+			return nil, fmt.Errorf("message %s: invalid check constraint expression %q", msg.Desc.FullName(), chkIR.Expr)
+		}
+		seenChk[chkName] = true
+		checks = append(checks, PostgresCheckDescriptor{
+			Name: chkName,
+			Expr: chkIR.Expr,
 		})
 	}
 
@@ -1023,6 +1100,8 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 		Indexes:              indexes,
 		ForeignKeys:          fks,
 		Columns:              cols,
+		Checks:               checks,
+		IsSingleton:          meta.IsSingleton,
 	}
 
 	return &postgresTableIR{
@@ -1130,6 +1209,15 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 	if len(pks) > 0 {
 		colLines = append(colLines, fmt.Sprintf("    PRIMARY KEY (%s)", strings.Join(pks, ", ")))
 	}
+	for _, chk := range t.Checks {
+		if isValidPostgresCheckExpr(chk.Expr) {
+			chkName := chk.Name
+			if chkName == "" {
+				chkName = compactPostgresIdentifier("chk", t.TableName)
+			}
+			colLines = append(colLines, fmt.Sprintf("    CONSTRAINT %q CHECK (%s)", chkName, chk.Expr))
+		}
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "CREATE TABLE IF NOT EXISTS %s.%s (\n", schemaName, t.TableName)
@@ -1143,6 +1231,24 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 		fmt.Fprintf(&b, "\nPARTITION BY %s (%s)", partMethod, strings.Join(partCols, ", "))
 	}
 	b.WriteString(";")
+
+	if t.IsSingleton {
+		var seedCols []string
+		var seedVals []string
+		for _, c := range t.Columns {
+			seedCols = append(seedCols, c.ColumnName)
+			if c.ColumnName == "singleton" {
+				seedVals = append(seedVals, "true")
+			} else if c.DefaultValue != "" {
+				upperType := strings.ToUpper(effectiveColPostgresType(c))
+				seedVals = append(seedVals, formatPostgresDefaultLiteral(upperType, c.DefaultValue))
+			} else {
+				seedVals = append(seedVals, "DEFAULT")
+			}
+		}
+		fmt.Fprintf(&b, "\n-- SEED_SINGLETON: INSERT INTO %s.%s (%s) VALUES (%s) ON CONFLICT (singleton) DO NOTHING;",
+			schemaName, t.TableName, strings.Join(seedCols, ", "), strings.Join(seedVals, ", "))
+	}
 
 	emittedIdx := make(map[string]bool)
 	seenInv := make(map[string]bool)
@@ -1185,13 +1291,21 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 		if idx.Unique {
 			uniqueKw = "UNIQUE "
 		}
+		var colParts []string
+		for _, col := range idx.Columns {
+			part := col
+			if idx.IsDesc(col) {
+				part += " DESC"
+			}
+			colParts = append(colParts, part)
+		}
 		using := strings.ToLower(strings.TrimSpace(idx.Using))
 		if using == "" || using == "btree" {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, strings.Join(idx.Columns, ", "))
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, strings.Join(colParts, ", "))
 		} else if idx.Ops != "" && len(idx.Columns) == 1 {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s %s);", uniqueKw, idx.Name, schemaName, t.TableName, using, idx.Columns[0], idx.Ops)
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s %s);", uniqueKw, idx.Name, schemaName, t.TableName, using, colParts[0], idx.Ops)
 		} else {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, using, strings.Join(idx.Columns, ", "))
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, using, strings.Join(colParts, ", "))
 		}
 	}
 	for _, fk := range t.ForeignKeys {
@@ -1383,7 +1497,18 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 		if idx.Unique {
 			b.WriteString("    unique = true\n")
 		}
-		fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
+		if len(idx.DescColumns) > 0 {
+			for _, col := range idx.Columns {
+				b.WriteString("    on {\n")
+				if idx.IsDesc(col) {
+					b.WriteString("      desc   = true\n")
+				}
+				fmt.Fprintf(&b, "      column = column.%s\n", col)
+				b.WriteString("    }\n")
+			}
+		} else {
+			fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
+		}
 		fmt.Fprintf(&b, "    type = %q\n", using)
 		if idx.Ops != "" {
 			fmt.Fprintf(&b, "    ops = %q\n", idx.Ops)
@@ -1407,6 +1532,11 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 		if updHCL, _, ok := isValidForeignKeyAction(fk.OnUpdate); ok && updHCL != "" {
 			fmt.Fprintf(&b, "    on_update   = %s\n", updHCL)
 		}
+		b.WriteString("  }\n")
+	}
+	for _, chk := range t.Checks {
+		fmt.Fprintf(&b, "  check %q {\n", chk.Name)
+		fmt.Fprintf(&b, "    expr = %q\n", chk.Expr)
 		b.WriteString("  }\n")
 	}
 	b.WriteString("}")
@@ -1669,12 +1799,74 @@ func applyPostgresAtlasSubBlock(
 		if !isValidSQLIdentifier(idxName) {
 			return fmt.Errorf("invalid index name %q", idxName)
 		}
-		kv, err := parseHCLKeyValueAssignments(blockBody)
-		if err != nil {
-			return fmt.Errorf("index %q: %w", idxName, err)
-		}
 		var cols []string
-		if colsRaw, ok := kv["columns"]; ok {
+		var descCols []string
+		kv := make(map[string]string)
+
+		pos := 0
+		for pos < len(blockBody) {
+			openRel := indexUnquotedHCLBrace(blockBody[pos:])
+			if openRel < 0 {
+				restKV, err := parseHCLKeyValueAssignments(blockBody[pos:])
+				if err != nil {
+					return fmt.Errorf("index %q: %w", idxName, err)
+				}
+				for k, v := range restKV {
+					kv[k] = v
+				}
+				break
+			}
+			openAbs := pos + openRel
+			headerStart := strings.LastIndexByte(blockBody[pos:openAbs], '\n')
+			var subHdr string
+			if headerStart >= 0 {
+				preKV, err := parseHCLKeyValueAssignments(blockBody[pos : pos+headerStart])
+				if err != nil {
+					return fmt.Errorf("index %q: %w", idxName, err)
+				}
+				for k, v := range preKV {
+					kv[k] = v
+				}
+				subHdr = strings.TrimSpace(blockBody[pos+headerStart+1 : openAbs])
+			} else {
+				subHdr = strings.TrimSpace(blockBody[pos:openAbs])
+			}
+			closeAbs, err := findMatchingHCLBrace(blockBody, openAbs)
+			if err != nil {
+				return fmt.Errorf("index %q: %w", idxName, err)
+			}
+			subBody := blockBody[openAbs+1 : closeAbs]
+			pos = closeAbs + 1
+
+			if subHdr == "on" {
+				subKV, err := parseHCLKeyValueAssignments(subBody)
+				if err != nil {
+					return fmt.Errorf("index %q on block: %w", idxName, err)
+				}
+				rawCol, hasCol := subKV["column"]
+				if !hasCol {
+					return fmt.Errorf("index %q on block missing column attribute", idxName)
+				}
+				rawCol = unquoteHCLString(rawCol)
+				colRef := strings.TrimPrefix(rawCol, "column.")
+				if _, ok := colMap[colRef]; colRef == "" || !ok {
+					return fmt.Errorf("index %q on block references unknown column %q", idxName, colRef)
+				}
+				cols = append(cols, colRef)
+				if dRaw, ok := subKV["desc"]; ok {
+					isDesc, err := strconv.ParseBool(unquoteHCLString(dRaw))
+					if err != nil {
+						return fmt.Errorf("index %q on block invalid desc value %q: %w", idxName, dRaw, err)
+					}
+					if isDesc {
+						descCols = append(descCols, colRef)
+					}
+				}
+			}
+		}
+
+		if colsRaw, ok := kv["columns"]; ok && len(cols) == 0 {
+			var err error
 			cols, err = parseHCLColumnRefList(colsRaw)
 			if err != nil {
 				return fmt.Errorf("index %q: %w", idxName, err)
@@ -1693,11 +1885,12 @@ func applyPostgresAtlasSubBlock(
 		}
 		ops := unquoteHCLString(kv["ops"])
 		desc.Indexes = append(desc.Indexes, PostgresIndexDescriptor{
-			Name:    idxName,
-			Columns: cols,
-			Unique:  unique,
-			Using:   using,
-			Ops:     ops,
+			Name:        idxName,
+			Columns:     cols,
+			Unique:      unique,
+			Using:       using,
+			Ops:         ops,
+			DescColumns: descCols,
 		})
 		if using == "GIN" {
 			if strings.HasPrefix(idxName, "idx_ngram_") {
@@ -1743,6 +1936,29 @@ func applyPostgresAtlasSubBlock(
 			RefColumn: refCol,
 			OnDelete:  unquoteHCLString(kv["on_delete"]),
 			OnUpdate:  unquoteHCLString(kv["on_update"]),
+		})
+		return nil
+
+	case strings.HasPrefix(header, "check "):
+		chkName := unquoteHCLString(strings.TrimSpace(strings.TrimPrefix(header, "check")))
+		if !isValidSQLIdentifier(chkName) {
+			return fmt.Errorf("invalid check constraint name %q", chkName)
+		}
+		kv, err := parseHCLKeyValueAssignments(blockBody)
+		if err != nil {
+			return fmt.Errorf("check %q: %w", chkName, err)
+		}
+		rawExpr, ok := kv["expr"]
+		if !ok || rawExpr == "" {
+			return fmt.Errorf("check %q missing expr attribute", chkName)
+		}
+		expr := unquoteHCLString(rawExpr)
+		if !isValidPostgresCheckExpr(expr) {
+			return fmt.Errorf("check %q invalid expr %q", chkName, expr)
+		}
+		desc.Checks = append(desc.Checks, PostgresCheckDescriptor{
+			Name: chkName,
+			Expr: expr,
 		})
 		return nil
 

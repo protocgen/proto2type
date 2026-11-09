@@ -28,11 +28,28 @@ type PostgresColumnDescriptor struct {
 
 // PostgresIndexDescriptor describes a single or composite index on a PostgreSQL table.
 type PostgresIndexDescriptor struct {
-	Name    string
-	Columns []string
-	Unique  bool
-	Using   string // "BTREE", "GIN", "HNSW"
-	Ops     string // e.g. "vector_l2_ops"
+	Name        string
+	Columns     []string
+	Unique      bool
+	Using       string // "BTREE", "GIN", "HNSW"
+	Ops         string // e.g. "vector_l2_ops"
+	DescColumns []string
+}
+
+// IsDesc reports whether col is indexed in descending order.
+func (idx PostgresIndexDescriptor) IsDesc(col string) bool {
+	for _, dc := range idx.DescColumns {
+		if dc == col {
+			return true
+		}
+	}
+	return false
+}
+
+// PostgresCheckDescriptor describes a check constraint on a PostgreSQL table.
+type PostgresCheckDescriptor struct {
+	Name string
+	Expr string
 }
 
 // PostgresForeignKeyDescriptor describes a foreign key constraint on a PostgreSQL table.
@@ -57,6 +74,8 @@ type PostgresTableSchemaDescriptor struct {
 	Columns        []PostgresColumnDescriptor
 	Indexes        []PostgresIndexDescriptor
 	ForeignKeys    []PostgresForeignKeyDescriptor
+	Checks         []PostgresCheckDescriptor
+	IsSingleton    bool
 }
 
 // IsForbiddenPostgresColumnType reports whether pgType is a forbidden non-relational
@@ -190,6 +209,50 @@ func validatePostgresDefaultValue(sqlType, defaultValue string) error {
 		return nil
 	}
 	return nil
+}
+
+// isValidPostgresCheckExpr validates that expr is a safe SQL check expression,
+// ensuring balanced parentheses, non-empty content, and rejecting statement terminators,
+// comment delimiters, or multiline injection sequences.
+func isValidPostgresCheckExpr(expr string) bool {
+	expr = strings.TrimSpace(expr)
+	if len(expr) == 0 || len(expr) > 4096 {
+		return false
+	}
+	if strings.ContainsAny(expr, ";\x00\r\n") || strings.Contains(expr, "--") || strings.Contains(expr, "/*") {
+		return false
+	}
+	depth := 0
+	inString := false
+	n := len(expr)
+	for i := 0; i < n; i++ {
+		ch := expr[i]
+		if inString {
+			if ch == '\'' {
+				if i+1 < n && expr[i+1] == '\'' {
+					i++ // escaped single quote ''
+				} else {
+					inString = false
+				}
+			}
+			continue
+		}
+		switch ch {
+		case '\'':
+			inString = true
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+	if inString {
+		return false
+	}
+	return depth == 0
 }
 
 // compactPostgresIdentifier constructs "<prefix>_<body>" and, if it exceeds
@@ -487,6 +550,106 @@ func isPostgresFieldNullable(f *DomainField, colMeta *DorisColumnMetaIR, isPK bo
 	}
 }
 
+// derivePostgresValidationChecks inspects field-level ValidateConstraints and appends
+// standard PostgreSQL check constraints for string bounds, pattern/enum membership, and array cardinality.
+func derivePostgresValidationChecks(tableName string, fields []*DomainField, seenCheckNames map[string]bool) []PostgresCheckDescriptor {
+	var checks []PostgresCheckDescriptor
+	for _, f := range fields {
+		vc := f.ValidateConstraints
+		if vc == nil || !vc.HasConstraints() {
+			continue
+		}
+		colName := f.Name
+		if f.NameOverride != "" {
+			colName = f.NameOverride
+		}
+		var colMeta *DorisColumnMetaIR
+		if f.ProtoField != nil {
+			colMeta = extractColumnMeta(f.ProtoField)
+		}
+		if colMeta != nil && colMeta.ColumnName != "" {
+			colName = colMeta.ColumnName
+		}
+		if !isValidSQLIdentifier(colName) {
+			continue
+		}
+
+		if !f.Repeated && ((f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.StringKind) || f.Kind == FieldKindWrapperString) {
+			if vc.MinLength != nil && vc.MaxLength != nil {
+				chkName := compactPostgresIdentifier("chk", tableName+"_"+colName+"_bounds")
+				if !seenCheckNames[chkName] {
+					seenCheckNames[chkName] = true
+					var expr string
+					if vc.IgnoreEmpty {
+						expr = fmt.Sprintf("((%q = '') OR ((char_length(%q) >= %d) AND (char_length(%q) <= %d)))", colName, colName, *vc.MinLength, colName, *vc.MaxLength)
+					} else {
+						expr = fmt.Sprintf("((char_length(%q) >= %d) AND (char_length(%q) <= %d))", colName, *vc.MinLength, colName, *vc.MaxLength)
+					}
+					checks = append(checks, PostgresCheckDescriptor{
+						Name: chkName,
+						Expr: expr,
+					})
+				}
+			} else if vc.MinLength != nil {
+				chkName := compactPostgresIdentifier("chk", tableName+"_"+colName+"_min_len")
+				if !seenCheckNames[chkName] {
+					seenCheckNames[chkName] = true
+					var expr string
+					if vc.IgnoreEmpty {
+						expr = fmt.Sprintf("((%q = '') OR (char_length(%q) >= %d))", colName, colName, *vc.MinLength)
+					} else {
+						expr = fmt.Sprintf("(char_length(%q) >= %d)", colName, *vc.MinLength)
+					}
+					checks = append(checks, PostgresCheckDescriptor{
+						Name: chkName,
+						Expr: expr,
+					})
+				}
+			} else if vc.MaxLength != nil {
+				chkName := compactPostgresIdentifier("chk", tableName+"_"+colName+"_max_len")
+				if !seenCheckNames[chkName] {
+					seenCheckNames[chkName] = true
+					checks = append(checks, PostgresCheckDescriptor{
+						Name: chkName,
+						Expr: fmt.Sprintf("(char_length(%q) <= %d)", colName, *vc.MaxLength),
+					})
+				}
+			}
+			if len(vc.In) > 0 {
+				quoted := make([]string, len(vc.In))
+				for i, s := range vc.In {
+					clean := strings.Trim(s, `"`)
+					clean = strings.ReplaceAll(clean, "'", "''")
+					quoted[i] = fmt.Sprintf("'%s'::text", clean)
+				}
+				chkName := compactPostgresIdentifier("chk", tableName+"_"+colName+"_valid")
+				if !seenCheckNames[chkName] {
+					seenCheckNames[chkName] = true
+					checks = append(checks, PostgresCheckDescriptor{
+						Name: chkName,
+						Expr: fmt.Sprintf("(%q = ANY (ARRAY[%s]))", colName, strings.Join(quoted, ", ")),
+					})
+				}
+			}
+		}
+
+		if f.Repeated && vc.MaxItems != nil {
+			ddlType, _, err := resolvePostgresFieldTypes(f, colMeta, nil)
+			if err == nil && strings.HasSuffix(ddlType, "[]") {
+				chkName := compactPostgresIdentifier("chk", tableName+"_"+colName+"_cardinality")
+				if !seenCheckNames[chkName] {
+					seenCheckNames[chkName] = true
+					checks = append(checks, PostgresCheckDescriptor{
+						Name: chkName,
+						Expr: fmt.Sprintf("(cardinality(%q) <= %d)", colName, *vc.MaxItems),
+					})
+				}
+			}
+		}
+	}
+	return checks
+}
+
 // buildPostgresTableSchema builds a PostgresTableSchemaDescriptor for a DomainMessage.
 func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMessage, opts *Options) (*PostgresTableSchemaDescriptor, error) {
 	meta := extractTableMeta(dm.ProtoMsg)
@@ -753,8 +916,20 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 				return fmt.Errorf("message %s: index %q references unknown column %q", dm.FullName, idx.Name, col)
 			}
 		}
+		for _, dCol := range idx.DescColumns {
+			found := false
+			for _, col := range idx.Columns {
+				if col == dCol {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("message %s: index %q desc_columns references column %q which is not in index columns", dm.FullName, idx.Name, dCol)
+			}
+		}
 		if prev, exists := seenIdx[idx.Name]; exists {
-			if prev.Unique != idx.Unique || strings.Join(prev.Columns, ",") != strings.Join(idx.Columns, ",") {
+			if prev.Unique != idx.Unique || strings.Join(prev.Columns, ",") != strings.Join(idx.Columns, ",") || strings.Join(prev.DescColumns, ",") != strings.Join(idx.DescColumns, ",") {
 				return fmt.Errorf("message %s: conflicting definitions for index %q", dm.FullName, idx.Name)
 			}
 			return nil
@@ -763,7 +938,15 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		if autoNamed && idx.Unique && len(idx.Columns) == 1 && len(pkCols) == 1 && idx.Columns[0] == pkCols[0] {
 			return nil
 		}
-		colSig := fmt.Sprintf("%t:%s", idx.Unique, strings.Join(idx.Columns, ","))
+		var colParts []string
+		for _, col := range idx.Columns {
+			part := col
+			if idx.IsDesc(col) {
+				part += ":desc"
+			}
+			colParts = append(colParts, part)
+		}
+		colSig := fmt.Sprintf("%t:%s", idx.Unique, strings.Join(colParts, ","))
 		if autoNamed {
 			if seenIdxCols[colSig] {
 				return nil
@@ -852,14 +1035,86 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		}
 		for _, idxDef := range meta.Indexes {
 			if err := addIndex(PostgresIndexDescriptor{
-				Name:    idxDef.Name,
-				Columns: idxDef.Columns,
-				Unique:  idxDef.Unique,
+				Name:        idxDef.Name,
+				Columns:     idxDef.Columns,
+				Unique:      idxDef.Unique,
+				DescColumns: idxDef.DescColumns,
 			}, idxDef.Name == ""); err != nil {
 				return nil, err
 			}
 		}
 	}
+
+	var checks []PostgresCheckDescriptor
+	seenCheckNames := make(map[string]bool)
+	addCheck := func(name, expr string) error {
+		name = strings.TrimSpace(name)
+		expr = strings.TrimSpace(expr)
+		if name == "" {
+			name = compactPostgresIdentifier("chk", tableName+"_"+fmt.Sprintf("%d", len(checks)+1))
+		}
+		if !isValidSQLIdentifier(name) {
+			return fmt.Errorf("message %s: invalid check constraint name %q", dm.FullName, name)
+		}
+		if len(name) > maxPostgresIdentifierBytes {
+			name = compactPostgresIdentifier("chk", tableName+"_"+name)
+		}
+		if !isValidPostgresCheckExpr(expr) {
+			return fmt.Errorf("message %s: invalid check expression %q for constraint %q", dm.FullName, expr, name)
+		}
+		if seenCheckNames[name] {
+			return fmt.Errorf("message %s: duplicate check constraint name %q", dm.FullName, name)
+		}
+		seenCheckNames[name] = true
+		checks = append(checks, PostgresCheckDescriptor{Name: name, Expr: expr})
+		return nil
+	}
+
+	isSingleton := false
+	if meta != nil && meta.IsSingleton {
+		isSingleton = true
+		hasSingletonCol := false
+		for _, c := range cols {
+			if c.ColumnName == "singleton" {
+				if c.DefaultValue != "" && (strings.EqualFold(c.DefaultValue, "false") || c.DefaultValue == "0") {
+					return nil, fmt.Errorf("message %s: singleton table cannot have singleton column with default false", dm.FullName)
+				}
+				hasSingletonCol = true
+				break
+			}
+		}
+		if !hasSingletonCol {
+			cols = append([]PostgresColumnDescriptor{{
+				ColumnName:   "singleton",
+				SQLType:      "BOOLEAN",
+				PostgresType: "BOOLEAN",
+				HCLType:      "boolean",
+				Nullable:     false,
+				DefaultValue: "true",
+				IsPrimaryKey: true,
+			}}, cols...)
+			colSet["singleton"] = true
+		}
+		pkCols = []string{"singleton"}
+		chkName := compactPostgresIdentifier("chk", tableName+"_singleton")
+		if err := addCheck(chkName, "(singleton = true)"); err != nil {
+			return nil, err
+		}
+	}
+
+	if meta != nil {
+		for _, chkDef := range meta.Checks {
+			chkName := chkDef.Name
+			if chkName != "" && !strings.HasPrefix(chkName, tableName+"_") && !strings.HasPrefix(chkName, "chk_") {
+				chkName = compactPostgresIdentifier("chk", tableName+"_"+chkName)
+			}
+			if err := addCheck(chkName, chkDef.Expr); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	checks = append(checks, derivePostgresValidationChecks(tableName, effectiveDM.Fields, seenCheckNames)...)
 
 	var writerService string
 	var readerServices []string
@@ -878,6 +1133,8 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		Columns:        cols,
 		Indexes:        indexes,
 		ForeignKeys:    fks,
+		Checks:         checks,
+		IsSingleton:    isSingleton,
 	}, nil
 }
 
@@ -936,7 +1193,7 @@ func collectPostgresTableSchemas(df *DomainFile, opts *Options) ([]*PostgresTabl
 			}
 			meta := extractTableMeta(dm.ProtoMsg)
 			isEligible := (!isNested && (meta != nil || !embeddedMsgs[dm.Name])) || (isNested && meta != nil)
-			if isEligible && len(dm.Fields) > 0 {
+			if isEligible && (len(dm.Fields) > 0 || (meta != nil && meta.IsSingleton)) {
 				tbl, err := buildPostgresTableSchema(dm, msgByName, opts)
 				if err != nil {
 					return err
@@ -1087,6 +1344,13 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 		bodyLines = append(bodyLines, fmt.Sprintf("    PRIMARY KEY (%s)", formatPostgresQuotedIdentList(t.PrimaryKeys)))
 	}
 
+	for _, chk := range t.Checks {
+		if !isValidSQLIdentifier(chk.Name) || len(chk.Name) > maxPostgresIdentifierBytes || !isValidPostgresCheckExpr(chk.Expr) {
+			return ""
+		}
+		bodyLines = append(bodyLines, fmt.Sprintf("    CONSTRAINT %q CHECK (%s)", chk.Name, chk.Expr))
+	}
+
 	var b strings.Builder
 	fmt.Fprintf(&b, "CREATE TABLE IF NOT EXISTS %q (\n", t.TableName)
 	b.WriteString(strings.Join(bodyLines, ",\n"))
@@ -1101,14 +1365,39 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 				return ""
 			}
 		}
+		var colParts []string
+		for _, col := range idx.Columns {
+			part := fmt.Sprintf("%q", col)
+			if idx.IsDesc(col) {
+				part += " DESC"
+			}
+			colParts = append(colParts, part)
+		}
 		b.WriteString("\n")
 		if idx.Unique {
 			fmt.Fprintf(&b, "CREATE UNIQUE INDEX IF NOT EXISTS %q ON %q (%s);",
-				idx.Name, t.TableName, formatPostgresQuotedIdentList(idx.Columns))
+				idx.Name, t.TableName, strings.Join(colParts, ", "))
 		} else {
 			fmt.Fprintf(&b, "CREATE INDEX IF NOT EXISTS %q ON %q (%s);",
-				idx.Name, t.TableName, formatPostgresQuotedIdentList(idx.Columns))
+				idx.Name, t.TableName, strings.Join(colParts, ", "))
 		}
+	}
+
+	if t.IsSingleton {
+		var seedCols []string
+		var seedVals []string
+		for _, c := range t.Columns {
+			seedCols = append(seedCols, fmt.Sprintf("%q", c.ColumnName))
+			if c.ColumnName == "singleton" {
+				seedVals = append(seedVals, "true")
+			} else if c.DefaultValue != "" {
+				seedVals = append(seedVals, c.DefaultValue)
+			} else {
+				seedVals = append(seedVals, "DEFAULT")
+			}
+		}
+		fmt.Fprintf(&b, "\n-- SEED_SINGLETON: INSERT INTO %q (%s) VALUES (%s) ON CONFLICT (%q) DO NOTHING;",
+			t.TableName, strings.Join(seedCols, ", "), strings.Join(seedVals, ", "), "singleton")
 	}
 
 	return b.String()

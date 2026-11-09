@@ -51,6 +51,10 @@ message TableOptions {
   repeated string primary_key_fields = 19;
   // Explicit composite or named indexes for relational (PostgreSQL) tables.
   repeated IndexDef indexes = 20;
+  // Explicit check constraints for relational (PostgreSQL) tables.
+  repeated CheckDef checks = 21;
+  // Mark table as a single-row singleton table (generates singleton boolean PK and CHECK).
+  bool is_singleton = 22;
 }
 
 // IndexDef defines a single or composite relational index on a table.
@@ -58,6 +62,14 @@ message IndexDef {
   string name = 1;
   repeated string columns = 2;
   bool unique = 3;
+  // Column names that should be indexed in descending (DESC) order.
+  repeated string desc_columns = 4;
+}
+
+// CheckDef defines a SQL check constraint on a table.
+message CheckDef {
+  string name = 1;
+  string expr = 2;
 }
 
 // ForeignKey defines a relational foreign key reference on a column.

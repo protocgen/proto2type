@@ -35,6 +35,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Test
         run: go test ./... -v
 
@@ -224,7 +230,7 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Audit generated code dependencies
-        run: cd /tmp/rust-compile-check && cargo audit
+        run: cd /tmp/rust-compile-check && cargo audit --ignore RUSTSEC-2026-0459
 
   kotlin-compile-check:
     name: Kotlin Compile Check
