@@ -3081,8 +3081,8 @@ extend google.protobuf.FieldOptions {
 		}
 	}
 
-	if got := tableCounts["azra/clinical/v1/patient_profile.proto"]; got != 52 {
-		t.Errorf("patient_profile.proto table count = %d, want 52", got)
+	if got := tableCounts["azra/clinical/v1/patient_profile.proto"]; got != 53 {
+		t.Errorf("patient_profile.proto table count = %d, want 53", got)
 	}
 	if got := tableCounts["azra/clinical/eligibility/v1/eligibility.proto"]; got != 2 {
 		t.Errorf("eligibility.proto table count = %d, want 2", got)
@@ -3097,8 +3097,8 @@ extend google.protobuf.FieldOptions {
 		t.Errorf("eligibility_evaluations column count = %d, want 34", got)
 	}
 
-	if len(tenantDescsByTable) != 54 {
-		t.Fatalf("total tenant clinical tables = %d, want 54", len(tenantDescsByTable))
+	if len(tenantDescsByTable) != 55 {
+		t.Fatalf("total tenant clinical tables = %d, want 55", len(tenantDescsByTable))
 	}
 	for tblName, desc := range tenantDescsByTable {
 		dorisSQL := desc.BuildDorisCreateTableSQL("", 0)

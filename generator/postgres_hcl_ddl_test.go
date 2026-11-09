@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 
+	validate "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
 )
 
@@ -2783,5 +2784,424 @@ func TestPostgresHardening_ExplicitIndexNameAmbiguousFKAndHCLTemplateEscape(t *t
 		Domain:       false,
 	}); err == nil || !strings.Contains(err.Error(), "ambiguous unprefixed ref_table") {
 		t.Errorf("expected ambiguous unprefixed ref_table error, got %v", err)
+	}
+}
+
+func TestPostgresTableChecksAndDirectionalIndexes(t *testing.T) {
+	msgOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(msgOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			TableName: "change_history",
+			Checks: []*proto2typepb.CheckDef{
+				{
+					Name: "chk_change_history_valid_source",
+					Expr: "(source IN ('API', 'CLI', 'CONSOLE'))",
+				},
+				{
+					Name: "chk_change_history_version_gte_zero",
+					Expr: "(version >= 0)",
+				},
+			},
+			Indexes: []*proto2typepb.IndexDef{
+				{
+					Name:        "idx_change_history_entity_version",
+					Columns:     []string{"entity_type", "entity_id", "version"},
+					DescColumns: []string{"version"},
+				},
+			},
+		},
+	})
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("change_history.proto"),
+		Package: proto.String("history.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/history/v1;historyv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("ChangeHistoryRecord"),
+				Options: msgOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+					{
+						Name:     proto.String("entity_type"),
+						Number:   proto.Int32(2),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("entityType"),
+					},
+					{
+						Name:     proto.String("entity_id"),
+						Number:   proto.Int32(3),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("entityId"),
+					},
+					{
+						Name:     proto.String("source"),
+						Number:   proto.Int32(4),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("source"),
+					},
+					{
+						Name:     proto.String("version"),
+						Number:   proto.Int32(5),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum(),
+						JsonName: proto.String("version"),
+					},
+				},
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"change_history.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "all",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+	ddl := gotFiles["change_history_postgres.sql"]
+	hcl := gotFiles["change_history_postgres.hcl"]
+
+	// DDL assertions
+	if !strings.Contains(ddl, `CONSTRAINT "chk_change_history_valid_source" CHECK ((source IN ('API', 'CLI', 'CONSOLE'))`) {
+		t.Errorf("expected DDL to contain valid_source CHECK constraint:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, `CONSTRAINT "chk_change_history_version_gte_zero" CHECK ((version >= 0))`) {
+		t.Errorf("expected DDL to contain version_gte_zero CHECK constraint:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, `CREATE INDEX IF NOT EXISTS "idx_change_history_entity_version" ON "change_history" ("entity_type", "entity_id", "version" DESC);`) {
+		t.Errorf("expected DDL to contain directional index with DESC:\n%s", ddl)
+	}
+
+	// HCL assertions
+	if !strings.Contains(hcl, `check "chk_change_history_valid_source" {`) || !strings.Contains(hcl, `expr = "(source IN ('API', 'CLI', 'CONSOLE'))"`) {
+		t.Errorf("expected HCL to contain check block for valid_source:\n%s", hcl)
+	}
+	if !strings.Contains(hcl, `check "chk_change_history_version_gte_zero" {`) || !strings.Contains(hcl, `expr = "(version >= 0)"`) {
+		t.Errorf("expected HCL to contain check block for version_gte_zero:\n%s", hcl)
+	}
+	if !strings.Contains(hcl, "desc   = true\n      column = column.version") {
+		t.Errorf("expected HCL to contain desc = true for version column in index:\n%s", hcl)
+	}
+}
+
+func TestPostgresSingletonTable(t *testing.T) {
+	msgOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(msgOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			TableName:   "enablement_version",
+			IsSingleton: true,
+		},
+	})
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("enablement_version.proto"),
+		Package: proto.String("enablement.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/enablement/v1;enablementv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("EnablementVersionRecord"),
+				Options: msgOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("version"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum(),
+						JsonName: proto.String("version"),
+					},
+					{
+						Name:     proto.String("updated_at"),
+						Number:   proto.Int32(2),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum(),
+						JsonName: proto.String("updatedAt"),
+					},
+				},
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"enablement_version.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "all",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+	ddl := gotFiles["enablement_version_postgres.sql"]
+	hcl := gotFiles["enablement_version_postgres.hcl"]
+
+	// DDL assertions
+	if !strings.Contains(ddl, `"singleton" BOOLEAN NOT NULL DEFAULT TRUE`) {
+		t.Errorf("expected DDL to contain singleton boolean column:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, `PRIMARY KEY ("singleton")`) {
+		t.Errorf("expected DDL to have singleton as PRIMARY KEY:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, `CONSTRAINT "chk_enablement_version_singleton" CHECK ((singleton = true))`) {
+		t.Errorf("expected DDL to contain singleton CHECK constraint:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, `-- SEED_SINGLETON: INSERT INTO "enablement_version"`) {
+		t.Errorf("expected DDL to contain singleton seed comment:\n%s", ddl)
+	}
+
+	// HCL assertions
+	if !strings.Contains(hcl, `column "singleton" {`) || !strings.Contains(hcl, `type = boolean`) || !strings.Contains(hcl, `default = true`) {
+		t.Errorf("expected HCL to define singleton column with boolean default true:\n%s", hcl)
+	}
+	if !strings.Contains(hcl, `columns = [column.singleton]`) {
+		t.Errorf("expected HCL to define primary key on singleton:\n%s", hcl)
+	}
+	if !strings.Contains(hcl, `check "chk_enablement_version_singleton" {`) || !strings.Contains(hcl, `expr = "(singleton = true)"`) {
+		t.Errorf("expected HCL to define check constraint on singleton:\n%s", hcl)
+	}
+}
+
+func TestPostgresValidateCheckDerivation(t *testing.T) {
+	codeFieldOpts := &descriptorpb.FieldOptions{}
+	minLen := uint64(1)
+	maxLen := uint64(32)
+	proto.SetExtension(codeFieldOpts, validate.E_Field, &validate.FieldRules{
+		Type: &validate.FieldRules_String_{
+			String_: &validate.StringRules{
+				MinLen: &minLen,
+				MaxLen: &maxLen,
+			},
+		},
+	})
+
+	statusFieldOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(statusFieldOpts, validate.E_Field, &validate.FieldRules{
+		Type: &validate.FieldRules_String_{
+			String_: &validate.StringRules{
+				In: []string{"ACTIVE", "SUSPENDED", "ARCHIVED"},
+			},
+		},
+	})
+
+	tagsFieldOpts := &descriptorpb.FieldOptions{}
+	maxItems := uint64(10)
+	proto.SetExtension(tagsFieldOpts, validate.E_Field, &validate.FieldRules{
+		Type: &validate.FieldRules_Repeated{
+			Repeated: &validate.RepeatedRules{
+				MaxItems: &maxItems,
+			},
+		},
+	})
+
+	msgOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(msgOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			TableName: "system_modules",
+		},
+	})
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("system_modules.proto"),
+		Package: proto.String("modules.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/modules/v1;modulesv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("SystemModuleRecord"),
+				Options: msgOpts,
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:     proto.String("id"),
+						Number:   proto.Int32(1),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("id"),
+					},
+					{
+						Name:     proto.String("code"),
+						Number:   proto.Int32(2),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("code"),
+						Options:  codeFieldOpts,
+					},
+					{
+						Name:     proto.String("status"),
+						Number:   proto.Int32(3),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("status"),
+						Options:  statusFieldOpts,
+					},
+					{
+						Name:     proto.String("tags"),
+						Number:   proto.Int32(4),
+						Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+						Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+						JsonName: proto.String("tags"),
+						Options:  tagsFieldOpts,
+					},
+				},
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"system_modules.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "all",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+	ddl := gotFiles["system_modules_postgres.sql"]
+	hcl := gotFiles["system_modules_postgres.hcl"]
+
+	// DDL assertions
+	if !strings.Contains(ddl, `CONSTRAINT "chk_system_modules_code_bounds" CHECK (((char_length(code) >= 1) AND (char_length(code) <= 32)))`) {
+		t.Errorf("expected DDL to contain code_bounds CHECK constraint:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, `CONSTRAINT "chk_system_modules_status_valid" CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'ARCHIVED'::text])))`) {
+		t.Errorf("expected DDL to contain status_valid CHECK constraint:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, `CONSTRAINT "chk_system_modules_tags_cardinality" CHECK ((cardinality(tags) <= 10))`) {
+		t.Errorf("expected DDL to contain tags_cardinality CHECK constraint:\n%s", ddl)
+	}
+
+	// HCL assertions
+	if !strings.Contains(hcl, `check "chk_system_modules_code_bounds" {`) || !strings.Contains(hcl, `expr = "((char_length(code) >= 1) AND (char_length(code) <= 32))"`) {
+		t.Errorf("expected HCL to contain check block for code_bounds:\n%s", hcl)
+	}
+	if !strings.Contains(hcl, `check "chk_system_modules_status_valid" {`) || !strings.Contains(hcl, `expr = "(status = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'ARCHIVED'::text]))"`) {
+		t.Errorf("expected HCL to contain check block for status_valid:\n%s", hcl)
+	}
+	if !strings.Contains(hcl, `check "chk_system_modules_tags_cardinality" {`) || !strings.Contains(hcl, `expr = "(cardinality(tags) <= 10)"`) {
+		t.Errorf("expected HCL to contain check block for tags_cardinality:\n%s", hcl)
+	}
+}
+
+func TestPostgresParseAtlasHCL_ChecksAndDescIndex(t *testing.T) {
+	hclSample := `
+table "orders" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = text
+  }
+  column "created_at" {
+    null = false
+    type = timestamptz
+  }
+  column "amount" {
+    null = false
+    type = numeric(10, 2)
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  index "idx_orders_created" {
+    on {
+      desc   = true
+      column = column.created_at
+    }
+  }
+  check "chk_orders_amount_pos" {
+    expr = "(amount > 0)"
+  }
+}
+`
+	tables, err := ParsePostgresAtlasHCL(hclSample)
+	if err != nil {
+		t.Fatalf("ParsePostgresAtlasHCL failed: %v", err)
+	}
+	if len(tables) != 1 {
+		t.Fatalf("expected 1 table, got %d", len(tables))
+	}
+	tbl := tables[0]
+	if tbl.TableName != "orders" {
+		t.Errorf("tbl.TableName = %q, want %q", tbl.TableName, "orders")
+	}
+	if len(tbl.Indexes) != 1 {
+		t.Fatalf("expected 1 index, got %d", len(tbl.Indexes))
+	}
+	idx := tbl.Indexes[0]
+	if len(idx.DescColumns) != 1 || idx.DescColumns[0] != "created_at" {
+		t.Errorf("expected idx.DescColumns = [\"created_at\"], got %v", idx.DescColumns)
+	}
+	if !idx.IsDesc("created_at") {
+		t.Errorf("expected idx.IsDesc(\"created_at\") = true")
+	}
+	if len(tbl.Checks) != 1 {
+		t.Fatalf("expected 1 check constraint, got %d", len(tbl.Checks))
+	}
+	chk := tbl.Checks[0]
+	if chk.Name != "chk_orders_amount_pos" || chk.Expr != "(amount > 0)" {
+		t.Errorf("expected chk_orders_amount_pos with '(amount > 0)', got %+v", chk)
+	}
+}
+
+func TestPostgresAdversarialCheckRejection(t *testing.T) {
+	validExprs := []string{
+		"((NOT enabled) OR ever_enabled)",
+		"(version >= 0)",
+		"(status = ANY (ARRAY['A'::text, 'B'::text]))",
+		"(cardinality(tags) <= 10)",
+		"((char_length(name) >= 1) AND (char_length(name) <= 64))",
+	}
+	for _, expr := range validExprs {
+		if !isValidPostgresCheckExpr(expr) {
+			t.Errorf("expected valid check expr %q to pass, but failed", expr)
+		}
+	}
+
+	invalidExprs := []string{
+		"",
+		"1 = 1; DROP TABLE users;",
+		"1 = 1\n-- comment",
+		"1 = 1\r-- carriage",
+		"1 = 1 -- inline comment",
+		"1 = 1 /* block comment */",
+		"((1 = 1)",                // unbalanced parens
+		"(1 = 1))",                // unbalanced parens
+		strings.Repeat("x", 5000), // exceeds max length (4096)
+	}
+	for _, expr := range invalidExprs {
+		if isValidPostgresCheckExpr(expr) {
+			t.Errorf("expected invalid check expr %q to be rejected, but passed", expr)
+		}
 	}
 }

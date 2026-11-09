@@ -23,9 +23,16 @@ const (
 
 // IndexDefIR holds a relational index definition from TableOptions.indexes.
 type IndexDefIR struct {
-	Name    string
-	Columns []string
-	Unique  bool
+	Name        string
+	Columns     []string
+	Unique      bool
+	DescColumns []string
+}
+
+// CheckDefIR holds a check constraint definition from TableOptions.checks.
+type CheckDefIR struct {
+	Name string
+	Expr string
 }
 
 // ForeignKeyIR holds a relational foreign key reference from ColumnOptions / FieldOptions.
@@ -60,6 +67,8 @@ type DorisTableMetaIR struct {
 	ReaderServices       []string
 	PrimaryKeyFields     []string
 	Indexes              []IndexDefIR
+	Checks               []CheckDefIR
+	IsSingleton          bool
 }
 
 // isEmpty reports whether m is nil or has all zero-valued fields.
@@ -86,7 +95,9 @@ func (m *DorisTableMetaIR) isEmpty() bool {
 		m.WriterService == "" &&
 		len(m.ReaderServices) == 0 &&
 		len(m.PrimaryKeyFields) == 0 &&
-		len(m.Indexes) == 0
+		len(m.Indexes) == 0 &&
+		len(m.Checks) == 0 &&
+		!m.IsSingleton
 }
 
 // hasDorisSpecificFields reports whether m has any Doris, StarRocks, or Iceberg
@@ -534,7 +545,7 @@ func mergeTableMeta(dst, src *DorisTableMetaIR) {
 	for _, idx := range src.Indexes {
 		exists := false
 		for _, existing := range dst.Indexes {
-			if existing.Name == idx.Name && strings.Join(existing.Columns, ",") == strings.Join(idx.Columns, ",") && existing.Unique == idx.Unique {
+			if existing.Name == idx.Name && strings.Join(existing.Columns, ",") == strings.Join(idx.Columns, ",") && existing.Unique == idx.Unique && strings.Join(existing.DescColumns, ",") == strings.Join(idx.DescColumns, ",") {
 				exists = true
 				break
 			}
@@ -542,6 +553,21 @@ func mergeTableMeta(dst, src *DorisTableMetaIR) {
 		if !exists {
 			dst.Indexes = append(dst.Indexes, idx)
 		}
+	}
+	for _, chk := range src.Checks {
+		exists := false
+		for _, existing := range dst.Checks {
+			if existing.Name == chk.Name && existing.Expr == chk.Expr {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			dst.Checks = append(dst.Checks, chk)
+		}
+	}
+	if !dst.IsSingleton && src.IsSingleton {
+		dst.IsSingleton = true
 	}
 }
 
@@ -578,9 +604,24 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 			name := strings.TrimSpace(idx.GetName())
 			if len(cols) > 0 || name != "" {
 				indexes = append(indexes, IndexDefIR{
-					Name:    name,
-					Columns: cols,
-					Unique:  idx.GetUnique(),
+					Name:        name,
+					Columns:     cols,
+					Unique:      idx.GetUnique(),
+					DescColumns: trimNonEmptyStrings(idx.GetDescColumns()),
+				})
+			}
+		}
+		var checks []CheckDefIR
+		for _, chk := range t.GetChecks() {
+			if chk == nil {
+				continue
+			}
+			name := strings.TrimSpace(chk.GetName())
+			expr := strings.TrimSpace(chk.GetExpr())
+			if name != "" || expr != "" {
+				checks = append(checks, CheckDefIR{
+					Name: name,
+					Expr: expr,
 				})
 			}
 		}
@@ -605,6 +646,8 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 			ReaderServices:       mergeUniqueStrings(nil, trimNonEmptyStrings(t.GetReaderServices())),
 			PrimaryKeyFields:     mergeUniqueStrings(nil, trimNonEmptyStrings(t.GetPrimaryKeyFields())),
 			Indexes:              indexes,
+			Checks:               checks,
+			IsSingleton:          t.GetIsSingleton(),
 		}
 		if !out.isEmpty() {
 			typedOut = out
@@ -765,6 +808,16 @@ func parseIndexDefBytes(b []byte) IndexDefIR {
 					continue
 				}
 			}
+		case 4: // repeated string desc_columns = 4
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if col := strings.TrimSpace(string(v)); col != "" {
+						idx.DescColumns = append(idx.DescColumns, col)
+					}
+					b = b[m:]
+					continue
+				}
+			}
 		}
 		m := protowire.ConsumeFieldValue(num, typ, b)
 		if m < 0 {
@@ -773,6 +826,42 @@ func parseIndexDefBytes(b []byte) IndexDefIR {
 		b = b[m:]
 	}
 	return idx
+}
+
+// parseCheckDefBytes decodes a serialized CheckDef message into CheckDefIR.
+func parseCheckDefBytes(b []byte) CheckDefIR {
+	var chk CheckDefIR
+	for len(b) > 0 {
+		num, typ, n := protowire.ConsumeTag(b)
+		if n < 0 {
+			break
+		}
+		b = b[n:]
+		switch num {
+		case 1: // string name = 1
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					chk.Name = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 2: // string expr = 2
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					chk.Expr = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		}
+		m := protowire.ConsumeFieldValue(num, typ, b)
+		if m < 0 {
+			break
+		}
+		b = b[m:]
+	}
+	return chk
 }
 
 // parseForeignKeyBytes decodes a serialized ForeignKey message into *ForeignKeyIR.
@@ -1025,6 +1114,24 @@ func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultA
 					if idx := parseIndexDefBytes(v); len(idx.Columns) > 0 || idx.Name != "" {
 						dst.Indexes = append(dst.Indexes, idx)
 					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 21: // repeated CheckDef checks = 21 (TableOptions 1307)
+			if includeVaultAndCatalog && typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if chk := parseCheckDefBytes(v); chk.Name != "" || chk.Expr != "" {
+						dst.Checks = append(dst.Checks, chk)
+					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 22: // bool is_singleton = 22 (TableOptions 1307)
+			if includeVaultAndCatalog && typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					dst.IsSingleton = v != 0
 					b = b[m:]
 					continue
 				}
