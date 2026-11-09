@@ -3092,24 +3092,24 @@ func TestPostgresValidateCheckDerivation(t *testing.T) {
 	hcl := gotFiles["system_modules_postgres.hcl"]
 
 	// DDL assertions
-	if !strings.Contains(ddl, `CONSTRAINT "chk_system_modules_code_bounds" CHECK (((char_length(code) >= 1) AND (char_length(code) <= 32)))`) {
+	if !strings.Contains(ddl, `CONSTRAINT "chk_system_modules_code_bounds" CHECK (((char_length("code") >= 1) AND (char_length("code") <= 32)))`) {
 		t.Errorf("expected DDL to contain code_bounds CHECK constraint:\n%s", ddl)
 	}
-	if !strings.Contains(ddl, `CONSTRAINT "chk_system_modules_status_valid" CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'ARCHIVED'::text])))`) {
+	if !strings.Contains(ddl, `CONSTRAINT "chk_system_modules_status_valid" CHECK (("status" = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'ARCHIVED'::text])))`) {
 		t.Errorf("expected DDL to contain status_valid CHECK constraint:\n%s", ddl)
 	}
-	if !strings.Contains(ddl, `CONSTRAINT "chk_system_modules_tags_cardinality" CHECK ((cardinality(tags) <= 10))`) {
+	if !strings.Contains(ddl, `CONSTRAINT "chk_system_modules_tags_cardinality" CHECK ((cardinality("tags") <= 10))`) {
 		t.Errorf("expected DDL to contain tags_cardinality CHECK constraint:\n%s", ddl)
 	}
 
 	// HCL assertions
-	if !strings.Contains(hcl, `check "chk_system_modules_code_bounds" {`) || !strings.Contains(hcl, `expr = "((char_length(code) >= 1) AND (char_length(code) <= 32))"`) {
+	if !strings.Contains(hcl, `check "chk_system_modules_code_bounds" {`) || !strings.Contains(hcl, `expr = "((char_length(\"code\") >= 1) AND (char_length(\"code\") <= 32))"`) {
 		t.Errorf("expected HCL to contain check block for code_bounds:\n%s", hcl)
 	}
-	if !strings.Contains(hcl, `check "chk_system_modules_status_valid" {`) || !strings.Contains(hcl, `expr = "(status = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'ARCHIVED'::text]))"`) {
+	if !strings.Contains(hcl, `check "chk_system_modules_status_valid" {`) || !strings.Contains(hcl, `expr = "(\"status\" = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'ARCHIVED'::text]))"`) {
 		t.Errorf("expected HCL to contain check block for status_valid:\n%s", hcl)
 	}
-	if !strings.Contains(hcl, `check "chk_system_modules_tags_cardinality" {`) || !strings.Contains(hcl, `expr = "(cardinality(tags) <= 10)"`) {
+	if !strings.Contains(hcl, `check "chk_system_modules_tags_cardinality" {`) || !strings.Contains(hcl, `expr = "(cardinality(\"tags\") <= 10)"`) {
 		t.Errorf("expected HCL to contain check block for tags_cardinality:\n%s", hcl)
 	}
 }
@@ -3181,6 +3181,8 @@ func TestPostgresAdversarialCheckRejection(t *testing.T) {
 		"(status = ANY (ARRAY['A'::text, 'B'::text]))",
 		"(cardinality(tags) <= 10)",
 		"((char_length(name) >= 1) AND (char_length(name) <= 64))",
+		"(status = '(')",      // parentheses inside string literal
+		"(status = 'don''t')", // escaped single quotes
 	}
 	for _, expr := range validExprs {
 		if !isValidPostgresCheckExpr(expr) {
@@ -3197,11 +3199,96 @@ func TestPostgresAdversarialCheckRejection(t *testing.T) {
 		"1 = 1 /* block comment */",
 		"((1 = 1)",                // unbalanced parens
 		"(1 = 1))",                // unbalanced parens
+		"(status = 'unclosed)",    // unclosed string literal
 		strings.Repeat("x", 5000), // exceeds max length (4096)
 	}
 	for _, expr := range invalidExprs {
 		if isValidPostgresCheckExpr(expr) {
 			t.Errorf("expected invalid check expr %q to be rejected, but passed", expr)
 		}
+	}
+}
+
+func TestPostgresEmptySingletonMessage(t *testing.T) {
+	msgOpts := &descriptorpb.MessageOptions{}
+	proto.SetExtension(msgOpts, proto2typepb.E_Message, &proto2typepb.MessageOptions{
+		Table: &proto2typepb.TableOptions{
+			TableName:   "global_lock",
+			IsSingleton: true,
+		},
+	})
+
+	fdp := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("global_lock.proto"),
+		Package: proto.String("lock.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("example.com/lock/v1;lockv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name:    proto.String("GlobalLockRecord"),
+				Options: msgOpts,
+			},
+		},
+	}
+
+	gen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{fdp}}, []string{"global_lock.proto"})
+	if err := NewRunner().GenerateFile(gen, gen.Files[0], &Options{
+		Lang:         "go",
+		Backend:      "postgres",
+		PostgresMode: "ddl",
+		Domain:       false,
+	}); err != nil {
+		t.Fatalf("GenerateFile failed: %v", err)
+	}
+
+	gotFiles := make(map[string]string)
+	for _, f := range gen.Response().File {
+		gotFiles[filepath.Base(f.GetName())] = f.GetContent()
+	}
+	ddl := gotFiles["global_lock_postgres.sql"]
+	if !strings.Contains(ddl, `CREATE TABLE IF NOT EXISTS "global_lock"`) {
+		t.Errorf("expected empty singleton message to generate table in DDL:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, `"singleton" BOOLEAN NOT NULL DEFAULT TRUE`) {
+		t.Errorf("expected singleton column in DDL:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, `PRIMARY KEY ("singleton")`) {
+		t.Errorf("expected PRIMARY KEY (\"singleton\") in DDL:\n%s", ddl)
+	}
+}
+
+func TestPostgresLakehouseCreateTableSQLWithChecksAndDesc(t *testing.T) {
+	desc := PostgresTableDescriptor{
+		TableName:     "audit_log",
+		DatabaseScope: "PUBLIC",
+		Columns: []PostgresColumnDescriptor{
+			{ColumnName: "id", SQLType: "TEXT", Nullable: false, IsPrimaryKey: true},
+			{ColumnName: "event_type", SQLType: "TEXT", Nullable: false},
+			{ColumnName: "version", SQLType: "BIGINT", Nullable: false},
+		},
+		PrimaryKeyColumns: []string{"id"},
+		Indexes: []PostgresIndexDescriptor{
+			{
+				Name:        "idx_audit_log_event_version",
+				Columns:     []string{"event_type", "version"},
+				DescColumns: []string{"version"},
+			},
+		},
+		Checks: []PostgresCheckDescriptor{
+			{
+				Name: "chk_audit_log_version_pos",
+				Expr: "(version >= 0)",
+			},
+		},
+	}
+
+	sql := desc.BuildPostgresCreateTableSQL("")
+	if !strings.Contains(sql, `CONSTRAINT "chk_audit_log_version_pos" CHECK ((version >= 0))`) {
+		t.Errorf("expected lakehouse BuildPostgresCreateTableSQL to emit check constraint:\n%s", sql)
+	}
+	if !strings.Contains(sql, `CREATE INDEX IF NOT EXISTS idx_audit_log_event_version ON public.audit_log (event_type, version DESC);`) {
+		t.Errorf("expected lakehouse BuildPostgresCreateTableSQL to emit directional index with DESC:\n%s", sql)
 	}
 }

@@ -968,6 +968,9 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 		hasSingletonCol := false
 		for _, c := range cols {
 			if c.ColumnName == "singleton" {
+				if c.DefaultValue != "" && (strings.EqualFold(c.DefaultValue, "false") || c.DefaultValue == "0") {
+					return nil, fmt.Errorf("message %s: singleton table cannot have singleton column with default false", msg.Desc.FullName())
+				}
 				hasSingletonCol = true
 				break
 			}
@@ -989,11 +992,25 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 			Expr: "(singleton = true)",
 		})
 	}
+	seenChk := make(map[string]bool)
+	for _, c := range checks {
+		seenChk[c.Name] = true
+	}
 	for _, chkIR := range meta.Checks {
 		chkName := chkIR.Name
 		if chkName == "" {
 			chkName = compactPostgresIdentifier("chk", meta.TableName+"_"+fmt.Sprintf("%d", len(checks)+1))
 		}
+		if !isValidSQLIdentifier(chkName) || len(chkName) > maxPostgresIdentifierBytes {
+			return nil, fmt.Errorf("message %s: invalid check constraint name %q", msg.Desc.FullName(), chkName)
+		}
+		if seenChk[chkName] {
+			return nil, fmt.Errorf("message %s: duplicate check constraint name %q", msg.Desc.FullName(), chkName)
+		}
+		if !isValidPostgresCheckExpr(chkIR.Expr) {
+			return nil, fmt.Errorf("message %s: invalid check constraint expression %q", msg.Desc.FullName(), chkIR.Expr)
+		}
+		seenChk[chkName] = true
 		checks = append(checks, PostgresCheckDescriptor{
 			Name: chkName,
 			Expr: chkIR.Expr,
@@ -1192,6 +1209,15 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 	if len(pks) > 0 {
 		colLines = append(colLines, fmt.Sprintf("    PRIMARY KEY (%s)", strings.Join(pks, ", ")))
 	}
+	for _, chk := range t.Checks {
+		if isValidPostgresCheckExpr(chk.Expr) {
+			chkName := chk.Name
+			if chkName == "" {
+				chkName = compactPostgresIdentifier("chk", t.TableName)
+			}
+			colLines = append(colLines, fmt.Sprintf("    CONSTRAINT %q CHECK (%s)", chkName, chk.Expr))
+		}
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "CREATE TABLE IF NOT EXISTS %s.%s (\n", schemaName, t.TableName)
@@ -1205,6 +1231,24 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 		fmt.Fprintf(&b, "\nPARTITION BY %s (%s)", partMethod, strings.Join(partCols, ", "))
 	}
 	b.WriteString(";")
+
+	if t.IsSingleton {
+		var seedCols []string
+		var seedVals []string
+		for _, c := range t.Columns {
+			seedCols = append(seedCols, c.ColumnName)
+			if c.ColumnName == "singleton" {
+				seedVals = append(seedVals, "true")
+			} else if c.DefaultValue != "" {
+				upperType := strings.ToUpper(effectiveColPostgresType(c))
+				seedVals = append(seedVals, formatPostgresDefaultLiteral(upperType, c.DefaultValue))
+			} else {
+				seedVals = append(seedVals, "DEFAULT")
+			}
+		}
+		fmt.Fprintf(&b, "\n-- SEED_SINGLETON: INSERT INTO %s.%s (%s) VALUES (%s) ON CONFLICT (singleton) DO NOTHING;",
+			schemaName, t.TableName, strings.Join(seedCols, ", "), strings.Join(seedVals, ", "))
+	}
 
 	emittedIdx := make(map[string]bool)
 	seenInv := make(map[string]bool)
@@ -1247,13 +1291,21 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 		if idx.Unique {
 			uniqueKw = "UNIQUE "
 		}
+		var colParts []string
+		for _, col := range idx.Columns {
+			part := col
+			if idx.IsDesc(col) {
+				part += " DESC"
+			}
+			colParts = append(colParts, part)
+		}
 		using := strings.ToLower(strings.TrimSpace(idx.Using))
 		if using == "" || using == "btree" {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, strings.Join(idx.Columns, ", "))
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, strings.Join(colParts, ", "))
 		} else if idx.Ops != "" && len(idx.Columns) == 1 {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s %s);", uniqueKw, idx.Name, schemaName, t.TableName, using, idx.Columns[0], idx.Ops)
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s %s);", uniqueKw, idx.Name, schemaName, t.TableName, using, colParts[0], idx.Ops)
 		} else {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, using, strings.Join(idx.Columns, ", "))
+			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s);", uniqueKw, idx.Name, schemaName, t.TableName, using, strings.Join(colParts, ", "))
 		}
 	}
 	for _, fk := range t.ForeignKeys {
@@ -1791,15 +1843,23 @@ func applyPostgresAtlasSubBlock(
 				if err != nil {
 					return fmt.Errorf("index %q on block: %w", idxName, err)
 				}
-				rawCol := unquoteHCLString(subKV["column"])
+				rawCol, hasCol := subKV["column"]
+				if !hasCol {
+					return fmt.Errorf("index %q on block missing column attribute", idxName)
+				}
+				rawCol = unquoteHCLString(rawCol)
 				colRef := strings.TrimPrefix(rawCol, "column.")
-				if colRef != "" {
-					cols = append(cols, colRef)
-					if dRaw, ok := subKV["desc"]; ok {
-						isDesc, _ := strconv.ParseBool(unquoteHCLString(dRaw))
-						if isDesc {
-							descCols = append(descCols, colRef)
-						}
+				if _, ok := colMap[colRef]; colRef == "" || !ok {
+					return fmt.Errorf("index %q on block references unknown column %q", idxName, colRef)
+				}
+				cols = append(cols, colRef)
+				if dRaw, ok := subKV["desc"]; ok {
+					isDesc, err := strconv.ParseBool(unquoteHCLString(dRaw))
+					if err != nil {
+						return fmt.Errorf("index %q on block invalid desc value %q: %w", idxName, dRaw, err)
+					}
+					if isDesc {
+						descCols = append(descCols, colRef)
 					}
 				}
 			}

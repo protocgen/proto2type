@@ -14,6 +14,10 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
+kotlin {
+    jvmToolchain(21)
+}
+
 // Point the main source set at the golden output directory.
 sourceSets {
     main {
