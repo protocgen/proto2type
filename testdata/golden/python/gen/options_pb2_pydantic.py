@@ -22,6 +22,7 @@ class IndexDef(BaseModel):
     unique: bool = False
     desc_columns: list[str] = Field(default_factory=list, description='Column names that should be indexed in descending (DESC) order.')
     where: str = Field(default='', description="Partial index filter predicate (e.g. \"(status <> \'TERMINATED\')\").")
+    expressions: list[str] = Field(default_factory=list, description='SQL index expressions (e.g. \"lower(btrim(name))\") for functional/expression indexes in PostgreSQL.')
 
 
 def apply_field_mask_index_def(dst: IndexDef, src: IndexDef, paths: list[str]) -> None:
@@ -38,6 +39,8 @@ def apply_field_mask_index_def(dst: IndexDef, src: IndexDef, paths: list[str]) -
             dst.desc_columns = copy.deepcopy(src.desc_columns)
         elif path == "where":
             dst.where = src.where
+        elif path == "expressions":
+            dst.expressions = copy.deepcopy(src.expressions)
 
 class CheckDef(BaseModel):
     """CheckDef defines a SQL check constraint on a table."""
@@ -247,6 +250,7 @@ metadata on a field. Wire-compatible with legacy column metadata extension 50200
     nullable: OptionalBool | None = Field(default=None, description='Override column nullability in PostgreSQL.')
     foreign_key: ForeignKey | None = Field(default=None, description='Relational foreign key reference for this column in PostgreSQL.')
     postgres_type: str = Field(default='', description='Alias for sql_type: explicit PostgreSQL SQL type override (e.g. \"VARCHAR(64)\", \"NUMERIC(18, 4)\").')
+    identity: bool = Field(default=False, description='Generate column as a SQL-standard PostgreSQL identity column (GENERATED ALWAYS AS IDENTITY).')
 
 
 def apply_field_mask_column_options(dst: ColumnOptions, src: ColumnOptions, paths: list[str]) -> None:
@@ -291,6 +295,8 @@ def apply_field_mask_column_options(dst: ColumnOptions, src: ColumnOptions, path
             dst.foreign_key = copy.deepcopy(src.foreign_key)
         elif path == "postgres_type":
             dst.postgres_type = src.postgres_type
+        elif path == "identity":
+            dst.identity = src.identity
 
 class FieldOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)

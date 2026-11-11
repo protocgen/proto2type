@@ -68,6 +68,8 @@ message IndexDef {
   repeated string desc_columns = 4;
   // Partial index filter predicate (e.g. "(status <> 'TERMINATED')").
   string where = 5;
+  // SQL index expressions (e.g. "lower(btrim(name))") for functional/expression indexes in PostgreSQL.
+  repeated string expressions = 6;
 }
 
 // ForeignKeyDef defines a single or composite relational foreign key constraint on a table.
@@ -180,6 +182,8 @@ message ColumnOptions {
   ForeignKey foreign_key = 18;
   // Alias for sql_type: explicit PostgreSQL SQL type override (e.g. "VARCHAR(64)", "NUMERIC(18, 4)").
   string postgres_type = 19;
+  // Generate column as a SQL-standard PostgreSQL identity column (GENERATED ALWAYS AS IDENTITY).
+  bool identity = 20;
 }
 
 // ComputedField defines a derived field that is automatically populated
