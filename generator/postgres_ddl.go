@@ -241,6 +241,21 @@ func formatPostgresIndexExprSQL(expr string) string {
 	return "(" + trimmed + ")"
 }
 
+// postgresIndexExprSuffix computes a deterministic, position-independent auto-index suffix
+// for an index with columns and/or SQL expressions.
+func postgresIndexExprSuffix(cols, cleanExprs []string) string {
+	suffix := strings.Join(cols, "_")
+	if len(cleanExprs) == 0 {
+		return suffix
+	}
+	sum := sha256.Sum256([]byte(strings.Join(cleanExprs, "\x00")))
+	exprSum := fmt.Sprintf("%x", sum[:4])
+	if suffix == "" {
+		return "expr_" + exprSum
+	}
+	return suffix + "_expr_" + exprSum
+}
+
 // isValidPostgresServerDefault reports whether s is an empty or allowlisted SQL server default expression.
 func isValidPostgresServerDefault(s string) bool {
 	if s == "" {
@@ -986,12 +1001,11 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 	seenIdxCols := make(map[string]bool)
 	seenAutoIdxPos := make(map[string]int)
 	addIndex := func(idx PostgresIndexDescriptor, autoNamed bool) error {
-		suffix := strings.Join(idx.Columns, "_")
-		if suffix == "" {
-			suffix = fmt.Sprintf("expr_%d", len(indexes)+1)
-		} else if len(idx.Expressions) > 0 {
-			suffix = fmt.Sprintf("%s_expr_%d", suffix, len(indexes)+1)
+		var trimmedExprs []string
+		for _, rawExpr := range idx.Expressions {
+			trimmedExprs = append(trimmedExprs, strings.TrimSpace(rawExpr))
 		}
+		suffix := postgresIndexExprSuffix(idx.Columns, trimmedExprs)
 		if idx.Name == "" {
 			autoNamed = true
 			prefix := "idx"
@@ -1013,15 +1027,12 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 			return fmt.Errorf("message %s: index name %q exceeds %d-byte identifier limit (%d bytes)",
 				dm.FullName, idx.Name, maxPostgresIdentifierBytes, len(idx.Name))
 		}
-		var cleanExprs []string
-		for _, rawExpr := range idx.Expressions {
-			expr := strings.TrimSpace(rawExpr)
+		for i, expr := range trimmedExprs {
 			if !isValidPostgresCheckExpr(expr) {
-				return fmt.Errorf("message %s: invalid index expression %q for index %q", dm.FullName, rawExpr, idx.Name)
+				return fmt.Errorf("message %s: invalid index expression %q for index %q", dm.FullName, idx.Expressions[i], idx.Name)
 			}
-			cleanExprs = append(cleanExprs, expr)
 		}
-		idx.Expressions = cleanExprs
+		idx.Expressions = trimmedExprs
 		if len(idx.Columns) == 0 && len(idx.Expressions) == 0 {
 			return fmt.Errorf("message %s: index %q has no columns or expressions", dm.FullName, idx.Name)
 		}

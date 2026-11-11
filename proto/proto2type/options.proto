@@ -69,6 +69,8 @@ message IndexDef {
   // Partial index filter predicate (e.g. "(status <> 'TERMINATED')").
   string where = 5;
   // SQL index expressions (e.g. "lower(btrim(name))") for functional/expression indexes in PostgreSQL.
+  // Expressions are always rendered after `columns`, in declaration order.
+  // Interleaving columns and expressions is not supported.
   repeated string expressions = 6;
 }
 

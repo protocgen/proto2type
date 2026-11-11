@@ -672,6 +672,7 @@ func TestPostgresIdentityAndExpressionIndexes_EvolutionAndValidation(t *testing.
 	for _, want := range []string{
 		"ALTER TABLE public.events ALTER COLUMN id DROP DEFAULT;",
 		"ALTER TABLE public.events ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY;",
+		"SELECT setval(pg_get_serial_sequence('public.events', 'id'), GREATEST(COALESCE((SELECT MAX(id) FROM public.events), 0), 0) + 1, false);",
 		"ALTER TABLE public.events ADD COLUMN seq_no INTEGER NOT NULL GENERATED ALWAYS AS IDENTITY;",
 		"CREATE UNIQUE INDEX IF NOT EXISTS events_name_norm_key ON public.events ((lower(btrim(name))));",
 	} {
@@ -679,9 +680,12 @@ func TestPostgresIdentityAndExpressionIndexes_EvolutionAndValidation(t *testing.
 			t.Errorf("BuildPostgresAlterTableSQL missing %q\nGot:\n%s", want, joined)
 		}
 	}
-	// Verify DROP DEFAULT precedes ADD GENERATED ALWAYS AS IDENTITY
+	// Verify DROP DEFAULT precedes ADD GENERATED ALWAYS AS IDENTITY, which precedes setval
 	if strings.Index(joined, "DROP DEFAULT;") > strings.Index(joined, "ADD GENERATED ALWAYS AS IDENTITY;") {
 		t.Errorf("expected DROP DEFAULT before ADD GENERATED ALWAYS AS IDENTITY, got:\n%s", joined)
+	}
+	if strings.Index(joined, "ADD GENERATED ALWAYS AS IDENTITY;") > strings.Index(joined, "SELECT setval(") {
+		t.Errorf("expected ADD GENERATED ALWAYS AS IDENTITY before SELECT setval, got:\n%s", joined)
 	}
 
 	// Dropping identity from an existing column emits DROP IDENTITY IF EXISTS
@@ -796,6 +800,19 @@ func TestPostgresIdentityAndExpressionIndexes_EvolutionAndValidation(t *testing.
     default = 0
     identity {
       generated = ALWAYS
+    }
+  }
+}`,
+		},
+		{
+			name: "identity with unsupported BY_DEFAULT mode",
+			hcl: `table "t" {
+  schema = schema.tenant
+  column "id" {
+    null = false
+    type = bigint
+    identity {
+      generated = BY_DEFAULT
     }
   }
 }`,

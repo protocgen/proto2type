@@ -367,6 +367,8 @@ type IndexDef struct {
 	// Partial index filter predicate (e.g. "(status <> 'TERMINATED')").
 	Where string `protobuf:"bytes,5,opt,name=where,proto3" json:"where,omitempty"`
 	// SQL index expressions (e.g. "lower(btrim(name))") for functional/expression indexes in PostgreSQL.
+	// Expressions are always rendered after `columns`, in declaration order.
+	// Interleaving columns and expressions is not supported.
 	Expressions   []string `protobuf:"bytes,6,rep,name=expressions,proto3" json:"expressions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

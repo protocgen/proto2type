@@ -22,7 +22,7 @@ class IndexDef(BaseModel):
     unique: bool = False
     desc_columns: list[str] = Field(default_factory=list, description='Column names that should be indexed in descending (DESC) order.')
     where: str = Field(default='', description="Partial index filter predicate (e.g. \"(status <> \'TERMINATED\')\").")
-    expressions: list[str] = Field(default_factory=list, description='SQL index expressions (e.g. \"lower(btrim(name))\") for functional/expression indexes in PostgreSQL.')
+    expressions: list[str] = Field(default_factory=list, description='SQL index expressions (e.g. \"lower(btrim(name))\") for functional/expression indexes in PostgreSQL. Expressions are always rendered after `columns`, in declaration order. Interleaving columns and expressions is not supported.')
 
 
 def apply_field_mask_index_def(dst: IndexDef, src: IndexDef, paths: list[str]) -> None:

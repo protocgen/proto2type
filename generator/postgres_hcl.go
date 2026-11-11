@@ -1028,12 +1028,7 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 		}
 		idxName := strings.TrimSpace(idxIR.Name)
 		if idxName == "" {
-			suffix := strings.Join(idxCols, "_")
-			if suffix == "" {
-				suffix = fmt.Sprintf("expr_%d", len(indexes)+1)
-			} else if len(cleanExprs) > 0 {
-				suffix = fmt.Sprintf("%s_expr_%d", suffix, len(indexes)+1)
-			}
+			suffix := postgresIndexExprSuffix(idxCols, cleanExprs)
 			if idxIR.Unique {
 				idxName = fmt.Sprintf("idx_%s_%s_key", meta.TableName, suffix)
 			} else {
@@ -1930,8 +1925,8 @@ func applyPostgresAtlasSubBlock(
 				}
 				if genRaw, hasGen := subKV["generated"]; hasGen {
 					genMode := strings.ToUpper(strings.TrimSpace(unquoteHCLString(genRaw)))
-					if genMode != "ALWAYS" && genMode != "BY_DEFAULT" {
-						return fmt.Errorf("column %q identity block unsupported generated mode %q", colName, genRaw)
+					if genMode != "ALWAYS" {
+						return fmt.Errorf("column %q identity block unsupported generated mode %q (only ALWAYS is supported)", colName, genRaw)
 					}
 				}
 				hasIdentity = true
@@ -2627,6 +2622,9 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 		}
 		if !bc.Identity && ac.Identity {
 			stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s ADD GENERATED ALWAYS AS IDENTITY;", fullTableName, ac.ColumnName))
+			stmts = append(stmts, fmt.Sprintf(
+				"SELECT setval(pg_get_serial_sequence('%s', '%s'), GREATEST(COALESCE((SELECT MAX(%s) FROM %s), 0), 0) + 1, false);",
+				fullTableName, ac.ColumnName, ac.ColumnName, fullTableName))
 		}
 	}
 	for _, ac := range after.Columns {
