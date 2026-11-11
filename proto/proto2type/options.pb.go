@@ -365,7 +365,11 @@ type IndexDef struct {
 	// Column names that should be indexed in descending (DESC) order.
 	DescColumns []string `protobuf:"bytes,4,rep,name=desc_columns,json=descColumns,proto3" json:"desc_columns,omitempty"`
 	// Partial index filter predicate (e.g. "(status <> 'TERMINATED')").
-	Where         string `protobuf:"bytes,5,opt,name=where,proto3" json:"where,omitempty"`
+	Where string `protobuf:"bytes,5,opt,name=where,proto3" json:"where,omitempty"`
+	// SQL index expressions (e.g. "lower(btrim(name))") for functional/expression indexes in PostgreSQL.
+	// Expressions are always rendered after `columns`, in declaration order.
+	// Interleaving columns and expressions is not supported.
+	Expressions   []string `protobuf:"bytes,6,rep,name=expressions,proto3" json:"expressions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -433,6 +437,13 @@ func (x *IndexDef) GetWhere() string {
 		return x.Where
 	}
 	return ""
+}
+
+func (x *IndexDef) GetExpressions() []string {
+	if x != nil {
+		return x.Expressions
+	}
+	return nil
 }
 
 // ForeignKeyDef defines a single or composite relational foreign key constraint on a table.
@@ -842,7 +853,9 @@ type ColumnOptions struct {
 	// Relational foreign key reference for this column in PostgreSQL.
 	ForeignKey *ForeignKey `protobuf:"bytes,18,opt,name=foreign_key,json=foreignKey,proto3" json:"foreign_key,omitempty"`
 	// Alias for sql_type: explicit PostgreSQL SQL type override (e.g. "VARCHAR(64)", "NUMERIC(18, 4)").
-	PostgresType  string `protobuf:"bytes,19,opt,name=postgres_type,json=postgresType,proto3" json:"postgres_type,omitempty"`
+	PostgresType string `protobuf:"bytes,19,opt,name=postgres_type,json=postgresType,proto3" json:"postgres_type,omitempty"`
+	// Generate column as a SQL-standard PostgreSQL identity column (GENERATED ALWAYS AS IDENTITY).
+	Identity      bool `protobuf:"varint,20,opt,name=identity,proto3" json:"identity,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1011,6 +1024,13 @@ func (x *ColumnOptions) GetPostgresType() string {
 	return ""
 }
 
+func (x *ColumnOptions) GetIdentity() bool {
+	if x != nil {
+		return x.Identity
+	}
+	return false
+}
+
 // ComputedField defines a derived field that is automatically populated
 // from another field during FromDomain() conversion.
 type ComputedField struct {
@@ -1132,13 +1152,14 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\aindexes\x18\x14 \x03(\v2\x14.proto2type.IndexDefR\aindexes\x12,\n" +
 	"\x06checks\x18\x15 \x03(\v2\x14.proto2type.CheckDefR\x06checks\x12!\n" +
 	"\fis_singleton\x18\x16 \x01(\bR\visSingleton\x12<\n" +
-	"\fforeign_keys\x18\x17 \x03(\v2\x19.proto2type.ForeignKeyDefR\vforeignKeys\"\x89\x01\n" +
+	"\fforeign_keys\x18\x17 \x03(\v2\x19.proto2type.ForeignKeyDefR\vforeignKeys\"\xab\x01\n" +
 	"\bIndexDef\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acolumns\x18\x02 \x03(\tR\acolumns\x12\x16\n" +
 	"\x06unique\x18\x03 \x01(\bR\x06unique\x12!\n" +
 	"\fdesc_columns\x18\x04 \x03(\tR\vdescColumns\x12\x14\n" +
-	"\x05where\x18\x05 \x01(\tR\x05where\"\xb5\x01\n" +
+	"\x05where\x18\x05 \x01(\tR\x05where\x12 \n" +
+	"\vexpressions\x18\x06 \x03(\tR\vexpressions\"\xb5\x01\n" +
 	"\rForeignKeyDef\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acolumns\x18\x02 \x03(\tR\acolumns\x12\x1b\n" +
@@ -1175,7 +1196,7 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\x05index\x18\f \x01(\bR\x05index\x12\x16\n" +
 	"\x06unique\x18\r \x01(\bR\x06unique\x127\n" +
 	"\vforeign_key\x18\x0e \x01(\v2\x16.proto2type.ForeignKeyR\n" +
-	"foreignKey\"\xb5\x05\n" +
+	"foreignKey\"\xd1\x05\n" +
 	"\rColumnOptions\x12\x1d\n" +
 	"\n" +
 	"doris_type\x18\x01 \x01(\tR\tdorisType\x12!\n" +
@@ -1200,7 +1221,8 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\bnullable\x18\x11 \x01(\x0e2\x18.proto2type.OptionalBoolR\bnullable\x127\n" +
 	"\vforeign_key\x18\x12 \x01(\v2\x16.proto2type.ForeignKeyR\n" +
 	"foreignKey\x12#\n" +
-	"\rpostgres_type\x18\x13 \x01(\tR\fpostgresType\"E\n" +
+	"\rpostgres_type\x18\x13 \x01(\tR\fpostgresType\x12\x1a\n" +
+	"\bidentity\x18\x14 \x01(\bR\bidentity\"E\n" +
 	"\rComputedField\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x1c\n" +
 	"\ttransform\x18\x02 \x01(\tR\ttransform*^\n" +

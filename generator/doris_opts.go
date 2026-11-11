@@ -28,6 +28,7 @@ type IndexDefIR struct {
 	Unique      bool
 	DescColumns []string
 	Where       string
+	Expressions []string
 }
 
 // ForeignKeyDefIR holds a table-level foreign key definition from TableOptions.foreign_keys.
@@ -162,11 +163,12 @@ type DorisColumnMetaIR struct {
 	Unique          bool
 	Nullable        *bool
 	ForeignKey      *ForeignKeyIR
+	Identity        bool
 }
 
 // isEmpty reports whether m is nil or has no Doris/Iceberg column metadata set.
 // PostgreSQL-only fields (PostgresType, SQLType, JSONB, Length, PrimaryKey, Index, Unique,
-// Nullable, ForeignKey) are intentionally excluded so Postgres-annotated fields
+// Nullable, ForeignKey, Identity) are intentionally excluded so Postgres-annotated fields
 // do not trigger Doris column filtering in messageHasAnnotatedDorisColumns.
 func (m *DorisColumnMetaIR) isEmpty() bool {
 	if m == nil {
@@ -201,7 +203,8 @@ func (m *DorisColumnMetaIR) isAllEmpty() bool {
 		!m.Index &&
 		!m.Unique &&
 		m.Nullable == nil &&
-		m.ForeignKey == nil
+		m.ForeignKey == nil &&
+		!m.Identity
 }
 
 // normalizeDatabaseScope normalizes raw scope strings or enum names to canonical
@@ -558,7 +561,12 @@ func mergeTableMeta(dst, src *DorisTableMetaIR) {
 	for _, idx := range src.Indexes {
 		exists := false
 		for _, existing := range dst.Indexes {
-			if existing.Name == idx.Name && strings.Join(existing.Columns, ",") == strings.Join(idx.Columns, ",") && existing.Unique == idx.Unique && strings.Join(existing.DescColumns, ",") == strings.Join(idx.DescColumns, ",") {
+			if existing.Name == idx.Name &&
+				strings.Join(existing.Columns, ",") == strings.Join(idx.Columns, ",") &&
+				existing.Unique == idx.Unique &&
+				strings.Join(existing.DescColumns, ",") == strings.Join(idx.DescColumns, ",") &&
+				strings.Join(existing.Expressions, "\x00") == strings.Join(idx.Expressions, "\x00") &&
+				existing.Where == idx.Where {
 				exists = true
 				break
 			}
@@ -614,14 +622,17 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 				continue
 			}
 			cols := trimNonEmptyStrings(idx.GetColumns())
+			exprs := trimNonEmptyStrings(idx.GetExpressions())
 			name := strings.TrimSpace(idx.GetName())
-			if len(cols) > 0 || name != "" {
+			where := strings.TrimSpace(idx.GetWhere())
+			if len(cols) > 0 || len(exprs) > 0 || name != "" || idx.GetUnique() || where != "" {
 				indexes = append(indexes, IndexDefIR{
 					Name:        name,
 					Columns:     cols,
 					Unique:      idx.GetUnique(),
 					DescColumns: trimNonEmptyStrings(idx.GetDescColumns()),
-					Where:       strings.TrimSpace(idx.GetWhere()),
+					Where:       where,
+					Expressions: exprs,
 				})
 			}
 		}
@@ -857,6 +868,16 @@ func parseIndexDefBytes(b []byte) IndexDefIR {
 			if typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
 					idx.Where = strings.TrimSpace(string(v))
+					b = b[m:]
+					continue
+				}
+			}
+		case 6: // repeated string expressions = 6
+			if typ == protowire.BytesType {
+				if v, m := protowire.ConsumeBytes(b); m >= 0 {
+					if expr := strings.TrimSpace(string(v)); expr != "" {
+						idx.Expressions = append(idx.Expressions, expr)
+					}
 					b = b[m:]
 					continue
 				}
@@ -1226,7 +1247,7 @@ func parseTableMetaBytesWithVault(b []byte, dst *DorisTableMetaIR, includeVaultA
 		case 20: // repeated IndexDef indexes = 20 (TableOptions 1307)
 			if includeVaultAndCatalog && typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
-					if idx := parseIndexDefBytes(v); len(idx.Columns) > 0 || idx.Name != "" {
+					if idx := parseIndexDefBytes(v); len(idx.Columns) > 0 || len(idx.Expressions) > 0 || idx.Name != "" || idx.Unique || idx.Where != "" {
 						dst.Indexes = append(dst.Indexes, idx)
 					}
 					b = b[m:]
@@ -1368,6 +1389,9 @@ func mergeColumnMeta(dst, src *DorisColumnMetaIR) {
 		fkCopy := *src.ForeignKey
 		dst.ForeignKey = &fkCopy
 	}
+	if !dst.Identity && src.Identity {
+		dst.Identity = true
+	}
 }
 
 // extractDorisColumnMeta extracts Doris/Iceberg column metadata from a field's options.
@@ -1428,6 +1452,7 @@ func extractColumnMetaInternal(field *protogen.Field, includePostgres bool) *Dor
 			Unique:          c.GetUnique() || fo.GetUnique(),
 			Nullable:        nullable,
 			ForeignKey:      fk,
+			Identity:        c.GetIdentity(),
 		}
 		if !out.isAllEmpty() {
 			typedOut = out
@@ -1788,6 +1813,14 @@ func parseColumnMetaBytes(b []byte, dst *DorisColumnMetaIR) {
 					if fk := parseForeignKeyBytes(v); fk != nil {
 						dst.ForeignKey = fk
 					}
+					b = b[m:]
+					continue
+				}
+			}
+		case 20: // bool identity = 20
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					dst.Identity = v != 0
 					b = b[m:]
 					continue
 				}

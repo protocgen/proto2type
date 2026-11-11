@@ -21,6 +21,7 @@ type PostgresColumnDescriptor struct {
 	IsPrimaryKey   bool
 	IsPartitionKey bool
 	InvertedIndex  bool
+	Identity       bool
 	DefaultValue   string
 	ServerDefault  string
 	Comment        string
@@ -35,6 +36,7 @@ type PostgresIndexDescriptor struct {
 	Ops         string // e.g. "vector_l2_ops"
 	DescColumns []string
 	Where       string
+	Expressions []string
 }
 
 // IsDesc reports whether col is indexed in descending order.
@@ -179,6 +181,79 @@ func isPostgresTimestampSQLType(sqlType string) bool {
 		u == "TIMESTAMP WITHOUT TIME ZONE" ||
 		strings.HasPrefix(u, "TIMESTAMPTZ(") ||
 		strings.HasPrefix(u, "TIMESTAMP(")
+}
+
+// isPostgresIdentityEligibleSQLType reports whether sqlType is a scalar PostgreSQL
+// integer type eligible for GENERATED ALWAYS AS IDENTITY (SMALLINT, INTEGER, BIGINT).
+func isPostgresIdentityEligibleSQLType(sqlType string) bool {
+	switch strings.ToUpper(strings.TrimSpace(sqlType)) {
+	case "SMALLINT", "INT2", "INTEGER", "INT", "INT4", "BIGINT", "INT8":
+		return true
+	default:
+		return false
+	}
+}
+
+// hasOuterBalancedParens reports whether s begins with '(' and ends with its matching ')'.
+func hasOuterBalancedParens(s string) bool {
+	if len(s) < 2 || s[0] != '(' || s[len(s)-1] != ')' {
+		return false
+	}
+	depth := 0
+	inString := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			if ch == '\'' {
+				if i+1 < len(s) && s[i+1] == '\'' {
+					i++
+				} else {
+					inString = false
+				}
+			}
+			continue
+		}
+		switch ch {
+		case '\'':
+			inString = true
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 && i < len(s)-1 {
+				return false
+			}
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+	return !inString && depth == 0
+}
+
+// formatPostgresIndexExprSQL formats a SQL index expression as a parenthesized
+// PostgreSQL index_elem item suitable for CREATE [UNIQUE] INDEX ... ON tbl (...).
+func formatPostgresIndexExprSQL(expr string) string {
+	trimmed := strings.TrimSpace(expr)
+	if hasOuterBalancedParens(trimmed) {
+		return trimmed
+	}
+	return "(" + trimmed + ")"
+}
+
+// postgresIndexExprSuffix computes a deterministic, position-independent auto-index suffix
+// for an index with columns and/or SQL expressions.
+func postgresIndexExprSuffix(cols, cleanExprs []string) string {
+	suffix := strings.Join(cols, "_")
+	if len(cleanExprs) == 0 {
+		return suffix
+	}
+	sum := sha256.Sum256([]byte(strings.Join(cleanExprs, "\x00")))
+	exprSum := fmt.Sprintf("%x", sum[:4])
+	if suffix == "" {
+		return "expr_" + exprSum
+	}
+	return suffix + "_expr_" + exprSum
 }
 
 // isValidPostgresServerDefault reports whether s is an empty or allowlisted SQL server default expression.
@@ -749,9 +824,21 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 					}
 				}
 				isVariantPK := colMeta != nil && (colMeta.PrimaryKey || colMeta.IsUniqueKey)
+				isVariantIdentity := colMeta != nil && colMeta.Identity
 				isVariantServerTS := v.ProtoField != nil && isServerTimestamp(v.ProtoField)
+				if isVariantIdentity {
+					if !isPostgresIdentityEligibleSQLType(ddlType) {
+						return nil, fmt.Errorf("oneof variant %s in %s: identity column requires SMALLINT, INTEGER, or BIGINT type (got %q)", v.Name, dm.FullName, ddlType)
+					}
+					if colMeta.Nullable != nil && *colMeta.Nullable {
+						return nil, fmt.Errorf("oneof variant %s in %s: identity column cannot be nullable", v.Name, dm.FullName)
+					}
+					if colMeta.DefaultValue != "" || isVariantServerTS {
+						return nil, fmt.Errorf("oneof variant %s in %s: identity column cannot specify default_value or server_timestamp", v.Name, dm.FullName)
+					}
+				}
 				nullable := true
-				if isVariantPK || explicitPKSet[colName] || (isVariantServerTS && isPostgresTimestampSQLType(ddlType)) {
+				if isVariantPK || isVariantIdentity || explicitPKSet[colName] || (isVariantServerTS && isPostgresTimestampSQLType(ddlType)) {
 					nullable = false
 				} else if colMeta != nil && colMeta.Nullable != nil {
 					nullable = *colMeta.Nullable
@@ -770,6 +857,7 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 						PostgresType:   ddlType,
 						HCLType:        hclType,
 						Nullable:       nullable,
+						Identity:       isVariantIdentity,
 						DefaultValue:   defVal,
 						ServerDefault:  srvDef,
 					},
@@ -839,6 +927,18 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		}
 
 		isFieldPK := f.DocID || (colMeta != nil && (colMeta.PrimaryKey || colMeta.IsUniqueKey))
+		isFieldIdentity := colMeta != nil && colMeta.Identity
+		if isFieldIdentity {
+			if !isPostgresIdentityEligibleSQLType(ddlType) {
+				return nil, fmt.Errorf("field %s in %s: identity column requires SMALLINT, INTEGER, or BIGINT type (got %q)", f.Name, dm.FullName, ddlType)
+			}
+			if colMeta.Nullable != nil && *colMeta.Nullable {
+				return nil, fmt.Errorf("field %s in %s: identity column cannot be nullable", f.Name, dm.FullName)
+			}
+			if colMeta.DefaultValue != "" || f.ServerTimestamp {
+				return nil, fmt.Errorf("field %s in %s: identity column cannot specify default_value or server_timestamp", f.Name, dm.FullName)
+			}
+		}
 		var defVal, srvDef string
 		if colMeta != nil && colMeta.DefaultValue != "" {
 			defVal = colMeta.DefaultValue
@@ -853,7 +953,8 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 				SQLType:        ddlType,
 				PostgresType:   ddlType,
 				HCLType:        hclType,
-				Nullable:       isPostgresFieldNullable(f, colMeta, isFieldPK || explicitPKSet[colName]),
+				Nullable:       !isFieldIdentity && isPostgresFieldNullable(f, colMeta, isFieldPK || explicitPKSet[colName]),
+				Identity:       isFieldIdentity,
 				DefaultValue:   defVal,
 				ServerDefault:  srvDef,
 			},
@@ -900,19 +1001,24 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 	seenIdxCols := make(map[string]bool)
 	seenAutoIdxPos := make(map[string]int)
 	addIndex := func(idx PostgresIndexDescriptor, autoNamed bool) error {
+		var trimmedExprs []string
+		for _, rawExpr := range idx.Expressions {
+			trimmedExprs = append(trimmedExprs, strings.TrimSpace(rawExpr))
+		}
+		suffix := postgresIndexExprSuffix(idx.Columns, trimmedExprs)
 		if idx.Name == "" {
 			autoNamed = true
 			prefix := "idx"
 			if idx.Unique {
 				prefix = "uq"
 			}
-			idx.Name = compactPostgresIdentifier(prefix, tableName+"_"+strings.Join(idx.Columns, "_"))
+			idx.Name = compactPostgresIdentifier(prefix, tableName+"_"+suffix)
 		} else if autoNamed {
 			prefix := "idx"
 			if idx.Unique {
 				prefix = "uq"
 			}
-			idx.Name = compactPostgresIdentifier(prefix, tableName+"_"+strings.Join(idx.Columns, "_"))
+			idx.Name = compactPostgresIdentifier(prefix, tableName+"_"+suffix)
 		}
 		if !isValidSQLIdentifier(idx.Name) {
 			return fmt.Errorf("message %s: invalid index name %q", dm.FullName, idx.Name)
@@ -921,8 +1027,14 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 			return fmt.Errorf("message %s: index name %q exceeds %d-byte identifier limit (%d bytes)",
 				dm.FullName, idx.Name, maxPostgresIdentifierBytes, len(idx.Name))
 		}
-		if len(idx.Columns) == 0 {
-			return fmt.Errorf("message %s: index %q has no columns", dm.FullName, idx.Name)
+		for i, expr := range trimmedExprs {
+			if !isValidPostgresCheckExpr(expr) {
+				return fmt.Errorf("message %s: invalid index expression %q for index %q", dm.FullName, idx.Expressions[i], idx.Name)
+			}
+		}
+		idx.Expressions = trimmedExprs
+		if len(idx.Columns) == 0 && len(idx.Expressions) == 0 {
+			return fmt.Errorf("message %s: index %q has no columns or expressions", dm.FullName, idx.Name)
 		}
 		for _, col := range idx.Columns {
 			if !colSet[col] {
@@ -946,13 +1058,17 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 			return fmt.Errorf("message %s: invalid where expression %q for index %q", dm.FullName, idx.Where, idx.Name)
 		}
 		if prev, exists := seenIdx[idx.Name]; exists {
-			if prev.Unique != idx.Unique || strings.Join(prev.Columns, ",") != strings.Join(idx.Columns, ",") || strings.Join(prev.DescColumns, ",") != strings.Join(idx.DescColumns, ",") || prev.Where != idx.Where {
+			if prev.Unique != idx.Unique ||
+				strings.Join(prev.Columns, ",") != strings.Join(idx.Columns, ",") ||
+				strings.Join(prev.DescColumns, ",") != strings.Join(idx.DescColumns, ",") ||
+				strings.Join(prev.Expressions, "\x00") != strings.Join(idx.Expressions, "\x00") ||
+				prev.Where != idx.Where {
 				return fmt.Errorf("message %s: conflicting definitions for index %q", dm.FullName, idx.Name)
 			}
 			return nil
 		}
 		// Skip auto-generated unique index if it duplicates a single-column PRIMARY KEY.
-		if autoNamed && idx.Unique && len(idx.Columns) == 1 && len(pkCols) == 1 && idx.Columns[0] == pkCols[0] {
+		if autoNamed && idx.Unique && len(idx.Columns) == 1 && len(idx.Expressions) == 0 && len(pkCols) == 1 && idx.Columns[0] == pkCols[0] {
 			return nil
 		}
 		var colParts []string
@@ -963,7 +1079,7 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 			}
 			colParts = append(colParts, part)
 		}
-		colSig := fmt.Sprintf("%t:%s:%s", idx.Unique, strings.Join(colParts, ","), idx.Where)
+		colSig := fmt.Sprintf("%t:%s:%s:%s", idx.Unique, strings.Join(colParts, ","), strings.Join(idx.Expressions, "\x00"), idx.Where)
 		if autoNamed {
 			if seenIdxCols[colSig] {
 				return nil
@@ -1057,6 +1173,7 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 				Unique:      idxDef.Unique,
 				DescColumns: idxDef.DescColumns,
 				Where:       idxDef.Where,
+				Expressions: idxDef.Expressions,
 			}, idxDef.Name == ""); err != nil {
 				return nil, err
 			}
@@ -1385,11 +1502,16 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 		if !isValidPostgresServerDefault(c.ServerDefault) || validatePostgresDefaultValue(c.SQLType, c.DefaultValue) != nil {
 			return ""
 		}
+		if c.Identity && (!isPostgresIdentityEligibleSQLType(c.SQLType) || c.Nullable || c.DefaultValue != "" || c.ServerDefault != "") {
+			return ""
+		}
 		line := fmt.Sprintf("    %q %s", c.ColumnName, c.SQLType)
 		if !c.Nullable {
 			line += " NOT NULL"
 		}
-		if def := formatPostgresSQLDefaultValue(c); def != "" {
+		if c.Identity {
+			line += " GENERATED ALWAYS AS IDENTITY"
+		} else if def := formatPostgresSQLDefaultValue(c); def != "" {
 			line += " DEFAULT " + def
 		}
 		bodyLines = append(bodyLines, line)
@@ -1417,13 +1539,21 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 	b.WriteString("\n);")
 
 	for _, idx := range t.Indexes {
-		if !isValidSQLIdentifier(idx.Name) || len(idx.Name) > maxPostgresIdentifierBytes || len(idx.Columns) == 0 {
+		if !isValidSQLIdentifier(idx.Name) || len(idx.Name) > maxPostgresIdentifierBytes || (len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
 			return ""
 		}
 		for _, col := range idx.Columns {
 			if !isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes {
 				return ""
 			}
+		}
+		for _, expr := range idx.Expressions {
+			if !isValidPostgresCheckExpr(expr) {
+				return ""
+			}
+		}
+		if idx.Where != "" && !isValidPostgresCheckExpr(idx.Where) {
+			return ""
 		}
 		var colParts []string
 		for _, col := range idx.Columns {
@@ -1432,6 +1562,9 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 				part += " DESC"
 			}
 			colParts = append(colParts, part)
+		}
+		for _, expr := range idx.Expressions {
+			colParts = append(colParts, formatPostgresIndexExprSQL(expr))
 		}
 		whereClause := ""
 		if idx.Where != "" {
