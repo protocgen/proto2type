@@ -53,24 +53,24 @@ func generateRust(gen *protogen.Plugin, file *protogen.File, opts *Options) erro
 						return err
 					}
 					if pgTargets.EmitDDL {
-						if err := generatePostgresDDLFile(gen, file, tables); err != nil {
+						if err := generatePostgresDDLFileWithOpts(gen, file, tables, opts); err != nil {
 							return err
 						}
 					}
 					if pgTargets.EmitHCL {
-						if err := generatePostgresHCLFile(gen, file, tables); err != nil {
+						if err := generatePostgresHCLFileWithOpts(gen, file, tables, opts); err != nil {
 							return err
 						}
 					}
 				}
 			}
 			if pgTargets.EmitSearchIndexDDL {
-				if err := generatePostgresSearchIndexDDLFile(gen, file); err != nil {
+				if err := generatePostgresSearchIndexDDLFile(gen, file, opts); err != nil {
 					return err
 				}
 			}
 			if pgTargets.EmitSearchIndexHCL {
-				if err := generatePostgresSearchIndexHCLFile(gen, file); err != nil {
+				if err := generatePostgresSearchIndexHCLFile(gen, file, opts); err != nil {
 					return err
 				}
 			}

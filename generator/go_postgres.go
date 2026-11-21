@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -124,12 +125,12 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 		}
 	}
 	if pgTargets.EmitSearchIndexDDL {
-		if err := generatePostgresSearchIndexDDLFile(gen, file); err != nil {
+		if err := generatePostgresSearchIndexDDLFile(gen, file, effectiveOpts); err != nil {
 			return err
 		}
 	}
 	if pgTargets.EmitSearchIndexHCL {
-		if err := generatePostgresSearchIndexHCLFile(gen, file); err != nil {
+		if err := generatePostgresSearchIndexHCLFile(gen, file, effectiveOpts); err != nil {
 			return err
 		}
 	}
@@ -184,12 +185,12 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 			gg.seenPostgresTables[tbl.TableName] = owner
 		}
 		if pgTargets.EmitHCL {
-			if err := generatePostgresHCLFile(gen, file, tables); err != nil {
+			if err := generatePostgresHCLFileWithOpts(gen, file, tables, effectiveOpts); err != nil {
 				return err
 			}
 		}
 		if pgTargets.EmitDDL {
-			if err := generatePostgresDDLFile(gen, file, tables); err != nil {
+			if err := generatePostgresDDLFileWithOpts(gen, file, tables, effectiveOpts); err != nil {
 				return err
 			}
 		}
@@ -197,41 +198,197 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 	return nil
 }
 
+// generateGoPostgresConsolidated emits a single consolidated PostgreSQL output file
+// (HCL, DDL, Go ORM, or search_index) across multiple proto files when opts.OutputFile is set.
+func (gg *goGenerator) generateGoPostgresConsolidated(gen *protogen.Plugin, files []*protogen.File, opts *Options) error {
+	effectiveOpts := opts
+	if effectiveOpts == nil {
+		effectiveOpts = &Options{}
+	}
+	pgTargets, err := effectiveOpts.ParsePostgresMode()
+	if err != nil {
+		return fmt.Errorf("proto2type: %w", err)
+	}
+	if !pgTargets.EmitTypes && !pgTargets.EmitDDL && !pgTargets.EmitHCL &&
+		!pgTargets.EmitSearchIndexGo && !pgTargets.EmitSearchIndexDDL && !pgTargets.EmitSearchIndexHCL {
+		return nil
+	}
+	if len(files) == 0 {
+		return nil
+	}
+
+	var nonEmptyFiles []*protogen.File
+	for _, f := range files {
+		if len(f.Messages) == 0 && len(f.Enums) == 0 {
+			continue
+		}
+		nonEmptyFiles = append(nonEmptyFiles, f)
+	}
+	if len(nonEmptyFiles) == 0 {
+		return nil
+	}
+
+	if pgTargets.EmitSearchIndexGo {
+		return gg.generateGoPostgresSearchIndexFiles(gen, nonEmptyFiles, effectiveOpts)
+	}
+	if pgTargets.EmitSearchIndexDDL {
+		return generateConsolidatedPostgresSearchIndexDDLFile(gen, nonEmptyFiles, effectiveOpts.OutputFile)
+	}
+	if pgTargets.EmitSearchIndexHCL {
+		return generateConsolidatedPostgresSearchIndexHCLFile(gen, nonEmptyFiles, effectiveOpts.OutputFile)
+	}
+
+	if err := gg.validatePostgresTableNamesAcrossPlugin(gen); err != nil {
+		return err
+	}
+
+	dfs := make([]*DomainFile, 0, len(nonEmptyFiles))
+	for _, f := range nonEmptyFiles {
+		df, err := BuildDomainFile(f, effectiveOpts)
+		if err != nil {
+			return err
+		}
+		if err := validateDomainMessagesTableMeta(df.Messages, gg.seenPostgresTables); err != nil {
+			return err
+		}
+		dfs = append(dfs, df)
+	}
+
+	if pgTargets.EmitTypes {
+		return gg.generateConsolidatedGoPostgresORMFile(gen, nonEmptyFiles, dfs, effectiveOpts)
+	}
+
+	if pgTargets.EmitHCL || pgTargets.EmitDDL {
+		var lakehouseTables []*postgresTableIR
+		var relationalDFs []*DomainFile
+		seenTables := make(map[string]protoreflect.FullName)
+		for i, f := range nonEmptyFiles {
+			if fileHasLakehousePostgresTables(f) {
+				tbls, err := buildPostgresTablesForFile(f, effectiveOpts)
+				if err != nil {
+					return err
+				}
+				for _, tbl := range tbls {
+					id := postgresScopeTableIdentity(tbl.Descriptor)
+					if prev, exists := seenTables[id]; exists && prev != tbl.Msg.Desc.FullName() {
+						return fmt.Errorf("message %s: duplicate PostgreSQL table identity %q (already declared by %s)", tbl.Msg.Desc.FullName(), tbl.Descriptor.TableName, prev)
+					}
+					seenTables[id] = tbl.Msg.Desc.FullName()
+					lakehouseTables = append(lakehouseTables, tbl)
+				}
+			} else {
+				relationalDFs = append(relationalDFs, dfs[i])
+			}
+		}
+
+		var relTables []*PostgresTableSchemaDescriptor
+		if len(relationalDFs) > 0 {
+			relTables, err = collectPostgresTableSchemasMulti(relationalDFs, effectiveOpts)
+			if err != nil {
+				return err
+			}
+			for _, tbl := range relTables {
+				owner := tbl.GoName
+				if tbl.FullName != "" {
+					owner = tbl.FullName
+				}
+				if prev, exists := gg.seenPostgresTables[tbl.TableName]; exists && prev != owner {
+					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q (already resolved by %s)", owner, tbl.TableName, prev)
+				}
+				gg.seenPostgresTables[tbl.TableName] = owner
+			}
+		}
+
+		if len(lakehouseTables) > 0 && len(relTables) > 0 {
+			return fmt.Errorf("output_file %q cannot consolidate mixed lakehouse and relational PostgreSQL tables", effectiveOpts.OutputFile)
+		}
+		if len(lakehouseTables) > 0 {
+			if pgTargets.EmitHCL {
+				return generateConsolidatedLakehousePostgresHCLFile(gen, nonEmptyFiles, lakehouseTables, effectiveOpts.OutputFile)
+			}
+			return generateConsolidatedLakehousePostgresDDLFile(gen, nonEmptyFiles, lakehouseTables, effectiveOpts.OutputFile)
+		}
+		if pgTargets.EmitHCL {
+			return generateConsolidatedPostgresHCLFile(gen, nonEmptyFiles, relTables, effectiveOpts.OutputFile)
+		}
+		return generateConsolidatedPostgresDDLFile(gen, nonEmptyFiles, relTables, effectiveOpts.OutputFile)
+	}
+
+	return nil
+}
+
 // generateGoPostgresORMFile generates a Go PostgreSQL storage type file (<prefix>_postgres.type.go).
 // Each message gets a `<Name>Postgres` struct with `db:"..."` tags
 // suitable for use with sqlx, pgx/v5, or similar Go database libraries.
 func (gg *goGenerator) generateGoPostgresORMFile(gen *protogen.Plugin, file *protogen.File, df *DomainFile, opts *Options) error {
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_postgres.type.go")
+	return gg.generateConsolidatedGoPostgresORMFile(gen, []*protogen.File{file}, []*DomainFile{df}, opts)
+}
+
+func (gg *goGenerator) generateConsolidatedGoPostgresORMFile(gen *protogen.Plugin, files []*protogen.File, dfs []*DomainFile, opts *Options) error {
+	if len(files) == 0 || len(dfs) == 0 {
+		return nil
+	}
+	firstFile := files[0]
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	filename, err := resolveOutputFilename(firstFile.GeneratedFilenamePrefix, "_postgres.type.go", outOverride)
 	if err != nil {
 		return err
 	}
 
-	goImportPath := file.GoImportPath
-	goPackageName := file.GoPackageName
-	if opts.GoPackage != "" {
+	goImportPath := firstFile.GoImportPath
+	goPackageName := firstFile.GoPackageName
+	if opts != nil && opts.GoPackage != "" {
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
-		filename = adjustSubdirFilename(filename, string(file.GoImportPath), importPath)
+		if outOverride == "" {
+			filename = adjustSubdirFilename(filename, string(firstFile.GoImportPath), importPath)
+		}
+	} else {
+		for _, f := range files[1:] {
+			if f.GoImportPath != goImportPath || f.GoPackageName != goPackageName {
+				return fmt.Errorf("output_file %q cannot consolidate proto files with different Go packages (%q vs %q)", outOverride, goImportPath, f.GoImportPath)
+			}
+		}
 	}
 	g := gen.NewGeneratedFile(filename, goImportPath)
 
-	msgByName := indexDomainMessages(df.Messages)
+	msgByName := make(map[string]*DomainMessage)
+	needsTime := false
+	hasTableMeta := false
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
+	for _, df := range dfs {
+		for k, v := range indexDomainMessages(df.Messages) {
+			msgByName[k] = v
+		}
+		if irNeedsTime(df.Messages) {
+			needsTime = true
+		}
+		if domainMessagesHaveTableMeta(df.Messages) {
+			hasTableMeta = true
+		}
+	}
 
 	// Header
 	g.P("// Code generated by proto2type. DO NOT EDIT.")
-	g.P("// source: ", file.Desc.Path())
+	g.P("// source: ", strings.Join(sources, ", "))
 	g.P("// backend: postgres")
 	g.P()
 	g.P("package ", goPackageName)
 	g.P()
 
-	if irNeedsTime(df.Messages) {
+	if needsTime {
 		g.P(`import "time"`)
 		g.P()
 	}
 
-	if domainMessagesHaveTableMeta(df.Messages) && !gg.emittedPostgresTypes[goImportPath] {
+	if hasTableMeta && !gg.emittedPostgresTypes[goImportPath] {
 		gg.emittedPostgresTypes[goImportPath] = true
 		g.P("// PostgresTableDescriptor describes a PostgreSQL table and its owning writer/reader services.")
 		g.P("type PostgresTableDescriptor struct {")
@@ -242,8 +399,10 @@ func (gg *goGenerator) generateGoPostgresORMFile(gen *protogen.Plugin, file *pro
 		g.P()
 	}
 
-	for _, dm := range df.Messages {
-		generateGoPostgresMessage(gen, g, dm, msgByName, opts)
+	for _, df := range dfs {
+		for _, dm := range df.Messages {
+			generateGoPostgresMessage(gen, g, dm, msgByName, opts)
+		}
 	}
 
 	return nil

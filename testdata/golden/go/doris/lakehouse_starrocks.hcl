@@ -54,7 +54,7 @@ table "eligibility_criterion_results" {
   }
   distributed_by_hash {
     columns = [column.patient_id]
-    buckets = "auto"
+    buckets = "${TENANT_BUCKETS}"
   }
   partition_by_range {
     columns = [column.event_month]

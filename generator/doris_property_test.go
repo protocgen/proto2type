@@ -197,6 +197,8 @@ func TestProperty_DorisWireOptions_RoundTrip(t *testing.T) {
 			}
 		}
 
+		defaultVal := hegel.Draw(ht, hegel.Text().MaxSize(20))
+		hasDefault := defaultVal != "" || hegel.Draw(ht, hegel.Booleans())
 		cm := DorisColumnMetaIR{
 			DorisType:       hegel.Draw(ht, hegel.Text().MaxSize(20)),
 			IcebergType:     hegel.Draw(ht, hegel.Text().MaxSize(20)),
@@ -207,7 +209,8 @@ func TestProperty_DorisWireOptions_RoundTrip(t *testing.T) {
 			IsPartitionKey:  hegel.Draw(ht, hegel.Booleans()),
 			StripEnumPrefix: hegel.Draw(ht, hegel.Booleans()),
 			ColumnName:      hegel.Draw(ht, hegel.Text().MaxSize(20)),
-			DefaultValue:    hegel.Draw(ht, hegel.Text().MaxSize(20)),
+			DefaultValue:    defaultVal,
+			HasDefaultValue: hasDefault,
 		}
 		colWire := buildAzraColumnMetaWire(cm)
 		gotCM := parseDorisColumnMetaFromOptionsWire(colWire)

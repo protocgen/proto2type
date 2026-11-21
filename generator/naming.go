@@ -111,6 +111,26 @@ func outputFilename(protoPath, suffix string) (string, error) {
 	return cleaned, nil
 }
 
+// resolveOutputFilename returns outputFile (validated against path traversal and empty/dot
+// values) when non-empty, or falls back to outputFilename(protoPath, defaultSuffix).
+func resolveOutputFilename(protoPath, defaultSuffix, outputFile string) (string, error) {
+	if outputFile != "" {
+		if strings.Contains(outputFile, "..") || strings.HasPrefix(outputFile, "/") ||
+			(len(outputFile) >= 2 && outputFile[1] == ':') || strings.HasPrefix(outputFile, `\\`) {
+			return "", fmt.Errorf("proto2type: output_file must not contain path traversal: %q", outputFile)
+		}
+		cleaned, err := outputFilename(outputFile, "")
+		if err != nil {
+			return "", err
+		}
+		if cleaned == "" || cleaned == "." {
+			return "", fmt.Errorf("proto2type: invalid output_file: %q", outputFile)
+		}
+		return cleaned, nil
+	}
+	return outputFilename(protoPath, defaultSuffix)
+}
+
 // parseGoPackage parses a go_package string in the format "import/path;package_name"
 // or just "import/path" (in which case the package name is the last path element).
 func parseGoPackage(pkg string) (importPath, packageName string) {

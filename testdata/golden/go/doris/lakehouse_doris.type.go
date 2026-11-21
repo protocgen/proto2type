@@ -994,12 +994,19 @@ func resolveDorisEmbeddingDimension(t DorisTableDescriptor) (int32, bool) {
 }
 
 func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
+	it := strings.TrimSpace(icebergType)
+	upperIT := strings.ToUpper(it)
+	if strings.HasPrefix(upperIT, "ARRAY<VARCHAR(") && strings.HasSuffix(upperIT, ">") {
+		return upperIT
+	}
 	dt := strings.ToUpper(strings.TrimSpace(dorisType))
 	switch dt {
 	case "DATEV2":
 		return "DATE"
 	case "DATETIMEV2":
 		return "DATETIME"
+	case "TINYINT", "SMALLINT":
+		return "INT"
 	case "LARGEINT":
 		return "DECIMAL(38, 0)"
 	case "ARRAY<LARGEINT>":
@@ -1007,7 +1014,7 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 	case "JSON", "JSONB", "VARIANT":
 		return "STRING"
 	}
-	if strings.HasPrefix(dt, "DATETIMEV2(") && strings.HasSuffix(dt, ")") {
+	if (strings.HasPrefix(dt, "DATETIMEV2(") || strings.HasPrefix(dt, "DATETIME(")) && strings.HasSuffix(dt, ")") {
 		return "DATETIME"
 	}
 	if strings.HasPrefix(dt, "DECIMALV3(") {
@@ -1023,12 +1030,13 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 	if dt != "" {
 		return dt
 	}
-	it := strings.TrimSpace(icebergType)
-	switch strings.ToUpper(it) {
+	switch upperIT {
 	case "STRING":
 		return "VARCHAR(256)"
 	case "LONG":
 		return "BIGINT"
+	case "TINYINT", "SMALLINT":
+		return "INT"
 	case "TIMESTAMPTZ", "TIMESTAMP":
 		return "DATETIME"
 	case "LIST<STRING>":
@@ -1042,7 +1050,26 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 	case "LIST<LONG>":
 		return "ARRAY<BIGINT>"
 	}
-	return strings.ToUpper(it)
+	return upperIT
+}
+
+func shouldEmitDorisPartitionBy(uks, partCols []string) bool {
+	if len(partCols) == 0 {
+		return false
+	}
+	if len(uks) == 0 {
+		return true
+	}
+	ukSet := make(map[string]bool, len(uks))
+	for _, uk := range uks {
+		ukSet[uk] = true
+	}
+	for _, pc := range partCols {
+		if !ukSet[pc] {
+			return false
+		}
+	}
+	return true
 }
 
 func dorisColumnStarRocksDDLType(dorisType, icebergType string) string {
@@ -1294,7 +1321,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 			distCol = orderedCols[0].ColumnName
 		}
 	}
-	if len(partCols) > 0 {
+	if shouldEmitDorisPartitionBy(uks, partCols) {
 		partKind := "LIST"
 		if strings.HasPrefix(colTypes[partCols[0]], "DATE") {
 			partKind = "RANGE"
@@ -1912,7 +1939,7 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 		case "GLOBAL_TERMINOLOGY_RAG", "GLOBAL_TELEMETRY":
 			bucketsExpr = "8"
 		default:
-			bucketsExpr = `"auto"`
+			bucketsExpr = `"${TENANT_BUCKETS}"`
 		}
 	}
 	seqCol := strings.TrimSpace(t.SequenceCol)
@@ -1978,7 +2005,7 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 		}
 		partCols = dedupDorisColumnList(partCols)
 	}
-	if len(partCols) > 0 {
+	if shouldEmitDorisPartitionBy(uks, partCols) {
 		partBlock := "partition_by_list"
 		if strings.HasPrefix(colTypes[partCols[0]], "DATE") {
 			partBlock = "partition_by_range"
@@ -2217,7 +2244,7 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 		case "GLOBAL_TERMINOLOGY_RAG", "GLOBAL_TELEMETRY":
 			bucketsExpr = "8"
 		default:
-			bucketsExpr = `"auto"`
+			bucketsExpr = `"${TENANT_BUCKETS}"`
 		}
 	}
 	seqCol := strings.TrimSpace(t.SequenceCol)
@@ -3043,6 +3070,9 @@ func applyDorisAtlasSubBlock(desc *DorisTableDescriptor, blockHeader, blockBody 
 			if strings.EqualFold(bVal, "auto") {
 				desc.AutoBuckets = true
 				desc.Buckets = 0
+			} else if bVal == "${TENANT_BUCKETS}" {
+				desc.AutoBuckets = false
+				desc.Buckets = 0
 			} else {
 				n, nErr := strconv.Atoi(bVal)
 				if nErr != nil || n <= 0 {
@@ -3605,8 +3635,8 @@ func BuildDorisAlterTableSQL(before, after DorisTableDescriptor, tenantSlug stri
 	if beforeHasDoris != afterHasDoris {
 		return nil, fmt.Errorf("cannot generate Doris ALTER TABLE across sync_tier target transition (%q -> %q) for table %q", before.SyncTier, after.SyncTier, after.TableName)
 	}
-	beforeParts := effectiveDorisPartitionCols(before)
-	afterParts := effectiveDorisPartitionCols(after)
+	beforeParts := effectiveDorisPhysicalPartitionCols(before)
+	afterParts := effectiveDorisPhysicalPartitionCols(after)
 	if !dorisStringSlicesEqual(beforeParts, afterParts) {
 		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
 	}
@@ -4135,6 +4165,14 @@ func effectiveDorisPartitionCols(t DorisTableDescriptor) []string {
 		}
 	}
 	return cols
+}
+
+func effectiveDorisPhysicalPartitionCols(t DorisTableDescriptor) []string {
+	parts := effectiveDorisPartitionCols(t)
+	if !shouldEmitDorisPartitionBy(effectiveDorisUniqueKeys(t), parts) {
+		return nil
+	}
+	return parts
 }
 
 func resolveDorisAlterColumnType(c DorisColumnDescriptor) string {

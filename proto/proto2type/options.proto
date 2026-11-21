@@ -57,10 +57,22 @@ message TableOptions {
   bool is_singleton = 22;
   // Explicit table-level or composite foreign keys for relational (PostgreSQL) tables.
   repeated ForeignKeyDef foreign_keys = 23;
+  // Optional override for the singleton table CHECK constraint name (default: chk_<table>_singleton).
+  optional string singleton_check_name = 24;
+  // Optional override for the singleton table CHECK constraint expression (default: (singleton = true)).
+  optional string singleton_check_expr = 25;
 }
 
 // IndexDef defines a single or composite relational index on a table.
 message IndexDef {
+  // IndexPart defines a single column or expression entry in an ordered index definition.
+  message IndexPart {
+    string column = 1;
+    string expr = 2;
+    string opclass = 3;
+    string desc = 4;
+  }
+
   string name = 1;
   repeated string columns = 2;
   bool unique = 3;
@@ -70,8 +82,11 @@ message IndexDef {
   string where = 5;
   // SQL index expressions (e.g. "lower(btrim(name))") for functional/expression indexes in PostgreSQL.
   // Expressions are always rendered after `columns`, in declaration order.
-  // Interleaving columns and expressions is not supported.
+  // Interleaving columns and expressions is not supported when using `columns`/`expressions`;
+  // use `parts` to specify an arbitrary interleaved order.
   repeated string expressions = 6;
+  // Ordered index parts supporting interleaved columns, SQL expressions, and per-part DESC ordering.
+  repeated IndexPart parts = 7;
 }
 
 // ForeignKeyDef defines a single or composite relational foreign key constraint on a table.
@@ -164,7 +179,7 @@ message ColumnOptions {
   bool is_partition_key = 7;
   bool strip_enum_prefix = 8;
   string column_name = 9;
-  string default_value = 10;
+  optional string default_value = 10;
 
   // Explicit PostgreSQL SQL type override (e.g. "VARCHAR(64)", "NUMERIC(10,2)", "UUID").
   string sql_type = 11;
@@ -186,6 +201,8 @@ message ColumnOptions {
   string postgres_type = 19;
   // Generate column as a SQL-standard PostgreSQL identity column (GENERATED ALWAYS AS IDENTITY).
   bool identity = 20;
+  // Override column nullability in Apache Doris / Iceberg (default: inferred from proto optional/oneof/WKT).
+  optional bool doris_nullable = 21;
 }
 
 // ComputedField defines a derived field that is automatically populated

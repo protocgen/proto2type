@@ -689,6 +689,16 @@ func effectiveDorisPartitionCols(t DorisTableDescriptor) []string {
 	return cols
 }
 
+// effectiveDorisPhysicalPartitionCols resolves the physical Doris partition columns,
+// omitting partitions on UNIQUE KEY tables when partition columns are not a subset of unique keys.
+func effectiveDorisPhysicalPartitionCols(t DorisTableDescriptor) []string {
+	parts := effectiveDorisPartitionCols(t)
+	if !shouldEmitDorisPartitionBy(effectiveDorisUniqueKeys(t), parts) {
+		return nil
+	}
+	return parts
+}
+
 // BuildDorisAlterTableSQL validates evolving this table descriptor (before) into after
 // and renders deterministic Apache Doris 4.x ALTER TABLE statements (MODIFY COLUMN for
 // safe type widenings followed by ADD COLUMN for newly added columns).
@@ -734,8 +744,8 @@ func BuildDorisAlterTableSQL(before, after DorisTableDescriptor, tenantSlug stri
 	if beforeHasDoris != afterHasDoris {
 		return nil, fmt.Errorf("cannot generate Doris ALTER TABLE across sync_tier target transition (%q -> %q) for table %q", before.SyncTier, after.SyncTier, after.TableName)
 	}
-	beforeParts := effectiveDorisPartitionCols(before)
-	afterParts := effectiveDorisPartitionCols(after)
+	beforeParts := effectiveDorisPhysicalPartitionCols(before)
+	afterParts := effectiveDorisPhysicalPartitionCols(after)
 	if !dorisStringSlicesEqual(beforeParts, afterParts) {
 		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
 	}

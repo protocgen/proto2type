@@ -108,9 +108,6 @@ func main() {
 				generatedCount++
 			}
 		}
-		if opts.OutputFile != "" && generatedCount > 1 {
-			return fmt.Errorf("output_file cannot be used with multiple proto files")
-		}
 
 		if !opts.Domain && opts.Backend == "" {
 			return fmt.Errorf("proto2type: must specify at least one of domain=true or backend=<name>")
@@ -132,17 +129,13 @@ func main() {
 			}
 		}
 
+		if err := generator.ValidateOutputFileOptions(opts, generatedCount); err != nil {
+			return err
+		}
+
 		// Instantiate a new runner for this invocation.
 		runner := generator.NewRunner()
 
-		for _, f := range gen.Files {
-			if !f.Generate {
-				continue
-			}
-			if err := runner.GenerateFile(gen, f, opts); err != nil {
-				return err
-			}
-		}
-		return nil
+		return runner.Generate(gen, opts)
 	})
 }

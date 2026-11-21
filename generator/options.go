@@ -343,6 +343,74 @@ func splitModeTokens(raw string) []string {
 	return out
 }
 
+// ValidateOutputFileOptions checks that opts.OutputFile is safe and compatible
+// with the configured domain/backend/mode options and input file count.
+func ValidateOutputFileOptions(opts *Options, generatedFileCount int) error {
+	if opts == nil || opts.OutputFile == "" {
+		return nil
+	}
+	if _, err := resolveOutputFilename("", "", opts.OutputFile); err != nil {
+		return err
+	}
+	if opts.Domain && opts.Backend != "" {
+		return fmt.Errorf("output_file cannot be used when both domain=true and backend=%q are enabled", opts.Backend)
+	}
+	if !opts.Domain && opts.Backend == "postgres" {
+		if opts.Lang != "" && opts.Lang != "go" {
+			if generatedFileCount > 1 {
+				return fmt.Errorf("output_file cannot be used with multiple proto files for lang=%q", opts.Lang)
+			}
+			return nil
+		}
+		pgTargets, err := opts.ParsePostgresMode()
+		if err != nil {
+			return err
+		}
+		targetCount := boolToInt(pgTargets.EmitTypes) +
+			boolToInt(pgTargets.EmitDDL) +
+			boolToInt(pgTargets.EmitHCL) +
+			boolToInt(pgTargets.EmitSearchIndexGo) +
+			boolToInt(pgTargets.EmitSearchIndexDDL) +
+			boolToInt(pgTargets.EmitSearchIndexHCL)
+		if targetCount > 1 {
+			return fmt.Errorf("output_file cannot be used with multi-file postgres_mode=%q", opts.PostgresMode)
+		}
+		return nil
+	}
+	if !opts.Domain && (opts.Backend == "doris" || opts.Backend == "starrocks") {
+		if opts.Lang != "" && opts.Lang != "go" {
+			if generatedFileCount > 1 {
+				return fmt.Errorf("output_file cannot be used with multiple proto files for lang=%q", opts.Lang)
+			}
+			return nil
+		}
+		dorisTargets, err := opts.ParseDorisMode()
+		if err != nil {
+			return err
+		}
+		targetCount := boolToInt(dorisTargets.EmitGo) +
+			boolToInt(dorisTargets.EmitDorisDDL) +
+			boolToInt(dorisTargets.EmitDorisHCL) +
+			boolToInt(dorisTargets.EmitStarRocksDDL) +
+			boolToInt(dorisTargets.EmitStarRocksHCL)
+		if targetCount > 1 {
+			return fmt.Errorf("output_file cannot be used with multi-file doris_mode=%q", opts.DorisMode)
+		}
+		return nil
+	}
+	if generatedFileCount > 1 {
+		return fmt.Errorf("output_file cannot be used with multiple proto files")
+	}
+	return nil
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
 // TableMetaConfig is an alias for DorisTableMetaIR, representing table-level metadata
 // extracted from (proto2type.message).table (extension 1307) or legacy table_meta (extension 50201).
 type TableMetaConfig = DorisTableMetaIR

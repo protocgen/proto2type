@@ -631,7 +631,7 @@ func TestPostgresModesAndComprehensiveHCLAndDDL(t *testing.T) {
 	proto.SetExtension(statusEnumOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
 		EnumAsString: proto2typepb.OptionalBool_OPTIONAL_BOOL_TRUE,
 		Column: &proto2typepb.ColumnOptions{
-			DefaultValue: "ACTIVE",
+			DefaultValue: proto.String("ACTIVE"),
 		},
 	})
 
@@ -1196,7 +1196,7 @@ func TestPostgresCodeRabbitReviewFixes(t *testing.T) {
 		Column: &proto2typepb.ColumnOptions{
 			ColumnName:   "record_code",
 			SqlType:      "CHARACTER VARYING(32)",
-			DefaultValue: "NEW_CODE",
+			DefaultValue: proto.String("NEW_CODE"),
 			Index:        true,
 		},
 	})
@@ -1763,11 +1763,15 @@ func TestPostgresHardening_AdversarialInjectionRejection(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			var optDefVal *string
+			if tc.defVal != "" {
+				optDefVal = proto.String(tc.defVal)
+			}
 			fOpts := &descriptorpb.FieldOptions{}
 			proto.SetExtension(fOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
 				Column: &proto2typepb.ColumnOptions{
 					SqlType:      tc.sqlType,
-					DefaultValue: tc.defVal,
+					DefaultValue: optDefVal,
 				},
 			})
 			fdp := &descriptorpb.FileDescriptorProto{
@@ -1876,12 +1880,16 @@ func TestPostgresHardening_AdversarialInjectionRejection(t *testing.T) {
 // CHAR(2), TIMESTAMP, TIMESTAMPTZ(6), INTERVAL, INET, TEXT[], BOOLEAN, and INTEGER in DDL and HCL.
 func TestPostgresHardening_DefaultValueQuotingMatrix(t *testing.T) {
 	mkField := func(name string, num int32, ft descriptorpb.FieldDescriptorProto_Type, label descriptorpb.FieldDescriptorProto_Label, sqlType, defVal string, serverTS bool) *descriptorpb.FieldDescriptorProto {
+		var optDefVal *string
+		if defVal != "" {
+			optDefVal = proto.String(defVal)
+		}
 		opts := &descriptorpb.FieldOptions{}
 		proto.SetExtension(opts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
 			ServerTimestamp: serverTS,
 			Column: &proto2typepb.ColumnOptions{
 				SqlType:      sqlType,
-				DefaultValue: defVal,
+				DefaultValue: optDefVal,
 			},
 		})
 		return &descriptorpb.FieldDescriptorProto{
@@ -1959,7 +1967,7 @@ func TestPostgresHardening_DefaultValueQuotingMatrix(t *testing.T) {
 		"  column \"auto_tstz\" {\n    null = false\n    type = timestamptz(6)\n    default = sql(\"now()\")\n  }",
 		"  column \"lease_window\" {\n    null = false\n    type = interval\n    default = \"1 day\"\n  }",
 		"  column \"host_ip\" {\n    null = false\n    type = inet\n    default = \"127.0.0.1\"\n  }",
-		"  column \"labels\" {\n    null = false\n    type = sql(\"text[]\")\n    default = \"{}\"\n  }",
+		"  column \"labels\" {\n    null = false\n    type = sql(\"text[]\")\n    default = sql(\"'{}'::text[]\")\n  }",
 		"  column \"is_enabled\" {\n    null = false\n    type = boolean\n    default = true\n  }",
 		"  column \"retry_offset\" {\n    null = false\n    type = integer\n    default = -42\n  }",
 	} {
@@ -2607,7 +2615,7 @@ func TestPostgresHardening_ExplicitIndexNameAmbiguousFKAndHCLTemplateEscape(t *t
 	proto.SetExtension(fkColOpts, proto2typepb.E_Field, &proto2typepb.FieldOptions{
 		Index: true,
 		Column: &proto2typepb.ColumnOptions{
-			DefaultValue: "tpl-${env}-%{region}",
+			DefaultValue: proto.String("tpl-${env}-%{region}"),
 		},
 		ForeignKey: &proto2typepb.ForeignKey{
 			RefTable:  longAliasName,

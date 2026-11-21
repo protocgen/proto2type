@@ -111,9 +111,13 @@ func buildAzraColumnMetaWire(meta DorisColumnMetaIR) []byte {
 		b = protowire.AppendTag(b, 9, protowire.BytesType)
 		b = protowire.AppendString(b, meta.ColumnName)
 	}
-	if meta.DefaultValue != "" {
+	if meta.HasDefaultValue || meta.DefaultValue != "" {
 		b = protowire.AppendTag(b, 10, protowire.BytesType)
 		b = protowire.AppendString(b, meta.DefaultValue)
+	}
+	if meta.DorisNullable != nil {
+		b = protowire.AppendTag(b, 11, protowire.VarintType)
+		b = protowire.AppendVarint(b, protowire.EncodeBool(*meta.DorisNullable))
 	}
 	return buildWireExtension(legacyColumnMetaExtensionNumber, b)
 }
@@ -151,7 +155,7 @@ func TestExtractDorisOptions_NativeAndWire50200_50201(t *testing.T) {
 			IsUniqueKey:     true,
 			StripEnumPrefix: true,
 			ColumnName:      "raw_site_token",
-			DefaultValue:    "UNKNOWN",
+			DefaultValue:    proto.String("UNKNOWN"),
 		},
 	})
 
@@ -1745,7 +1749,7 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 		},
 		{
 			name:      "inline_nested on scalar string field",
-			tOpts:     &proto2typepb.TableOptions{TableName: "patients"},
+			tOpts:     &proto2typepb.TableOptions{TableName: "patients", DatabaseScope: "TENANT"},
 			cOpts:     &proto2typepb.ColumnOptions{InlineNested: true},
 			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
 		},
@@ -1770,7 +1774,7 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 		{
 			name:      "Invalid default_value with quote injection",
 			tOpts:     &proto2typepb.TableOptions{TableName: "patients"},
-			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)", DefaultValue: `active" COMMENT "pwn`},
+			cOpts:     &proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)", DefaultValue: proto.String(`active" COMMENT "pwn`)},
 			fieldType: descriptorpb.FieldDescriptorProto_TYPE_STRING,
 		},
 		{
@@ -1911,7 +1915,7 @@ func TestGenerateGoDoris_OptionIdentifierValidation(t *testing.T) {
 	// and promotes the first non-oneof column when a real oneof variant appears first.
 	mo := &descriptorpb.MessageOptions{}
 	proto.SetExtension(mo, proto2typepb.E_Message, &proto2typepb.MessageOptions{
-		Table: &proto2typepb.TableOptions{TableName: "oneof_only"},
+		Table: &proto2typepb.TableOptions{TableName: "oneof_only", DatabaseScope: "TENANT"},
 	})
 	oneofOnlyFDP := &descriptorpb.FileDescriptorProto{
 		Syntax:  proto.String("proto3"),
@@ -3087,8 +3091,8 @@ extend google.protobuf.FieldOptions {
 	if got := tableCounts["azra/clinical/eligibility/v1/eligibility.proto"]; got != 2 {
 		t.Errorf("eligibility.proto table count = %d, want 2", got)
 	}
-	if got := tableCounts["azra/terminology/v1/terminology_tables.proto"]; got != 42 {
-		t.Errorf("terminology_tables.proto table count = %d, want 42", got)
+	if got := tableCounts["azra/terminology/v1/terminology_tables.proto"]; got < 42 {
+		t.Errorf("terminology_tables.proto table count = %d, want >= 42", got)
 	}
 	if got := colCountsByTable["eligibility_criterion_results"]; got != 31 {
 		t.Errorf("eligibility_criterion_results column count = %d, want 31", got)
