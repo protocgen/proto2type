@@ -97,9 +97,10 @@ func main() {
 		if strings.Contains(opts.TSZodImport, "..") || strings.HasPrefix(opts.TSZodImport, "/") {
 			return fmt.Errorf("ts_zod_import must not contain path traversal")
 		}
-		if strings.Contains(opts.OutputFile, "..") || strings.HasPrefix(opts.OutputFile, "/") ||
-			(len(opts.OutputFile) >= 2 && opts.OutputFile[1] == ':') || strings.HasPrefix(opts.OutputFile, `\\`) {
-			return fmt.Errorf("output_file must not contain path traversal")
+		if opts.OutputFile != "" {
+			if _, err := generator.ValidateOutputFile(opts.OutputFile); err != nil {
+				return err
+			}
 		}
 
 		var generatedCount int

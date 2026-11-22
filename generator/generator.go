@@ -52,7 +52,7 @@ func (r *Runner) Generate(gen *protogen.Plugin, opts *Options) error {
 		}
 	}
 
-	if !opts.Domain && (opts.Lang == "go" || opts.Lang == "") {
+	if !willEmitDomain(opts) && (opts.Lang == "go" || opts.Lang == "") {
 		switch opts.Backend {
 		case "postgres":
 			return r.goGen.generateGoPostgresConsolidated(gen, genFiles, opts)

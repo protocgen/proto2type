@@ -70,7 +70,7 @@ message IndexDef {
     string column = 1;
     string expr = 2;
     string opclass = 3;
-    string desc = 4;
+    bool desc = 4;
   }
 
   string name = 1;

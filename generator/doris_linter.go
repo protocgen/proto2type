@@ -812,8 +812,8 @@ func BuildStarRocksAlterTableSQL(before, after DorisTableDescriptor, tenantSlug 
 	if beforeHasSR != afterHasSR {
 		return nil, fmt.Errorf("cannot generate StarRocks ALTER TABLE across sync_tier target transition (%q -> %q) for table %q", before.SyncTier, after.SyncTier, after.TableName)
 	}
-	beforeParts := effectiveDorisPartitionCols(before)
-	afterParts := effectiveDorisPartitionCols(after)
+	beforeParts := effectiveDorisPhysicalPartitionCols(before)
+	afterParts := effectiveDorisPhysicalPartitionCols(after)
 	if !dorisStringSlicesEqual(beforeParts, afterParts) {
 		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
 	}

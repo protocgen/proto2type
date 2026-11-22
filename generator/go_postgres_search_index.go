@@ -70,6 +70,27 @@ func (gg *goGenerator) generateGoPostgresSearchIndexFiles(gen *protogen.Plugin, 
 			}
 		}
 	}
+
+	usedSearchSymbols := map[string]string{
+		"SearchIndexes":  "shared runtime type",
+		"SpidxToken":     "shared runtime type",
+		"SpidxString":    "shared runtime type",
+		"SpidxDate":      "shared runtime type",
+		"SpidxQuantity":  "shared runtime type",
+		"SpidxReference": "shared runtime type",
+		"SpidxURI":       "shared runtime type",
+	}
+	for _, f := range files {
+		for _, msg := range f.Messages {
+			fnName := "Extract" + msg.GoIdent.GoName + "Indexes"
+			owner := string(msg.Desc.FullName())
+			if prev, exists := usedSearchSymbols[fnName]; exists {
+				return fmt.Errorf("output_file %q: duplicate Go function %q declared by %s (already declared by %s)", outOverride, fnName, owner, prev)
+			}
+			usedSearchSymbols[fnName] = owner
+		}
+	}
+
 	g := gen.NewGeneratedFile(filename, goImportPath)
 
 	sources := make([]string, 0, len(files))

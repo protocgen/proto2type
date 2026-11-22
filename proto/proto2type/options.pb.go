@@ -1130,7 +1130,7 @@ type IndexDef_IndexPart struct {
 	Column        string                 `protobuf:"bytes,1,opt,name=column,proto3" json:"column,omitempty"`
 	Expr          string                 `protobuf:"bytes,2,opt,name=expr,proto3" json:"expr,omitempty"`
 	Opclass       string                 `protobuf:"bytes,3,opt,name=opclass,proto3" json:"opclass,omitempty"`
-	Desc          string                 `protobuf:"bytes,4,opt,name=desc,proto3" json:"desc,omitempty"`
+	Desc          bool                   `protobuf:"varint,4,opt,name=desc,proto3" json:"desc,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1186,11 +1186,11 @@ func (x *IndexDef_IndexPart) GetOpclass() string {
 	return ""
 }
 
-func (x *IndexDef_IndexPart) GetDesc() string {
+func (x *IndexDef_IndexPart) GetDesc() bool {
 	if x != nil {
 		return x.Desc
 	}
-	return ""
+	return false
 }
 
 var file_proto2type_options_proto_extTypes = []protoimpl.ExtensionInfo{
@@ -1275,7 +1275,7 @@ const file_proto2type_options_proto_rawDesc = "" +
 	"\x06column\x18\x01 \x01(\tR\x06column\x12\x12\n" +
 	"\x04expr\x18\x02 \x01(\tR\x04expr\x12\x18\n" +
 	"\aopclass\x18\x03 \x01(\tR\aopclass\x12\x12\n" +
-	"\x04desc\x18\x04 \x01(\tR\x04desc\"\xb5\x01\n" +
+	"\x04desc\x18\x04 \x01(\bR\x04desc\"\xb5\x01\n" +
 	"\rForeignKeyDef\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acolumns\x18\x02 \x03(\tR\acolumns\x12\x1b\n" +

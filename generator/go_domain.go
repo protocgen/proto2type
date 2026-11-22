@@ -65,29 +65,7 @@ func newGoGenerator() *goGenerator {
 // generateGo generates Go output files for a proto file.
 func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
 	// Generate domain types if requested.
-	// For the doris/starrocks backend, <Name>Doris structs live alongside .pb.go by default
-	// and doris_mode=ddl/hcl/starrocks* emits SQL/HCL only, so only generate domain types when a
-	// separate go_package is configured and doris_mode is not DDL/HCL-only.
-	isLakehouseBackend := opts.Backend == "doris" || opts.Backend == "starrocks"
-	var isLakehouseSchemaOnly, isPostgresSchemaOnly bool
-	if isLakehouseBackend {
-		if dt, err := opts.ParseDorisMode(); err == nil && !dt.EmitGo {
-			isLakehouseSchemaOnly = true
-		}
-	}
-	if opts.Backend == "postgres" {
-		if pt, err := opts.ParsePostgresMode(); err == nil && !pt.EmitTypes && !pt.EmitSearchIndexGo {
-			isPostgresSchemaOnly = true
-		}
-	}
-	shouldEmitDomain := opts.Domain
-	if isLakehouseBackend && (opts.GoPackage == "" || isLakehouseSchemaOnly) {
-		shouldEmitDomain = false
-	}
-	if isPostgresSchemaOnly && opts.GoPackage == "" {
-		shouldEmitDomain = false
-	}
-	if shouldEmitDomain {
+	if willEmitDomain(opts) {
 		if err := gg.generateGoDomain(gen, file, opts); err != nil {
 			return err
 		}
@@ -503,7 +481,7 @@ func goStorageMapValueTypeFromIR(mv *MapTypeInfo, suffix string, enumAsString bo
 	return goType(mv.ScalarKind)
 }
 
-// irNeedsTime returns true if any message field uses Timestamp or Duration.
+// irNeedsTime returns true if any message field, oneof variant, or map value uses Timestamp or Duration.
 func irNeedsTime(msgs []*DomainMessage) bool {
 	for _, m := range msgs {
 		if m.Skip {
@@ -512,6 +490,16 @@ func irNeedsTime(msgs []*DomainMessage) bool {
 		for _, f := range m.Fields {
 			if f.Kind == FieldKindTimestamp || f.Kind == FieldKindDuration {
 				return true
+			}
+			if f.IsMap && f.MapValue != nil && (f.MapValue.Kind == FieldKindTimestamp || f.MapValue.Kind == FieldKindDuration) {
+				return true
+			}
+		}
+		for _, o := range m.Oneofs {
+			for _, v := range o.Variants {
+				if v.Kind == FieldKindTimestamp || v.Kind == FieldKindDuration {
+					return true
+				}
 			}
 		}
 		if irNeedsTime(m.NestedMessages) {

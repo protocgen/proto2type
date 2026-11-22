@@ -40,11 +40,6 @@ type IndexDefIR struct {
 	Parts       []IndexPartIR
 }
 
-func parseIndexPartDesc(raw string) bool {
-	s := strings.TrimSpace(raw)
-	return strings.EqualFold(s, "true") || strings.EqualFold(s, "desc") || s == "1"
-}
-
 func indexPartsEqual(a, b []IndexPartIR) bool {
 	if len(a) != len(b) {
 		return false
@@ -110,6 +105,7 @@ type DorisTableMetaIR struct {
 	ForeignKeys          []ForeignKeyDefIR
 	SingletonCheckName   string
 	SingletonCheckExpr   string
+	FromLegacyDorisExt   bool
 }
 
 // isEmpty reports whether m is nil or has all zero-valued fields.
@@ -150,7 +146,8 @@ func (m *DorisTableMetaIR) hasDorisSpecificFields() bool {
 	if m == nil {
 		return false
 	}
-	return m.DatabaseScope != "" ||
+	return m.FromLegacyDorisExt ||
+		m.DatabaseScope != "" ||
 		m.SyncTier != "" ||
 		len(m.UniqueKeyColumns) > 0 ||
 		len(m.PartitionByColumns) > 0 ||
@@ -195,25 +192,47 @@ type DorisColumnMetaIR struct {
 	Identity        bool
 }
 
+// hasDorisSpecificFields reports whether m carries any explicit Doris/Iceberg
+// column type or Doris-specific column flag.
+func (m *DorisColumnMetaIR) hasDorisSpecificFields() bool {
+	if m == nil {
+		return false
+	}
+	return m.DorisType != "" ||
+		m.IcebergType != "" ||
+		m.InvertedIndex ||
+		m.IsUniqueKey ||
+		m.IsSequenceCol ||
+		m.InlineNested ||
+		m.IsPartitionKey ||
+		m.StripEnumPrefix ||
+		m.DorisNullable != nil
+}
+
 // isEmpty reports whether m is nil or has no Doris/Iceberg column metadata set.
 // PostgreSQL-only fields (PostgresType, SQLType, JSONB, Length, PrimaryKey, Index, Unique,
 // Nullable, ForeignKey, Identity) and Postgres-only empty default presence are excluded so
-// Postgres-annotated fields do not trigger Doris column filtering in messageHasAnnotatedDorisColumns.
+// Postgres-annotated fields do not trigger Doris column filtering or leak into Doris tables.
 func (m *DorisColumnMetaIR) isEmpty() bool {
 	if m == nil {
 		return true
 	}
-	return m.DorisType == "" &&
-		m.IcebergType == "" &&
-		!m.InvertedIndex &&
-		!m.IsUniqueKey &&
-		!m.IsSequenceCol &&
-		!m.InlineNested &&
-		!m.IsPartitionKey &&
-		!m.StripEnumPrefix &&
-		m.ColumnName == "" &&
-		m.DefaultValue == "" &&
-		m.DorisNullable == nil
+	if m.hasDorisSpecificFields() {
+		return false
+	}
+	if m.PostgresType != "" ||
+		m.SQLType != "" ||
+		m.JSONB ||
+		m.Length != 0 ||
+		m.PrimaryKey ||
+		m.Index ||
+		m.Unique ||
+		m.Nullable != nil ||
+		m.ForeignKey != nil ||
+		m.Identity {
+		return true
+	}
+	return m.ColumnName == "" && m.DefaultValue == ""
 }
 
 // isAllEmpty reports whether m is nil or has all zero-valued Doris, Iceberg,
@@ -645,6 +664,9 @@ func mergeTableMeta(dst, src *DorisTableMetaIR) {
 			dst.ForeignKeys = append(dst.ForeignKeys, fk)
 		}
 	}
+	if src.FromLegacyDorisExt {
+		dst.FromLegacyDorisExt = true
+	}
 }
 
 // extractTableMeta is an alias for extractDorisTableMeta, returning table-level
@@ -686,15 +708,12 @@ func extractDorisTableMeta(msg *protogen.Message) *DorisTableMetaIR {
 				col := strings.TrimSpace(p.GetColumn())
 				expr := strings.TrimSpace(p.GetExpr())
 				opclass := strings.TrimSpace(p.GetOpclass())
-				desc := parseIndexPartDesc(p.GetDesc())
-				if col != "" || expr != "" {
-					parts = append(parts, IndexPartIR{
-						Column:  col,
-						Expr:    expr,
-						Opclass: opclass,
-						Desc:    desc,
-					})
-				}
+				parts = append(parts, IndexPartIR{
+					Column:  col,
+					Expr:    expr,
+					Opclass: opclass,
+					Desc:    p.GetDesc(),
+				})
 			}
 			name := strings.TrimSpace(idx.GetName())
 			where := strings.TrimSpace(idx.GetWhere())
@@ -828,6 +847,9 @@ func parseDorisTableMetaFromOptionsWire(raw []byte) *DorisTableMetaIR {
 				legacyOut = &DorisTableMetaIR{}
 			}
 			parseTableMetaBytesWithVault(val, legacyOut, false)
+			if !legacyOut.isEmpty() {
+				legacyOut.FromLegacyDorisExt = true
+			}
 			continue
 		}
 
@@ -928,10 +950,10 @@ func parseIndexPartBytes(b []byte) IndexPartIR {
 					continue
 				}
 			}
-		case 4: // string desc = 4
-			if typ == protowire.BytesType {
-				if v, m := protowire.ConsumeBytes(b); m >= 0 {
-					part.Desc = parseIndexPartDesc(string(v))
+		case 4: // bool desc = 4
+			if typ == protowire.VarintType {
+				if v, m := protowire.ConsumeVarint(b); m >= 0 {
+					part.Desc = protowire.DecodeBool(v)
 					b = b[m:]
 					continue
 				}
@@ -1013,9 +1035,7 @@ func parseIndexDefBytes(b []byte) IndexDefIR {
 		case 7: // repeated IndexPart parts = 7
 			if typ == protowire.BytesType {
 				if v, m := protowire.ConsumeBytes(b); m >= 0 {
-					if part := parseIndexPartBytes(v); part.Column != "" || part.Expr != "" {
-						idx.Parts = append(idx.Parts, part)
-					}
+					idx.Parts = append(idx.Parts, parseIndexPartBytes(v))
 					b = b[m:]
 					continue
 				}
@@ -1516,6 +1536,7 @@ func mergeColumnMeta(dst, src *DorisColumnMetaIR) {
 		dst.HasDefaultValue = true
 	} else if !dst.HasDefaultValue && dst.DefaultValue == "" && src.DefaultValue != "" {
 		dst.DefaultValue = src.DefaultValue
+		dst.HasDefaultValue = true
 	}
 	if dst.PostgresType == "" && src.PostgresType != "" {
 		dst.PostgresType = src.PostgresType

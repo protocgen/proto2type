@@ -20,7 +20,7 @@ class IndexDefIndexPart(BaseModel):
     column: str = ''
     expr: str = ''
     opclass: str = ''
-    desc: str = ''
+    desc: bool = False
 
 
 def apply_field_mask_index_def_index_part(dst: IndexDefIndexPart, src: IndexDefIndexPart, paths: list[str]) -> None:

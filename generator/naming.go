@@ -111,22 +111,45 @@ func outputFilename(protoPath, suffix string) (string, error) {
 	return cleaned, nil
 }
 
+// ValidateOutputFile validates a user-supplied output_file override without
+// stripping a .proto extension and returns the cleaned relative POSIX path.
+func ValidateOutputFile(p string) (string, error) {
+	return validateOutputFile(p)
+}
+
+func validateOutputFile(p string) (string, error) {
+	if strings.TrimSpace(p) == "" {
+		return "", fmt.Errorf("proto2type: invalid output_file: %q", p)
+	}
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if c < 0x20 || c == 0x7f || c == '\\' {
+			return "", fmt.Errorf("proto2type: invalid character in output_file: %q", p)
+		}
+	}
+	if strings.HasPrefix(p, "/") || strings.HasSuffix(p, "/") {
+		return "", fmt.Errorf("proto2type: output_file must be a relative file path: %q", p)
+	}
+	if len(p) >= 2 && p[1] == ':' {
+		return "", fmt.Errorf("proto2type: output_file must not contain drive letters: %q", p)
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return "", fmt.Errorf("proto2type: output_file must not contain path traversal: %q", p)
+		}
+	}
+	cleaned := path.Clean(p)
+	if cleaned == "" || cleaned == "." || cleaned == ".." || path.IsAbs(cleaned) || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("proto2type: invalid output_file: %q", p)
+	}
+	return cleaned, nil
+}
+
 // resolveOutputFilename returns outputFile (validated against path traversal and empty/dot
-// values) when non-empty, or falls back to outputFilename(protoPath, defaultSuffix).
+// values without stripping .proto) when non-empty, or falls back to outputFilename(protoPath, defaultSuffix).
 func resolveOutputFilename(protoPath, defaultSuffix, outputFile string) (string, error) {
 	if outputFile != "" {
-		if strings.Contains(outputFile, "..") || strings.HasPrefix(outputFile, "/") ||
-			(len(outputFile) >= 2 && outputFile[1] == ':') || strings.HasPrefix(outputFile, `\\`) {
-			return "", fmt.Errorf("proto2type: output_file must not contain path traversal: %q", outputFile)
-		}
-		cleaned, err := outputFilename(outputFile, "")
-		if err != nil {
-			return "", err
-		}
-		if cleaned == "" || cleaned == "." {
-			return "", fmt.Errorf("proto2type: invalid output_file: %q", outputFile)
-		}
-		return cleaned, nil
+		return validateOutputFile(outputFile)
 	}
 	return outputFilename(protoPath, defaultSuffix)
 }

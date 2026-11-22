@@ -167,34 +167,130 @@ func dorisColumnStarRocksDDLType(dorisType, icebergType string) string {
 	return strings.ToUpper(it)
 }
 
+func splitIcebergTopLevelComma(s string) (string, string, bool) {
+	angleDepth := 0
+	parenDepth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '<':
+			angleDepth++
+		case '>':
+			if angleDepth > 0 {
+				angleDepth--
+			}
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case ',':
+			if angleDepth == 0 && parenDepth == 0 {
+				return strings.TrimSpace(s[:i]), strings.TrimSpace(s[i+1:]), true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func isAbstractIcebergSpecType(upperIT string) bool {
+	switch upperIT {
+	case "STRING", "LONG", "TIMESTAMPTZ", "TIMESTAMP", "BINARY",
+		"LIST<STRING>", "LIST<FLOAT>", "LIST<DOUBLE>", "LIST<INT>", "LIST<LONG>", "LIST<BOOLEAN>":
+		return true
+	}
+	return false
+}
+
 // dorisColumnIcebergDDLType maps a column's Doris/Iceberg type metadata to the
 // SQL column type used in Doris's Iceberg catalog CREATE TABLE DDL.
 func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
+	dt := strings.ToUpper(strings.TrimSpace(dorisType))
 	it := strings.TrimSpace(icebergType)
 	upperIT := strings.ToUpper(it)
-	if strings.HasPrefix(upperIT, "ARRAY<VARCHAR(") && strings.HasSuffix(upperIT, ">") {
+	if upperIT != "" && (dt == "" || !isAbstractIcebergSpecType(upperIT)) {
+		switch upperIT {
+		case "STRING":
+			return "VARCHAR(256)"
+		case "LONG":
+			return "BIGINT"
+		case "TINYINT", "SMALLINT":
+			return "INT"
+		case "TIMESTAMPTZ", "TIMESTAMP":
+			return "DATETIME"
+		case "DATEV2", "DATE":
+			return "DATE"
+		case "DATETIMEV2", "DATETIME":
+			return "DATETIME"
+		case "LARGEINT":
+			return "DECIMAL(38, 0)"
+		case "JSON", "JSONB", "VARIANT", "TEXT":
+			return "STRING"
+		case "LIST<STRING>":
+			return "ARRAY<VARCHAR(64)>"
+		case "LIST<FLOAT>":
+			return "ARRAY<FLOAT>"
+		case "LIST<DOUBLE>":
+			return "ARRAY<DOUBLE>"
+		case "LIST<INT>":
+			return "ARRAY<INT>"
+		case "LIST<LONG>":
+			return "ARRAY<BIGINT>"
+		}
+		if (strings.HasPrefix(upperIT, "DATETIMEV2(") || strings.HasPrefix(upperIT, "DATETIME(")) && strings.HasSuffix(upperIT, ")") {
+			return "DATETIME"
+		}
+		if strings.HasPrefix(upperIT, "DECIMALV3(") && strings.HasSuffix(upperIT, ")") {
+			rest := strings.TrimPrefix(upperIT, "DECIMALV3(")
+			rest = strings.ReplaceAll(rest, ", ", ",")
+			rest = strings.ReplaceAll(rest, ",", ", ")
+			return "DECIMAL(" + rest
+		}
+		if strings.HasPrefix(upperIT, "DECIMAL(") && strings.HasSuffix(upperIT, ")") {
+			rest := strings.TrimPrefix(upperIT, "DECIMAL(")
+			rest = strings.ReplaceAll(rest, ", ", ",")
+			rest = strings.ReplaceAll(rest, ",", ", ")
+			return "DECIMAL(" + rest
+		}
+		if strings.HasPrefix(upperIT, "ARRAY<") && strings.HasSuffix(upperIT, ">") {
+			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "ARRAY<"), ">")
+			return "ARRAY<" + dorisColumnIcebergDDLType(inner, "") + ">"
+		}
+		if strings.HasPrefix(upperIT, "LIST<") && strings.HasSuffix(upperIT, ">") {
+			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "LIST<"), ">")
+			return "ARRAY<" + dorisColumnIcebergDDLType("", inner) + ">"
+		}
+		if strings.HasPrefix(upperIT, "MAP<") && strings.HasSuffix(upperIT, ">") {
+			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "MAP<"), ">")
+			if k, v, ok := splitIcebergTopLevelComma(inner); ok {
+				return "MAP<" + dorisColumnIcebergDDLType("", k) + ", " + dorisColumnIcebergDDLType("", v) + ">"
+			}
+		}
 		return upperIT
 	}
-	dt := strings.ToUpper(strings.TrimSpace(dorisType))
 	switch dt {
 	case "DATEV2":
 		return "DATE"
-	case "DATETIMEV2":
+	case "DATETIMEV2", "DATETIME":
 		return "DATETIME"
 	case "TINYINT", "SMALLINT":
 		return "INT"
 	case "LARGEINT":
 		return "DECIMAL(38, 0)"
-	case "ARRAY<LARGEINT>":
-		return "ARRAY<DECIMAL(38, 0)>"
-	case "JSON", "JSONB", "VARIANT":
+	case "JSON", "JSONB", "VARIANT", "TEXT":
 		return "STRING"
 	}
 	if (strings.HasPrefix(dt, "DATETIMEV2(") || strings.HasPrefix(dt, "DATETIME(")) && strings.HasSuffix(dt, ")") {
 		return "DATETIME"
 	}
-	if strings.HasPrefix(dt, "DECIMALV3(") {
+	if strings.HasPrefix(dt, "DECIMALV3(") && strings.HasSuffix(dt, ")") {
 		rest := strings.TrimPrefix(dt, "DECIMALV3(")
+		rest = strings.ReplaceAll(rest, ", ", ",")
+		rest = strings.ReplaceAll(rest, ",", ", ")
+		return "DECIMAL(" + rest
+	}
+	if strings.HasPrefix(dt, "DECIMAL(") && strings.HasSuffix(dt, ")") {
+		rest := strings.TrimPrefix(dt, "DECIMAL(")
 		rest = strings.ReplaceAll(rest, ", ", ",")
 		rest = strings.ReplaceAll(rest, ",", ", ")
 		return "DECIMAL(" + rest
@@ -203,30 +299,17 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 		inner := strings.TrimSuffix(strings.TrimPrefix(dt, "ARRAY<"), ">")
 		return "ARRAY<" + dorisColumnIcebergDDLType(inner, "") + ">"
 	}
-	if dt != "" {
-		return dt
+	if strings.HasPrefix(dt, "LIST<") && strings.HasSuffix(dt, ">") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(dt, "LIST<"), ">")
+		return "ARRAY<" + dorisColumnIcebergDDLType(inner, "") + ">"
 	}
-	switch upperIT {
-	case "STRING":
-		return "VARCHAR(256)"
-	case "LONG":
-		return "BIGINT"
-	case "TINYINT", "SMALLINT":
-		return "INT"
-	case "TIMESTAMPTZ", "TIMESTAMP":
-		return "DATETIME"
-	case "LIST<STRING>":
-		return "ARRAY<VARCHAR(64)>"
-	case "LIST<FLOAT>":
-		return "ARRAY<FLOAT>"
-	case "LIST<DOUBLE>":
-		return "ARRAY<DOUBLE>"
-	case "LIST<INT>":
-		return "ARRAY<INT>"
-	case "LIST<LONG>":
-		return "ARRAY<BIGINT>"
+	if strings.HasPrefix(dt, "MAP<") && strings.HasSuffix(dt, ">") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(dt, "MAP<"), ">")
+		if k, v, ok := splitIcebergTopLevelComma(inner); ok {
+			return "MAP<" + dorisColumnIcebergDDLType(k, "") + ", " + dorisColumnIcebergDDLType(v, "") + ">"
+		}
 	}
-	return upperIT
+	return dt
 }
 
 // shouldEmitDorisPartitionBy reports whether Doris CREATE TABLE / Atlas HCL should emit
@@ -526,23 +609,27 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	bucketStr := "${TENANT_BUCKETS}"
 	if buckets > 0 {
 		bucketStr = strconv.Itoa(buckets)
+	} else if t.Buckets > 0 {
+		bucketStr = strconv.Itoa(t.Buckets)
+	} else if t.AutoBuckets {
+		bucketStr = "AUTO"
 	}
 
 	var fullTableName string
 	switch t.DatabaseScope {
 	case "GLOBAL_TERMINOLOGY":
 		fullTableName = "internal.terminology." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "1"
 		}
 	case "GLOBAL_TERMINOLOGY_RAG":
 		fullTableName = "internal.terminology_rag." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "8"
 		}
 	case "GLOBAL_TELEMETRY":
 		fullTableName = "internal.telemetry." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "8"
 		}
 	default:
@@ -613,25 +700,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		}
 	}
 
-	var partCols []string
-	if len(t.PartitionByColumns) > 0 {
-		partCols = dedupDorisColumnList(t.PartitionByColumns)
-	} else {
-		for _, c := range orderedCols {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
-	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "event_month" {
-				partCols = append(partCols, "event_month")
-				break
-			}
-		}
-	}
+	partCols := effectiveDorisPhysicalPartitionCols(t)
 
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
@@ -670,7 +739,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 			distCol = orderedCols[0].ColumnName
 		}
 	}
-	if shouldEmitDorisPartitionBy(uks, partCols) {
+	if len(partCols) > 0 {
 		partKind := "LIST"
 		if strings.HasPrefix(colTypes[partCols[0]], "DATE") {
 			partKind = "RANGE"
@@ -805,23 +874,27 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	bucketStr := "${TENANT_BUCKETS}"
 	if buckets > 0 {
 		bucketStr = strconv.Itoa(buckets)
+	} else if t.Buckets > 0 {
+		bucketStr = strconv.Itoa(t.Buckets)
+	} else if t.AutoBuckets {
+		bucketStr = "AUTO"
 	}
 
 	var fullTableName string
 	switch t.DatabaseScope {
 	case "GLOBAL_TERMINOLOGY":
 		fullTableName = "internal.terminology." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "1"
 		}
 	case "GLOBAL_TERMINOLOGY_RAG":
 		fullTableName = "internal.terminology_rag." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "8"
 		}
 	case "GLOBAL_TELEMETRY":
 		fullTableName = "internal.telemetry." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "8"
 		}
 	default:
@@ -891,25 +964,7 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 		}
 	}
 
-	var partCols []string
-	if len(t.PartitionByColumns) > 0 {
-		partCols = dedupDorisColumnList(t.PartitionByColumns)
-	} else {
-		for _, c := range orderedCols {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
-	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "event_month" {
-				partCols = append(partCols, "event_month")
-				break
-			}
-		}
-	}
+	partCols := effectiveDorisPhysicalPartitionCols(t)
 
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
@@ -1083,33 +1138,7 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 		bodyLines = append(bodyLines, line)
 	}
 
-	var partCols []string
-	if len(t.PartitionByColumns) > 0 {
-		partCols = dedupDorisColumnList(t.PartitionByColumns)
-	} else {
-		for _, c := range orderedCols {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
-	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "event_month" {
-				partCols = append(partCols, "event_month")
-				break
-			}
-		}
-	}
-	if len(partCols) == 0 && t.SyncTier == "RELEASE_PARTITIONED" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "release_id" {
-				partCols = append(partCols, "release_id")
-				break
-			}
-		}
-	}
+	partCols := effectiveDorisPartitionCols(t)
 
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")

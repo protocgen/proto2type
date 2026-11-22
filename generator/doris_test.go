@@ -1450,7 +1450,7 @@ func TestBuildDorisCreateTableSQL_TenantSlugValidationAndInjection(t *testing.T)
 	}
 	reorderedIcebergSQL := unsortedDesc.BuildIcebergCreateTableSQL("akron")
 	iceEventIdx := strings.Index(reorderedIcebergSQL, "event_id VARCHAR(64) NOT NULL")
-	icePayloadIdx := strings.Index(reorderedIcebergSQL, "payload TEXT")
+	icePayloadIdx := strings.Index(reorderedIcebergSQL, "payload STRING")
 	if iceEventIdx < 0 || icePayloadIdx < 0 || iceEventIdx > icePayloadIdx {
 		t.Errorf("expected BuildIcebergCreateTableSQL to reorder key column event_id before payload:\n%s", reorderedIcebergSQL)
 	}

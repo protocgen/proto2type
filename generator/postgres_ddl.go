@@ -205,9 +205,35 @@ func isPostgresIdentityEligibleSQLType(sqlType string) bool {
 	}
 }
 
+func isPostgresDollarQuoteAt(s string, i int) bool {
+	if i < 0 || i >= len(s) || s[i] != '$' || i+1 >= len(s) {
+		return false
+	}
+	if s[i+1] == '$' {
+		return true
+	}
+	ch := s[i+1]
+	if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && ch != '_' {
+		return false
+	}
+	for j := i + 2; j < len(s); j++ {
+		c := s[j]
+		if c == '$' {
+			return true
+		}
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return false
+}
+
 // hasOuterBalancedParens reports whether s begins with '(' and ends with its matching ')'.
 func hasOuterBalancedParens(s string) bool {
 	if len(s) < 2 || s[0] != '(' || s[len(s)-1] != ')' {
+		return false
+	}
+	if strings.ContainsRune(s, '\\') {
 		return false
 	}
 	depth := 0
@@ -225,6 +251,10 @@ func hasOuterBalancedParens(s string) bool {
 			continue
 		}
 		switch ch {
+		case '$':
+			if isPostgresDollarQuoteAt(s, i) {
+				return false
+			}
 		case '\'':
 			inString = true
 		case '(':
@@ -252,22 +282,34 @@ func formatPostgresIndexExprSQL(expr string) string {
 	return "(" + trimmed + ")"
 }
 
-// postgresIndexExprSuffix computes a deterministic, position-independent auto-index suffix
-// for an index with columns and/or SQL expressions.
-func postgresIndexExprSuffix(cols, cleanExprs []string) string {
-	suffix := strings.Join(cols, "_")
-	if len(cleanExprs) == 0 {
-		return suffix
+func canonicalPostgresIndexParts(idx PostgresIndexDescriptor) []PostgresIndexPartDescriptor {
+	if len(idx.Parts) > 0 {
+		out := make([]PostgresIndexPartDescriptor, len(idx.Parts))
+		for i, p := range idx.Parts {
+			out[i] = PostgresIndexPartDescriptor{
+				Column:  strings.TrimSpace(p.Column),
+				Expr:    strings.TrimSpace(p.Expr),
+				Opclass: strings.TrimSpace(p.Opclass),
+				Desc:    p.Desc,
+			}
+		}
+		return out
 	}
-	sum := sha256.Sum256([]byte(strings.Join(cleanExprs, "\x00")))
-	exprSum := fmt.Sprintf("%x", sum[:4])
-	if suffix == "" {
-		return "expr_" + exprSum
+	out := make([]PostgresIndexPartDescriptor, 0, len(idx.Columns)+len(idx.Expressions))
+	for _, col := range idx.Columns {
+		out = append(out, PostgresIndexPartDescriptor{
+			Column: strings.TrimSpace(col),
+			Desc:   idx.IsDesc(col),
+		})
 	}
-	return suffix + "_expr_" + exprSum
+	for _, expr := range idx.Expressions {
+		out = append(out, PostgresIndexPartDescriptor{
+			Expr: strings.TrimSpace(expr),
+		})
+	}
+	return out
 }
 
-// postgresIndexPartsEqual reports whether two ordered index part slices are equal.
 func postgresIndexPartsEqual(a, b []PostgresIndexPartDescriptor) bool {
 	if len(a) != len(b) {
 		return false
@@ -281,25 +323,38 @@ func postgresIndexPartsEqual(a, b []PostgresIndexPartDescriptor) bool {
 }
 
 // postgresIndexSuffix returns a deterministic auto-index suffix from idx.Parts or
-// idx.Columns + idx.Expressions.
+// idx.Columns + idx.Expressions, hashing ordered (kind, value, opclass, desc) tuples
+// whenever parts include expressions, opclasses, or descending order.
 func postgresIndexSuffix(idx PostgresIndexDescriptor) string {
-	if len(idx.Parts) > 0 {
-		var cols []string
-		var exprs []string
-		for _, p := range idx.Parts {
-			if p.Column != "" {
-				cols = append(cols, p.Column)
-			} else if p.Expr != "" {
-				exprs = append(exprs, strings.TrimSpace(p.Expr))
+	parts := canonicalPostgresIndexParts(idx)
+	if len(parts) == 0 {
+		return ""
+	}
+	allPlainCols := true
+	var cols []string
+	encoded := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p.Column != "" {
+			cols = append(cols, p.Column)
+			encoded = append(encoded, fmt.Sprintf("col\x01%s\x01%s\x01%t", p.Column, p.Opclass, p.Desc))
+			if p.Opclass != "" || p.Desc {
+				allPlainCols = false
 			}
+		} else if p.Expr != "" {
+			allPlainCols = false
+			encoded = append(encoded, fmt.Sprintf("expr\x01%s\x01%s\x01%t", p.Expr, p.Opclass, p.Desc))
 		}
-		return postgresIndexExprSuffix(cols, exprs)
 	}
-	var trimmedExprs []string
-	for _, rawExpr := range idx.Expressions {
-		trimmedExprs = append(trimmedExprs, strings.TrimSpace(rawExpr))
+	if allPlainCols {
+		return strings.Join(cols, "_")
 	}
-	return postgresIndexExprSuffix(idx.Columns, trimmedExprs)
+	sum := sha256.Sum256([]byte(strings.Join(encoded, "\x00")))
+	partHash := fmt.Sprintf("%x", sum[:4])
+	prefix := strings.Join(cols, "_")
+	if prefix == "" {
+		return "expr_" + partHash
+	}
+	return prefix + "_expr_" + partHash
 }
 
 // isPostgresEmptyDefaultEligibleSQLType reports whether sqlType supports an explicit empty string DEFAULT ”.
@@ -378,13 +433,13 @@ func validatePostgresDefaultValue(sqlType, defaultValue string) error {
 
 // isValidPostgresCheckExpr validates that expr is a safe SQL check expression,
 // ensuring balanced parentheses, non-empty content, and rejecting statement terminators,
-// comment delimiters, or multiline injection sequences.
+// comment delimiters, backslashes, dollar-quoting, or multiline injection sequences.
 func isValidPostgresCheckExpr(expr string) bool {
 	expr = strings.TrimSpace(expr)
 	if len(expr) == 0 || len(expr) > 4096 {
 		return false
 	}
-	if strings.ContainsAny(expr, ";\x00\r\n") || strings.Contains(expr, "--") || strings.Contains(expr, "/*") {
+	if strings.ContainsAny(expr, ";\x00\r\n\\") || strings.Contains(expr, "--") || strings.Contains(expr, "/*") {
 		return false
 	}
 	depth := 0
@@ -403,6 +458,10 @@ func isValidPostgresCheckExpr(expr string) bool {
 			continue
 		}
 		switch ch {
+		case '$':
+			if isPostgresDollarQuoteAt(expr, i) {
+				return false
+			}
 		case '\'':
 			inString = true
 		case '(':
@@ -1147,9 +1206,15 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 				return fmt.Errorf("message %s: index %q references unknown column %q", dm.FullName, idx.Name, col)
 			}
 		}
+		if !isValidPostgresIndexMethod(idx.Using) {
+			return fmt.Errorf("message %s: invalid index method %q for index %q", dm.FullName, idx.Using, idx.Name)
+		}
+		if idx.Ops != "" && (!isValidSQLIdentifier(idx.Ops) || len(idx.Ops) > maxPostgresIdentifierBytes) {
+			return fmt.Errorf("message %s: invalid index ops %q for index %q", dm.FullName, idx.Ops, idx.Name)
+		}
 		for _, p := range idx.Parts {
-			if p.Column != "" && !colSet[p.Column] {
-				return fmt.Errorf("message %s: index %q references unknown column %q", dm.FullName, idx.Name, p.Column)
+			if p.Column != "" && (!isValidSQLIdentifier(p.Column) || len(p.Column) > maxPostgresIdentifierBytes || !colSet[p.Column]) {
+				return fmt.Errorf("message %s: index %q references invalid or unknown column %q", dm.FullName, idx.Name, p.Column)
 			}
 			if p.Expr != "" && !isValidPostgresCheckExpr(p.Expr) {
 				return fmt.Errorf("message %s: invalid index expression %q for index %q", dm.FullName, p.Expr, idx.Name)
@@ -1176,10 +1241,9 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		}
 		if prev, exists := seenIdx[idx.Name]; exists {
 			if prev.Unique != idx.Unique ||
-				strings.Join(prev.Columns, ",") != strings.Join(idx.Columns, ",") ||
-				strings.Join(prev.DescColumns, ",") != strings.Join(idx.DescColumns, ",") ||
-				strings.Join(prev.Expressions, "\x00") != strings.Join(idx.Expressions, "\x00") ||
-				!postgresIndexPartsEqual(prev.Parts, idx.Parts) ||
+				!strings.EqualFold(strings.TrimSpace(prev.Using), strings.TrimSpace(idx.Using)) ||
+				strings.TrimSpace(prev.Ops) != strings.TrimSpace(idx.Ops) ||
+				!postgresIndexPartsEqual(canonicalPostgresIndexParts(prev), canonicalPostgresIndexParts(idx)) ||
 				prev.Where != idx.Where {
 				return fmt.Errorf("message %s: conflicting definitions for index %q", dm.FullName, idx.Name)
 			}
@@ -1194,28 +1258,24 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 				return nil
 			}
 		}
-		var colSig string
-		if len(idx.Parts) > 0 {
-			var partSigs []string
-			for _, p := range idx.Parts {
-				kind := "col:" + p.Column
-				if p.Expr != "" {
-					kind = "expr:" + p.Expr
-				}
-				partSigs = append(partSigs, fmt.Sprintf("%s:%s:%t", kind, p.Opclass, p.Desc))
+		canonParts := canonicalPostgresIndexParts(idx)
+		partSigs := make([]string, 0, len(canonParts))
+		for _, p := range canonParts {
+			kind := "col"
+			val := p.Column
+			if p.Expr != "" {
+				kind = "expr"
+				val = p.Expr
 			}
-			colSig = fmt.Sprintf("%t:parts:%s:%s", idx.Unique, strings.Join(partSigs, "\x00"), idx.Where)
-		} else {
-			var colParts []string
-			for _, col := range idx.Columns {
-				part := col
-				if idx.IsDesc(col) {
-					part += ":desc"
-				}
-				colParts = append(colParts, part)
-			}
-			colSig = fmt.Sprintf("%t:%s:%s:%s", idx.Unique, strings.Join(colParts, ","), strings.Join(idx.Expressions, "\x00"), idx.Where)
+			partSigs = append(partSigs, fmt.Sprintf("%s\x01%s\x01%s\x01%t", kind, val, p.Opclass, p.Desc))
 		}
+		colSig := fmt.Sprintf("%t\x00%s\x00%s\x00%s\x00%s",
+			idx.Unique,
+			strings.ToUpper(strings.TrimSpace(idx.Using)),
+			strings.TrimSpace(idx.Ops),
+			strings.Join(partSigs, "\x02"),
+			idx.Where,
+		)
 		if autoNamed {
 			if seenIdxCols[colSig] {
 				return nil
@@ -1351,6 +1411,12 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 			if !isValidSQLIdentifier(fkName) || len(fkName) > maxPostgresIdentifierBytes {
 				return nil, fmt.Errorf("message %s: invalid foreign key name %q", dm.FullName, fkName)
 			}
+			if _, _, ok := isValidForeignKeyAction(fkDef.OnDelete); !ok {
+				return nil, fmt.Errorf("message %s: invalid foreign key on_delete %q", dm.FullName, fkDef.OnDelete)
+			}
+			if _, _, ok := isValidForeignKeyAction(fkDef.OnUpdate); !ok {
+				return nil, fmt.Errorf("message %s: invalid foreign key on_update %q", dm.FullName, fkDef.OnUpdate)
+			}
 			fks = append(fks, PostgresForeignKeyDescriptor{
 				Name:       fkName,
 				Columns:    fkDef.Columns,
@@ -1368,13 +1434,19 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 	addCheck := func(name, expr string) error {
 		name = strings.TrimSpace(name)
 		expr = strings.TrimSpace(expr)
+		isAutoName := false
 		if name == "" {
+			isAutoName = true
 			name = compactPostgresIdentifier("chk", tableName+"_"+fmt.Sprintf("%d", len(checks)+1))
 		}
 		if !isValidSQLIdentifier(name) {
 			return fmt.Errorf("message %s: invalid check constraint name %q", dm.FullName, name)
 		}
 		if len(name) > maxPostgresIdentifierBytes {
+			if !isAutoName {
+				return fmt.Errorf("message %s: check constraint name %q exceeds %d-byte identifier limit (%d bytes)",
+					dm.FullName, name, maxPostgresIdentifierBytes, len(name))
+			}
 			name = compactPostgresIdentifier("chk", tableName+"_"+name)
 		}
 		if !isValidPostgresCheckExpr(expr) {
@@ -1388,15 +1460,20 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		return nil
 	}
 
+	if meta != nil && !meta.IsSingleton && (meta.SingletonCheckName != "" || meta.SingletonCheckExpr != "") {
+		return nil, fmt.Errorf("message %s: singleton_check_name/singleton_check_expr requires is_singleton=true", dm.FullName)
+	}
 	isSingleton := false
 	if meta != nil && meta.IsSingleton {
 		isSingleton = true
 		hasSingletonCol := false
-		for _, c := range cols {
-			if c.ColumnName == "singleton" {
-				if c.DefaultValue != "" && (strings.EqualFold(c.DefaultValue, "false") || c.DefaultValue == "0") {
+		for i := range cols {
+			if cols[i].ColumnName == "singleton" {
+				if cols[i].DefaultValue != "" && (strings.EqualFold(cols[i].DefaultValue, "false") || cols[i].DefaultValue == "0") {
 					return nil, fmt.Errorf("message %s: singleton table cannot have singleton column with default false", dm.FullName)
 				}
+				cols[i].Nullable = false
+				cols[i].IsPrimaryKey = true
 				hasSingletonCol = true
 				break
 			}
@@ -1469,35 +1546,22 @@ func collectPostgresTableSchemas(df *DomainFile, opts *Options) ([]*PostgresTabl
 // messages across multiple DomainFiles in declaration order, resolving cross-file foreign key
 // RefTable prefixes.
 func collectPostgresTableSchemasMulti(dfs []*DomainFile, opts *Options) ([]*PostgresTableSchemaDescriptor, error) {
+	return collectPostgresTableSchemasMultiWithEmbedded(dfs, nil, opts)
+}
+
+func collectPostgresTableSchemasMultiWithEmbedded(dfs []*DomainFile, extraEmbedded map[string]bool, opts *Options) ([]*PostgresTableSchemaDescriptor, error) {
 	msgByName := make(map[string]*DomainMessage)
-	embeddedMsgs := make(map[string]bool)
-	var markEmbedded func(msgs []*DomainMessage)
-	markEmbedded = func(msgs []*DomainMessage) {
-		for _, m := range msgs {
-			for _, f := range m.Fields {
-				if f.Kind == FieldKindMessage && f.MessageTypeName != "" {
-					embeddedMsgs[f.MessageTypeName] = true
-				}
-				if f.IsMap && f.MapValue != nil && f.MapValue.Kind == FieldKindMessage && f.MapValue.MessageTypeName != "" {
-					embeddedMsgs[f.MapValue.MessageTypeName] = true
-				}
-				if f.IsOneof {
-					oneof := findOneof(m, f.OneofTypeName)
-					for _, v := range oneof.Variants {
-						if v.Kind == FieldKindMessage && v.TypeName != "" {
-							embeddedMsgs[v.TypeName] = true
-						}
-					}
-				}
-			}
-			markEmbedded(m.NestedMessages)
+	embeddedMsgs := make(map[string]bool, len(extraEmbedded))
+	for k, v := range extraEmbedded {
+		if v {
+			embeddedMsgs[k] = true
 		}
 	}
+	markDomainMessagesEmbedded(dfs, embeddedMsgs)
 	for _, df := range dfs {
-		for k, v := range indexDomainMessages(df.Messages) {
+		for k, v := range indexDomainMessagesByFullName(df.Messages) {
 			msgByName[k] = v
 		}
-		markEmbedded(df.Messages)
 	}
 
 	var tables []*PostgresTableSchemaDescriptor
@@ -1525,7 +1589,7 @@ func collectPostgresTableSchemasMulti(dfs []*DomainFile, opts *Options) ([]*Post
 				continue
 			}
 			meta := extractTableMeta(dm.ProtoMsg)
-			isEligible := (!isNested && (meta != nil || !embeddedMsgs[dm.Name])) || (isNested && meta != nil)
+			isEligible := (!isNested && (meta != nil || !embeddedMsgs[domainMessageKey(dm)])) || (isNested && meta != nil)
 			if isEligible && (len(dm.Fields) > 0 || (meta != nil && meta.IsSingleton)) {
 				tbl, err := buildPostgresTableSchema(dm, msgByName, opts)
 				if err != nil {
@@ -1626,6 +1690,10 @@ func formatPostgresSQLDefaultValue(c PostgresColumnDescriptor) string {
 	}
 	if !c.HasDefaultValue && c.DefaultValue == "" {
 		return ""
+	}
+	upperType := strings.ToUpper(strings.TrimSpace(c.SQLType))
+	if strings.HasSuffix(upperType, "[]") && strings.TrimSpace(c.DefaultValue) == "[]" {
+		return "'{}'"
 	}
 	if c.DefaultValue != "" && isPostgresBooleanSQLType(c.SQLType) {
 		return strings.ToUpper(c.DefaultValue)

@@ -439,7 +439,7 @@ func TestStage1A_RepeatedExplicitSQLType(t *testing.T) {
 	if strings.Contains(sqlOut, "TEXT[][]") || strings.Contains(sqlOut, "VECTOR(768)[]") {
 		t.Errorf("DDL unexpectedly double-arrayed type:\n%s", sqlOut)
 	}
-	for _, wantHCL := range []string{`type = sql("uuid[]")`, `type = sql("text[]")`, `type = vector(768)`} {
+	for _, wantHCL := range []string{`type = sql("uuid[]")`, `type = sql("text[]")`, `type = sql("vector(768)")`} {
 		if !strings.Contains(hclOut, wantHCL) {
 			t.Errorf("HCL missing %q in:\n%s", wantHCL, hclOut)
 		}
@@ -477,7 +477,7 @@ func TestStage1A_PostgresIndexParts_OrderedExprColumnOpclassDesc(t *testing.T) {
 					Where: "deleted_at IS NULL",
 					Parts: []*proto2typepb.IndexDef_IndexPart{
 						{Expr: "lower(title)", Opclass: "gin_trgm_ops"},
-						{Column: "created_at", Desc: "desc"},
+						{Column: "created_at", Desc: true},
 						{Column: "tenant_id"},
 					},
 				},
@@ -511,7 +511,7 @@ func TestStage1A_PostgresIndexParts_OrderedExprColumnOpclassDesc(t *testing.T) {
 	// Verify HCL has three ordered on blocks with ops = gin_trgm_ops and desc = true.
 	for _, wantHCL := range []string{
 		`expr = "lower(title)"`,
-		`ops    = gin_trgm_ops`,
+		`ops    = "gin_trgm_ops"`,
 		`column = column.created_at`,
 		`desc   = true`,
 		`column = column.tenant_id`,
@@ -549,8 +549,8 @@ func TestStage1A_PostgresIndexParts_OrderedExprColumnOpclassDesc(t *testing.T) {
 	part1Wire = protowire.AppendString(part1Wire, "text_pattern_ops")
 	part2Wire = protowire.AppendTag(part2Wire, 1, protowire.BytesType)
 	part2Wire = protowire.AppendString(part2Wire, "created_at")
-	part2Wire = protowire.AppendTag(part2Wire, 4, protowire.BytesType)
-	part2Wire = protowire.AppendString(part2Wire, "desc")
+	part2Wire = protowire.AppendTag(part2Wire, 4, protowire.VarintType)
+	part2Wire = protowire.AppendVarint(part2Wire, 1)
 	idxWire = protowire.AppendTag(idxWire, 1, protowire.BytesType)
 	idxWire = protowire.AppendString(idxWire, "idx_wire_parts")
 	idxWire = protowire.AppendTag(idxWire, 7, protowire.BytesType)
@@ -583,12 +583,8 @@ func TestStage1A_PostgresIndexParts_OrderedExprColumnOpclassDesc(t *testing.T) {
 		desc := PostgresIndexDescriptor{Name: "idx_bad", Parts: parts}
 		protoParts := make([]*proto2typepb.IndexDef_IndexPart, 0, len(parts))
 		for _, p := range parts {
-			descStr := ""
-			if p.Desc {
-				descStr = "desc"
-			}
 			protoParts = append(protoParts, &proto2typepb.IndexDef_IndexPart{
-				Column: p.Column, Expr: p.Expr, Opclass: p.Opclass, Desc: descStr,
+				Column: p.Column, Expr: p.Expr, Opclass: p.Opclass, Desc: p.Desc,
 			})
 		}
 		badMsg := proto.Clone(msg).(*descriptorpb.DescriptorProto)

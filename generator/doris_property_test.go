@@ -192,8 +192,10 @@ func TestProperty_DorisWireOptions_RoundTrip(t *testing.T) {
 				ht.Fatalf("expected nil for empty DorisTableMetaIR, got %+v", gotTM)
 			}
 		} else {
-			if gotTM == nil || !reflect.DeepEqual(*gotTM, tm) {
-				ht.Fatalf("DorisTableMetaIR wire round-trip mismatch:\nwant: %+v\ngot:  %+v", tm, gotTM)
+			wantTM := tm
+			wantTM.FromLegacyDorisExt = true
+			if gotTM == nil || !reflect.DeepEqual(*gotTM, wantTM) {
+				ht.Fatalf("DorisTableMetaIR wire round-trip mismatch:\nwant: %+v\ngot:  %+v", wantTM, gotTM)
 			}
 		}
 

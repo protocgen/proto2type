@@ -56,9 +56,6 @@ table "eligibility_criterion_results" {
     columns = [column.patient_id]
     buckets = "${TENANT_BUCKETS}"
   }
-  partition_by_range {
-    columns = [column.event_month]
-  }
   index "idx_ngram_eligibility_criterion_results_criterion_id" {
     columns = [column.criterion_id]
     using = "NGRAMBF"
