@@ -1576,12 +1576,13 @@ func mergeColumnMeta(dst, src *DorisColumnMetaIR) {
 	}
 }
 
-// extractDorisColumnMeta extracts Doris/Iceberg column metadata from a field's options.
-// It inspects both native (proto2type.field).column (extension 1307) and
-// wire-level legacy extension 50200 (column_meta), returning nil if no Doris/Iceberg
-// column options are set.
+// extractDorisColumnMeta extracts Doris/Iceberg and shared column metadata from a field's
+// options. It inspects both native (proto2type.field).column (extension 1307) and
+// wire-level legacy extension 50200 (column_meta), returning nil only if no metadata
+// fields (Doris, Iceberg, Postgres, or shared ColumnName/DefaultValue) are set so
+// dual-annotated inferred Doris tables preserve ColumnName and DefaultValue.
 func extractDorisColumnMeta(field *protogen.Field) *DorisColumnMetaIR {
-	return extractColumnMetaInternal(field, false)
+	return extractColumnMetaInternal(field, true)
 }
 
 // extractColumnMetaInternal extracts column metadata from both typed (proto2type.field)

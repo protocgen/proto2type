@@ -216,7 +216,7 @@ func TestProperty_DorisWireOptions_RoundTrip(t *testing.T) {
 		}
 		colWire := buildAzraColumnMetaWire(cm)
 		gotCM := parseDorisColumnMetaFromOptionsWire(colWire)
-		if cm.isEmpty() {
+		if cm.isAllEmpty() {
 			if gotCM != nil {
 				ht.Fatalf("expected nil for empty DorisColumnMetaIR, got %+v", gotCM)
 			}

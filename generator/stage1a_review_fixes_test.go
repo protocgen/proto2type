@@ -123,6 +123,56 @@ func TestStage1AReview_BoolDescWireAndEmptyIndexPart(t *testing.T) {
 	if err := runner.Generate(lakeGen, &Options{Lang: "go", Backend: "postgres", PostgresMode: "hcl"}); err == nil {
 		t.Errorf("expected lakehouse postgres generation error for empty IndexPart, got nil")
 	}
+
+	// Empty raw-wire IndexPart (tag 7 BytesType with empty payload) must also be rejected in both paths.
+	var wireEmptyIdx, wireEmptyTbl, wireEmptyOpts []byte
+	wireEmptyIdx = protowire.AppendTag(wireEmptyIdx, 1, protowire.BytesType)
+	wireEmptyIdx = protowire.AppendString(wireEmptyIdx, "idx_wire_empty_part")
+	wireEmptyIdx = protowire.AppendTag(wireEmptyIdx, 7, protowire.BytesType)
+	wireEmptyIdx = protowire.AppendBytes(wireEmptyIdx, nil)
+	wireEmptyTbl = protowire.AppendTag(wireEmptyTbl, 1, protowire.BytesType)
+	wireEmptyTbl = protowire.AppendString(wireEmptyTbl, "wire_empty_part_tbl")
+	wireEmptyTbl = protowire.AppendTag(wireEmptyTbl, 20, protowire.BytesType)
+	wireEmptyTbl = protowire.AppendBytes(wireEmptyTbl, wireEmptyIdx)
+	wireEmptyOpts = protowire.AppendTag(wireEmptyOpts, 2, protowire.BytesType)
+	wireEmptyOpts = protowire.AppendBytes(wireEmptyOpts, wireEmptyTbl)
+	wireEmptyMO := &descriptorpb.MessageOptions{}
+	wireEmptyMO.ProtoReflect().SetUnknown(buildWireExtension(proto2typeExtensionNumber, wireEmptyOpts))
+	wireEmptyFDP := stage1aSingleMsgFDP("wire_empty_part.proto", "review.v1", "example.com/review/v1;reviewv1", &descriptorpb.DescriptorProto{
+		Name:    proto.String("WireEmptyPartTbl"),
+		Options: wireEmptyMO,
+		Field: []*descriptorpb.FieldDescriptorProto{
+			stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(nil, &proto2typepb.FieldOptions{PrimaryKey: true})),
+		},
+	})
+	wireEmptyRelGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{wireEmptyFDP}}, []string{"wire_empty_part.proto"})
+	if err := runner.Generate(wireEmptyRelGen, &Options{Lang: "go", Backend: "postgres", PostgresMode: "ddl"}); err == nil {
+		t.Errorf("expected relational postgres generation error for empty raw-wire IndexPart, got nil")
+	}
+	var wireEmptyLakeTbl, wireEmptyLakeOpts []byte
+	wireEmptyLakeTbl = protowire.AppendTag(wireEmptyLakeTbl, 1, protowire.BytesType)
+	wireEmptyLakeTbl = protowire.AppendString(wireEmptyLakeTbl, "wire_empty_part_lake")
+	wireEmptyLakeTbl = protowire.AppendTag(wireEmptyLakeTbl, 2, protowire.BytesType)
+	wireEmptyLakeTbl = protowire.AppendString(wireEmptyLakeTbl, "TENANT")
+	wireEmptyLakeTbl = protowire.AppendTag(wireEmptyLakeTbl, 3, protowire.BytesType)
+	wireEmptyLakeTbl = protowire.AppendString(wireEmptyLakeTbl, "WHOLE_TABLE")
+	wireEmptyLakeTbl = protowire.AppendTag(wireEmptyLakeTbl, 20, protowire.BytesType)
+	wireEmptyLakeTbl = protowire.AppendBytes(wireEmptyLakeTbl, wireEmptyIdx)
+	wireEmptyLakeOpts = protowire.AppendTag(wireEmptyLakeOpts, 2, protowire.BytesType)
+	wireEmptyLakeOpts = protowire.AppendBytes(wireEmptyLakeOpts, wireEmptyLakeTbl)
+	wireEmptyLakeMO := &descriptorpb.MessageOptions{}
+	wireEmptyLakeMO.ProtoReflect().SetUnknown(buildWireExtension(proto2typeExtensionNumber, wireEmptyLakeOpts))
+	wireEmptyLakeFDP := stage1aSingleMsgFDP("wire_empty_part_lake.proto", "review.v1", "example.com/review/v1;reviewv1", &descriptorpb.DescriptorProto{
+		Name:    proto.String("WireEmptyPartLakeTbl"),
+		Options: wireEmptyLakeMO,
+		Field: []*descriptorpb.FieldDescriptorProto{
+			stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(nil, &proto2typepb.FieldOptions{PrimaryKey: true})),
+		},
+	})
+	wireEmptyLakeGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{wireEmptyLakeFDP}}, []string{"wire_empty_part_lake.proto"})
+	if err := runner.Generate(wireEmptyLakeGen, &Options{Lang: "go", Backend: "postgres", PostgresMode: "hcl"}); err == nil {
+		t.Errorf("expected lakehouse postgres generation error for empty raw-wire IndexPart, got nil")
+	}
 }
 
 func TestStage1AReview_SingletonValidationAndSyntheticPK(t *testing.T) {
@@ -526,7 +576,10 @@ func TestStage1AReview_SecurityDescriptorValidationAndHCLQuoting(t *testing.T) {
 		{
 			name: "unknown_index_subblock",
 			body: `table "t1" {
-  column "id" { null = false type = uuid }
+  column "id" {
+    null = false
+    type = uuid
+  }
   index "idx_t1" {
     unknown_blk { foo = "bar" }
     columns = [column.id]
@@ -536,7 +589,10 @@ func TestStage1AReview_SecurityDescriptorValidationAndHCLQuoting(t *testing.T) {
 		{
 			name: "invalid_index_using",
 			body: `table "t1" {
-  column "id" { null = false type = text }
+  column "id" {
+    null = false
+    type = text
+  }
   index "idx_t1" {
     type    = "EXEC"
     columns = [column.id]
@@ -546,7 +602,10 @@ func TestStage1AReview_SecurityDescriptorValidationAndHCLQuoting(t *testing.T) {
 		{
 			name: "invalid_index_ops",
 			body: `table "t1" {
-  column "id" { null = false type = text }
+  column "id" {
+    null = false
+    type = text
+  }
   index "idx_t1" {
     type    = GIN
     ops     = "bad;ops"
@@ -761,8 +820,8 @@ func TestStage1AReview_CorrectnessH1ToH10AndMedium(t *testing.T) {
 			{
 				Name:  "idx_tags_ops",
 				Using: "GIN",
-				Ops:   "gin_trgm_ops",
-				Parts: []PostgresIndexPartDescriptor{{Column: "tags", Opclass: "gin_trgm_ops"}},
+				Ops:   "array_ops",
+				Parts: []PostgresIndexPartDescriptor{{Column: "tags", Opclass: "array_ops"}},
 			},
 		},
 	}
@@ -770,12 +829,13 @@ func TestStage1AReview_CorrectnessH1ToH10AndMedium(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPostgresAlterTableSQL failed: %v", err)
 	}
-	if len(alterStmts) != 1 || strings.Contains(alterStmts[0], "ALTER COLUMN") || strings.Contains(alterStmts[0], "gin_trgm_ops gin_trgm_ops") {
-		t.Fatalf("unexpected alter statements: %v", alterStmts)
+	wantIdxSQL := "CREATE INDEX IF NOT EXISTS idx_tags_ops ON public.alter_def_tbl USING gin (tags array_ops);"
+	if len(alterStmts) != 1 || alterStmts[0] != wantIdxSQL || strings.Contains(alterStmts[0], "ALTER COLUMN") || strings.Contains(alterStmts[0], "array_ops array_ops") {
+		t.Fatalf("unexpected alter statements: %v (want single %q)", alterStmts, wantIdxSQL)
 	}
 	createSQL := afterAlter.BuildPostgresCreateTableSQL("")
-	if strings.Contains(createSQL, "gin_trgm_ops gin_trgm_ops") {
-		t.Errorf("BuildPostgresCreateTableSQL duplicated opclass:\n%s", createSQL)
+	if !strings.Contains(createSQL, wantIdxSQL) || strings.Contains(createSQL, "array_ops array_ops") {
+		t.Errorf("BuildPostgresCreateTableSQL missing %q or duplicated opclass:\n%s", wantIdxSQL, createSQL)
 	}
 
 	// 4. Atlas HCL type/opclass formatting.
@@ -897,11 +957,10 @@ func TestStage1AReview_CorrectnessH1ToH10AndMedium(t *testing.T) {
 	}
 
 	// Verify runtime Go dorisColumnIcebergDDLType & StarRocks PK partition & Buckets parity cleanly.
-	tmpRuntimeDir, err := os.MkdirTemp(".", "stage1a_doris_runtime_*")
-	if err != nil {
-		t.Fatalf("MkdirTemp: %v", err)
+	tmpRuntimeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpRuntimeDir, "go.mod"), []byte("module example.com/rt\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
 	}
-	defer func() { _ = os.RemoveAll(tmpRuntimeDir) }()
 	rtGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{iceProtoFDP}}, []string{"ice_override.proto"})
 	rtG := rtGen.NewGeneratedFile("runtime_only.go", "example.com/rt")
 	rtG.P("package rt")
@@ -943,6 +1002,7 @@ func TestRuntimeFixes(t *testing.T) {
 	}
 	cmd := exec.Command("go", "test", "-v", ".")
 	cmd.Dir = tmpRuntimeDir
+	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("runtime go test failed: %v\n%s", err, string(out))
 	}
@@ -968,8 +1028,8 @@ func TestRuntimeFixes(t *testing.T) {
 		Options: stage1aMsgOpts(&proto2typepb.TableOptions{
 			TableName:          "bad_doris_part_null",
 			DatabaseScope:      "TENANT",
-			SyncTier:           "MONTHLY_PARTITIONED",
-			UniqueKeyColumns:   []string{"id", "event_month"},
+			SyncTier:           "WHOLE_TABLE",
+			UniqueKeyColumns:   []string{"id"},
 			PartitionByColumns: []string{"event_month"},
 		}),
 		Field: []*descriptorpb.FieldDescriptorProto{

@@ -431,6 +431,38 @@ func validatePostgresDefaultValue(sqlType, defaultValue string) error {
 	return nil
 }
 
+// isPostgresBTreeIncompatibleOpclass reports whether opclass belongs to a non-B-tree
+// index access method (GIN, GiST, SP-GiST, BRIN, Hash, pgvector, etc.) and therefore
+// cannot be used when USING is omitted or BTREE.
+func isPostgresBTreeIncompatibleOpclass(opclass string) bool {
+	op := strings.ToLower(strings.TrimSpace(opclass))
+	if op == "" {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(op, "gin_"),
+		strings.HasPrefix(op, "gist_"),
+		strings.HasPrefix(op, "spgist_"),
+		strings.HasPrefix(op, "spg_"),
+		strings.HasPrefix(op, "brin_"),
+		strings.HasPrefix(op, "hash_"),
+		strings.HasPrefix(op, "vector_"),
+		strings.HasPrefix(op, "halfvec_"),
+		strings.HasPrefix(op, "sparsevec_"),
+		strings.HasSuffix(op, "_trgm_ops"),
+		strings.HasSuffix(op, "_minmax_ops"),
+		strings.HasSuffix(op, "_minmax_multi_ops"),
+		strings.HasSuffix(op, "_bloom_ops"),
+		strings.HasSuffix(op, "_inclusion_ops"):
+		return true
+	}
+	switch op {
+	case "array_ops", "jsonb_path_ops", "bit_hamming_ops", "bit_jaccard_ops":
+		return true
+	}
+	return false
+}
+
 // isValidPostgresCheckExpr validates that expr is a safe SQL check expression,
 // ensuring balanced parentheses, non-empty content, and rejecting statement terminators,
 // comment delimiters, backslashes, dollar-quoting, or multiline injection sequences.
@@ -780,8 +812,21 @@ func isPostgresFieldNullable(f *DomainField, colMeta *DorisColumnMetaIR, isPK bo
 
 // derivePostgresValidationChecks inspects field-level ValidateConstraints and appends
 // standard PostgreSQL check constraints for string bounds, pattern/enum membership, and array cardinality.
-func derivePostgresValidationChecks(tableName string, fields []*DomainField, seenCheckNames map[string]bool) []PostgresCheckDescriptor {
+func derivePostgresValidationChecks(tableName string, fields []*DomainField, seenCheckNames map[string]bool) ([]PostgresCheckDescriptor, error) {
 	var checks []PostgresCheckDescriptor
+	appendValidatedCheck := func(colName, chkName, expr string) error {
+		if !isValidPostgresCheckExpr(expr) {
+			return fmt.Errorf("field %s in table %s: invalid generated CHECK constraint expression %q", colName, tableName, expr)
+		}
+		if !seenCheckNames[chkName] {
+			seenCheckNames[chkName] = true
+			checks = append(checks, PostgresCheckDescriptor{
+				Name: chkName,
+				Expr: expr,
+			})
+		}
+		return nil
+	}
 	for _, f := range fields {
 		vc := f.ValidateConstraints
 		if vc == nil || !vc.HasConstraints() {
@@ -805,42 +850,30 @@ func derivePostgresValidationChecks(tableName string, fields []*DomainField, see
 		if !f.Repeated && ((f.Kind == FieldKindScalar && f.ScalarKind == protoreflect.StringKind) || f.Kind == FieldKindWrapperString) {
 			if vc.MinLength != nil && vc.MaxLength != nil {
 				chkName := compactPostgresIdentifier("chk", tableName+"_"+colName+"_bounds")
-				if !seenCheckNames[chkName] {
-					seenCheckNames[chkName] = true
-					var expr string
-					if vc.IgnoreEmpty {
-						expr = fmt.Sprintf("((%q = '') OR ((char_length(%q) >= %d) AND (char_length(%q) <= %d)))", colName, colName, *vc.MinLength, colName, *vc.MaxLength)
-					} else {
-						expr = fmt.Sprintf("((char_length(%q) >= %d) AND (char_length(%q) <= %d))", colName, *vc.MinLength, colName, *vc.MaxLength)
-					}
-					checks = append(checks, PostgresCheckDescriptor{
-						Name: chkName,
-						Expr: expr,
-					})
+				var expr string
+				if vc.IgnoreEmpty {
+					expr = fmt.Sprintf("((%q = '') OR ((char_length(%q) >= %d) AND (char_length(%q) <= %d)))", colName, colName, *vc.MinLength, colName, *vc.MaxLength)
+				} else {
+					expr = fmt.Sprintf("((char_length(%q) >= %d) AND (char_length(%q) <= %d))", colName, *vc.MinLength, colName, *vc.MaxLength)
+				}
+				if err := appendValidatedCheck(colName, chkName, expr); err != nil {
+					return nil, err
 				}
 			} else if vc.MinLength != nil {
 				chkName := compactPostgresIdentifier("chk", tableName+"_"+colName+"_min_len")
-				if !seenCheckNames[chkName] {
-					seenCheckNames[chkName] = true
-					var expr string
-					if vc.IgnoreEmpty {
-						expr = fmt.Sprintf("((%q = '') OR (char_length(%q) >= %d))", colName, colName, *vc.MinLength)
-					} else {
-						expr = fmt.Sprintf("(char_length(%q) >= %d)", colName, *vc.MinLength)
-					}
-					checks = append(checks, PostgresCheckDescriptor{
-						Name: chkName,
-						Expr: expr,
-					})
+				var expr string
+				if vc.IgnoreEmpty {
+					expr = fmt.Sprintf("((%q = '') OR (char_length(%q) >= %d))", colName, colName, *vc.MinLength)
+				} else {
+					expr = fmt.Sprintf("(char_length(%q) >= %d)", colName, *vc.MinLength)
+				}
+				if err := appendValidatedCheck(colName, chkName, expr); err != nil {
+					return nil, err
 				}
 			} else if vc.MaxLength != nil {
 				chkName := compactPostgresIdentifier("chk", tableName+"_"+colName+"_max_len")
-				if !seenCheckNames[chkName] {
-					seenCheckNames[chkName] = true
-					checks = append(checks, PostgresCheckDescriptor{
-						Name: chkName,
-						Expr: fmt.Sprintf("(char_length(%q) <= %d)", colName, *vc.MaxLength),
-					})
+				if err := appendValidatedCheck(colName, chkName, fmt.Sprintf("(char_length(%q) <= %d)", colName, *vc.MaxLength)); err != nil {
+					return nil, err
 				}
 			}
 			if len(vc.In) > 0 {
@@ -851,12 +884,9 @@ func derivePostgresValidationChecks(tableName string, fields []*DomainField, see
 					quoted[i] = fmt.Sprintf("'%s'::text", clean)
 				}
 				chkName := compactPostgresIdentifier("chk", tableName+"_"+colName+"_valid")
-				if !seenCheckNames[chkName] {
-					seenCheckNames[chkName] = true
-					checks = append(checks, PostgresCheckDescriptor{
-						Name: chkName,
-						Expr: fmt.Sprintf("(%q = ANY (ARRAY[%s]))", colName, strings.Join(quoted, ", ")),
-					})
+				expr := fmt.Sprintf("(%q = ANY (ARRAY[%s]))", colName, strings.Join(quoted, ", "))
+				if err := appendValidatedCheck(colName, chkName, expr); err != nil {
+					return nil, err
 				}
 			}
 		}
@@ -865,17 +895,14 @@ func derivePostgresValidationChecks(tableName string, fields []*DomainField, see
 			ddlType, _, err := resolvePostgresFieldTypes(f, colMeta, nil)
 			if err == nil && strings.HasSuffix(ddlType, "[]") {
 				chkName := compactPostgresIdentifier("chk", tableName+"_"+colName+"_cardinality")
-				if !seenCheckNames[chkName] {
-					seenCheckNames[chkName] = true
-					checks = append(checks, PostgresCheckDescriptor{
-						Name: chkName,
-						Expr: fmt.Sprintf("(cardinality(%q) <= %d)", colName, *vc.MaxItems),
-					})
+				expr := fmt.Sprintf("(cardinality(%q) <= %d)", colName, *vc.MaxItems)
+				if err := appendValidatedCheck(colName, chkName, expr); err != nil {
+					return nil, err
 				}
 			}
 		}
 	}
-	return checks
+	return checks, nil
 }
 
 // buildPostgresTableSchema builds a PostgresTableSchemaDescriptor for a DomainMessage.
@@ -1141,6 +1168,51 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		cols[i] = c
 	}
 
+	if meta != nil && !meta.IsSingleton && (meta.SingletonCheckName != "" || meta.SingletonCheckExpr != "") {
+		return nil, fmt.Errorf("message %s: singleton_check_name/singleton_check_expr requires is_singleton=true", dm.FullName)
+	}
+	isSingleton := false
+	if meta != nil && meta.IsSingleton {
+		hasPartition := len(meta.PartitionByColumns) > 0
+		if !hasPartition {
+			for _, rc := range rawCols {
+				if rc.colMeta != nil && rc.colMeta.IsPartitionKey {
+					hasPartition = true
+					break
+				}
+			}
+		}
+		if hasPartition {
+			return nil, fmt.Errorf("message %s: is_singleton=true cannot be combined with partition_by_columns", dm.FullName)
+		}
+		isSingleton = true
+		hasSingletonCol := false
+		for i := range cols {
+			if cols[i].ColumnName == "singleton" {
+				if cols[i].DefaultValue != "" && (strings.EqualFold(cols[i].DefaultValue, "false") || cols[i].DefaultValue == "0") {
+					return nil, fmt.Errorf("message %s: singleton table cannot have singleton column with default false", dm.FullName)
+				}
+				cols[i].Nullable = false
+				cols[i].IsPrimaryKey = true
+				hasSingletonCol = true
+				break
+			}
+		}
+		if !hasSingletonCol {
+			cols = append([]PostgresColumnDescriptor{{
+				ColumnName:   "singleton",
+				SQLType:      "BOOLEAN",
+				PostgresType: "BOOLEAN",
+				HCLType:      "boolean",
+				Nullable:     false,
+				DefaultValue: "true",
+				IsPrimaryKey: true,
+			}}, cols...)
+			colSet["singleton"] = true
+		}
+		pkCols = []string{"singleton"}
+	}
+
 	// Collect indexes and foreign keys in deterministic order.
 	var indexes []PostgresIndexDescriptor
 	seenIdx := make(map[string]PostgresIndexDescriptor)
@@ -1209,8 +1281,12 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		if !isValidPostgresIndexMethod(idx.Using) {
 			return fmt.Errorf("message %s: invalid index method %q for index %q", dm.FullName, idx.Using, idx.Name)
 		}
+		isImplicitOrBTree := idx.Using == "" || strings.EqualFold(strings.TrimSpace(idx.Using), "btree")
 		if idx.Ops != "" && (!isValidSQLIdentifier(idx.Ops) || len(idx.Ops) > maxPostgresIdentifierBytes) {
 			return fmt.Errorf("message %s: invalid index ops %q for index %q", dm.FullName, idx.Ops, idx.Name)
+		}
+		if isImplicitOrBTree && isPostgresBTreeIncompatibleOpclass(idx.Ops) {
+			return fmt.Errorf("message %s: index %q operator class %q is incompatible with BTREE (specify a compatible USING method)", dm.FullName, idx.Name, idx.Ops)
 		}
 		for _, p := range idx.Parts {
 			if p.Column != "" && (!isValidSQLIdentifier(p.Column) || len(p.Column) > maxPostgresIdentifierBytes || !colSet[p.Column]) {
@@ -1221,6 +1297,9 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 			}
 			if p.Opclass != "" && (!isValidSQLIdentifier(p.Opclass) || len(p.Opclass) > maxPostgresIdentifierBytes) {
 				return fmt.Errorf("message %s: invalid index opclass %q for index %q", dm.FullName, p.Opclass, idx.Name)
+			}
+			if isImplicitOrBTree && isPostgresBTreeIncompatibleOpclass(p.Opclass) {
+				return fmt.Errorf("message %s: index %q operator class %q is incompatible with BTREE (specify a compatible USING method)", dm.FullName, idx.Name, p.Opclass)
 			}
 		}
 		for _, dCol := range idx.DescColumns {
@@ -1249,8 +1328,8 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 			}
 			return nil
 		}
-		// Skip auto-generated unique index if it duplicates a single-column PRIMARY KEY.
-		if autoNamed && idx.Unique && len(pkCols) == 1 {
+		// Skip auto-generated non-partial unique index if it duplicates a single-column PRIMARY KEY.
+		if autoNamed && idx.Unique && idx.Where == "" && len(pkCols) == 1 {
 			if len(idx.Parts) == 0 && len(idx.Columns) == 1 && len(idx.Expressions) == 0 && idx.Columns[0] == pkCols[0] {
 				return nil
 			}
@@ -1460,37 +1539,7 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		return nil
 	}
 
-	if meta != nil && !meta.IsSingleton && (meta.SingletonCheckName != "" || meta.SingletonCheckExpr != "") {
-		return nil, fmt.Errorf("message %s: singleton_check_name/singleton_check_expr requires is_singleton=true", dm.FullName)
-	}
-	isSingleton := false
-	if meta != nil && meta.IsSingleton {
-		isSingleton = true
-		hasSingletonCol := false
-		for i := range cols {
-			if cols[i].ColumnName == "singleton" {
-				if cols[i].DefaultValue != "" && (strings.EqualFold(cols[i].DefaultValue, "false") || cols[i].DefaultValue == "0") {
-					return nil, fmt.Errorf("message %s: singleton table cannot have singleton column with default false", dm.FullName)
-				}
-				cols[i].Nullable = false
-				cols[i].IsPrimaryKey = true
-				hasSingletonCol = true
-				break
-			}
-		}
-		if !hasSingletonCol {
-			cols = append([]PostgresColumnDescriptor{{
-				ColumnName:   "singleton",
-				SQLType:      "BOOLEAN",
-				PostgresType: "BOOLEAN",
-				HCLType:      "boolean",
-				Nullable:     false,
-				DefaultValue: "true",
-				IsPrimaryKey: true,
-			}}, cols...)
-			colSet["singleton"] = true
-		}
-		pkCols = []string{"singleton"}
+	if isSingleton {
 		chkName := meta.SingletonCheckName
 		if chkName == "" {
 			chkName = compactPostgresIdentifier("chk", tableName+"_singleton")
@@ -1512,7 +1561,11 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		}
 	}
 
-	checks = append(checks, derivePostgresValidationChecks(tableName, effectiveDM.Fields, seenCheckNames)...)
+	valChecks, err := derivePostgresValidationChecks(tableName, effectiveDM.Fields, seenCheckNames)
+	if err != nil {
+		return nil, fmt.Errorf("message %s: %w", dm.FullName, err)
+	}
+	checks = append(checks, valChecks...)
 
 	var writerService string
 	var readerServices []string
@@ -1778,6 +1831,10 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 				return ""
 			}
 		}
+		isImplicitOrBTree := idx.Using == "" || strings.EqualFold(strings.TrimSpace(idx.Using), "btree")
+		if isImplicitOrBTree && isPostgresBTreeIncompatibleOpclass(idx.Ops) {
+			return ""
+		}
 		for _, p := range idx.Parts {
 			if (p.Column != "") == (p.Expr != "") {
 				return ""
@@ -1789,6 +1846,9 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 				return ""
 			}
 			if p.Opclass != "" && (!isValidSQLIdentifier(p.Opclass) || len(p.Opclass) > maxPostgresIdentifierBytes) {
+				return ""
+			}
+			if isImplicitOrBTree && isPostgresBTreeIncompatibleOpclass(p.Opclass) {
 				return ""
 			}
 		}

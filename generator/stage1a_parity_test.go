@@ -476,7 +476,7 @@ func TestStage1A_PostgresIndexParts_OrderedExprColumnOpclassDesc(t *testing.T) {
 					Name:  "idx_ordered_mixed",
 					Where: "deleted_at IS NULL",
 					Parts: []*proto2typepb.IndexDef_IndexPart{
-						{Expr: "lower(title)", Opclass: "gin_trgm_ops"},
+						{Expr: "lower(title)", Opclass: "text_pattern_ops"},
 						{Column: "created_at", Desc: true},
 						{Column: "tenant_id"},
 					},
@@ -503,15 +503,15 @@ func TestStage1A_PostgresIndexParts_OrderedExprColumnOpclassDesc(t *testing.T) {
 	sqlOut := stage1aFindBySuffix(t, files, "idx_parts_postgres.sql")
 	hclOut := stage1aFindBySuffix(t, files, "idx_parts_postgres.hcl")
 
-	wantSQL := `CREATE INDEX IF NOT EXISTS "idx_ordered_mixed" ON "ordered_index_entities" ((lower(title)) gin_trgm_ops, "created_at" DESC, "tenant_id") WHERE deleted_at IS NULL;`
+	wantSQL := `CREATE INDEX IF NOT EXISTS "idx_ordered_mixed" ON "ordered_index_entities" ((lower(title)) text_pattern_ops, "created_at" DESC, "tenant_id") WHERE deleted_at IS NULL;`
 	if !strings.Contains(sqlOut, wantSQL) {
 		t.Errorf("DDL missing ordered IndexPart clause %q in:\n%s", wantSQL, sqlOut)
 	}
 
-	// Verify HCL has three ordered on blocks with ops = gin_trgm_ops and desc = true.
+	// Verify HCL has three ordered on blocks with ops = text_pattern_ops and desc = true.
 	for _, wantHCL := range []string{
 		`expr = "lower(title)"`,
-		`ops    = "gin_trgm_ops"`,
+		`ops    = text_pattern_ops`,
 		`column = column.created_at`,
 		`desc   = true`,
 		`column = column.tenant_id`,
@@ -530,7 +530,7 @@ func TestStage1A_PostgresIndexParts_OrderedExprColumnOpclassDesc(t *testing.T) {
 		t.Fatalf("expected 1 table with 1 index, got %+v", parsed)
 	}
 	wantParts := []PostgresIndexPartDescriptor{
-		{Expr: "lower(title)", Opclass: "gin_trgm_ops"},
+		{Expr: "lower(title)", Opclass: "text_pattern_ops"},
 		{Column: "created_at", Desc: true},
 		{Column: "tenant_id"},
 	}

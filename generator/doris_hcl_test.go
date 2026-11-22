@@ -89,12 +89,15 @@ func TestBuildDorisAtlasHCL_UniqueKeyMoWAndIndexes(t *testing.T) {
 	if !strings.Contains(autoHCL, `buckets = "auto"`) {
 		t.Errorf("expected buckets = \"auto\" when AutoBuckets=true on TENANT table, got:\n%s", autoHCL)
 	}
-	// Verify partition_by_list is omitted on UNIQUE KEY tables when partition columns are not in unique_key_columns.
+	// Verify partition_by_list/partition_by_range are omitted on UNIQUE KEY tables when partition columns are not in unique_key_columns.
 	nonSubsetDesc := desc
 	nonSubsetDesc.UniqueKeyColumns = []string{"tenant_id", "patient_id", "chunk_id"}
 	nonSubsetHCL := nonSubsetDesc.BuildDorisAtlasHCL("acme-health", 16)
-	if strings.Contains(nonSubsetHCL, "partition_by_list") {
-		t.Errorf("expected partition_by_list to be omitted when event_month is not in unique_key_columns, got:\n%s", nonSubsetHCL)
+	if !strings.Contains(nonSubsetHCL, `table "patient_note_chunks" {`) {
+		t.Fatalf("expected nonSubsetHCL to render table block, got:\n%s", nonSubsetHCL)
+	}
+	if strings.Contains(nonSubsetHCL, "partition_by_list") || strings.Contains(nonSubsetHCL, "partition_by_range") {
+		t.Errorf("expected partition_by_list and partition_by_range to be omitted when event_month is not in unique_key_columns, got:\n%s", nonSubsetHCL)
 	}
 }
 
