@@ -1285,7 +1285,10 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		if !isValidPostgresIndexMethod(idx.Using) {
 			return fmt.Errorf("message %s: invalid index method %q for index %q", dm.FullName, idx.Using, idx.Name)
 		}
-		isImplicitOrBTree := idx.Using == "" || strings.EqualFold(strings.TrimSpace(idx.Using), "btree")
+		isImplicitOrBTree := isPostgresOrderedIndexMethod(idx.Using)
+		if !isImplicitOrBTree && postgresIndexHasDesc(idx) {
+			return fmt.Errorf("message %s: index %q DESC ordering is only supported for BTREE indexes (got %s)", dm.FullName, idx.Name, idx.Using)
+		}
 		if idx.Ops != "" && (!isValidSQLIdentifier(idx.Ops) || len(idx.Ops) > maxPostgresIdentifierBytes) {
 			return fmt.Errorf("message %s: invalid index ops %q for index %q", dm.FullName, idx.Ops, idx.Name)
 		}
@@ -1836,7 +1839,16 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 				return ""
 			}
 		}
-		isImplicitOrBTree := idx.Using == "" || strings.EqualFold(strings.TrimSpace(idx.Using), "btree")
+		if !isValidPostgresIndexMethod(idx.Using) {
+			return ""
+		}
+		isImplicitOrBTree := isPostgresOrderedIndexMethod(idx.Using)
+		if !isImplicitOrBTree && postgresIndexHasDesc(idx) {
+			return ""
+		}
+		if idx.Ops != "" && (!isValidSQLIdentifier(idx.Ops) || len(idx.Ops) > maxPostgresIdentifierBytes) {
+			return ""
+		}
 		if isImplicitOrBTree && isPostgresBTreeIncompatibleOpclass(idx.Ops) {
 			return ""
 		}
@@ -1861,17 +1873,21 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 			return ""
 		}
 		colParts := formatPostgresIndexPartsSQL(idx, true)
+		usingClause := ""
+		if u := strings.ToLower(strings.TrimSpace(idx.Using)); u != "" && u != "btree" {
+			usingClause = " USING " + u
+		}
 		whereClause := ""
 		if idx.Where != "" {
 			whereClause = " WHERE " + idx.Where
 		}
 		b.WriteString("\n")
 		if idx.Unique {
-			fmt.Fprintf(&b, "CREATE UNIQUE INDEX IF NOT EXISTS %q ON %q (%s)%s;",
-				idx.Name, t.TableName, strings.Join(colParts, ", "), whereClause)
+			fmt.Fprintf(&b, "CREATE UNIQUE INDEX IF NOT EXISTS %q ON %q%s (%s)%s;",
+				idx.Name, t.TableName, usingClause, strings.Join(colParts, ", "), whereClause)
 		} else {
-			fmt.Fprintf(&b, "CREATE INDEX IF NOT EXISTS %q ON %q (%s)%s;",
-				idx.Name, t.TableName, strings.Join(colParts, ", "), whereClause)
+			fmt.Fprintf(&b, "CREATE INDEX IF NOT EXISTS %q ON %q%s (%s)%s;",
+				idx.Name, t.TableName, usingClause, strings.Join(colParts, ", "), whereClause)
 		}
 	}
 

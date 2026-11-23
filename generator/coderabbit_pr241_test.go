@@ -2028,3 +2028,593 @@ func TestPR241_CodeRabbitRound2_OutputFileHonored(t *testing.T) {
 		t.Fatalf("expected subdir-adjusted example.com/pkg/fs/item_firestore.type.go, got %v", fsDefaultFiles)
 	}
 }
+
+func TestPR241_NullableArrayAndZeroEnumCompiledRuntime(t *testing.T) {
+	if _, ok := dorisSharedRuntimeSymbolOwners(false)["dorisNullableArrayValue"]; !ok {
+		t.Fatal("expected dorisNullableArrayValue to be registered in dorisSharedRuntimeSymbolOwners")
+	}
+
+	if _, err := exec.LookPath("protoc"); err != nil {
+		t.Skip("protoc not found in PATH; skipping compile-and-run test")
+	}
+	if _, err := exec.LookPath("protoc-gen-go"); err != nil {
+		t.Skip("protoc-gen-go not found in PATH; skipping compile-and-run test")
+	}
+
+	tmpPkgDir, err := os.MkdirTemp(".", "doris_pr241_round3_rt_*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(tmpPkgDir)
+	}()
+
+	pkgName := filepath.Base(tmpPkgDir)
+	goPkg := "github.com/protocgen/proto2type/generator/" + pkgName + ";round3v1"
+	protoSrc := `syntax = "proto3";
+package round3test.v1;
+option go_package = "` + goPkg + `";
+
+enum UnspecEnum {
+  UNSPEC_ENUM_UNSPECIFIED = 0;
+  UNSPEC_ENUM_READY = 1;
+}
+
+enum ZeroPendingEnum {
+  ZERO_PENDING_ENUM_PENDING = 0;
+  ZERO_PENDING_ENUM_DONE = 1;
+}
+
+message NestedUnspecBox {
+  UnspecEnum kind = 1;
+}
+
+message NestedPendingBox {
+  ZeroPendingEnum state = 1;
+}
+
+message NestedArrayBox {
+  repeated int32 items = 1;
+}
+
+message ParityRecord {
+  string id = 1;
+  repeated int32 null_nums = 2;
+  repeated int32 req_nums = 3;
+  UnspecEnum status_unspec = 4;
+  ZeroPendingEnum status_pending = 5;
+  NestedUnspecBox nested_unspec = 6;
+  NestedPendingBox nested_pending = 7;
+  NestedArrayBox nested_arr = 8;
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpPkgDir, "parity.proto"), []byte(protoSrc), 0o644); err != nil {
+		t.Fatalf("write proto: %v", err)
+	}
+	fdsPath := filepath.Join(tmpPkgDir, "parity.fds")
+	protocCmd := exec.Command("protoc",
+		"-I", tmpPkgDir,
+		"--go_out="+tmpPkgDir,
+		"--go_opt=paths=source_relative",
+		"--descriptor_set_out="+fdsPath,
+		"parity.proto",
+	)
+	if out, err := protocCmd.CombinedOutput(); err != nil {
+		t.Fatalf("protoc failed: %v\n%s", err, out)
+	}
+
+	fdsBytes, err := os.ReadFile(fdsPath)
+	if err != nil {
+		t.Fatalf("read fds: %v", err)
+	}
+	var fds descriptorpb.FileDescriptorSet
+	if err := proto.Unmarshal(fdsBytes, &fds); err != nil {
+		t.Fatalf("unmarshal fds: %v", err)
+	}
+	fdp := fds.File[0]
+	findDP := func(name string) *descriptorpb.DescriptorProto {
+		for _, m := range fdp.MessageType {
+			if m.GetName() == name {
+				return m
+			}
+		}
+		t.Fatalf("message %q not found", name)
+		return nil
+	}
+	findField := func(dp *descriptorpb.DescriptorProto, name string) *descriptorpb.FieldDescriptorProto {
+		for _, f := range dp.Field {
+			if f.GetName() == name {
+				return f
+			}
+		}
+		t.Fatalf("field %q not found on %q", name, dp.GetName())
+		return nil
+	}
+
+	findField(findDP("NestedUnspecBox"), "kind").Options = stage1aColOpts(&proto2typepb.ColumnOptions{
+		DorisNullable:   proto.Bool(true),
+		DorisType:       "VARCHAR(32)",
+		StripEnumPrefix: true,
+	}, nil)
+	findField(findDP("NestedPendingBox"), "state").Options = stage1aColOpts(&proto2typepb.ColumnOptions{
+		DorisNullable:   proto.Bool(true),
+		DorisType:       "VARCHAR(32)",
+		StripEnumPrefix: true,
+	}, nil)
+	findField(findDP("NestedArrayBox"), "items").Options = stage1aColOpts(&proto2typepb.ColumnOptions{
+		DorisNullable: proto.Bool(true),
+	}, nil)
+
+	recMsg := findDP("ParityRecord")
+	recMsg.Options = stage1aMsgOpts(&proto2typepb.TableOptions{
+		TableName:        "parity_records",
+		DatabaseScope:    "TENANT",
+		SyncTier:         "WHOLE_TABLE",
+		UniqueKeyColumns: []string{"id"},
+	})
+	findField(recMsg, "id").Options = stage1aColOpts(&proto2typepb.ColumnOptions{IsUniqueKey: true}, nil)
+	findField(recMsg, "null_nums").Options = stage1aColOpts(&proto2typepb.ColumnOptions{DorisNullable: proto.Bool(true)}, nil)
+	findField(recMsg, "req_nums").Options = stage1aColOpts(&proto2typepb.ColumnOptions{DorisType: "ARRAY<INT>"}, nil)
+	findField(recMsg, "status_unspec").Options = stage1aColOpts(&proto2typepb.ColumnOptions{
+		DorisNullable:   proto.Bool(true),
+		DorisType:       "VARCHAR(32)",
+		StripEnumPrefix: true,
+	}, nil)
+	findField(recMsg, "status_pending").Options = stage1aColOpts(&proto2typepb.ColumnOptions{
+		DorisNullable:   proto.Bool(true),
+		DorisType:       "VARCHAR(32)",
+		StripEnumPrefix: true,
+	}, nil)
+	findField(recMsg, "nested_unspec").Options = stage1aColOpts(&proto2typepb.ColumnOptions{InlineNested: true}, nil)
+	findField(recMsg, "nested_pending").Options = stage1aColOpts(&proto2typepb.ColumnOptions{InlineNested: true}, nil)
+	findField(recMsg, "nested_arr").Options = stage1aColOpts(&proto2typepb.ColumnOptions{InlineNested: true}, nil)
+
+	gen := newPlugin(t, &fds, []string{"parity.proto"})
+	runner := NewRunner()
+	if err := runner.Generate(gen, &Options{
+		Lang:       "go",
+		Backend:    "doris",
+		DorisMode:  "go",
+		OutputFile: "parity_doris.type.go",
+	}); err != nil {
+		t.Fatalf("Runner.Generate Doris Go failed: %v", err)
+	}
+	dorisCode := stage1aGeneratedFiles(t, gen)["parity_doris.type.go"]
+	if dorisCode == "" {
+		t.Fatalf("missing generated parity_doris.type.go")
+	}
+	if err := os.WriteFile(filepath.Join(tmpPkgDir, "parity_doris.type.go"), []byte(dorisCode), 0o644); err != nil {
+		t.Fatalf("write parity_doris.type.go: %v", err)
+	}
+
+	rtTestSrc := `package round3v1
+
+import (
+	"database/sql/driver"
+	"reflect"
+	"testing"
+)
+
+func TestParityNullableArraysAndZeroEnumsRuntime(t *testing.T) {
+	// 1. Nullable repeated int32 SQL NULL -> nil -> Values() (nil) -> ScanRow (nil),
+	//    while non-nullable repeated int32 writes "[]" when nil.
+	var nullRow ParityRecordDoris
+	if err := nullRow.ScanRow(NewDorisValueScanner([]any{"rec-null", nil, nil, nil, nil, nil, nil, nil})); err != nil {
+		t.Fatalf("ScanRow SQL NULL failed: %v", err)
+	}
+	if nullRow.NullNums != nil || nullRow.Items != nil || nullRow.StatusUnspec != nil || nullRow.StatusPending != nil {
+		t.Fatalf("expected nil for SQL NULL columns, got %+v", nullRow)
+	}
+	vals := nullRow.Values()
+	if vals[1] != nil {
+		t.Fatalf("expected nullable nil DorisInt32Array to emit nil in Values(), got %#v", vals[1])
+	}
+	if vals[7] != nil {
+		t.Fatalf("expected nested nullable nil DorisInt32Array to emit nil in Values(), got %#v", vals[7])
+	}
+	reqValuer, ok := vals[2].(driver.Valuer)
+	if !ok {
+		t.Fatalf("expected non-nullable ReqNums to implement driver.Valuer in Values(), got %T", vals[2])
+	}
+	if gotReq, err := reqValuer.Value(); err != nil || gotReq != "[]" {
+		t.Fatalf("expected non-nullable nil DorisInt32Array Value() = (\"[]\", nil), got (%#v, %v)", gotReq, err)
+	}
+
+	var roundTripNull ParityRecordDoris
+	if err := roundTripNull.ScanRow(NewDorisValueScanner(vals)); err != nil {
+		t.Fatalf("ScanRow(nullRow.Values()) failed: %v", err)
+	}
+	if roundTripNull.NullNums != nil || roundTripNull.Items != nil {
+		t.Fatalf("expected Values() -> ScanRow() to preserve nil for nullable arrays, got NullNums=%#v Items=%#v", roundTripNull.NullNums, roundTripNull.Items)
+	}
+	if roundTripNull.ReqNums == nil || len(roundTripNull.ReqNums) != 0 {
+		t.Fatalf("expected non-nullable nil array to scan back as non-nil empty slice, got %#v", roundTripNull.ReqNums)
+	}
+	if p := roundTripNull.ToProto(); p.NullNums != nil || p.NestedArr != nil || p.NestedUnspec != nil || p.NestedPending != nil {
+		t.Fatalf("expected nil proto fields after SQL NULL round-trip, got %+v", p)
+	}
+
+	// 2. Non-nil empty DorisInt32Array{} writes "[]" even when doris_nullable: true.
+	emptyRow := ParityRecordDoris{
+		ID:       "rec-empty",
+		NullNums: DorisInt32Array{},
+		Items:    DorisInt32Array{},
+	}
+	emptyVals := emptyRow.Values()
+	emptyValuer, ok := emptyVals[1].(driver.Valuer)
+	if !ok {
+		t.Fatalf("expected non-nil empty DorisInt32Array{} to emit driver.Valuer, got %#v", emptyVals[1])
+	}
+	if gotEmpty, err := emptyValuer.Value(); err != nil || gotEmpty != "[]" {
+		t.Fatalf("expected non-nil empty DorisInt32Array{} Value() = (\"[]\", nil), got (%#v, %v)", gotEmpty, err)
+	}
+	var roundTripEmpty ParityRecordDoris
+	if err := roundTripEmpty.ScanRow(NewDorisValueScanner(emptyVals)); err != nil {
+		t.Fatalf("ScanRow(emptyVals) failed: %v", err)
+	}
+	if roundTripEmpty.NullNums == nil || len(roundTripEmpty.NullNums) != 0 || roundTripEmpty.Items == nil || len(roundTripEmpty.Items) != 0 {
+		t.Fatalf("expected non-nil empty slices after round-trip, got NullNums=%#v Items=%#v", roundTripEmpty.NullNums, roundTripEmpty.Items)
+	}
+	if p := roundTripEmpty.ToProto(); p.NullNums == nil || len(p.NullNums) != 0 || p.NestedArr == nil || p.NestedArr.Items == nil || len(p.NestedArr.Items) != 0 {
+		t.Fatalf("expected ToProto to preserve non-nil empty arrays, got %+v", p)
+	}
+
+	// 3. FromProto / ToProto with zero-valued enums (UNSPECIFIED=0 -> nil, PENDING=0 -> &"PENDING")
+	//    and nullable array values.
+	m := &ParityRecord{
+		Id:            "rec-enums",
+		NullNums:      []int32{7, 11},
+		ReqNums:       []int32{1, 2},
+		StatusUnspec:  UnspecEnum_UNSPEC_ENUM_UNSPECIFIED,
+		StatusPending: ZeroPendingEnum_ZERO_PENDING_ENUM_PENDING,
+		NestedUnspec:  &NestedUnspecBox{Kind: UnspecEnum_UNSPEC_ENUM_UNSPECIFIED},
+		NestedPending: &NestedPendingBox{State: ZeroPendingEnum_ZERO_PENDING_ENUM_PENDING},
+		NestedArr:     &NestedArrayBox{Items: []int32{}},
+	}
+	var row ParityRecordDoris
+	row.FromProto(m)
+	if row.StatusUnspec != nil {
+		t.Fatalf("expected UNSPEC_ENUM_UNSPECIFIED=0 to remain nil, got %#v", row.StatusUnspec)
+	}
+	if row.StatusPending == nil || *row.StatusPending != "PENDING" {
+		t.Fatalf("expected ZERO_PENDING_ENUM_PENDING=0 to strip to &\"PENDING\", got %#v", row.StatusPending)
+	}
+	if row.Kind != nil {
+		t.Fatalf("expected nested UNSPEC_ENUM_UNSPECIFIED=0 to remain nil, got %#v", row.Kind)
+	}
+	if row.State == nil || *row.State != "PENDING" {
+		t.Fatalf("expected nested ZERO_PENDING_ENUM_PENDING=0 to strip to &\"PENDING\", got %#v", row.State)
+	}
+	if !reflect.DeepEqual([]int32(row.NullNums), []int32{7, 11}) {
+		t.Fatalf("unexpected NullNums: %#v", row.NullNums)
+	}
+	if row.Items == nil || len(row.Items) != 0 {
+		t.Fatalf("expected non-nil empty NestedArr.Items from []int32{}, got %#v", row.Items)
+	}
+
+	gotProto, err := ScanParityRecordProto(NewDorisValueScanner(row.Values()))
+	if err != nil {
+		t.Fatalf("ScanParityRecordProto failed: %v", err)
+	}
+	if gotProto.StatusUnspec != UnspecEnum_UNSPEC_ENUM_UNSPECIFIED {
+		t.Fatalf("unexpected StatusUnspec: %v", gotProto.StatusUnspec)
+	}
+	if gotProto.StatusPending != ZeroPendingEnum_ZERO_PENDING_ENUM_PENDING {
+		t.Fatalf("unexpected StatusPending: %v", gotProto.StatusPending)
+	}
+	if gotProto.NestedUnspec != nil {
+		t.Fatalf("expected NestedUnspec to stay nil for UNSPECIFIED=0, got %+v", gotProto.NestedUnspec)
+	}
+	if gotProto.NestedPending == nil || gotProto.NestedPending.State != ZeroPendingEnum_ZERO_PENDING_ENUM_PENDING {
+		t.Fatalf("expected NestedPending with ZERO_PENDING_ENUM_PENDING=0 to round-trip, got %+v", gotProto.NestedPending)
+	}
+	if !reflect.DeepEqual(gotProto.NullNums, []int32{7, 11}) {
+		t.Fatalf("unexpected round-trip NullNums: %#v", gotProto.NullNums)
+	}
+	if gotProto.NestedArr == nil || gotProto.NestedArr.Items == nil || len(gotProto.NestedArr.Items) != 0 {
+		t.Fatalf("expected NestedArr with non-nil empty Items after round-trip, got %+v", gotProto.NestedArr)
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpPkgDir, "parity_rt_test.go"), []byte(rtTestSrc), 0o644); err != nil {
+		t.Fatalf("write parity_rt_test.go: %v", err)
+	}
+	testCmd := exec.Command("go", "test", "-v", "./"+pkgName)
+	testCmd.Env = append(os.Environ(), "GOWORK=off")
+	if out, err := testCmd.CombinedOutput(); err != nil {
+		t.Fatalf("compiled nullable array & zero enum runtime test failed: %v\n%s", err, out)
+	}
+}
+
+func TestPR241_CodeRabbitRound3_PostgresIndexAndTypeFixes(t *testing.T) {
+	// 1. Item 3: Reject Desc on non-BTREE index methods before any DROP INDEX.
+	if !isPostgresOrderedIndexMethod("") || !isPostgresOrderedIndexMethod("btree") || !isPostgresOrderedIndexMethod(" BTREE ") {
+		t.Fatal("expected empty and BTREE index methods to be ordered")
+	}
+	for _, m := range []string{"GIN", "HASH", "GIST", "BRIN", "SPGIST", "HNSW", "IVFFLAT"} {
+		if isPostgresOrderedIndexMethod(m) {
+			t.Fatalf("expected %s not to be an ordered index method", m)
+		}
+	}
+
+	baseDesc := PostgresTableDescriptor{
+		TableName:         "idx_order_tbl",
+		DatabaseScope:     "PUBLIC",
+		PrimaryKeyColumns: []string{"id"},
+		Columns: []PostgresColumnDescriptor{
+			{ColumnName: "id", SQLType: "UUID", PostgresType: "UUID", IsPrimaryKey: true},
+			{ColumnName: "tags", SQLType: "TEXT[]", PostgresType: "TEXT[]"},
+			{ColumnName: "label", SQLType: "TEXT", PostgresType: "TEXT"},
+		},
+		Indexes: []PostgresIndexDescriptor{
+			{Name: "idx_t1_col", Columns: []string{"label"}, Using: "BTREE"},
+		},
+	}
+
+	badAfterCases := []struct {
+		name string
+		idx  PostgresIndexDescriptor
+	}{
+		{
+			name: "GIN_DescColumns",
+			idx:  PostgresIndexDescriptor{Name: "idx_t1_col", Columns: []string{"tags"}, DescColumns: []string{"tags"}, Using: "GIN"},
+		},
+		{
+			name: "HASH_PartsDesc",
+			idx:  PostgresIndexDescriptor{Name: "idx_t1_col", Using: "HASH", Parts: []PostgresIndexPartDescriptor{{Column: "label", Desc: true}}},
+		},
+		{
+			name: "GIN_ExprDesc",
+			idx:  PostgresIndexDescriptor{Name: "idx_t1_col", Using: "GIN", Parts: []PostgresIndexPartDescriptor{{Expr: "lower(label)", Desc: true}}},
+		},
+	}
+	for _, tc := range badAfterCases {
+		after := baseDesc
+		after.Indexes = []PostgresIndexDescriptor{tc.idx}
+		stmts, err := BuildPostgresAlterTableSQL(baseDesc, after, "")
+		if err == nil || stmts != nil {
+			t.Errorf("%s: expected BuildPostgresAlterTableSQL to return (nil, err) with zero DROP INDEX, got (%v, %v)", tc.name, stmts, err)
+		}
+		if validatePostgresDescriptor(after) {
+			t.Errorf("%s: expected validatePostgresDescriptor to reject Desc on %s", tc.name, tc.idx.Using)
+		}
+		if ddl := after.BuildPostgresCreateTableSQL(""); ddl != "" {
+			t.Errorf("%s: expected lakehouse BuildPostgresCreateTableSQL to return empty string, got:\n%s", tc.name, ddl)
+		}
+		if hcl := after.BuildPostgresAtlasHCL(""); hcl != "" {
+			t.Errorf("%s: expected lakehouse BuildPostgresAtlasHCL to return empty string, got:\n%s", tc.name, hcl)
+		}
+		relDesc := PostgresTableSchemaDescriptor{
+			TableName:   after.TableName,
+			PrimaryKeys: after.PrimaryKeyColumns,
+			Columns:     after.Columns,
+			Indexes:     []PostgresIndexDescriptor{tc.idx},
+		}
+		if relDDL := relDesc.BuildPostgresCreateTableSQL(); relDDL != "" {
+			t.Errorf("%s: expected relational BuildPostgresCreateTableSQL to return empty string, got:\n%s", tc.name, relDDL)
+		}
+		if relHCL := relDesc.BuildPostgresAtlasHCL(); relHCL != "" {
+			t.Errorf("%s: expected relational BuildPostgresAtlasHCL to return empty string, got:\n%s", tc.name, relHCL)
+		}
+	}
+
+	// Also verify a new invalid index after an existing index modification emits zero DROP INDEX (returns nil, err).
+	afterWithValidDropAndBadNew := baseDesc
+	afterWithValidDropAndBadNew.Indexes = []PostgresIndexDescriptor{
+		{Name: "idx_t1_col", Columns: []string{"label"}, Unique: true, Using: "BTREE"},
+		{Name: "idx_t1_bad_gin", Columns: []string{"tags"}, DescColumns: []string{"tags"}, Using: "GIN"},
+	}
+	if stmts, err := BuildPostgresAlterTableSQL(baseDesc, afterWithValidDropAndBadNew, ""); err == nil || stmts != nil {
+		t.Errorf("expected BuildPostgresAlterTableSQL with bad second index to return (nil, err), got (%v, %v)", stmts, err)
+	}
+
+	// ParsePostgresAtlasHCL rejects desc = true on GIN/HASH for both column and expr on blocks.
+	for _, badHCL := range []string{
+		`table "t1" {
+  schema = schema.public
+  column "tags" {
+    type = sql("text[]")
+    null = false
+  }
+  index "idx_gin_desc" {
+    type = "GIN"
+    on {
+      column = column.tags
+      desc   = true
+    }
+  }
+}`,
+		`table "t1" {
+  schema = schema.public
+  column "label" {
+    type = text
+    null = false
+  }
+  index "idx_hash_desc" {
+    type = "HASH"
+    on {
+      column = column.label
+      desc   = true
+    }
+  }
+}`,
+		`table "t1" {
+  schema = schema.public
+  column "label" {
+    type = text
+    null = false
+  }
+  index "idx_gin_expr_desc" {
+    type = "GIN"
+    on {
+      expr = "lower(label)"
+      desc = true
+    }
+  }
+}`,
+	} {
+		if _, err := ParsePostgresAtlasHCL(badHCL); err == nil {
+			t.Errorf("expected ParsePostgresAtlasHCL to reject desc=true on non-BTREE index:\n%s", badHCL)
+		}
+	}
+
+	// BTREE with Desc: true continues to succeed across ParsePostgresAtlasHCL, CREATE, and ALTER.
+	btreeHCL := `table "t1" {
+  schema = schema.public
+  column "id" {
+    type = uuid
+    null = false
+  }
+  column "label" {
+    type = text
+    null = false
+  }
+  primary_key {
+    columns = [column.id]
+  }
+  index "idx_btree_desc" {
+    type = "BTREE"
+    on {
+      column = column.label
+      desc   = true
+    }
+  }
+}`
+	parsedBTree, err := ParsePostgresAtlasHCL(btreeHCL)
+	if err != nil {
+		t.Fatalf("expected BTREE with desc=true to parse cleanly, got: %v", err)
+	}
+	if ddl := parsedBTree[0].BuildPostgresCreateTableSQL(""); !strings.Contains(ddl, "CREATE INDEX IF NOT EXISTS idx_btree_desc ON public.t1 (label DESC);") {
+		t.Errorf("expected BTREE DESC index in CREATE TABLE DDL:\n%s", ddl)
+	}
+	emptyBefore := parsedBTree[0]
+	emptyBefore.Indexes = nil
+	if alterStmts, err := BuildPostgresAlterTableSQL(emptyBefore, parsedBTree[0], ""); err != nil || len(alterStmts) != 1 || !strings.Contains(alterStmts[0], "(label DESC)") {
+		t.Errorf("expected BTREE DESC index in ALTER TABLE DDL, got (%v, %v)", alterStmts, err)
+	}
+
+	// 2. Item 4: Normalize & validate parsed HCL column types.
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{`sql("timestamp ( 3 ) with time zone")`, "TIMESTAMP(3) WITH TIME ZONE"},
+		{`sql("timestamptz ( 3 )")`, "TIMESTAMPTZ(3)"},
+		{`sql("numeric ( 20 , 0 )")`, "NUMERIC(20, 0)"},
+		{`sql("numeric(20,0)")`, "NUMERIC(20, 0)"},
+		{`sql("varchar ( 64 )")`, "VARCHAR(64)"},
+	} {
+		if got := hclAttrTypeToPostgresType(tc.in); got != tc.want {
+			t.Errorf("hclAttrTypeToPostgresType(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	tzSpaceHCL := `table "tz_norm" {
+  schema = schema.public
+  column "id" {
+    type = uuid
+    null = false
+  }
+  column "ts" {
+    type    = sql("timestamp ( 3 ) with time zone")
+    null    = false
+    default = sql("'2026-01-01 00:00:00+00'::timestamptz(3)")
+  }
+  column "amount" {
+    type    = sql("numeric ( 20 , 0 )")
+    null    = false
+    default = 0
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}`
+	parsedTZ, err := ParsePostgresAtlasHCL(tzSpaceHCL)
+	if err != nil {
+		t.Fatalf("expected ParsePostgresAtlasHCL to accept normalized timestamp ( 3 ) with time zone, got: %v", err)
+	}
+	if parsedTZ[0].Columns[1].PostgresType != "TIMESTAMP(3) WITH TIME ZONE" {
+		t.Fatalf("expected TIMESTAMP(3) WITH TIME ZONE, got %q", parsedTZ[0].Columns[1].PostgresType)
+	}
+	if parsedTZ[0].Columns[2].PostgresType != "NUMERIC(20, 0)" {
+		t.Fatalf("expected NUMERIC(20, 0), got %q", parsedTZ[0].Columns[2].PostgresType)
+	}
+	tzDDL := parsedTZ[0].BuildPostgresCreateTableSQL("")
+	if tzDDL == "" || !strings.Contains(tzDDL, "ts TIMESTAMP(3) WITH TIME ZONE NOT NULL DEFAULT '2026-01-01 00:00:00+00'") {
+		t.Errorf("expected valid non-empty DDL for normalized timestamp(3) with time zone:\n%s", tzDDL)
+	}
+
+	// Preserve strict cast precision check on normalized type.
+	badPrecisionHCL := `table "tz_bad_prec" {
+  schema = schema.public
+  column "id" {
+    type = uuid
+    null = false
+  }
+  column "ts" {
+    type    = sql("timestamp ( 3 ) with time zone")
+    null    = false
+    default = sql("'2026-01-01 00:00:00+00'::timestamptz(6)")
+  }
+}`
+	if _, err := ParsePostgresAtlasHCL(badPrecisionHCL); err == nil {
+		t.Error("expected strict cast precision validation to reject ::timestamptz(6) on timestamp ( 3 ) with time zone")
+	}
+
+	// Reject invalid column type spellings with a column-specific error.
+	for _, badType := range []string{
+		`sql("varchar(64) not null")`,
+		`sql("bogus_type")`,
+		`sql("timestamp(3)with time zone")`,
+	} {
+		badHCL := `table "bad_col_tbl" {
+  schema = schema.public
+  column "bad_col" {
+    type = ` + badType + `
+    null = false
+  }
+}`
+		_, err := ParsePostgresAtlasHCL(badHCL)
+		if err == nil || !strings.Contains(err.Error(), `column "bad_col"`) || !strings.Contains(err.Error(), "unsupported PostgreSQL type") {
+			t.Errorf("badType=%s: expected column-specific unsupported PostgreSQL type error, got %v", badType, err)
+		}
+	}
+
+	// 3. Item 5: Validate & emit USING <method> in relational BuildPostgresCreateTableWithoutForeignKeysSQL.
+	relSchema := PostgresTableSchemaDescriptor{
+		TableName:   "rel_idx_tbl",
+		PrimaryKeys: []string{"id"},
+		Columns: []PostgresColumnDescriptor{
+			{ColumnName: "id", SQLType: "UUID", HCLType: "uuid"},
+			{ColumnName: "tags", SQLType: "TEXT[]", HCLType: "text[]"},
+			{ColumnName: "uniq_tags", SQLType: "TEXT[]", HCLType: "text[]"},
+			{ColumnName: "name", SQLType: "TEXT", HCLType: "text"},
+			{ColumnName: "email", SQLType: "TEXT", HCLType: "text"},
+		},
+		Indexes: []PostgresIndexDescriptor{
+			{Name: "idx_rel_tags", Columns: []string{"tags"}, Using: "GIN"},
+			{Name: "uq_rel_tags", Columns: []string{"uniq_tags"}, Unique: true, Using: "GIN"},
+			{Name: "idx_rel_name", Columns: []string{"name"}, Using: "BTREE"},
+			{Name: "idx_rel_email", Columns: []string{"email"}},
+		},
+	}
+	relDDL := relSchema.BuildPostgresCreateTableSQL()
+	for _, want := range []string{
+		`CREATE INDEX IF NOT EXISTS "idx_rel_tags" ON "rel_idx_tbl" USING gin ("tags");`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS "uq_rel_tags" ON "rel_idx_tbl" USING gin ("uniq_tags");`,
+		`CREATE INDEX IF NOT EXISTS "idx_rel_name" ON "rel_idx_tbl" ("name");`,
+		`CREATE INDEX IF NOT EXISTS "idx_rel_email" ON "rel_idx_tbl" ("email");`,
+	} {
+		if !strings.Contains(relDDL, want) {
+			t.Errorf("relational BuildPostgresCreateTableSQL missing %q:\n%s", want, relDDL)
+		}
+	}
+
+	badMethodRel := relSchema
+	badMethodRel.Indexes = []PostgresIndexDescriptor{
+		{Name: "idx_bad_method", Columns: []string{"tags"}, Using: "EXEC"},
+	}
+	if badDDL := badMethodRel.BuildPostgresCreateTableSQL(); badDDL != "" {
+		t.Errorf("expected invalid Using method in relational BuildPostgresCreateTableSQL to return empty string, got:\n%s", badDDL)
+	}
+}

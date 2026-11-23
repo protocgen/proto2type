@@ -324,6 +324,7 @@ func dorisSharedRuntimeSymbolOwners(hasDateHelpers bool) map[string]string {
 		"effectiveDorisDistributionCols",
 		"effectiveDorisSequenceCol",
 		"effectiveIcebergPartitionSpec",
+		"dorisNullableArrayValue",
 	}
 	if hasDateHelpers {
 		syms = append(syms, "parseDorisDateToProto", "formatProtoDateToDoris")
@@ -4441,6 +4442,14 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("}")
 	g.P()
 
+	g.P("func dorisNullableArrayValue[S ~[]E, E any](s S) any {")
+	g.P("\tif s == nil {")
+	g.P("\t\treturn nil")
+	g.P("\t}")
+	g.P("\treturn s")
+	g.P("}")
+	g.P()
+
 	g.P("func dorisUint64Value(v uint64) any {")
 	g.P("\tif v > uint64(", mathMaxInt64, ") {")
 	g.P("\t\treturn ", strconvFormatUint, "(v, 10)")
@@ -4875,7 +4884,11 @@ func emitDorisTableCode(g *protogen.GeneratedFile, tbl *dorisTableIR) {
 	for _, c := range tbl.Columns {
 		switch {
 		case c.isArray():
-			g.P("\t\tr.", c.GoFieldName, ",")
+			if c.ColDesc.Nullable {
+				g.P("\t\tdorisNullableArrayValue(r.", c.GoFieldName, "),")
+			} else {
+				g.P("\t\tr.", c.GoFieldName, ",")
+			}
 		case c.IsDate:
 			if c.ColDesc.Nullable {
 				g.P("\t\tdorisNullableDateValue(r.", c.GoFieldName, "),")
@@ -5234,9 +5247,14 @@ func emitDorisColumnToProto(g *protogen.GeneratedFile, c *dorisColumnIR, targetV
 		}
 	}
 
+	arrayCond := "len(r." + c.GoFieldName + ") > 0"
+	if c.ColDesc.Nullable {
+		arrayCond = "r." + c.GoFieldName + " != nil"
+	}
+
 	switch {
 	case c.ArrayKind == "string":
-		g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
+		g.P("\tif ", arrayCond, " {")
 		markSet("\t\t")
 		if c.IsEnum {
 			enumIdent := g.QualifiedGoIdent(c.Field.Enum.GoIdent)
@@ -5250,25 +5268,25 @@ func emitDorisColumnToProto(g *protogen.GeneratedFile, c *dorisColumnIR, targetV
 		}
 		g.P("\t}")
 	case c.ArrayKind == "float32":
-		g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
+		g.P("\tif ", arrayCond, " {")
 		markSet("\t\t")
 		g.P("\t\t", targetVar, ".", protoField, " = make([]float32, len(r.", c.GoFieldName, "))")
 		g.P("\t\tcopy(", targetVar, ".", protoField, ", r.", c.GoFieldName, ")")
 		g.P("\t}")
 	case c.ArrayKind == "float64":
-		g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
+		g.P("\tif ", arrayCond, " {")
 		markSet("\t\t")
 		g.P("\t\t", targetVar, ".", protoField, " = make([]float64, len(r.", c.GoFieldName, "))")
 		g.P("\t\tcopy(", targetVar, ".", protoField, ", r.", c.GoFieldName, ")")
 		g.P("\t}")
 	case c.ArrayKind == "int32":
-		g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
+		g.P("\tif ", arrayCond, " {")
 		markSet("\t\t")
 		g.P("\t\t", targetVar, ".", protoField, " = make([]int32, len(r.", c.GoFieldName, "))")
 		g.P("\t\tcopy(", targetVar, ".", protoField, ", r.", c.GoFieldName, ")")
 		g.P("\t}")
 	case c.ArrayKind == "int64":
-		g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
+		g.P("\tif ", arrayCond, " {")
 		markSet("\t\t")
 		elemGoType := goType(c.Field.Desc.Kind())
 		if elemGoType == "int64" {
@@ -5282,13 +5300,13 @@ func emitDorisColumnToProto(g *protogen.GeneratedFile, c *dorisColumnIR, targetV
 		}
 		g.P("\t}")
 	case c.ArrayKind == "uint64":
-		g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
+		g.P("\tif ", arrayCond, " {")
 		markSet("\t\t")
 		g.P("\t\t", targetVar, ".", protoField, " = make([]uint64, len(r.", c.GoFieldName, "))")
 		g.P("\t\tcopy(", targetVar, ".", protoField, ", r.", c.GoFieldName, ")")
 		g.P("\t}")
 	case c.ArrayKind == "bool":
-		g.P("\tif len(r.", c.GoFieldName, ") > 0 {")
+		g.P("\tif ", arrayCond, " {")
 		markSet("\t\t")
 		g.P("\t\t", targetVar, ".", protoField, " = make([]bool, len(r.", c.GoFieldName, "))")
 		g.P("\t\tcopy(", targetVar, ".", protoField, ", r.", c.GoFieldName, ")")
@@ -5477,10 +5495,14 @@ func emitDorisFromProto(g *protogen.GeneratedFile, tbl *dorisTableIR, structName
 // emitDorisColumnFromProto emits the population of r.<GoFieldName> from srcVar.<ProtoGoName>.
 func emitDorisColumnFromProto(g *protogen.GeneratedFile, c *dorisColumnIR, srcVar, indent string) {
 	protoField := c.Field.GoName
+	arraySrcCond := "len(src) > 0"
+	if c.ColDesc.Nullable {
+		arraySrcCond = "src != nil"
+	}
 
 	switch {
 	case c.ArrayKind == "string":
-		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
+		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); ", arraySrcCond, " {")
 		g.P(indent, "\tr.", c.GoFieldName, " = make(DorisStringArray, len(src))")
 		if c.IsEnum {
 			g.P(indent, "\tfor i, v := range src {")
@@ -5495,22 +5517,22 @@ func emitDorisColumnFromProto(g *protogen.GeneratedFile, c *dorisColumnIR, srcVa
 		}
 		g.P(indent, "}")
 	case c.ArrayKind == "float32":
-		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
+		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); ", arraySrcCond, " {")
 		g.P(indent, "\tr.", c.GoFieldName, " = make(DorisFloat32Array, len(src))")
 		g.P(indent, "\tcopy(r.", c.GoFieldName, ", src)")
 		g.P(indent, "}")
 	case c.ArrayKind == "float64":
-		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
+		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); ", arraySrcCond, " {")
 		g.P(indent, "\tr.", c.GoFieldName, " = make(DorisFloat64Array, len(src))")
 		g.P(indent, "\tcopy(r.", c.GoFieldName, ", src)")
 		g.P(indent, "}")
 	case c.ArrayKind == "int32":
-		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
+		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); ", arraySrcCond, " {")
 		g.P(indent, "\tr.", c.GoFieldName, " = make(DorisInt32Array, len(src))")
 		g.P(indent, "\tcopy(r.", c.GoFieldName, ", src)")
 		g.P(indent, "}")
 	case c.ArrayKind == "int64":
-		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
+		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); ", arraySrcCond, " {")
 		g.P(indent, "\tr.", c.GoFieldName, " = make(DorisInt64Array, len(src))")
 		if goType(c.Field.Desc.Kind()) == "int64" {
 			g.P(indent, "\tcopy(r.", c.GoFieldName, ", src)")
@@ -5521,12 +5543,12 @@ func emitDorisColumnFromProto(g *protogen.GeneratedFile, c *dorisColumnIR, srcVa
 		}
 		g.P(indent, "}")
 	case c.ArrayKind == "uint64":
-		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
+		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); ", arraySrcCond, " {")
 		g.P(indent, "\tr.", c.GoFieldName, " = make(DorisUint64Array, len(src))")
 		g.P(indent, "\tcopy(r.", c.GoFieldName, ", src)")
 		g.P(indent, "}")
 	case c.ArrayKind == "bool":
-		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); len(src) > 0 {")
+		g.P(indent, "if src := ", srcVar, ".Get", protoField, "(); ", arraySrcCond, " {")
 		g.P(indent, "\tr.", c.GoFieldName, " = make(DorisBoolArray, len(src))")
 		g.P(indent, "\tcopy(r.", c.GoFieldName, ", src)")
 		g.P(indent, "}")
@@ -5568,8 +5590,7 @@ func emitDorisColumnFromProto(g *protogen.GeneratedFile, c *dorisColumnIR, srcVa
 					g.P(indent, "\tr.", c.GoFieldName, " = &v")
 					g.P(indent, "}")
 				} else if c.ColDesc.StripEnumPrefix {
-					g.P(indent, "if ", srcVar, ".Get", protoField, "() != 0 {")
-					g.P(indent, "\tv := stripProtoEnumPrefix(", srcVar, ".Get", protoField, "().String(), ", fmt.Sprintf("%q", c.EnumPrefix), ")")
+					g.P(indent, "if v := stripProtoEnumPrefix(", srcVar, ".Get", protoField, "().String(), ", fmt.Sprintf("%q", c.EnumPrefix), "); v != \"\" {")
 					g.P(indent, "\tr.", c.GoFieldName, " = &v")
 					g.P(indent, "}")
 				} else {

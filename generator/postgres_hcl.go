@@ -4,12 +4,19 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
+)
+
+var (
+	hclParenOpenSpaceRe  = regexp.MustCompile(`\(\s+`)
+	hclParenCloseSpaceRe = regexp.MustCompile(`\s+\)`)
+	hclSpaceBeforeOpenRe = regexp.MustCompile(`\s+\(`)
 )
 
 func escapeHCLInterpolation(s string) string {
@@ -33,6 +40,23 @@ func isValidPostgresIndexMethod(using string) bool {
 	default:
 		return false
 	}
+}
+
+func isPostgresOrderedIndexMethod(using string) bool {
+	u := strings.ToUpper(strings.TrimSpace(using))
+	return u == "" || u == "BTREE"
+}
+
+func postgresIndexHasDesc(idx PostgresIndexDescriptor) bool {
+	if len(idx.DescColumns) > 0 {
+		return true
+	}
+	for _, p := range idx.Parts {
+		if p.Desc {
+			return true
+		}
+	}
+	return false
 }
 
 var builtinPostgresOpclasses = map[string]bool{
@@ -279,7 +303,7 @@ func formatPostgresIndexPartsSQL(idx PostgresIndexDescriptor, quoteCol bool) []s
 		if p.Opclass != "" {
 			elem += " " + p.Opclass
 		}
-		if p.Desc {
+		if p.Desc && isPostgresOrderedIndexMethod(idx.Using) {
 			elem += " DESC"
 		}
 		parts = append(parts, elem)
@@ -371,6 +395,19 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 		if !isValidSQLIdentifier(idx.Name) || len(idx.Name) > maxPostgresIdentifierBytes || (len(idx.Parts) == 0 && len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
 			return ""
 		}
+		if !isValidPostgresIndexMethod(idx.Using) {
+			return ""
+		}
+		isOrdered := isPostgresOrderedIndexMethod(idx.Using)
+		if !isOrdered && postgresIndexHasDesc(idx) {
+			return ""
+		}
+		if idx.Ops != "" && (!isValidSQLIdentifier(idx.Ops) || len(idx.Ops) > maxPostgresIdentifierBytes) {
+			return ""
+		}
+		if isOrdered && isPostgresBTreeIncompatibleOpclass(idx.Ops) {
+			return ""
+		}
 		for _, col := range idx.Columns {
 			if !isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes {
 				return ""
@@ -392,6 +429,9 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 				return ""
 			}
 			if p.Opclass != "" && (!isValidSQLIdentifier(p.Opclass) || len(p.Opclass) > maxPostgresIdentifierBytes) {
+				return ""
+			}
+			if isOrdered && isPostgresBTreeIncompatibleOpclass(p.Opclass) {
 				return ""
 			}
 		}
@@ -710,7 +750,10 @@ func validatePostgresDescriptor(t PostgresTableDescriptor) bool {
 		if !isValidPostgresIndexMethod(idx.Using) {
 			return false
 		}
-		isImplicitOrBTree := idx.Using == "" || strings.EqualFold(strings.TrimSpace(idx.Using), "btree")
+		isImplicitOrBTree := isPostgresOrderedIndexMethod(idx.Using)
+		if !isImplicitOrBTree && postgresIndexHasDesc(idx) {
+			return false
+		}
 		if idx.Ops != "" && (!isValidSQLIdentifier(idx.Ops) || len(idx.Ops) > maxPostgresIdentifierBytes) {
 			return false
 		}
@@ -1483,6 +1526,12 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 			Expressions: cleanExprs,
 			Parts:       parts,
 		}
+		if !isValidPostgresIndexMethod(idxDesc.Using) {
+			return nil, fmt.Errorf("message %s: invalid index method %q for index %q", msg.Desc.FullName(), idxDesc.Using, idxDesc.Name)
+		}
+		if !isPostgresOrderedIndexMethod(idxDesc.Using) && postgresIndexHasDesc(idxDesc) {
+			return nil, fmt.Errorf("message %s: index %q DESC ordering is only supported for BTREE indexes (got %s)", msg.Desc.FullName(), idxDesc.Name, idxDesc.Using)
+		}
 		if idxDesc.Name == "" {
 			suffix := postgresIndexSuffix(idxDesc)
 			if idxIR.Unique {
@@ -2019,8 +2068,12 @@ func hclAttrTypeToPostgresType(rawType string) string {
 		t = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(t, "sql("), ")"))
 	}
 	t = unquoteHCLString(t)
-	upper := strings.ToUpper(strings.TrimSpace(t))
+	upper := strings.ToUpper(strings.Join(strings.Fields(t), " "))
 	upper = strings.ReplaceAll(upper, "DOUBLE_PRECISION", "DOUBLE PRECISION")
+	upper = hclParenOpenSpaceRe.ReplaceAllString(upper, "(")
+	upper = hclParenCloseSpaceRe.ReplaceAllString(upper, ")")
+	upper = hclSpaceBeforeOpenRe.ReplaceAllString(upper, "(")
+	upper = strings.ReplaceAll(upper, " ,", ",")
 	upper = strings.ReplaceAll(upper, ", ", ",")
 	upper = strings.ReplaceAll(upper, ",", ", ")
 	return upper
@@ -2505,6 +2558,9 @@ func applyPostgresAtlasSubBlock(
 		if IsForbiddenPostgresColumnType(pgType) {
 			return fmt.Errorf("column %q uses forbidden non-relational type %q", colName, pgType)
 		}
+		if !isValidPostgresTypeSyntax(pgType) {
+			return fmt.Errorf("column %q has unsupported PostgreSQL type %q", colName, pgType)
+		}
 		nullable := false
 		if nullStr, hasNull := kv["null"]; hasNull {
 			parsedNull, bErr := strconv.ParseBool(unquoteHCLString(nullStr))
@@ -2731,7 +2787,7 @@ func applyPostgresAtlasSubBlock(
 		if ops != "" && (!isValidSQLIdentifier(ops) || len(ops) > maxPostgresIdentifierBytes) {
 			return fmt.Errorf("index %q: invalid ops %q", idxName, ops)
 		}
-		if using == "BTREE" {
+		if isPostgresOrderedIndexMethod(using) {
 			if isPostgresBTreeIncompatibleOpclass(ops) {
 				return fmt.Errorf("index %q: operator class %q is incompatible with BTREE (specify a compatible type/using method)", idxName, ops)
 			}
@@ -2740,6 +2796,8 @@ func applyPostgresAtlasSubBlock(
 					return fmt.Errorf("index %q: operator class %q is incompatible with BTREE (specify a compatible type/using method)", idxName, p.Opclass)
 				}
 			}
+		} else if postgresIndexHasDesc(PostgresIndexDescriptor{DescColumns: descCols, Parts: parts}) {
+			return fmt.Errorf("index %q: DESC ordering is only supported for BTREE indexes (got %s)", idxName, using)
 		}
 		desc.Indexes = append(desc.Indexes, PostgresIndexDescriptor{
 			Name:        idxName,
@@ -3306,6 +3364,23 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 		if idx.Name == "" || (len(idx.Parts) == 0 && len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
 			continue
 		}
+		if !isValidPostgresIndexMethod(idx.Using) {
+			return nil, fmt.Errorf("index %q has invalid index method %q", idx.Name, idx.Using)
+		}
+		isOrdered := isPostgresOrderedIndexMethod(idx.Using)
+		if !isOrdered && postgresIndexHasDesc(idx) {
+			return nil, fmt.Errorf("index %q DESC ordering is only supported for BTREE indexes (got %s)", idx.Name, idx.Using)
+		}
+		if isOrdered {
+			if isPostgresBTreeIncompatibleOpclass(idx.Ops) {
+				return nil, fmt.Errorf("index %q operator class %q is incompatible with BTREE (specify a compatible USING method)", idx.Name, idx.Ops)
+			}
+			for _, p := range idx.Parts {
+				if isPostgresBTreeIncompatibleOpclass(p.Opclass) {
+					return nil, fmt.Errorf("index %q operator class %q is incompatible with BTREE (specify a compatible USING method)", idx.Name, p.Opclass)
+				}
+			}
+		}
 		if prev, exists := beforeIdxByName[idx.Name]; exists {
 			if postgresIndexesEffectivelyEqual(prev, idx) {
 				continue
@@ -3324,14 +3399,6 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 			whereClause = " WHERE " + idx.Where
 		}
 		if using == "" || using == "btree" {
-			if isPostgresBTreeIncompatibleOpclass(idx.Ops) {
-				return nil, fmt.Errorf("index %q operator class %q is incompatible with BTREE (specify a compatible USING method)", idx.Name, idx.Ops)
-			}
-			for _, p := range idx.Parts {
-				if isPostgresBTreeIncompatibleOpclass(p.Opclass) {
-					return nil, fmt.Errorf("index %q operator class %q is incompatible with BTREE (specify a compatible USING method)", idx.Name, p.Opclass)
-				}
-			}
 			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s)%s;", uniqueKw, idx.Name, fullTableName, strings.Join(idxParts, ", "), whereClause))
 		} else {
 			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s)%s;", uniqueKw, idx.Name, fullTableName, using, strings.Join(idxParts, ", "), whereClause))

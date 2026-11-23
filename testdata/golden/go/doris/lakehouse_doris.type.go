@@ -4536,6 +4536,13 @@ func dorisRequiredBytesValue(b []byte) any {
 	return b
 }
 
+func dorisNullableArrayValue[S ~[]E, E any](s S) any {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
 func dorisUint64Value(v uint64) any {
 	if v > uint64(math.MaxInt64) {
 		return strconv.FormatUint(v, 10)
