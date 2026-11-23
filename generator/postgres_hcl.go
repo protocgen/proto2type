@@ -185,6 +185,9 @@ func parsePostgresHCLSQLDefault(inner, columnType string) (defVal string, hasDef
 	if unescaped != "" && !isValidDorisDefaultValue(unescaped) {
 		return "", false, "", false
 	}
+	if columnType != "" && validatePostgresColumnDefault(columnType, unescaped, true) != nil {
+		return "", false, "", false
+	}
 	return unescaped, true, "", true
 }
 
@@ -546,6 +549,32 @@ func effectiveColPostgresType(c PostgresColumnDescriptor) string {
 	return strings.TrimSpace(c.SQLType)
 }
 
+func messageHasLakehouseTableMeta(meta *DorisTableMetaIR) bool {
+	if meta == nil {
+		return false
+	}
+	return meta.DatabaseScope != "" ||
+		meta.SyncTier != "" ||
+		len(meta.PartitionByColumns) > 0 ||
+		len(meta.NgramBfColumns) > 0 ||
+		meta.EmbeddingDimension > 0
+}
+
+func resolvePostgresTableCollisionSchema(isLakehouse bool, meta *DorisTableMetaIR) string {
+	if !isLakehouse || meta == nil {
+		return "public"
+	}
+	schemaName, ok := resolvePostgresSchemaName(meta.DatabaseScope, "${TENANT_SLUG}")
+	if !ok {
+		return "public"
+	}
+	return schemaName
+}
+
+func postgresResolvedSchemaTableKey(schemaName, tableName string) string {
+	return schemaName + "\x00" + tableName
+}
+
 func fileHasLakehousePostgresTables(file *protogen.File) bool {
 	if file == nil {
 		return false
@@ -554,15 +583,7 @@ func fileHasLakehousePostgresTables(file *protogen.File) bool {
 		if isMessageSkipped(msg) {
 			continue
 		}
-		meta := extractDorisTableMeta(msg)
-		if meta == nil {
-			continue
-		}
-		if meta.DatabaseScope != "" ||
-			meta.SyncTier != "" ||
-			len(meta.PartitionByColumns) > 0 ||
-			len(meta.NgramBfColumns) > 0 ||
-			meta.EmbeddingDimension > 0 {
+		if messageHasLakehouseTableMeta(extractDorisTableMeta(msg)) {
 			return true
 		}
 	}
@@ -1000,7 +1021,7 @@ func messageHasAnnotatedPostgresColumns(msg *protogen.Message, visited map[proto
 	return false
 }
 
-func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgresTableIR, error) {
+func collectLakehouseInlineTargetMsgs(files []*protogen.File) map[protoreflect.FullName]bool {
 	inlineTargetMsgs := make(map[protoreflect.FullName]bool)
 	var collectInlineTargets func(msg *protogen.Message, visited map[protoreflect.FullName]bool)
 	collectInlineTargets = func(msg *protogen.Message, visited map[protoreflect.FullName]bool) {
@@ -1019,12 +1040,31 @@ func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgres
 			}
 		}
 	}
-	for _, msg := range file.Messages {
-		if !isMessageSkipped(msg) {
+	var walkFileMsgs func(msgs []*protogen.Message)
+	walkFileMsgs = func(msgs []*protogen.Message) {
+		for _, msg := range msgs {
+			if isMessageSkipped(msg) {
+				continue
+			}
 			collectInlineTargets(msg, make(map[protoreflect.FullName]bool))
+			walkFileMsgs(msg.Messages)
 		}
 	}
+	for _, file := range files {
+		if file == nil {
+			continue
+		}
+		walkFileMsgs(file.Messages)
+	}
+	return inlineTargetMsgs
+}
 
+func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgresTableIR, error) {
+	inlineTargetMsgs := collectLakehouseInlineTargetMsgs([]*protogen.File{file})
+	return buildPostgresTablesForFileWithInlineTargets(file, inlineTargetMsgs, opts)
+}
+
+func buildPostgresTablesForFileWithInlineTargets(file *protogen.File, inlineTargetMsgs map[protoreflect.FullName]bool, opts *Options) ([]*postgresTableIR, error) {
 	var tables []*postgresTableIR
 	seenTables := make(map[string]protoreflect.FullName)
 	for _, msg := range file.Messages {
@@ -1053,7 +1093,8 @@ func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgres
 		if len(tbl.Descriptor.Columns) == 0 {
 			continue
 		}
-		id := postgresScopeTableIdentity(tbl.Descriptor)
+		schemaName := resolvePostgresTableCollisionSchema(true, meta)
+		id := postgresResolvedSchemaTableKey(schemaName, tbl.Descriptor.TableName)
 		if prev, exists := seenTables[id]; exists {
 			return nil, fmt.Errorf("message %s: duplicate PostgreSQL table identity %q (already declared by %s)", msg.Desc.FullName(), meta.TableName, prev)
 		}

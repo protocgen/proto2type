@@ -374,6 +374,22 @@ func willEmitDomain(opts *Options) bool {
 	return true
 }
 
+func validateLangBackendOptions(opts *Options) error {
+	if opts == nil {
+		return nil
+	}
+	if opts.Lang == "rust" && opts.Backend == "postgres" {
+		pgTargets, err := opts.ParsePostgresMode()
+		if err != nil {
+			return err
+		}
+		if pgTargets.EmitSearchIndexGo {
+			return fmt.Errorf("proto2type: postgres_mode=%q (Go search_index) is not supported for lang=%q", opts.PostgresMode, opts.Lang)
+		}
+	}
+	return nil
+}
+
 // ValidateOutputFileOptions checks that opts.OutputFile is safe and compatible
 // with the configured domain/backend/mode options and input file count.
 func ValidateOutputFileOptions(opts *Options, generatedFileCount int) error {
@@ -381,6 +397,9 @@ func ValidateOutputFileOptions(opts *Options, generatedFileCount int) error {
 		return nil
 	}
 	if _, err := validateOutputFile(opts.OutputFile); err != nil {
+		return err
+	}
+	if err := validateLangBackendOptions(opts); err != nil {
 		return err
 	}
 	emitDomain := willEmitDomain(opts)

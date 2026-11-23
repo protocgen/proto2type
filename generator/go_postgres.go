@@ -29,8 +29,8 @@ func domainMessagesHaveTableMeta(msgs []*DomainMessage) bool {
 }
 
 // validateDomainMessagesTableMeta validates table metadata, table name syntax, 63-byte
-// identifier length, and table name uniqueness across messages.
-func validateDomainMessagesTableMeta(msgs []*DomainMessage, seenTables map[string]string) error {
+// identifier length, and table name uniqueness within each resolved schema across messages.
+func validateDomainMessagesTableMeta(msgs []*DomainMessage, seenTables map[string]string, isLakehouse bool) error {
 	for _, m := range msgs {
 		if m.Skip {
 			continue
@@ -49,16 +49,18 @@ func validateDomainMessagesTableMeta(msgs []*DomainMessage, seenTables map[strin
 					m.FullName, tableName, maxPostgresIdentifierBytes, len(tableName))
 			}
 			if seenTables != nil {
-				if prev, exists := seenTables[tableName]; exists && prev != m.FullName {
-					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q (already resolved by %s)", m.FullName, tableName, prev)
+				schemaName := resolvePostgresTableCollisionSchema(isLakehouse, meta)
+				key := postgresResolvedSchemaTableKey(schemaName, tableName)
+				if prev, exists := seenTables[key]; exists && prev != m.FullName {
+					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q in schema %q (already resolved by %s)", m.FullName, tableName, schemaName, prev)
 				}
-				seenTables[tableName] = m.FullName
+				seenTables[key] = m.FullName
 			}
 		} else if len(tableName) > maxPostgresIdentifierBytes {
 			return fmt.Errorf("message %s: PostgreSQL table name %q exceeds %d-byte identifier limit (%d bytes)",
 				m.FullName, tableName, maxPostgresIdentifierBytes, len(tableName))
 		}
-		if err := validateDomainMessagesTableMeta(m.NestedMessages, seenTables); err != nil {
+		if err := validateDomainMessagesTableMeta(m.NestedMessages, seenTables, isLakehouse); err != nil {
 			return err
 		}
 	}
@@ -66,13 +68,14 @@ func validateDomainMessagesTableMeta(msgs []*DomainMessage, seenTables map[strin
 }
 
 // validatePostgresTableNamesAcrossPlugin scans all generated files in gen to detect
-// cross-file PostgreSQL table name collisions before emitting ORM, HCL, or DDL files.
+// cross-file PostgreSQL table name collisions within the same resolved schema before
+// emitting ORM, HCL, or DDL files.
 func (gg *goGenerator) validatePostgresTableNamesAcrossPlugin(gen *protogen.Plugin) error {
 	if gen == nil {
 		return nil
 	}
-	var walkMsgs func(msgs []*protogen.Message) error
-	walkMsgs = func(msgs []*protogen.Message) error {
+	var walkMsgs func(msgs []*protogen.Message, isLakehouse bool) error
+	walkMsgs = func(msgs []*protogen.Message, isLakehouse bool) error {
 		for _, msg := range msgs {
 			if msg.Desc.IsMapEntry() || isMessageSkipped(msg) {
 				continue
@@ -81,12 +84,14 @@ func (gg *goGenerator) validatePostgresTableNamesAcrossPlugin(gen *protogen.Plug
 			fullName := string(msg.Desc.FullName())
 			if meta != nil {
 				tableName := resolvePostgresTableName(msg, meta)
-				if prev, exists := gg.seenPostgresTables[tableName]; exists && prev != fullName {
-					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q (already resolved by %s)", fullName, tableName, prev)
+				schemaName := resolvePostgresTableCollisionSchema(isLakehouse, meta)
+				key := postgresResolvedSchemaTableKey(schemaName, tableName)
+				if prev, exists := gg.seenPostgresTables[key]; exists && prev != fullName {
+					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q in schema %q (already resolved by %s)", fullName, tableName, schemaName, prev)
 				}
-				gg.seenPostgresTables[tableName] = fullName
+				gg.seenPostgresTables[key] = fullName
 			}
-			if err := walkMsgs(msg.Messages); err != nil {
+			if err := walkMsgs(msg.Messages, isLakehouse); err != nil {
 				return err
 			}
 		}
@@ -96,7 +101,8 @@ func (gg *goGenerator) validatePostgresTableNamesAcrossPlugin(gen *protogen.Plug
 		if !f.Generate {
 			continue
 		}
-		if err := walkMsgs(f.Messages); err != nil {
+		isLakehouse := fileHasLakehousePostgresTables(f)
+		if err := walkMsgs(f.Messages, isLakehouse); err != nil {
 			return err
 		}
 	}
@@ -147,7 +153,8 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 	if err != nil {
 		return err
 	}
-	if err := validateDomainMessagesTableMeta(df.Messages, gg.seenPostgresTables); err != nil {
+	isLakehouseFile := fileHasLakehousePostgresTables(file)
+	if err := validateDomainMessagesTableMeta(df.Messages, gg.seenPostgresTables, isLakehouseFile); err != nil {
 		return err
 	}
 
@@ -157,7 +164,7 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 		}
 	}
 	if pgTargets.EmitHCL || pgTargets.EmitDDL {
-		if fileHasLakehousePostgresTables(file) {
+		if isLakehouseFile {
 			if pgTargets.EmitHCL {
 				if err := generateLakehousePostgresHCLFile(gen, file, effectiveOpts); err != nil {
 					return err
@@ -179,10 +186,11 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 			if tbl.FullName != "" {
 				owner = tbl.FullName
 			}
-			if prev, exists := gg.seenPostgresTables[tbl.TableName]; exists && prev != owner {
-				return fmt.Errorf("message %s: duplicate PostgreSQL table name %q (already resolved by %s)", owner, tbl.TableName, prev)
+			key := postgresResolvedSchemaTableKey("public", tbl.TableName)
+			if prev, exists := gg.seenPostgresTables[key]; exists && prev != owner {
+				return fmt.Errorf("message %s: duplicate PostgreSQL table name %q in schema %q (already resolved by %s)", owner, tbl.TableName, "public", prev)
 			}
-			gg.seenPostgresTables[tbl.TableName] = owner
+			gg.seenPostgresTables[key] = owner
 		}
 		if pgTargets.EmitHCL {
 			if err := generatePostgresHCLFileWithOpts(gen, file, tables, effectiveOpts); err != nil {
@@ -243,43 +251,65 @@ func (gg *goGenerator) generateGoPostgresConsolidated(gen *protogen.Plugin, file
 	}
 
 	dfs := make([]*DomainFile, 0, len(nonEmptyFiles))
-	for _, f := range nonEmptyFiles {
+	fileIsLakehouse := make([]bool, len(nonEmptyFiles))
+	for i, f := range nonEmptyFiles {
 		df, err := BuildDomainFile(f, effectiveOpts)
 		if err != nil {
 			return err
 		}
-		if err := validateDomainMessagesTableMeta(df.Messages, gg.seenPostgresTables); err != nil {
+		isLH := fileHasLakehousePostgresTables(f)
+		fileIsLakehouse[i] = isLH
+		if err := validateDomainMessagesTableMeta(df.Messages, gg.seenPostgresTables, isLH); err != nil {
 			return err
 		}
 		dfs = append(dfs, df)
 	}
 
 	if pgTargets.EmitTypes {
+		// Consolidated postgres_mode=go emits ToDomain/FromDomain methods referencing
+		// domain structs that must already exist in the target go_package, so
+		// ValidateOutputFileOptions and Runner.Generate require domain=false.
+		if willEmitDomain(effectiveOpts) {
+			return fmt.Errorf("output_file %q cannot be used when both domain=true and backend=%q are enabled", effectiveOpts.OutputFile, effectiveOpts.Backend)
+		}
 		return gg.generateConsolidatedGoPostgresORMFile(gen, nonEmptyFiles, dfs, effectiveOpts)
 	}
 
 	if pgTargets.EmitHCL || pgTargets.EmitDDL {
-		var lakehouseTables []*postgresTableIR
+		var lakehouseFiles []*protogen.File
 		var lakehouseDFs []*DomainFile
 		var relationalDFs []*DomainFile
-		seenTables := make(map[string]protoreflect.FullName)
 		for i, f := range nonEmptyFiles {
-			if fileHasLakehousePostgresTables(f) {
+			if fileIsLakehouse[i] {
+				lakehouseFiles = append(lakehouseFiles, f)
 				lakehouseDFs = append(lakehouseDFs, dfs[i])
-				tbls, err := buildPostgresTablesForFile(f, effectiveOpts)
-				if err != nil {
-					return err
-				}
-				for _, tbl := range tbls {
-					id := postgresScopeTableIdentity(tbl.Descriptor)
-					if prev, exists := seenTables[id]; exists && prev != tbl.Msg.Desc.FullName() {
-						return fmt.Errorf("message %s: duplicate PostgreSQL table identity %q (already declared by %s)", tbl.Msg.Desc.FullName(), tbl.Descriptor.TableName, prev)
-					}
-					seenTables[id] = tbl.Msg.Desc.FullName()
-					lakehouseTables = append(lakehouseTables, tbl)
-				}
 			} else {
 				relationalDFs = append(relationalDFs, dfs[i])
+			}
+		}
+
+		// Collect cross-file inline message targets across all selected lakehouse files
+		// BEFORE building tables so unannotated embedded targets in another file are
+		// excluded from standalone public.<msg> generation while keeping explicit TableOptions.
+		lakehouseInlineTargets := collectLakehouseInlineTargetMsgs(lakehouseFiles)
+		var lakehouseTables []*postgresTableIR
+		seenTables := make(map[string]protoreflect.FullName)
+		for _, f := range lakehouseFiles {
+			tbls, err := buildPostgresTablesForFileWithInlineTargets(f, lakehouseInlineTargets, effectiveOpts)
+			if err != nil {
+				return err
+			}
+			for _, tbl := range tbls {
+				schemaName, ok := resolvePostgresSchemaName(tbl.Descriptor.DatabaseScope, "${TENANT_SLUG}")
+				if !ok {
+					schemaName = "public"
+				}
+				id := postgresResolvedSchemaTableKey(schemaName, tbl.Descriptor.TableName)
+				if prev, exists := seenTables[id]; exists && prev != tbl.Msg.Desc.FullName() {
+					return fmt.Errorf("message %s: duplicate PostgreSQL table identity %q in schema %q (already declared by %s)", tbl.Msg.Desc.FullName(), tbl.Descriptor.TableName, schemaName, prev)
+				}
+				seenTables[id] = tbl.Msg.Desc.FullName()
+				lakehouseTables = append(lakehouseTables, tbl)
 			}
 		}
 
@@ -299,10 +329,11 @@ func (gg *goGenerator) generateGoPostgresConsolidated(gen *protogen.Plugin, file
 				if tbl.FullName != "" {
 					owner = tbl.FullName
 				}
-				if prev, exists := gg.seenPostgresTables[tbl.TableName]; exists && prev != owner {
-					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q (already resolved by %s)", owner, tbl.TableName, prev)
+				key := postgresResolvedSchemaTableKey("public", tbl.TableName)
+				if prev, exists := gg.seenPostgresTables[key]; exists && prev != owner {
+					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q in schema %q (already resolved by %s)", owner, tbl.TableName, "public", prev)
 				}
-				gg.seenPostgresTables[tbl.TableName] = owner
+				gg.seenPostgresTables[key] = owner
 			}
 		}
 
@@ -331,6 +362,11 @@ func (gg *goGenerator) generateGoPostgresORMFile(gen *protogen.Plugin, file *pro
 	return gg.generateConsolidatedGoPostgresORMFile(gen, []*protogen.File{file}, []*DomainFile{df}, opts)
 }
 
+// generateConsolidatedGoPostgresORMFile emits a consolidated Go PostgreSQL ORM file
+// (<output_file>) across one or more proto files. Because generated <Name>Postgres
+// structs emit ToDomain/FromDomain methods referencing domain structs in the same Go
+// package, consolidated postgres_mode=go requires domain=false (with domain types
+// generated separately into the same go_package).
 func (gg *goGenerator) generateConsolidatedGoPostgresORMFile(gen *protogen.Plugin, files []*protogen.File, dfs []*DomainFile, opts *Options) error {
 	if len(files) == 0 || len(dfs) == 0 {
 		return nil

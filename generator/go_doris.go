@@ -146,7 +146,8 @@ func (gg *goGenerator) generateGoDorisConsolidated(gen *protogen.Plugin, files [
 	var perFile []fileTables
 	var allTables []*dorisTableIR
 	var sourceFiles []*protogen.File
-	seenTables := make(map[string]protoreflect.FullName)
+	seenIcebergTables := make(map[string]protoreflect.FullName)
+	seenDorisScopeTables := make(map[string]protoreflect.FullName)
 
 	for _, f := range files {
 		if len(f.Messages) == 0 && len(f.Enums) == 0 {
@@ -160,11 +161,20 @@ func (gg *goGenerator) generateGoDorisConsolidated(gen *protogen.Plugin, files [
 			continue
 		}
 		for _, tbl := range tbls {
-			id := dorisTableEvolutionIdentity(tbl.Descriptor)
-			if prev, exists := seenTables[id]; exists {
-				return fmt.Errorf("message %s: duplicate table identity %q (already declared by %s)", tbl.Msg.Desc.FullName(), tbl.Descriptor.TableName, prev)
+			if dorisTargets.EmitGo || hasIcebergTargetTable(tbl.Descriptor) {
+				iceID := dorisTableEvolutionIdentity(tbl.Descriptor)
+				if prev, exists := seenIcebergTables[iceID]; exists {
+					return fmt.Errorf("message %s: duplicate table identity %q (already declared by %s)", tbl.Msg.Desc.FullName(), tbl.Descriptor.TableName, prev)
+				}
+				seenIcebergTables[iceID] = tbl.Msg.Desc.FullName()
 			}
-			seenTables[id] = tbl.Msg.Desc.FullName()
+			if hasDorisTargetTable(tbl.Descriptor) {
+				scopeID := dorisScopeTableIdentity(tbl.Descriptor)
+				if prev, exists := seenDorisScopeTables[scopeID]; exists {
+					return fmt.Errorf("message %s: duplicate Doris/StarRocks table identity %q (already declared by %s)", tbl.Msg.Desc.FullName(), tbl.Descriptor.TableName, prev)
+				}
+				seenDorisScopeTables[scopeID] = tbl.Msg.Desc.FullName()
+			}
 		}
 		perFile = append(perFile, fileTables{file: f, tables: tbls})
 		sourceFiles = append(sourceFiles, f)
@@ -370,6 +380,7 @@ func resolveConsolidatedDorisRegistryNames(files []*protogen.File, usedSymbols m
 func buildDorisTablesForFile(file *protogen.File, opts *Options) ([]*dorisTableIR, error) {
 	var tables []*dorisTableIR
 	seenTables := make(map[string]protoreflect.FullName)
+	seenDorisScopeTables := make(map[string]protoreflect.FullName)
 	for _, msg := range file.Messages {
 		if isMessageSkipped(msg) {
 			continue
@@ -396,6 +407,13 @@ func buildDorisTablesForFile(file *protogen.File, opts *Options) ([]*dorisTableI
 			return nil, fmt.Errorf("message %s: duplicate table identity %q (already declared by %s)", msg.Desc.FullName(), meta.TableName, prev)
 		}
 		seenTables[id] = msg.Desc.FullName()
+		if hasDorisTargetTable(tbl.Descriptor) {
+			scopeID := dorisScopeTableIdentity(tbl.Descriptor)
+			if prev, exists := seenDorisScopeTables[scopeID]; exists {
+				return nil, fmt.Errorf("message %s: duplicate Doris/StarRocks table identity %q (already declared by %s)", msg.Desc.FullName(), meta.TableName, prev)
+			}
+			seenDorisScopeTables[scopeID] = msg.Desc.FullName()
+		}
 		tables = append(tables, tbl)
 	}
 	return tables, nil
@@ -2397,7 +2415,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t\t}")
 	g.P("\t\tif ", stringsHasPrefix, "(upperIT, \"ARRAY<\") && ", stringsHasSuffix, "(upperIT, \">\") {")
 	g.P("\t\t\tinner := ", stringsTrimSuffix, "(", stringsTrimPrefix, "(upperIT, \"ARRAY<\"), \">\")")
-	g.P("\t\t\treturn \"ARRAY<\" + dorisColumnIcebergDDLType(inner, \"\") + \">\"")
+	g.P("\t\t\treturn \"ARRAY<\" + dorisColumnIcebergDDLType(\"\", inner) + \">\"")
 	g.P("\t\t}")
 	g.P("\t\tif ", stringsHasPrefix, "(upperIT, \"LIST<\") && ", stringsHasSuffix, "(upperIT, \">\") {")
 	g.P("\t\t\tinner := ", stringsTrimSuffix, "(", stringsTrimPrefix, "(upperIT, \"LIST<\"), \">\")")
@@ -2837,7 +2855,7 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\t} else if t.Buckets > 0 {")
 	g.P("\t\tbucketStr = ", strconvItoa, "(t.Buckets)")
 	g.P("\t} else if t.AutoBuckets {")
-	g.P("\t\tbucketStr = \"AUTO\"")
+	g.P("\t\tbucketStr = \"\"")
 	g.P("\t}")
 	g.P("\tvar fullTableName string")
 	g.P("\tswitch t.DatabaseScope {")
@@ -2979,8 +2997,12 @@ func emitDorisSharedRuntimeTypes(g *protogen.GeneratedFile) {
 	g.P("\tif distCol != \"\" {")
 	g.P("\t\tb.WriteString(\"DISTRIBUTED BY HASH(\")")
 	g.P("\t\tb.WriteString(formatDorisDDLColumnIdent(distCol))")
-	g.P("\t\tb.WriteString(\") BUCKETS \")")
-	g.P("\t\tb.WriteString(bucketStr)")
+	g.P("\t\tif bucketStr != \"\" {")
+	g.P("\t\t\tb.WriteString(\") BUCKETS \")")
+	g.P("\t\t\tb.WriteString(bucketStr)")
+	g.P("\t\t} else {")
+	g.P("\t\t\tb.WriteString(\")\")")
+	g.P("\t\t}")
 	g.P("\t\tb.WriteString(\"\\n\")")
 	g.P("\t}")
 	g.P("\tvar props []string")

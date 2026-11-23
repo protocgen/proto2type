@@ -22,8 +22,15 @@ func NewRunner() *Runner {
 // Generate processes all marked proto files in gen, consolidating output into a
 // single file when opts.OutputFile specifies a valid single-file target.
 func (r *Runner) Generate(gen *protogen.Plugin, opts *Options) error {
+	r.goGen = newGoGenerator()
+	defer func() {
+		r.goGen = newGoGenerator()
+	}()
 	if opts == nil {
 		opts = &Options{}
+	}
+	if err := validateLangBackendOptions(opts); err != nil {
+		return err
 	}
 	var genFiles []*protogen.File
 	for _, f := range gen.Files {
@@ -71,7 +78,16 @@ func (r *Runner) Generate(gen *protogen.Plugin, opts *Options) error {
 
 // GenerateFile generates output files for a single proto file.
 func (r *Runner) GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	if opts != nil && opts.OutputFile != "" {
+	if opts == nil {
+		opts = &Options{}
+	}
+	if r.goGen == nil {
+		r.goGen = newGoGenerator()
+	}
+	if err := validateLangBackendOptions(opts); err != nil {
+		return err
+	}
+	if opts.OutputFile != "" {
 		if err := ValidateOutputFileOptions(opts, 1); err != nil {
 			return err
 		}

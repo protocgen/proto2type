@@ -254,7 +254,7 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 		}
 		if strings.HasPrefix(upperIT, "ARRAY<") && strings.HasSuffix(upperIT, ">") {
 			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "ARRAY<"), ">")
-			return "ARRAY<" + dorisColumnIcebergDDLType(inner, "") + ">"
+			return "ARRAY<" + dorisColumnIcebergDDLType("", inner) + ">"
 		}
 		if strings.HasPrefix(upperIT, "LIST<") && strings.HasSuffix(upperIT, ">") {
 			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "LIST<"), ">")
@@ -877,7 +877,8 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	} else if t.Buckets > 0 {
 		bucketStr = strconv.Itoa(t.Buckets)
 	} else if t.AutoBuckets {
-		bucketStr = "AUTO"
+		// StarRocks 4.0 selects buckets automatically when the BUCKETS clause is omitted.
+		bucketStr = ""
 	}
 
 	var fullTableName string
@@ -1026,8 +1027,12 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	if distCol != "" {
 		b.WriteString("DISTRIBUTED BY HASH(")
 		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
+		if bucketStr != "" {
+			b.WriteString(") BUCKETS ")
+			b.WriteString(bucketStr)
+		} else {
+			b.WriteString(")")
+		}
 		b.WriteString("\n")
 	}
 

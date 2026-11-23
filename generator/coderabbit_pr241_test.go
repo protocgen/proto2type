@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -654,5 +656,602 @@ table "reordered_tbl" {
   }
 }`); err == nil {
 		t.Errorf("expected ParsePostgresAtlasHCL to reject array_ops with implicit BTREE")
+	}
+}
+
+func TestPR241_AdditionalCodeRabbitFixes(t *testing.T) {
+	// 1 & 3 & 4 & 5: Host + emitted Go runtime lockstep for Iceberg HCL/DDL types,
+	// StarRocks AutoBuckets omission, and HCL template escape decoding before strconv.Unquote.
+	if got := dorisColumnIcebergHCLType("TEXT", "VARCHAR(64)"); got != "varchar(64)" {
+		t.Errorf("dorisColumnIcebergHCLType(TEXT, VARCHAR(64)) = %q, want varchar(64)", got)
+	}
+	if got := dorisColumnIcebergHCLType("JSONB", "VARCHAR(128)"); got != "varchar(128)" {
+		t.Errorf("dorisColumnIcebergHCLType(JSONB, VARCHAR(128)) = %q, want varchar(128)", got)
+	}
+	if got := dorisColumnIcebergHCLType("TEXT", ""); got != "string" {
+		t.Errorf("dorisColumnIcebergHCLType(TEXT, '') = %q, want string", got)
+	}
+	if got := dorisColumnIcebergHCLType("TEXT", "STRING"); got != "string" {
+		t.Errorf("dorisColumnIcebergHCLType(TEXT, STRING) = %q, want string", got)
+	}
+	if got := dorisColumnIcebergHCLType("TEXT", "ARRAY<LONG>"); got != "array<bigint>" {
+		t.Errorf("dorisColumnIcebergHCLType(TEXT, ARRAY<LONG>) = %q, want array<bigint>", got)
+	}
+	if got := dorisColumnIcebergDDLType("", "ARRAY<LONG>"); got != "ARRAY<BIGINT>" {
+		t.Errorf("dorisColumnIcebergDDLType('', ARRAY<LONG>) = %q, want ARRAY<BIGINT>", got)
+	}
+	if got := dorisColumnIcebergDDLType("", "ARRAY<SMALLINT>"); got != "ARRAY<INT>" {
+		t.Errorf("dorisColumnIcebergDDLType('', ARRAY<SMALLINT>) = %q, want ARRAY<INT>", got)
+	}
+	if got := dorisColumnIcebergDDLType("", "ARRAY<VARCHAR(64)>"); got != "ARRAY<VARCHAR(64)>" {
+		t.Errorf("dorisColumnIcebergDDLType('', ARRAY<VARCHAR(64)>) = %q, want ARRAY<VARCHAR(64)>", got)
+	}
+
+	if got := unquoteHCLString(`"$${tenant}"`); got != "${tenant}" {
+		t.Errorf("unquoteHCLString raw $${tenant} = %q, want ${tenant}", got)
+	}
+	if got := unquoteHCLString(`"\u0024\u0024{tenant}"`); got != "$${tenant}" {
+		t.Errorf("unquoteHCLString \\u0024\\u0024{tenant} = %q, want $${tenant}", got)
+	}
+	if got := unquoteHCLString(`"%%{directive}"`); got != "%{directive}" {
+		t.Errorf("unquoteHCLString raw %%{directive} = %q, want %%{directive}", got)
+	}
+	if got := unquoteHCLString(`"\u0025\u0025{directive}"`); got != "%%{directive}" {
+		t.Errorf("unquoteHCLString \\u0025\\u0025{directive} = %q, want %%%% {directive}", got)
+	}
+	if got := unquoteHCLString(`"$${a}\n\u0024\u0024{b}"`); got != "${a}\n$${b}" {
+		t.Errorf("unquoteHCLString mixed = %q, want ${a}\\n$${b}", got)
+	}
+	parsedEscPG, err := ParsePostgresAtlasHCL(`table "esc_tbl" {
+  schema = schema.public
+  column "id" {
+    type = uuid
+    null = false
+  }
+  column "u_col" {
+    type    = text
+    null    = false
+    default = "\u0024\u0024{tenant}"
+  }
+  column "raw_col" {
+    type    = text
+    null    = false
+    default = "$${tenant}"
+  }
+  primary_key {
+    columns = [column.id]
+  }
+}`)
+	if err != nil {
+		t.Fatalf("ParsePostgresAtlasHCL failed: %v", err)
+	}
+	if parsedEscPG[0].Columns[1].DefaultValue != "$${tenant}" || parsedEscPG[0].Columns[2].DefaultValue != "${tenant}" {
+		t.Errorf("unexpected Postgres HCL unquoted defaults: u_col=%q raw_col=%q", parsedEscPG[0].Columns[1].DefaultValue, parsedEscPG[0].Columns[2].DefaultValue)
+	}
+
+	// Compiled Go runtime parity check for items 1, 3, 4, 5.
+	tmpRT := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpRT, "go.mod"), []byte("module example.com/rt2\n\ngo 1.21\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	rtFDP := stage1aSingleMsgFDP("rt2.proto", "rt2.v1", "example.com/rt2/v1;rt2v1", &descriptorpb.DescriptorProto{
+		Name:    proto.String("Rt2Msg"),
+		Options: stage1aMsgOpts(&proto2typepb.TableOptions{TableName: "rt2_tbl"}),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, nil),
+		},
+	})
+	rtGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{rtFDP}}, []string{"rt2.proto"})
+	rtG := rtGen.NewGeneratedFile("rt_all.go", "example.com/rt2")
+	rtG.P("package rt2")
+	rtG.P()
+	emitDorisSharedRuntimeTypes(rtG)
+	rtSrc := stage1aGeneratedFiles(t, rtGen)["rt_all.go"]
+	if err := os.WriteFile(filepath.Join(tmpRT, "rt_all.go"), []byte(rtSrc), 0o644); err != nil {
+		t.Fatalf("write rt_all.go: %v", err)
+	}
+	rtTest := `package rt2
+import (
+	"strings"
+	"testing"
+)
+func TestRuntimeLockstepFixes(t *testing.T) {
+	if got := dorisColumnIcebergHCLType("TEXT", "VARCHAR(64)"); got != "varchar(64)" {
+		t.Fatalf("runtime dorisColumnIcebergHCLType(TEXT, VARCHAR(64)) = %q", got)
+	}
+	if got := dorisColumnIcebergHCLType("TEXT", ""); got != "string" {
+		t.Fatalf("runtime dorisColumnIcebergHCLType(TEXT, '') = %q", got)
+	}
+	if got := dorisColumnIcebergDDLType("", "ARRAY<LONG>"); got != "ARRAY<BIGINT>" {
+		t.Fatalf("runtime dorisColumnIcebergDDLType('', ARRAY<LONG>) = %q", got)
+	}
+	if got := dorisColumnIcebergDDLType("", "ARRAY<VARCHAR(64)>"); got != "ARRAY<VARCHAR(64)>" {
+		t.Fatalf("runtime dorisColumnIcebergDDLType('', ARRAY<VARCHAR(64)>) = %q", got)
+	}
+	if got := unquoteHCLString(` + "`" + `"\u0024\u0024{tenant}"` + "`" + `); got != "$${tenant}" {
+		t.Fatalf("runtime unquoteHCLString unicode = %q", got)
+	}
+	if got := unquoteHCLString(` + "`" + `"$${tenant}"` + "`" + `); got != "${tenant}" {
+		t.Fatalf("runtime unquoteHCLString raw = %q", got)
+	}
+	sr := DorisTableDescriptor{
+		TableName: "sr_auto", DatabaseScope: "TENANT", SyncTier: "WHOLE_TABLE",
+		UniqueKeyColumns: []string{"id"}, AutoBuckets: true,
+		Columns: []DorisColumnDescriptor{
+			{ColumnName: "id", DorisType: "VARCHAR(64)", IsUniqueKey: true},
+		},
+	}
+	sqlAuto := sr.BuildStarRocksCreateTableSQL("acme", 0)
+	if !strings.Contains(sqlAuto, "DISTRIBUTED BY HASH(id)\n") || strings.Contains(sqlAuto, "BUCKETS") {
+		t.Fatalf("runtime StarRocks AutoBuckets should omit BUCKETS clause:\n%s", sqlAuto)
+	}
+	sqlNum := sr.BuildStarRocksCreateTableSQL("acme", 8)
+	if !strings.Contains(sqlNum, "DISTRIBUTED BY HASH(id) BUCKETS 8\n") {
+		t.Fatalf("runtime StarRocks explicit buckets=8 failed:\n%s", sqlNum)
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpRT, "rt_all_test.go"), []byte(rtTest), 0o644); err != nil {
+		t.Fatalf("write rt_all_test.go: %v", err)
+	}
+	cmd := exec.Command("go", "test", "-v", ".")
+	cmd.Dir = tmpRT
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("compiled runtime parity test failed: %v\n%s", err, string(out))
+	}
+
+	// 2: generateGoDomain honors opts.OutputFile and skips adjustSubdirFilename when OutputFile is set.
+	runner := NewRunner()
+	domFDP := stage1aSingleMsgFDP("pkg/item.proto", "dom.v1", "example.com/pkg;pkgv1", &descriptorpb.DescriptorProto{
+		Name: proto.String("Item"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, nil),
+		},
+	})
+	domGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{domFDP}}, []string{"pkg/item.proto"})
+	if err := runner.Generate(domGen, &Options{
+		Lang:       "go",
+		Domain:     true,
+		GoPackage:  "example.com/pkg/domain;domain",
+		OutputFile: "custom/domain_items.go",
+	}); err != nil {
+		t.Fatalf("Runner.Generate Go domain with OutputFile failed: %v", err)
+	}
+	domFiles := stage1aGeneratedFiles(t, domGen)
+	if _, ok := domFiles["custom/domain_items.go"]; !ok || len(domFiles) != 1 {
+		t.Fatalf("expected single file custom/domain_items.go, got %v", domFiles)
+	}
+	domDefaultGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{domFDP}}, []string{"pkg/item.proto"})
+	if err := runner.Generate(domDefaultGen, &Options{
+		Lang:      "go",
+		Domain:    true,
+		GoPackage: "example.com/pkg/domain;domain",
+	}); err != nil {
+		t.Fatalf("Runner.Generate Go domain default filename failed: %v", err)
+	}
+	domDefaultFiles := stage1aGeneratedFiles(t, domDefaultGen)
+	if _, ok := domDefaultFiles["example.com/pkg/domain/item.type.go"]; !ok {
+		t.Fatalf("expected subdir-adjusted example.com/pkg/domain/item.type.go when OutputFile is empty, got %v", domDefaultFiles)
+	}
+
+	// 6: Runner.Generate resets per-compilation r.goGen state across calls (even after errors).
+	fdsSearch := buildFileDescriptorSet(t)
+	searchOpts := &Options{
+		Lang:                 "go",
+		Backend:              "postgres",
+		PostgresMode:         "search_index",
+		PostgresSearchParams: "../testdata/proto/fhir_search_params.json",
+		Domain:               false,
+	}
+	searchGen1 := newPlugin(t, fdsSearch, []string{"fhir_patient.proto"})
+	if err := runner.Generate(searchGen1, searchOpts); err != nil {
+		t.Fatalf("first Runner.Generate search_index failed: %v", err)
+	}
+	searchOut1 := extractPluginOutput(t, searchGen1, "_search_index.go")
+	if !strings.Contains(searchOut1, "type SearchIndexes struct") {
+		t.Fatalf("first search_index run missing SearchIndexes struct")
+	}
+	searchGen2 := newPlugin(t, fdsSearch, []string{"fhir_patient.proto"})
+	if err := runner.Generate(searchGen2, searchOpts); err != nil {
+		t.Fatalf("second Runner.Generate search_index failed: %v", err)
+	}
+	searchOut2 := extractPluginOutput(t, searchGen2, "_search_index.go")
+	if !strings.Contains(searchOut2, "type SearchIndexes struct") {
+		t.Fatalf("reused Runner omitted SearchIndexes struct on second Generate call")
+	}
+	// Error during partial compilation must not poison subsequent Runner.Generate calls.
+	errPart1 := stage1aSingleMsgFDP("err1.proto", "err.v1", "example.com/err/v1;errv1", &descriptorpb.DescriptorProto{
+		Name:    proto.String("GoodFirst"),
+		Options: stage1aMsgOpts(&proto2typepb.TableOptions{TableName: "reused_tbl"}),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(nil, &proto2typepb.FieldOptions{PrimaryKey: true})),
+		},
+	})
+	errPart2 := stage1aSingleMsgFDP("err2.proto", "err.v1", "example.com/err/v1;errv1", &descriptorpb.DescriptorProto{
+		Name:    proto.String("BadSecond"),
+		Options: stage1aMsgOpts(&proto2typepb.TableOptions{TableName: "bad;tbl"}),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, nil),
+		},
+	})
+	errGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{errPart1, errPart2}}, []string{"err1.proto", "err2.proto"})
+	if err := runner.Generate(errGen, &Options{Lang: "go", Backend: "postgres", PostgresMode: "ddl"}); err == nil {
+		t.Fatalf("expected error on second file with invalid table name")
+	}
+	retryGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{errPart1}}, []string{"err1.proto"})
+	if err := runner.Generate(retryGen, &Options{Lang: "go", Backend: "postgres", PostgresMode: "ddl"}); err != nil {
+		t.Fatalf("expected clean Runner.Generate after earlier failed Generate, got: %v", err)
+	}
+
+	// 7: Consolidated Doris/StarRocks collision ignores IcebergCatalog while Iceberg-only keeps IcebergCatalog.
+	mkDorisCatFDP := func(fileName, msgName, syncTier, catalog string) *descriptorpb.FileDescriptorProto {
+		return stage1aSingleMsgFDP(fileName, "cat.v1", "example.com/cat/v1;catv1", &descriptorpb.DescriptorProto{
+			Name: proto.String(msgName),
+			Options: stage1aMsgOpts(&proto2typepb.TableOptions{
+				TableName:        "shared_events",
+				DatabaseScope:    "TENANT",
+				SyncTier:         syncTier,
+				UniqueKeyColumns: []string{"id"},
+				IcebergCatalog:   catalog,
+			}),
+			Field: []*descriptorpb.FieldDescriptorProto{
+				stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(&proto2typepb.ColumnOptions{DorisType: "VARCHAR(64)"}, nil)),
+			},
+		})
+	}
+	dorisCatFDS := &descriptorpb.FileDescriptorSet{
+		File: []*descriptorpb.FileDescriptorProto{
+			mkDorisCatFDP("cat_a.proto", "EventA", "WHOLE_TABLE", "cat_a"),
+			mkDorisCatFDP("cat_b.proto", "EventB", "WHOLE_TABLE", "cat_b"),
+		},
+	}
+	if err := runner.Generate(newPlugin(t, dorisCatFDS, []string{"cat_a.proto", "cat_b.proto"}), &Options{
+		Lang: "go", Backend: "doris", DorisMode: "starrocks_ddl", Domain: false, OutputFile: "sr.sql",
+	}); err == nil {
+		t.Errorf("expected StarRocks consolidated collision across different IcebergCatalogs")
+	}
+	if err := runner.Generate(newPlugin(t, dorisCatFDS, []string{"cat_a.proto", "cat_b.proto"}), &Options{
+		Lang: "go", Backend: "doris", DorisMode: "go", Domain: false, OutputFile: "doris_all.go",
+	}); err == nil {
+		t.Errorf("expected Doris consolidated Go collision across different IcebergCatalogs")
+	}
+	iceOnlyCatFDS := &descriptorpb.FileDescriptorSet{
+		File: []*descriptorpb.FileDescriptorProto{
+			mkDorisCatFDP("ice_a.proto", "IceEventA", "ICEBERG_ONLY", "cat_a"),
+			mkDorisCatFDP("ice_b.proto", "IceEventB", "ICEBERG_ONLY", "cat_b"),
+		},
+	}
+	iceCatGen := newPlugin(t, iceOnlyCatFDS, []string{"ice_a.proto", "ice_b.proto"})
+	if err := runner.Generate(iceCatGen, &Options{
+		Lang: "go", Backend: "doris", DorisMode: "ddl", Domain: false, OutputFile: "ice.sql",
+	}); err != nil {
+		t.Fatalf("expected ICEBERG_ONLY tables across different IcebergCatalogs to succeed, got: %v", err)
+	}
+	iceCatSQL := stage1aGeneratedFiles(t, iceCatGen)["ice.sql"]
+	if !strings.Contains(iceCatSQL, "cat_a.tenant_${TENANT_SLUG}.shared_events") || !strings.Contains(iceCatSQL, "cat_b.tenant_${TENANT_SLUG}.shared_events") {
+		t.Errorf("expected both Iceberg catalogs in consolidated ice.sql:\n%s", iceCatSQL)
+	}
+
+	// 8: Lakehouse Postgres table collisions checked by (resolvedSchema, tableName).
+	mkPGScopeFDP := func(fileName, msgName, scope, syncTier string) *descriptorpb.FileDescriptorProto {
+		return stage1aSingleMsgFDP(fileName, "pgs.v1", "example.com/pgs/v1;pgsv1", &descriptorpb.DescriptorProto{
+			Name: proto.String(msgName),
+			Options: stage1aMsgOpts(&proto2typepb.TableOptions{
+				TableName:        "shared_pg_events",
+				DatabaseScope:    scope,
+				SyncTier:         syncTier,
+				UniqueKeyColumns: []string{"id"},
+			}),
+			Field: []*descriptorpb.FieldDescriptorProto{
+				stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(&proto2typepb.ColumnOptions{SqlType: "UUID"}, nil)),
+			},
+		})
+	}
+	pgDiffScopeFDS := &descriptorpb.FileDescriptorSet{
+		File: []*descriptorpb.FileDescriptorProto{
+			mkPGScopeFDP("pg_tenant.proto", "TenantEvents", "TENANT", "WHOLE_TABLE"),
+			mkPGScopeFDP("pg_term.proto", "TerminologyEvents", "GLOBAL_TERMINOLOGY", "WHOLE_TABLE"),
+		},
+	}
+	pgDiffGen := newPlugin(t, pgDiffScopeFDS, []string{"pg_tenant.proto", "pg_term.proto"})
+	if err := runner.Generate(pgDiffGen, &Options{
+		Lang: "go", Backend: "postgres", PostgresMode: "hcl", Domain: false, OutputFile: "scopes.hcl",
+	}); err != nil {
+		t.Fatalf("expected same table name in TENANT vs GLOBAL_TERMINOLOGY to succeed, got: %v", err)
+	}
+	scopesHCL := stage1aGeneratedFiles(t, pgDiffGen)["scopes.hcl"]
+	if !strings.Contains(scopesHCL, `schema = "schema.tenant_${TENANT_SLUG}"`) || !strings.Contains(scopesHCL, `schema = schema.terminology`) {
+		t.Errorf("expected both tenant and terminology schemas in scopes.hcl:\n%s", scopesHCL)
+	}
+	pgSameScopeFDS := &descriptorpb.FileDescriptorSet{
+		File: []*descriptorpb.FileDescriptorProto{
+			mkPGScopeFDP("pg_t1.proto", "TenantEventsA", "TENANT", "WHOLE_TABLE"),
+			mkPGScopeFDP("pg_t2.proto", "TenantEventsB", "", "WHOLE_TABLE"),
+		},
+	}
+	if err := runner.Generate(newPlugin(t, pgSameScopeFDS, []string{"pg_t1.proto", "pg_t2.proto"}), &Options{
+		Lang: "go", Backend: "postgres", PostgresMode: "hcl", Domain: false, OutputFile: "collide.hcl",
+	}); err == nil {
+		t.Errorf("expected same resolved schema collision (TENANT vs empty lakehouse scope) to fail")
+	}
+
+	// 9: Cross-file inline targets across selected lakehouse files excluded from public.<msg>,
+	// while inline targets with explicit TableOptions are preserved.
+	bProto := &descriptorpb.FileDescriptorProto{
+		Syntax:  proto.String("proto3"),
+		Name:    proto.String("b_defs.proto"),
+		Package: proto.String("cross.v1"),
+		Options: &descriptorpb.FileOptions{GoPackage: proto.String("example.com/cross/v1;crossv1")},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: proto.String("Clinic"),
+				Options: stage1aMsgOpts(&proto2typepb.TableOptions{
+					TableName:     "clinics",
+					DatabaseScope: "TENANT",
+					SyncTier:      "WHOLE_TABLE",
+				}),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(&proto2typepb.ColumnOptions{PrimaryKey: true}, nil)),
+				},
+			},
+			{
+				Name: proto.String("EmbeddedAddress"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					stage1aScalarField("street", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, nil),
+				},
+			},
+			{
+				Name: proto.String("ExplicitInlineTable"),
+				Options: stage1aMsgOpts(&proto2typepb.TableOptions{
+					TableName:     "explicit_inline_tables",
+					DatabaseScope: "PUBLIC",
+				}),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(&proto2typepb.ColumnOptions{PrimaryKey: true}, nil)),
+					stage1aScalarField("label", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, nil),
+				},
+			},
+		},
+	}
+	aPatient := &descriptorpb.DescriptorProto{
+		Name: proto.String("PatientRec"),
+		Options: stage1aMsgOpts(&proto2typepb.TableOptions{
+			TableName:     "patients",
+			DatabaseScope: "TENANT",
+			SyncTier:      "WHOLE_TABLE",
+		}),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(&proto2typepb.ColumnOptions{PrimaryKey: true}, nil)),
+		},
+	}
+	reviewAppendMsgField(aPatient, "home_addr", 2, ".cross.v1.EmbeddedAddress", false, stage1aColOpts(&proto2typepb.ColumnOptions{InlineNested: true}, nil))
+	reviewAppendMsgField(aPatient, "inline_cfg", 3, ".cross.v1.ExplicitInlineTable", false, stage1aColOpts(&proto2typepb.ColumnOptions{InlineNested: true}, nil))
+	aProto := &descriptorpb.FileDescriptorProto{
+		Syntax:      proto.String("proto3"),
+		Name:        proto.String("a_patient.proto"),
+		Package:     proto.String("cross.v1"),
+		Dependency:  []string{"b_defs.proto"},
+		Options:     &descriptorpb.FileOptions{GoPackage: proto.String("example.com/cross/v1;crossv1")},
+		MessageType: []*descriptorpb.DescriptorProto{aPatient},
+	}
+	crossGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{bProto, aProto}}, []string{"b_defs.proto", "a_patient.proto"})
+	if err := runner.Generate(crossGen, &Options{
+		Lang: "go", Backend: "postgres", PostgresMode: "ddl", Domain: false, OutputFile: "cross_lake.sql",
+	}); err != nil {
+		t.Fatalf("cross-file lakehouse postgres failed: %v", err)
+	}
+	crossSQL := stage1aGeneratedFiles(t, crossGen)["cross_lake.sql"]
+	if strings.Contains(crossSQL, "public.embedded_address") {
+		t.Errorf("unannotated cross-file inline target leaked as standalone public.embedded_address:\n%s", crossSQL)
+	}
+	for _, want := range []string{
+		"tenant_${TENANT_SLUG}.patients",
+		"home_addr_street",
+		"tenant_${TENANT_SLUG}.clinics",
+		"public.explicit_inline_tables",
+	} {
+		if !strings.Contains(crossSQL, want) {
+			t.Errorf("cross_lake.sql missing %q:\n%s", want, crossSQL)
+		}
+	}
+
+	// 10: ValidateOutputFile blocks drive letters revealed after path.Clean.
+	for _, bad := range []string{"./C:foo.sql", "./c:/foo.sql", "./d:bar.go"} {
+		if _, err := ValidateOutputFile(bad); err == nil {
+			t.Errorf("expected ValidateOutputFile(%q) to fail after path.Clean", bad)
+		}
+	}
+	if got, err := ValidateOutputFile("./valid/out.sql"); err != nil || got != "valid/out.sql" {
+		t.Errorf("ValidateOutputFile(./valid/out.sql) = (%q, %v), want (valid/out.sql, nil)", got, err)
+	}
+
+	// 11 & 12: Reject EmitSearchIndexGo for lang=rust, allow search_index_ddl/hcl, honor OutputFile in generateRustPostgres.
+	for _, tc := range []struct {
+		name string
+		opts *Options
+	}{
+		{"no_output_file", &Options{Lang: "rust", Backend: "postgres", PostgresMode: "search_index", PostgresSearchParams: "../testdata/proto/fhir_search_params.json"}},
+		{"with_output_file", &Options{Lang: "rust", Backend: "postgres", PostgresMode: "search_index", PostgresSearchParams: "../testdata/proto/fhir_search_params.json", Domain: false, OutputFile: "out.go"}},
+		{"combo_search_index_ddl", &Options{Lang: "rust", Backend: "postgres", PostgresMode: "search_index+ddl", PostgresSearchParams: "../testdata/proto/fhir_search_params.json"}},
+	} {
+		g := newPlugin(t, fdsSearch, []string{"fhir_patient.proto"})
+		if err := runner.Generate(g, tc.opts); err == nil {
+			t.Errorf("%s: expected error for EmitSearchIndexGo with lang=rust", tc.name)
+		}
+	}
+	rustSpidxDDLGen := newPlugin(t, fdsSearch, []string{"fhir_patient.proto"})
+	if err := runner.Generate(rustSpidxDDLGen, &Options{
+		Lang: "rust", Backend: "postgres", PostgresMode: "search_index_ddl", PostgresSearchParams: "../testdata/proto/fhir_search_params.json", Domain: false, OutputFile: "rust_spidx.sql",
+	}); err != nil {
+		t.Fatalf("lang=rust search_index_ddl failed: %v", err)
+	}
+	if _, ok := stage1aGeneratedFiles(t, rustSpidxDDLGen)["rust_spidx.sql"]; !ok {
+		t.Errorf("expected rust_spidx.sql output for lang=rust search_index_ddl")
+	}
+	rustSpidxHCLGen := newPlugin(t, fdsSearch, []string{"fhir_patient.proto"})
+	if err := runner.Generate(rustSpidxHCLGen, &Options{
+		Lang: "rust", Backend: "postgres", PostgresMode: "search_index_hcl", PostgresSearchParams: "../testdata/proto/fhir_search_params.json", Domain: false, OutputFile: "rust_spidx.hcl",
+	}); err != nil {
+		t.Fatalf("lang=rust search_index_hcl failed: %v", err)
+	}
+	if _, ok := stage1aGeneratedFiles(t, rustSpidxHCLGen)["rust_spidx.hcl"]; !ok {
+		t.Errorf("expected rust_spidx.hcl output for lang=rust search_index_hcl")
+	}
+
+	rustPGFDS := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{domFDP}}
+	rustPGCustom := newPlugin(t, rustPGFDS, []string{"pkg/item.proto"})
+	if err := runner.Generate(rustPGCustom, &Options{
+		Lang: "rust", Backend: "postgres", PostgresMode: "types", Domain: false, OutputFile: "custom/pg_models.rs",
+	}); err != nil {
+		t.Fatalf("lang=rust postgres OutputFile failed: %v", err)
+	}
+	rustPGFiles := stage1aGeneratedFiles(t, rustPGCustom)
+	if _, ok := rustPGFiles["custom/pg_models.rs"]; !ok || len(rustPGFiles) != 1 {
+		t.Errorf("expected only custom/pg_models.rs, got %v", rustPGFiles)
+	}
+	rustPGDefault := newPlugin(t, rustPGFDS, []string{"pkg/item.proto"})
+	if err := runner.Generate(rustPGDefault, &Options{
+		Lang: "rust", Backend: "postgres", Domain: false,
+	}); err != nil {
+		t.Fatalf("lang=rust postgres default filename failed: %v", err)
+	}
+	rustPGDefaultFiles := stage1aGeneratedFiles(t, rustPGDefault)
+	wantDefaultRS := rustPGDefault.Files[0].GeneratedFilenamePrefix + "_postgres.type.rs"
+	if _, ok := rustPGDefaultFiles[wantDefaultRS]; !ok {
+		t.Errorf("expected default %s, got %v", wantDefaultRS, rustPGDefaultFiles)
+	}
+
+	// 14: Consolidated postgres_mode=go requires domain=false; vc.In backslash error + single-quote escape;
+	// typed SQL default cast validation.
+	pgGoFDS := &descriptorpb.FileDescriptorSet{
+		File: []*descriptorpb.FileDescriptorProto{
+			stage1aSingleMsgFDP("m1.proto", "m.v1", "example.com/m/v1;mv1", &descriptorpb.DescriptorProto{
+				Name:    proto.String("ModelOne"),
+				Options: stage1aMsgOpts(&proto2typepb.TableOptions{TableName: "model_ones"}),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(nil, &proto2typepb.FieldOptions{PrimaryKey: true})),
+				},
+			}),
+			stage1aSingleMsgFDP("m2.proto", "m.v1", "example.com/m/v1;mv1", &descriptorpb.DescriptorProto{
+				Name:    proto.String("ModelTwo"),
+				Options: stage1aMsgOpts(&proto2typepb.TableOptions{TableName: "model_twos"}),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(nil, &proto2typepb.FieldOptions{PrimaryKey: true})),
+				},
+			}),
+		},
+	}
+	if err := runner.Generate(newPlugin(t, pgGoFDS, []string{"m1.proto", "m2.proto"}), &Options{
+		Lang: "go", Backend: "postgres", PostgresMode: "go", Domain: true, OutputFile: "pg_bad.go",
+	}); err == nil {
+		t.Errorf("expected consolidated postgres_mode=go with domain=true to be rejected")
+	}
+	pgGoGen := newPlugin(t, pgGoFDS, []string{"m1.proto", "m2.proto"})
+	if err := runner.Generate(pgGoGen, &Options{
+		Lang: "go", Backend: "postgres", PostgresMode: "go", Domain: false, OutputFile: "pg_consolidated.go",
+	}); err != nil {
+		t.Fatalf("consolidated postgres_mode=go with domain=false failed: %v", err)
+	}
+	pgGoOut := stage1aGeneratedFiles(t, pgGoGen)["pg_consolidated.go"]
+	if !strings.Contains(pgGoOut, "type ModelOnePostgres struct") || !strings.Contains(pgGoOut, "type ModelTwoPostgres struct") {
+		t.Errorf("consolidated postgres Go missing structs:\n%s", pgGoOut)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "pg_consolidated.go", pgGoOut, parser.AllErrors); err != nil {
+		t.Fatalf("consolidated postgres Go syntax error: %v\n%s", err, pgGoOut)
+	}
+
+	backslashInOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(backslashInOpts, validate.E_Field, &validate.FieldRules{
+		Type: &validate.FieldRules_String_{
+			String_: &validate.StringRules{
+				In: []string{"OK", `BAD\ESC`},
+			},
+		},
+	})
+	backslashFDP := stage1aSingleMsgFDP("bs_in.proto", "review.v1", "example.com/review/v1;reviewv1", &descriptorpb.DescriptorProto{
+		Name:    proto.String("BsInCheck"),
+		Options: stage1aMsgOpts(&proto2typepb.TableOptions{TableName: "bs_in_check"}),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(nil, &proto2typepb.FieldOptions{PrimaryKey: true})),
+			stage1aScalarField("status", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, backslashInOpts),
+		},
+	})
+	if err := runner.Generate(newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{backslashFDP}}, []string{"bs_in.proto"}), &Options{
+		Lang: "go", Backend: "postgres", PostgresMode: "ddl",
+	}); err == nil {
+		t.Errorf("expected error for backslash in vc.In CHECK constraint")
+	}
+
+	quoteInOpts := &descriptorpb.FieldOptions{}
+	proto.SetExtension(quoteInOpts, validate.E_Field, &validate.FieldRules{
+		Type: &validate.FieldRules_String_{
+			String_: &validate.StringRules{
+				In: []string{"O'Brien", "ACTIVE"},
+			},
+		},
+	})
+	quoteInFDP := stage1aSingleMsgFDP("quote_in.proto", "review.v1", "example.com/review/v1;reviewv1", &descriptorpb.DescriptorProto{
+		Name:    proto.String("QuoteInCheck"),
+		Options: stage1aMsgOpts(&proto2typepb.TableOptions{TableName: "quote_in_check"}),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			stage1aScalarField("id", 1, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, stage1aColOpts(nil, &proto2typepb.FieldOptions{PrimaryKey: true})),
+			stage1aScalarField("status", 2, descriptorpb.FieldDescriptorProto_TYPE_STRING, false, quoteInOpts),
+		},
+	})
+	quoteInGen := newPlugin(t, &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{quoteInFDP}}, []string{"quote_in.proto"})
+	if err := runner.Generate(quoteInGen, &Options{Lang: "go", Backend: "postgres", PostgresMode: "ddl"}); err != nil {
+		t.Fatalf("vc.In with single quote failed: %v", err)
+	}
+	if sql := stage1aFindBySuffix(t, stage1aGeneratedFiles(t, quoteInGen), "_postgres.sql"); !strings.Contains(sql, `'O''Brien'::text`) {
+		t.Errorf("expected escaped single quote in CHECK constraint:\n%s", sql)
+	}
+
+	for _, badCastHCL := range []string{
+		`table "t1" {
+  column "flag" {
+    type = boolean
+    null = false
+    default = sql("'notabool'::boolean")
+  }
+}`,
+		`table "t1" {
+  column "cnt" {
+    type = integer
+    null = false
+    default = sql("'abc'::integer")
+  }
+}`,
+		`table "t1" {
+  column "cnt" {
+    type = integer
+    null = false
+    default = sql("''::integer")
+  }
+}`,
+	} {
+		if _, err := ParsePostgresAtlasHCL(badCastHCL); err == nil {
+			t.Errorf("expected ParsePostgresAtlasHCL to reject invalid typed SQL default:\n%s", badCastHCL)
+		}
+	}
+	if parsedValid, err := ParsePostgresAtlasHCL(`table "t1" {
+  schema = schema.public
+  column "flag" {
+    type = boolean
+    null = false
+    default = sql("'true'::boolean")
+  }
+  column "cnt" {
+    type = integer
+    null = false
+    default = sql("'42'::integer")
+  }
+  column "note" {
+    type = text
+    null = false
+    default = sql("''::text")
+  }
+}`); err != nil || !parsedValid[0].Columns[2].HasDefaultValue || parsedValid[0].Columns[2].DefaultValue != "" {
+		t.Errorf("expected valid typed SQL defaults to parse cleanly, got (%+v, %v)", parsedValid, err)
 	}
 }

@@ -391,8 +391,35 @@ func TestStage1A_PostgresArrayDefaults_HCLAndDDLRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParsePostgresAtlasHCL failed: %v", err)
 	}
-	if stmts, err := BuildPostgresSchemaMigrationSQL(parsed, parsed, ""); err != nil || len(stmts) != 0 {
-		t.Fatalf("expected zero migration drift for array sql(...) defaults, got (%v, %v)", stmts, err)
+	df, err := BuildDomainFile(gen.Files[0], opts)
+	if err != nil {
+		t.Fatalf("BuildDomainFile failed: %v", err)
+	}
+	relSchemas, err := collectPostgresTableSchemas(df, opts)
+	if err != nil {
+		t.Fatalf("collectPostgresTableSchemas failed: %v", err)
+	}
+	wantDescs := make([]PostgresTableDescriptor, 0, len(relSchemas))
+	for _, rs := range relSchemas {
+		wantDescs = append(wantDescs, PostgresTableDescriptor{
+			TableName:         rs.TableName,
+			MessageName:       rs.GoName,
+			DatabaseScope:     "TENANT",
+			WriterService:     rs.WriterService,
+			ReaderServices:    rs.ReaderServices,
+			PrimaryKeyColumns: rs.PrimaryKeys,
+			Columns:           rs.Columns,
+			Indexes:           rs.Indexes,
+			ForeignKeys:       rs.ForeignKeys,
+			Checks:            rs.Checks,
+			IsSingleton:       rs.IsSingleton,
+		})
+	}
+	if stmts, err := BuildPostgresSchemaMigrationSQL(parsed, wantDescs, "acme"); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected zero migration drift against proto-derived descriptor for array sql(...) defaults, got (%v, %v)", stmts, err)
+	}
+	if stmts, err := BuildPostgresSchemaMigrationSQL(wantDescs, parsed, "acme"); err != nil || len(stmts) != 0 {
+		t.Fatalf("expected zero reverse migration drift against proto-derived descriptor for array sql(...) defaults, got (%v, %v)", stmts, err)
 	}
 	lhHCL := parsed[0].BuildPostgresAtlasHCL("")
 	if !strings.Contains(lhHCL, `default = sql("'{}'::text[]")`) || !strings.Contains(lhHCL, `default = sql("'{}'::uuid[]")`) {

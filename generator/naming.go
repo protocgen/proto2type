@@ -142,6 +142,9 @@ func validateOutputFile(p string) (string, error) {
 	if cleaned == "" || cleaned == "." || cleaned == ".." || path.IsAbs(cleaned) || strings.HasPrefix(cleaned, "../") {
 		return "", fmt.Errorf("proto2type: invalid output_file: %q", p)
 	}
+	if len(cleaned) >= 2 && cleaned[1] == ':' {
+		return "", fmt.Errorf("proto2type: output_file must not contain drive letters: %q", p)
+	}
 	return cleaned, nil
 }
 

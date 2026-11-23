@@ -901,6 +901,12 @@ func TestStage1AReview_CorrectnessH1ToH10AndMedium(t *testing.T) {
 	if sqlAuto := srAuto.BuildDorisCreateTableSQL("acme", 0); !strings.Contains(sqlAuto, "BUCKETS AUTO") {
 		t.Errorf("Doris DDL should honor AutoBuckets=true:\n%s", sqlAuto)
 	}
+	if srSQLAuto := srAuto.BuildStarRocksCreateTableSQL("acme", 0); !strings.Contains(srSQLAuto, "DISTRIBUTED BY HASH(id)\n") || strings.Contains(srSQLAuto, "BUCKETS") {
+		t.Errorf("StarRocks DDL with AutoBuckets=true and buckets<=0 should omit BUCKETS clause:\n%s", srSQLAuto)
+	}
+	if srSQLNum := srAuto.BuildStarRocksCreateTableSQL("acme", 12); !strings.Contains(srSQLNum, "DISTRIBUTED BY HASH(id) BUCKETS 12\n") {
+		t.Errorf("StarRocks DDL with explicit buckets=12 should emit BUCKETS 12:\n%s", srSQLNum)
+	}
 	srTblAfter := srTbl
 	srTblAfter.SyncTier = "WHOLE_TABLE"
 	srTblAfter.PartitionByColumns = nil
@@ -992,8 +998,12 @@ func TestRuntimeFixes(t *testing.T) {
 		},
 	}
 	sql := sr.BuildStarRocksCreateTableSQL("acme", 0)
-	if strings.Contains(sql, "PARTITION BY") || !strings.Contains(sql, "BUCKETS AUTO") {
-		t.Fatalf("unexpected runtime StarRocks SQL:\n%s", sql)
+	if strings.Contains(sql, "PARTITION BY") || !strings.Contains(sql, "DISTRIBUTED BY HASH(id)\n") || strings.Contains(sql, "BUCKETS") {
+		t.Fatalf("unexpected runtime StarRocks SQL (AutoBuckets=true, buckets=0):\n%s", sql)
+	}
+	sqlNum := sr.BuildStarRocksCreateTableSQL("acme", 12)
+	if !strings.Contains(sqlNum, "DISTRIBUTED BY HASH(id) BUCKETS 12\n") {
+		t.Fatalf("unexpected runtime StarRocks SQL (explicit buckets=12):\n%s", sqlNum)
 	}
 }
 `

@@ -28,10 +28,13 @@ func dorisTypeToAtlasHCLType(dorisType string) string {
 // canonical Atlas HCL column type for an Apache Iceberg table, preserving the
 // JSON/JSONB/VARIANT -> string type mapping.
 func dorisColumnIcebergHCLType(dorisType, icebergType string) string {
-	dt := strings.ToUpper(strings.TrimSpace(dorisType))
-	switch dt {
-	case "JSON", "JSONB", "VARIANT", "STRING", "TEXT":
-		return "string"
+	upperIT := strings.ToUpper(strings.TrimSpace(icebergType))
+	if upperIT == "" || isAbstractIcebergSpecType(upperIT) {
+		dt := strings.ToUpper(strings.TrimSpace(dorisType))
+		switch dt {
+		case "JSON", "JSONB", "VARIANT", "STRING", "TEXT":
+			return "string"
+		}
 	}
 	ddlType := dorisColumnIcebergDDLType(dorisType, icebergType)
 	lower := strings.ToLower(strings.TrimSpace(ddlType))
@@ -983,14 +986,16 @@ func findMatchingHCLBrace(s string, openIdx int) (int, error) {
 }
 
 // unquoteHCLString unquotes a double-quoted HCL string literal (unescaping
-// HCL interpolation sequences $${ -> ${ and %%{ -> %{) or trims whitespace.
+// raw HCL template sequences $${ -> ${ and %%{ -> %{ before character unquoting)
+// or trims whitespace.
 func unquoteHCLString(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		if unq, err := strconv.Unquote(s); err == nil {
-			return strings.NewReplacer("$${", "${", "%%{", "%{").Replace(unq)
+		decoded := strings.NewReplacer("$${", "${", "%%{", "%{").Replace(s[1 : len(s)-1])
+		if unq, err := strconv.Unquote(`"` + decoded + `"`); err == nil {
+			return unq
 		}
-		return strings.NewReplacer("$${", "${", "%%{", "%{").Replace(s[1 : len(s)-1])
+		return decoded
 	}
 	return s
 }
@@ -1770,10 +1775,13 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P()
 
 	g.P("func dorisColumnIcebergHCLType(dorisType, icebergType string) string {")
-	g.P("\tdt := ", stringsToUpper, "(", stringsTrimSpace, "(dorisType))")
-	g.P("\tswitch dt {")
-	g.P("\tcase \"JSON\", \"JSONB\", \"VARIANT\", \"STRING\", \"TEXT\":")
-	g.P("\t\treturn \"string\"")
+	g.P("\tupperIT := ", stringsToUpper, "(", stringsTrimSpace, "(icebergType))")
+	g.P("\tif upperIT == \"\" || isDorisAbstractIcebergSpecType(upperIT) {")
+	g.P("\t\tdt := ", stringsToUpper, "(", stringsTrimSpace, "(dorisType))")
+	g.P("\t\tswitch dt {")
+	g.P("\t\tcase \"JSON\", \"JSONB\", \"VARIANT\", \"STRING\", \"TEXT\":")
+	g.P("\t\t\treturn \"string\"")
+	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tddlType := dorisColumnIcebergDDLType(dorisType, icebergType)")
 	g.P("\tlower := ", stringsToLower, "(", stringsTrimSpace, "(ddlType))")
@@ -2674,10 +2682,11 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("func unquoteHCLString(s string) string {")
 	g.P("\ts = ", stringsTrimSpace, "(s)")
 	g.P("\tif len(s) >= 2 && s[0] == '\"' && s[len(s)-1] == '\"' {")
-	g.P("\t\tif unq, err := ", strconvUnquote, "(s); err == nil {")
-	g.P("\t\t\treturn ", stringsNewReplacer, "(\"$${\", \"${\", \"%%{\", \"%{\").Replace(unq)")
+	g.P("\t\tdecoded := ", stringsNewReplacer, "(\"$${\", \"${\", \"%%{\", \"%{\").Replace(s[1 : len(s)-1])")
+	g.P("\t\tif unq, err := ", strconvUnquote, "(`\"` + decoded + `\"`); err == nil {")
+	g.P("\t\t\treturn unq")
 	g.P("\t\t}")
-	g.P("\t\treturn ", stringsNewReplacer, "(\"$${\", \"${\", \"%%{\", \"%{\").Replace(s[1 : len(s)-1])")
+	g.P("\t\treturn decoded")
 	g.P("\t}")
 	g.P("\treturn s")
 	g.P("}")

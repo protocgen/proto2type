@@ -9,6 +9,9 @@ import (
 
 // generateRust generates Rust output files for a proto file.
 func generateRust(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+	if err := validateLangBackendOptions(opts); err != nil {
+		return err
+	}
 	// Generate domain types if requested.
 	if opts.Domain {
 		if err := generateRustDomain(gen, file, opts); err != nil {

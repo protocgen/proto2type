@@ -1078,7 +1078,7 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 		}
 		if strings.HasPrefix(upperIT, "ARRAY<") && strings.HasSuffix(upperIT, ">") {
 			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "ARRAY<"), ">")
-			return "ARRAY<" + dorisColumnIcebergDDLType(inner, "") + ">"
+			return "ARRAY<" + dorisColumnIcebergDDLType("", inner) + ">"
 		}
 		if strings.HasPrefix(upperIT, "LIST<") && strings.HasSuffix(upperIT, ">") {
 			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "LIST<"), ">")
@@ -1515,7 +1515,7 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	} else if t.Buckets > 0 {
 		bucketStr = strconv.Itoa(t.Buckets)
 	} else if t.AutoBuckets {
-		bucketStr = "AUTO"
+		bucketStr = ""
 	}
 	var fullTableName string
 	switch t.DatabaseScope {
@@ -1657,8 +1657,12 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	if distCol != "" {
 		b.WriteString("DISTRIBUTED BY HASH(")
 		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
+		if bucketStr != "" {
+			b.WriteString(") BUCKETS ")
+			b.WriteString(bucketStr)
+		} else {
+			b.WriteString(")")
+		}
 		b.WriteString("\n")
 	}
 	var props []string
@@ -1799,10 +1803,13 @@ func dorisTypeToAtlasHCLType(dorisType string) string {
 }
 
 func dorisColumnIcebergHCLType(dorisType, icebergType string) string {
-	dt := strings.ToUpper(strings.TrimSpace(dorisType))
-	switch dt {
-	case "JSON", "JSONB", "VARIANT", "STRING", "TEXT":
-		return "string"
+	upperIT := strings.ToUpper(strings.TrimSpace(icebergType))
+	if upperIT == "" || isDorisAbstractIcebergSpecType(upperIT) {
+		dt := strings.ToUpper(strings.TrimSpace(dorisType))
+		switch dt {
+		case "JSON", "JSONB", "VARIANT", "STRING", "TEXT":
+			return "string"
+		}
 	}
 	ddlType := dorisColumnIcebergDDLType(dorisType, icebergType)
 	lower := strings.ToLower(strings.TrimSpace(ddlType))
@@ -2690,10 +2697,11 @@ func findMatchingHCLBrace(s string, openIdx int) (int, error) {
 func unquoteHCLString(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		if unq, err := strconv.Unquote(s); err == nil {
-			return strings.NewReplacer("$${", "${", "%%{", "%{").Replace(unq)
+		decoded := strings.NewReplacer("$${", "${", "%%{", "%{").Replace(s[1 : len(s)-1])
+		if unq, err := strconv.Unquote(`"` + decoded + `"`); err == nil {
+			return unq
 		}
-		return strings.NewReplacer("$${", "${", "%%{", "%{").Replace(s[1 : len(s)-1])
+		return decoded
 	}
 	return s
 }

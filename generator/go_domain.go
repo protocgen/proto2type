@@ -92,7 +92,11 @@ func (gg *goGenerator) generateGo(gen *protogen.Plugin, file *protogen.File, opt
 
 // generateGoDomain generates a Go domain type file for a proto file.
 func (gg *goGenerator) generateGoDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, ".type.go")
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	filename, err := resolveOutputFilename(file.GeneratedFilenamePrefix, ".type.go", outOverride)
 	if err != nil {
 		return err
 	}
@@ -100,12 +104,14 @@ func (gg *goGenerator) generateGoDomain(gen *protogen.Plugin, file *protogen.Fil
 	// Determine the Go import path and package name for generated types.
 	goImportPath := file.GoImportPath
 	goPackageName := file.GoPackageName
-	if opts.GoPackage != "" {
+	if opts != nil && opts.GoPackage != "" {
 		// Parse "import/path;package_name" or just "import/path"
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
-		filename = adjustSubdirFilename(filename, string(file.GoImportPath), importPath)
+		if outOverride == "" {
+			filename = adjustSubdirFilename(filename, string(file.GoImportPath), importPath)
+		}
 	}
 
 	// Collision check: domain types cannot share the same Go import path as
