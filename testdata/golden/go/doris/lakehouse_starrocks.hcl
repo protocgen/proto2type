@@ -54,10 +54,7 @@ table "eligibility_criterion_results" {
   }
   distributed_by_hash {
     columns = [column.patient_id]
-    buckets = "auto"
-  }
-  partition_by_range {
-    columns = [column.event_month]
+    buckets = "${TENANT_BUCKETS}"
   }
   index "idx_ngram_eligibility_criterion_results_criterion_id" {
     columns = [column.criterion_id]

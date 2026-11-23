@@ -167,27 +167,141 @@ func dorisColumnStarRocksDDLType(dorisType, icebergType string) string {
 	return strings.ToUpper(it)
 }
 
+func splitIcebergTopLevelComma(s string) (string, string, bool) {
+	angleDepth := 0
+	parenDepth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '<':
+			angleDepth++
+		case '>':
+			if angleDepth > 0 {
+				angleDepth--
+			}
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case ',':
+			if angleDepth == 0 && parenDepth == 0 {
+				return strings.TrimSpace(s[:i]), strings.TrimSpace(s[i+1:]), true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func isAbstractIcebergSpecType(upperIT string) bool {
+	switch upperIT {
+	case "STRING", "LONG", "TIMESTAMPTZ", "TIMESTAMP", "BINARY",
+		"LIST<STRING>", "LIST<FLOAT>", "LIST<DOUBLE>", "LIST<INT>", "LIST<LONG>", "LIST<BOOLEAN>":
+		return true
+	}
+	return false
+}
+
+// dorisColumnIcebergElementDDLType normalizes a nested element type inside an
+// Iceberg ARRAY<...> or MAP<k, v> definition without re-converting concrete "STRING"
+// element types into VARCHAR(256).
+func dorisColumnIcebergElementDDLType(elem string) string {
+	e := strings.ToUpper(strings.TrimSpace(elem))
+	if e == "STRING" {
+		return "STRING"
+	}
+	return dorisColumnIcebergDDLType("", e)
+}
+
 // dorisColumnIcebergDDLType maps a column's Doris/Iceberg type metadata to the
 // SQL column type used in Doris's Iceberg catalog CREATE TABLE DDL.
 func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 	dt := strings.ToUpper(strings.TrimSpace(dorisType))
+	it := strings.TrimSpace(icebergType)
+	upperIT := strings.ToUpper(it)
+	if upperIT != "" && (dt == "" || !isAbstractIcebergSpecType(upperIT)) {
+		switch upperIT {
+		case "STRING":
+			return "VARCHAR(256)"
+		case "LONG":
+			return "BIGINT"
+		case "TINYINT", "SMALLINT":
+			return "INT"
+		case "TIMESTAMPTZ", "TIMESTAMP":
+			return "DATETIME"
+		case "DATEV2", "DATE":
+			return "DATE"
+		case "DATETIMEV2", "DATETIME":
+			return "DATETIME"
+		case "LARGEINT":
+			return "DECIMAL(38, 0)"
+		case "JSON", "JSONB", "VARIANT", "TEXT":
+			return "STRING"
+		case "LIST<STRING>":
+			return "ARRAY<VARCHAR(64)>"
+		case "LIST<FLOAT>":
+			return "ARRAY<FLOAT>"
+		case "LIST<DOUBLE>":
+			return "ARRAY<DOUBLE>"
+		case "LIST<INT>":
+			return "ARRAY<INT>"
+		case "LIST<LONG>":
+			return "ARRAY<BIGINT>"
+		}
+		if (strings.HasPrefix(upperIT, "DATETIMEV2(") || strings.HasPrefix(upperIT, "DATETIME(")) && strings.HasSuffix(upperIT, ")") {
+			return "DATETIME"
+		}
+		if strings.HasPrefix(upperIT, "DECIMALV3(") && strings.HasSuffix(upperIT, ")") {
+			rest := strings.TrimPrefix(upperIT, "DECIMALV3(")
+			rest = strings.ReplaceAll(rest, ", ", ",")
+			rest = strings.ReplaceAll(rest, ",", ", ")
+			return "DECIMAL(" + rest
+		}
+		if strings.HasPrefix(upperIT, "DECIMAL(") && strings.HasSuffix(upperIT, ")") {
+			rest := strings.TrimPrefix(upperIT, "DECIMAL(")
+			rest = strings.ReplaceAll(rest, ", ", ",")
+			rest = strings.ReplaceAll(rest, ",", ", ")
+			return "DECIMAL(" + rest
+		}
+		if strings.HasPrefix(upperIT, "ARRAY<") && strings.HasSuffix(upperIT, ">") {
+			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "ARRAY<"), ">")
+			return "ARRAY<" + dorisColumnIcebergElementDDLType(inner) + ">"
+		}
+		if strings.HasPrefix(upperIT, "LIST<") && strings.HasSuffix(upperIT, ">") {
+			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "LIST<"), ">")
+			return "ARRAY<" + dorisColumnIcebergElementDDLType(inner) + ">"
+		}
+		if strings.HasPrefix(upperIT, "MAP<") && strings.HasSuffix(upperIT, ">") {
+			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "MAP<"), ">")
+			if k, v, ok := splitIcebergTopLevelComma(inner); ok {
+				return "MAP<" + dorisColumnIcebergElementDDLType(k) + ", " + dorisColumnIcebergElementDDLType(v) + ">"
+			}
+		}
+		return upperIT
+	}
 	switch dt {
 	case "DATEV2":
 		return "DATE"
-	case "DATETIMEV2":
+	case "DATETIMEV2", "DATETIME":
 		return "DATETIME"
+	case "TINYINT", "SMALLINT":
+		return "INT"
 	case "LARGEINT":
 		return "DECIMAL(38, 0)"
-	case "ARRAY<LARGEINT>":
-		return "ARRAY<DECIMAL(38, 0)>"
-	case "JSON", "JSONB", "VARIANT":
+	case "JSON", "JSONB", "VARIANT", "TEXT":
 		return "STRING"
 	}
-	if strings.HasPrefix(dt, "DATETIMEV2(") && strings.HasSuffix(dt, ")") {
+	if (strings.HasPrefix(dt, "DATETIMEV2(") || strings.HasPrefix(dt, "DATETIME(")) && strings.HasSuffix(dt, ")") {
 		return "DATETIME"
 	}
-	if strings.HasPrefix(dt, "DECIMALV3(") {
+	if strings.HasPrefix(dt, "DECIMALV3(") && strings.HasSuffix(dt, ")") {
 		rest := strings.TrimPrefix(dt, "DECIMALV3(")
+		rest = strings.ReplaceAll(rest, ", ", ",")
+		rest = strings.ReplaceAll(rest, ",", ", ")
+		return "DECIMAL(" + rest
+	}
+	if strings.HasPrefix(dt, "DECIMAL(") && strings.HasSuffix(dt, ")") {
+		rest := strings.TrimPrefix(dt, "DECIMAL(")
 		rest = strings.ReplaceAll(rest, ", ", ",")
 		rest = strings.ReplaceAll(rest, ",", ", ")
 		return "DECIMAL(" + rest
@@ -196,29 +310,40 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 		inner := strings.TrimSuffix(strings.TrimPrefix(dt, "ARRAY<"), ">")
 		return "ARRAY<" + dorisColumnIcebergDDLType(inner, "") + ">"
 	}
-	if dt != "" {
-		return dt
+	if strings.HasPrefix(dt, "LIST<") && strings.HasSuffix(dt, ">") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(dt, "LIST<"), ">")
+		return "ARRAY<" + dorisColumnIcebergDDLType(inner, "") + ">"
 	}
-	it := strings.TrimSpace(icebergType)
-	switch strings.ToUpper(it) {
-	case "STRING":
-		return "VARCHAR(256)"
-	case "LONG":
-		return "BIGINT"
-	case "TIMESTAMPTZ", "TIMESTAMP":
-		return "DATETIME"
-	case "LIST<STRING>":
-		return "ARRAY<VARCHAR(64)>"
-	case "LIST<FLOAT>":
-		return "ARRAY<FLOAT>"
-	case "LIST<DOUBLE>":
-		return "ARRAY<DOUBLE>"
-	case "LIST<INT>":
-		return "ARRAY<INT>"
-	case "LIST<LONG>":
-		return "ARRAY<BIGINT>"
+	if strings.HasPrefix(dt, "MAP<") && strings.HasSuffix(dt, ">") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(dt, "MAP<"), ">")
+		if k, v, ok := splitIcebergTopLevelComma(inner); ok {
+			return "MAP<" + dorisColumnIcebergDDLType(k, "") + ", " + dorisColumnIcebergDDLType(v, "") + ">"
+		}
 	}
-	return strings.ToUpper(it)
+	return dt
+}
+
+// shouldEmitDorisPartitionBy reports whether Doris CREATE TABLE / Atlas HCL should emit
+// a PARTITION BY clause. On Doris UNIQUE KEY tables, partition columns must be a subset
+// of unique_key_columns; when they are not, PARTITION BY is omitted for Doris (while
+// still emitted for Iceberg).
+func shouldEmitDorisPartitionBy(uks, partCols []string) bool {
+	if len(partCols) == 0 {
+		return false
+	}
+	if len(uks) == 0 {
+		return true
+	}
+	ukSet := make(map[string]bool, len(uks))
+	for _, uk := range uks {
+		ukSet[uk] = true
+	}
+	for _, pc := range partCols {
+		if !ukSet[pc] {
+			return false
+		}
+	}
+	return true
 }
 
 // sanitizeDorisTenantSlug normalizes and validates a tenant slug for SQL DDL interpolation.
@@ -495,23 +620,27 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 	bucketStr := "${TENANT_BUCKETS}"
 	if buckets > 0 {
 		bucketStr = strconv.Itoa(buckets)
+	} else if t.Buckets > 0 {
+		bucketStr = strconv.Itoa(t.Buckets)
+	} else if t.AutoBuckets {
+		bucketStr = "AUTO"
 	}
 
 	var fullTableName string
 	switch t.DatabaseScope {
 	case "GLOBAL_TERMINOLOGY":
 		fullTableName = "internal.terminology." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "1"
 		}
 	case "GLOBAL_TERMINOLOGY_RAG":
 		fullTableName = "internal.terminology_rag." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "8"
 		}
 	case "GLOBAL_TELEMETRY":
 		fullTableName = "internal.telemetry." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "8"
 		}
 	default:
@@ -582,25 +711,7 @@ func (t DorisTableDescriptor) BuildDorisCreateTableSQL(tenantSlug string, bucket
 		}
 	}
 
-	var partCols []string
-	if len(t.PartitionByColumns) > 0 {
-		partCols = dedupDorisColumnList(t.PartitionByColumns)
-	} else {
-		for _, c := range orderedCols {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
-	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "event_month" {
-				partCols = append(partCols, "event_month")
-				break
-			}
-		}
-	}
+	partCols := effectiveDorisPhysicalPartitionCols(t)
 
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
@@ -774,23 +885,28 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	bucketStr := "${TENANT_BUCKETS}"
 	if buckets > 0 {
 		bucketStr = strconv.Itoa(buckets)
+	} else if t.Buckets > 0 {
+		bucketStr = strconv.Itoa(t.Buckets)
+	} else if t.AutoBuckets {
+		// StarRocks 4.0 selects buckets automatically when the BUCKETS clause is omitted.
+		bucketStr = ""
 	}
 
 	var fullTableName string
 	switch t.DatabaseScope {
 	case "GLOBAL_TERMINOLOGY":
 		fullTableName = "internal.terminology." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "1"
 		}
 	case "GLOBAL_TERMINOLOGY_RAG":
 		fullTableName = "internal.terminology_rag." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "8"
 		}
 	case "GLOBAL_TELEMETRY":
 		fullTableName = "internal.telemetry." + t.TableName
-		if buckets <= 0 {
+		if buckets <= 0 && t.Buckets <= 0 && !t.AutoBuckets {
 			bucketStr = "8"
 		}
 	default:
@@ -860,25 +976,7 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 		}
 	}
 
-	var partCols []string
-	if len(t.PartitionByColumns) > 0 {
-		partCols = dedupDorisColumnList(t.PartitionByColumns)
-	} else {
-		for _, c := range orderedCols {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
-	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "event_month" {
-				partCols = append(partCols, "event_month")
-				break
-			}
-		}
-	}
+	partCols := effectiveDorisPhysicalPartitionCols(t)
 
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
@@ -940,8 +1038,12 @@ func (t DorisTableDescriptor) BuildStarRocksCreateTableSQL(tenantSlug string, bu
 	if distCol != "" {
 		b.WriteString("DISTRIBUTED BY HASH(")
 		b.WriteString(formatDorisDDLColumnIdent(distCol))
-		b.WriteString(") BUCKETS ")
-		b.WriteString(bucketStr)
+		if bucketStr != "" {
+			b.WriteString(") BUCKETS ")
+			b.WriteString(bucketStr)
+		} else {
+			b.WriteString(")")
+		}
 		b.WriteString("\n")
 	}
 
@@ -1052,33 +1154,7 @@ func (t DorisTableDescriptor) BuildIcebergCreateTableSQL(tenantSlug string) stri
 		bodyLines = append(bodyLines, line)
 	}
 
-	var partCols []string
-	if len(t.PartitionByColumns) > 0 {
-		partCols = dedupDorisColumnList(t.PartitionByColumns)
-	} else {
-		for _, c := range orderedCols {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
-	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "event_month" {
-				partCols = append(partCols, "event_month")
-				break
-			}
-		}
-	}
-	if len(partCols) == 0 && t.SyncTier == "RELEASE_PARTITIONED" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "release_id" {
-				partCols = append(partCols, "release_id")
-				break
-			}
-		}
-	}
+	partCols := effectiveDorisPartitionCols(t)
 
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS ")
@@ -1118,8 +1194,19 @@ type ddlBlock struct {
 }
 
 // generateDorisDDLFiles emits <prefix>_doris.sql and <prefix>_iceberg.sql
-// for all Doris/Iceberg tables in the proto file.
-func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, tables []*dorisTableIR) error {
+// for all Doris/Iceberg tables in the proto file (or consolidates to opts.OutputFile if valid).
+func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, opts *Options, tables []*dorisTableIR) error {
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	return generateConsolidatedDorisDDLFiles(gen, []*protogen.File{file}, tables, outOverride)
+}
+
+func generateConsolidatedDorisDDLFiles(gen *protogen.Plugin, files []*protogen.File, tables []*dorisTableIR, outputFile string) error {
+	if len(files) == 0 || len(tables) == 0 {
+		return nil
+	}
 	var dorisBlocks []ddlBlock
 	var icebergBlocks []ddlBlock
 
@@ -1144,63 +1231,68 @@ func generateDorisDDLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 		}
 	}
 
+	if outputFile != "" && len(dorisBlocks) > 0 && len(icebergBlocks) > 0 {
+		return fmt.Errorf("output_file %q cannot consolidate both Doris and Iceberg DDL outputs", outputFile)
+	}
+
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
+	sourceDesc := strings.Join(sources, ", ")
+
+	writeDDL := func(defaultSuffix, backendLabel string, blocks []ddlBlock) error {
+		filename, err := resolveOutputFilename(files[0].GeneratedFilenamePrefix, defaultSuffix, outputFile)
+		if err != nil {
+			return err
+		}
+		g := gen.NewGeneratedFile(filename, "")
+		g.P("-- Code generated by proto2type. DO NOT EDIT.")
+		g.P("-- source: ", sourceDesc)
+		g.P("-- backend: ", backendLabel, " (ddl)")
+		g.P()
+		for i, blk := range blocks {
+			if i > 0 {
+				g.P()
+			}
+			g.P("-- ", blk.goName, " (", blk.tableName, ")")
+			if blk.writerService != "" {
+				g.P("-- writer_service: ", blk.writerService)
+			}
+			if len(blk.readerServices) > 0 {
+				g.P("-- reader_services: ", strings.Join(blk.readerServices, ", "))
+			}
+			g.P(blk.sql)
+		}
+		return nil
+	}
+
 	if len(dorisBlocks) > 0 {
-		dorisFilename, err := outputFilename(file.GeneratedFilenamePrefix, "_doris.sql")
-		if err != nil {
+		if err := writeDDL("_doris.sql", "doris", dorisBlocks); err != nil {
 			return err
 		}
-		dg := gen.NewGeneratedFile(dorisFilename, "")
-		dg.P("-- Code generated by proto2type. DO NOT EDIT.")
-		dg.P("-- source: ", file.Desc.Path())
-		dg.P("-- backend: doris (ddl)")
-		dg.P()
-
-		for i, blk := range dorisBlocks {
-			if i > 0 {
-				dg.P()
-			}
-			dg.P("-- ", blk.goName, " (", blk.tableName, ")")
-			if blk.writerService != "" {
-				dg.P("-- writer_service: ", blk.writerService)
-			}
-			if len(blk.readerServices) > 0 {
-				dg.P("-- reader_services: ", strings.Join(blk.readerServices, ", "))
-			}
-			dg.P(blk.sql)
-		}
 	}
-
 	if len(icebergBlocks) > 0 {
-		icebergFilename, err := outputFilename(file.GeneratedFilenamePrefix, "_iceberg.sql")
-		if err != nil {
+		if err := writeDDL("_iceberg.sql", "iceberg", icebergBlocks); err != nil {
 			return err
 		}
-		ig := gen.NewGeneratedFile(icebergFilename, "")
-		ig.P("-- Code generated by proto2type. DO NOT EDIT.")
-		ig.P("-- source: ", file.Desc.Path())
-		ig.P("-- backend: iceberg (ddl)")
-		ig.P()
-
-		for i, blk := range icebergBlocks {
-			if i > 0 {
-				ig.P()
-			}
-			ig.P("-- ", blk.goName, " (", blk.tableName, ")")
-			if blk.writerService != "" {
-				ig.P("-- writer_service: ", blk.writerService)
-			}
-			if len(blk.readerServices) > 0 {
-				ig.P("-- reader_services: ", strings.Join(blk.readerServices, ", "))
-			}
-			ig.P(blk.sql)
-		}
 	}
-
 	return nil
 }
 
 // generateStarRocksDDLFile emits <prefix>_starrocks.sql for all StarRocks tables in the proto file.
-func generateStarRocksDDLFile(gen *protogen.Plugin, file *protogen.File, tables []*dorisTableIR) error {
+func generateStarRocksDDLFile(gen *protogen.Plugin, file *protogen.File, opts *Options, tables []*dorisTableIR) error {
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	return generateConsolidatedStarRocksDDLFile(gen, []*protogen.File{file}, tables, outOverride)
+}
+
+func generateConsolidatedStarRocksDDLFile(gen *protogen.Plugin, files []*protogen.File, tables []*dorisTableIR, outputFile string) error {
+	if len(files) == 0 {
+		return nil
+	}
 	var srBlocks []ddlBlock
 	for _, tbl := range tables {
 		if sql := tbl.Descriptor.BuildStarRocksCreateTableSQL("", 0); sql != "" {
@@ -1216,13 +1308,17 @@ func generateStarRocksDDLFile(gen *protogen.Plugin, file *protogen.File, tables 
 	if len(srBlocks) == 0 {
 		return nil
 	}
-	srFilename, err := outputFilename(file.GeneratedFilenamePrefix, "_starrocks.sql")
+	srFilename, err := resolveOutputFilename(files[0].GeneratedFilenamePrefix, "_starrocks.sql", outputFile)
 	if err != nil {
 		return err
 	}
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
 	sg := gen.NewGeneratedFile(srFilename, "")
 	sg.P("-- Code generated by proto2type. DO NOT EDIT.")
-	sg.P("-- source: ", file.Desc.Path())
+	sg.P("-- source: ", strings.Join(sources, ", "))
 	sg.P("-- backend: starrocks (ddl)")
 	sg.P()
 

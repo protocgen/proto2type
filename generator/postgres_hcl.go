@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,25 +13,302 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+var (
+	hclParenOpenSpaceRe  = regexp.MustCompile(`\(\s+`)
+	hclParenCloseSpaceRe = regexp.MustCompile(`\s+\)`)
+	hclSpaceBeforeOpenRe = regexp.MustCompile(`\s+\(`)
+)
+
+func escapeHCLInterpolation(s string) string {
+	return strings.NewReplacer("${", "$${", "%{", "%%{").Replace(s)
+}
+
+// quoteHCLString quotes s as a double-quoted HCL string literal, escaping
+// HCL interpolation/directive sequences (${ -> $${, %{ -> %%{).
+func quoteHCLString(s string) string {
+	return strconv.Quote(escapeHCLInterpolation(s))
+}
+
+func isValidPostgresIndexMethod(using string) bool {
+	u := strings.ToUpper(strings.TrimSpace(using))
+	if u == "" {
+		return true
+	}
+	switch u {
+	case "BTREE", "GIN", "GIST", "HASH", "BRIN", "SPGIST", "HNSW", "IVFFLAT":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPostgresOrderedIndexMethod(using string) bool {
+	u := strings.ToUpper(strings.TrimSpace(using))
+	return u == "" || u == "BTREE"
+}
+
+func postgresIndexHasDesc(idx PostgresIndexDescriptor) bool {
+	if len(idx.DescColumns) > 0 {
+		return true
+	}
+	for _, p := range idx.Parts {
+		if p.Desc {
+			return true
+		}
+	}
+	return false
+}
+
+var builtinPostgresOpclasses = map[string]bool{
+	"text_pattern_ops": true, "varchar_pattern_ops": true, "bpchar_pattern_ops": true, "name_pattern_ops": true,
+	"gin_ops": true, "jsonb_ops": true, "jsonb_path_ops": true, "array_ops": true, "tsvector_ops": true,
+	"gist_ops": true, "spgist_ops": true, "brin_ops": true, "btree_ops": true, "hash_ops": true,
+	"bool_ops": true, "bytea_ops": true, "char_ops": true, "name_ops": true,
+	"int2_ops": true, "int4_ops": true, "int8_ops": true, "float4_ops": true, "float8_ops": true, "numeric_ops": true,
+	"text_ops": true, "varchar_ops": true, "bpchar_ops": true, "date_ops": true, "time_ops": true, "timetz_ops": true,
+	"timestamp_ops": true, "timestamptz_ops": true, "interval_ops": true, "uuid_ops": true,
+	"inet_ops": true, "cidr_ops": true, "macaddr_ops": true, "macaddr8_ops": true,
+	"bit_ops": true, "varbit_ops": true, "oid_ops": true, "money_ops": true,
+	"tid_ops": true, "xid_ops": true, "cid_ops": true, "pg_lsn_ops": true,
+	"enum_ops": true, "record_ops": true, "range_ops": true, "multirange_ops": true,
+	"box_ops": true, "poly_ops": true, "circle_ops": true, "point_ops": true,
+	"quad_point_ops": true, "kd_point_ops": true,
+	"int4_minmax_ops": true, "int8_minmax_ops": true, "date_minmax_ops": true,
+	"timestamp_minmax_ops": true, "timestamptz_minmax_ops": true, "uuid_minmax_ops": true,
+	"text_bloom_ops": true, "int4_bloom_ops": true, "int8_bloom_ops": true, "uuid_bloom_ops": true,
+}
+
+func formatPostgresAtlasHCLOpclass(op string) string {
+	trimmed := strings.TrimSpace(op)
+	if builtinPostgresOpclasses[strings.ToLower(trimmed)] {
+		return trimmed
+	}
+	return quoteHCLString(trimmed)
+}
+
 // formatPostgresHCLDefaultValue formats the Atlas HCL default attribute value for a PostgreSQL column.
 func formatPostgresHCLDefaultValue(c PostgresColumnDescriptor) string {
 	if c.ServerDefault != "" {
-		return fmt.Sprintf("sql(%q)", strings.ToLower(strings.TrimSpace(c.ServerDefault)))
+		return fmt.Sprintf("sql(%s)", quoteHCLString(strings.ToLower(strings.TrimSpace(c.ServerDefault))))
 	}
-	if c.DefaultValue == "" {
+	if !c.HasDefaultValue && c.DefaultValue == "" {
 		return ""
 	}
-	sqlType := c.SQLType
+	sqlType := strings.TrimSpace(c.SQLType)
 	if sqlType == "" {
-		sqlType = strings.ReplaceAll(c.HCLType, "double_precision", "double precision")
+		sqlType = strings.TrimSpace(strings.ReplaceAll(c.HCLType, "double_precision", "double precision"))
 	}
-	if isPostgresBooleanSQLType(sqlType) {
+	upperType := strings.ToUpper(sqlType)
+	if strings.HasSuffix(upperType, "[]") {
+		rawVal := strings.TrimSpace(c.DefaultValue)
+		if rawVal == "[]" {
+			rawVal = "{}"
+		}
+		innerLiteral := "'" + strings.ReplaceAll(rawVal, "'", "''") + "'"
+		castType := strings.ToLower(strings.TrimSpace(sqlType))
+		return fmt.Sprintf("sql(%s)", quoteHCLString(innerLiteral+"::"+castType))
+	}
+	if c.DefaultValue != "" && isPostgresBooleanSQLType(sqlType) {
 		return strings.ToLower(c.DefaultValue)
 	}
-	if isPostgresNumericSQLType(sqlType) {
+	if c.DefaultValue != "" && isPostgresNumericSQLType(sqlType) {
 		return c.DefaultValue
 	}
-	return strconv.Quote(strings.NewReplacer("${", "$${", "%{", "%%{").Replace(c.DefaultValue))
+	return quoteHCLString(c.DefaultValue)
+}
+
+func canonicalPostgresSQLCastType(s string) string {
+	t := strings.ToLower(strings.TrimSpace(s))
+	if t == "" {
+		return ""
+	}
+	suffix := ""
+	for strings.HasSuffix(t, "[]") {
+		suffix += "[]"
+		t = strings.TrimSpace(strings.TrimSuffix(t, "[]"))
+	}
+	t = strings.Join(strings.Fields(t), " ")
+	t = strings.ReplaceAll(t, ", ", ",")
+	t = strings.ReplaceAll(t, ",", ", ")
+	t = strings.ReplaceAll(t, " (", "(")
+	t = strings.ReplaceAll(t, "( ", "(")
+	t = strings.ReplaceAll(t, " )", ")")
+	switch {
+	case t == "int" || t == "int4":
+		t = "integer"
+	case t == "int2":
+		t = "smallint"
+	case t == "int8":
+		t = "bigint"
+	case t == "bool":
+		t = "boolean"
+	case t == "float4":
+		t = "real"
+	case t == "float8":
+		t = "double precision"
+	case t == "timestamp with time zone":
+		t = "timestamptz"
+	case strings.HasPrefix(t, "timestamp(") && strings.HasSuffix(t, ") with time zone"):
+		prec := strings.TrimSuffix(strings.TrimPrefix(t, "timestamp("), ") with time zone")
+		t = "timestamptz(" + prec + ")"
+	case t == "timestamp without time zone":
+		t = "timestamp"
+	case strings.HasPrefix(t, "timestamp(") && strings.HasSuffix(t, ") without time zone"):
+		prec := strings.TrimSuffix(strings.TrimPrefix(t, "timestamp("), ") without time zone")
+		t = "timestamp(" + prec + ")"
+	case t == "time with time zone":
+		t = "timetz"
+	case strings.HasPrefix(t, "time(") && strings.HasSuffix(t, ") with time zone"):
+		prec := strings.TrimSuffix(strings.TrimPrefix(t, "time("), ") with time zone")
+		t = "timetz(" + prec + ")"
+	case t == "time without time zone":
+		t = "time"
+	case strings.HasPrefix(t, "time(") && strings.HasSuffix(t, ") without time zone"):
+		prec := strings.TrimSuffix(strings.TrimPrefix(t, "time("), ") without time zone")
+		t = "time(" + prec + ")"
+	case t == "character varying":
+		t = "varchar"
+	case strings.HasPrefix(t, "character varying("):
+		t = "varchar(" + strings.TrimPrefix(t, "character varying(")
+	case t == "decimal":
+		t = "numeric"
+	case strings.HasPrefix(t, "decimal("):
+		t = "numeric(" + strings.TrimPrefix(t, "decimal(")
+	}
+	return t + suffix
+}
+
+// parsePostgresHCLSQLDefault parses the inner argument of an Atlas HCL default = sql("...")
+// attribute, recognizing allowlisted SQL server functions (e.g. "now()") or typed literal
+// casts (e.g. "'{}'::text[]", "'{}'::uuid[]") compatible with columnType.
+func parsePostgresHCLSQLDefault(inner, columnType string) (defVal string, hasDefVal bool, srvDef string, ok bool) {
+	trimmed := strings.TrimSpace(inner)
+	upper := strings.ToUpper(trimmed)
+	if isValidPostgresServerDefault(upper) {
+		return "", false, upper, true
+	}
+	if !strings.HasPrefix(trimmed, "'") {
+		return "", false, "", false
+	}
+	var literal strings.Builder
+	endIdx := -1
+	for i := 1; i < len(trimmed); i++ {
+		if trimmed[i] == '\'' {
+			if i+1 < len(trimmed) && trimmed[i+1] == '\'' {
+				literal.WriteByte('\'')
+				i++
+				continue
+			}
+			endIdx = i
+			break
+		}
+		literal.WriteByte(trimmed[i])
+	}
+	if endIdx < 0 {
+		return "", false, "", false
+	}
+	rest := strings.TrimSpace(trimmed[endIdx+1:])
+	if !strings.HasPrefix(rest, "::") {
+		return "", false, "", false
+	}
+	castType := strings.TrimSpace(strings.TrimPrefix(rest, "::"))
+	canonCast := canonicalPostgresSQLCastType(castType)
+	if castType == "" || (!isValidPostgresSQLTypeSyntax(castType) && !isValidPostgresTypeSyntax(castType) && (canonCast == "" || (!isValidPostgresSQLTypeSyntax(canonCast) && !isValidPostgresTypeSyntax(canonCast)))) {
+		return "", false, "", false
+	}
+	if canonCol := canonicalPostgresSQLCastType(columnType); canonCol != "" {
+		if canonCast != canonCol {
+			return "", false, "", false
+		}
+	}
+	unescaped := literal.String()
+	if unescaped != "" && !isValidDorisDefaultValue(unescaped) {
+		return "", false, "", false
+	}
+	if columnType != "" && validatePostgresColumnDefault(columnType, unescaped, true) != nil {
+		return "", false, "", false
+	}
+	return unescaped, true, "", true
+}
+
+// emitPostgresAtlasIndexOnBlocks writes ordered Atlas HCL `on { ... }` blocks or `columns = [...]`
+// for idx inside an `index "..." { ... }` block.
+func emitPostgresAtlasIndexOnBlocks(b *strings.Builder, idx PostgresIndexDescriptor) {
+	if len(idx.Parts) > 0 {
+		for _, p := range idx.Parts {
+			b.WriteString("    on {\n")
+			if p.Desc {
+				b.WriteString("      desc   = true\n")
+			}
+			if p.Expr != "" {
+				fmt.Fprintf(b, "      expr = %s\n", quoteHCLString(strings.TrimSpace(p.Expr)))
+			} else {
+				fmt.Fprintf(b, "      column = column.%s\n", p.Column)
+			}
+			if p.Opclass != "" {
+				fmt.Fprintf(b, "      ops    = %s\n", formatPostgresAtlasHCLOpclass(p.Opclass))
+			}
+			b.WriteString("    }\n")
+		}
+		return
+	}
+	if len(idx.DescColumns) > 0 || len(idx.Expressions) > 0 {
+		for _, col := range idx.Columns {
+			b.WriteString("    on {\n")
+			if idx.IsDesc(col) {
+				b.WriteString("      desc   = true\n")
+			}
+			fmt.Fprintf(b, "      column = column.%s\n", col)
+			b.WriteString("    }\n")
+		}
+		for _, expr := range idx.Expressions {
+			b.WriteString("    on {\n")
+			fmt.Fprintf(b, "      expr = %s\n", quoteHCLString(strings.TrimSpace(expr)))
+			b.WriteString("    }\n")
+		}
+		return
+	}
+	fmt.Fprintf(b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
+}
+
+// formatPostgresIndexPartsSQL renders ordered index key items for CREATE INDEX statements.
+func canonicalPostgresIndexPartsWithOps(idx PostgresIndexDescriptor) ([]PostgresIndexPartDescriptor, string) {
+	parts := canonicalPostgresIndexParts(idx)
+	ops := strings.TrimSpace(idx.Ops)
+	if len(parts) == 1 {
+		if parts[0].Opclass == "" && ops != "" {
+			parts[0].Opclass = ops
+			ops = ""
+		} else if parts[0].Opclass != "" && ops == parts[0].Opclass {
+			ops = ""
+		}
+	}
+	return parts, ops
+}
+
+func formatPostgresIndexPartsSQL(idx PostgresIndexDescriptor, quoteCol bool) []string {
+	canon, _ := canonicalPostgresIndexPartsWithOps(idx)
+	parts := make([]string, 0, len(canon))
+	for _, p := range canon {
+		var elem string
+		if p.Column != "" {
+			if quoteCol {
+				elem = fmt.Sprintf("%q", p.Column)
+			} else {
+				elem = p.Column
+			}
+		} else {
+			elem = formatPostgresIndexExprSQL(p.Expr)
+		}
+		if p.Opclass != "" {
+			elem += " " + p.Opclass
+		}
+		if p.Desc && isPostgresOrderedIndexMethod(idx.Using) {
+			elem += " DESC"
+		}
+		parts = append(parts, elem)
+	}
+	return parts
 }
 
 // formatPostgresHCLType normalizes a PostgreSQL type expression into a valid Atlas HCL type attribute.
@@ -41,8 +319,8 @@ func formatPostgresHCLType(raw string) string {
 	if raw == "double precision" {
 		return "double_precision"
 	}
-	if strings.HasSuffix(raw, "[]") || strings.Contains(raw, " ") {
-		return fmt.Sprintf("sql(%q)", raw)
+	if strings.HasSuffix(raw, "[]") || strings.Contains(raw, " ") || strings.HasPrefix(strings.ToLower(raw), "vector(") {
+		return fmt.Sprintf("sql(%s)", quoteHCLString(raw))
 	}
 	return raw
 }
@@ -80,10 +358,10 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 			!isValidPostgresSQLTypeSyntax(sqlType) ||
 			!isValidPostgresSQLTypeSyntax(hclTypeAsSQL) ||
 			!isValidPostgresServerDefault(c.ServerDefault) ||
-			validatePostgresDefaultValue(sqlType, c.DefaultValue) != nil {
+			validatePostgresColumnDefault(sqlType, c.DefaultValue, c.HasDefaultValue) != nil {
 			return ""
 		}
-		if c.Identity && (!isPostgresIdentityEligibleSQLType(sqlType) || c.Nullable || c.DefaultValue != "" || c.ServerDefault != "") {
+		if c.Identity && (!isPostgresIdentityEligibleSQLType(sqlType) || c.Nullable || c.HasDefaultValue || c.DefaultValue != "" || c.ServerDefault != "") {
 			return ""
 		}
 		normCol := c
@@ -114,7 +392,20 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 	}
 
 	for _, idx := range t.Indexes {
-		if !isValidSQLIdentifier(idx.Name) || len(idx.Name) > maxPostgresIdentifierBytes || (len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
+		if !isValidSQLIdentifier(idx.Name) || len(idx.Name) > maxPostgresIdentifierBytes || (len(idx.Parts) == 0 && len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
+			return ""
+		}
+		if !isValidPostgresIndexMethod(idx.Using) {
+			return ""
+		}
+		isOrdered := isPostgresOrderedIndexMethod(idx.Using)
+		if !isOrdered && postgresIndexHasDesc(idx) {
+			return ""
+		}
+		if idx.Ops != "" && (!isValidSQLIdentifier(idx.Ops) || len(idx.Ops) > maxPostgresIdentifierBytes) {
+			return ""
+		}
+		if isOrdered && isPostgresBTreeIncompatibleOpclass(idx.Ops) {
 			return ""
 		}
 		for _, col := range idx.Columns {
@@ -127,6 +418,23 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 				return ""
 			}
 		}
+		for _, p := range idx.Parts {
+			if (p.Column != "") == (p.Expr != "") {
+				return ""
+			}
+			if p.Column != "" && (!isValidSQLIdentifier(p.Column) || len(p.Column) > maxPostgresIdentifierBytes) {
+				return ""
+			}
+			if p.Expr != "" && !isValidPostgresCheckExpr(p.Expr) {
+				return ""
+			}
+			if p.Opclass != "" && (!isValidSQLIdentifier(p.Opclass) || len(p.Opclass) > maxPostgresIdentifierBytes) {
+				return ""
+			}
+			if isOrdered && isPostgresBTreeIncompatibleOpclass(p.Opclass) {
+				return ""
+			}
+		}
 		if idx.Where != "" && !isValidPostgresCheckExpr(idx.Where) {
 			return ""
 		}
@@ -134,25 +442,9 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 		if idx.Unique {
 			b.WriteString("    unique  = true\n")
 		}
-		if len(idx.DescColumns) > 0 || len(idx.Expressions) > 0 {
-			for _, col := range idx.Columns {
-				b.WriteString("    on {\n")
-				if idx.IsDesc(col) {
-					b.WriteString("      desc   = true\n")
-				}
-				fmt.Fprintf(&b, "      column = column.%s\n", col)
-				b.WriteString("    }\n")
-			}
-			for _, expr := range idx.Expressions {
-				b.WriteString("    on {\n")
-				fmt.Fprintf(&b, "      expr = %q\n", strings.TrimSpace(expr))
-				b.WriteString("    }\n")
-			}
-		} else {
-			fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
-		}
+		emitPostgresAtlasIndexOnBlocks(&b, idx)
 		if idx.Where != "" {
-			fmt.Fprintf(&b, "    where   = %q\n", idx.Where)
+			fmt.Fprintf(&b, "    where   = %s\n", quoteHCLString(idx.Where))
 		}
 		b.WriteString("  }\n")
 	}
@@ -203,7 +495,7 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 			return ""
 		}
 		fmt.Fprintf(&b, "  check %q {\n", chk.Name)
-		fmt.Fprintf(&b, "    expr = %q\n", chk.Expr)
+		fmt.Fprintf(&b, "    expr = %s\n", quoteHCLString(chk.Expr))
 		b.WriteString("  }\n")
 	}
 
@@ -211,31 +503,59 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresAtlasHCL() string {
 	return b.String()
 }
 
-// generatePostgresHCLFile emits <prefix>_postgres.hcl for all PostgreSQL tables in file.
-func generatePostgresHCLFile(gen *protogen.Plugin, file *protogen.File, tables []*PostgresTableSchemaDescriptor) error {
+// generatePostgresHCLFileWithOpts emits PostgreSQL Atlas HCL for file, honoring opts.OutputFile.
+func generatePostgresHCLFileWithOpts(gen *protogen.Plugin, file *protogen.File, tables []*PostgresTableSchemaDescriptor, opts *Options) error {
 	if len(tables) == 0 {
 		return nil
 	}
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_postgres.hcl")
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	filename, err := resolveOutputFilename(file.GeneratedFilenamePrefix, "_postgres.hcl", outOverride)
 	if err != nil {
 		return err
 	}
 	g := gen.NewGeneratedFile(filename, "")
+	writePostgresHCLDocument(g, file.Desc.Path(), tables)
+	return nil
+}
+
+func generateConsolidatedPostgresHCLFile(gen *protogen.Plugin, files []*protogen.File, tables []*PostgresTableSchemaDescriptor, outputFile string) error {
+	if len(tables) == 0 {
+		return nil
+	}
+	filename, err := resolveOutputFilename("", "_postgres.hcl", outputFile)
+	if err != nil {
+		return err
+	}
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
+	g := gen.NewGeneratedFile(filename, "")
+	writePostgresHCLDocument(g, strings.Join(sources, ", "), tables)
+	return nil
+}
+
+func writePostgresHCLDocument(g *protogen.GeneratedFile, sourceDesc string, tables []*PostgresTableSchemaDescriptor) {
 	g.P("# Code generated by proto2type. DO NOT EDIT.")
-	g.P("# source: ", file.Desc.Path())
+	g.P("# source: ", sourceDesc)
 	g.P("# backend: postgres (hcl)")
 	g.P()
 	g.P("schema \"tenant\" {}")
 	g.P()
 
-	for i, tbl := range tables {
+	emitted := 0
+	for _, tbl := range tables {
 		hcl := tbl.BuildPostgresAtlasHCL()
 		if hcl == "" {
 			continue
 		}
-		if i > 0 {
+		if emitted > 0 {
 			g.P()
 		}
+		emitted++
 		g.P("# ", tbl.GoName, " (", tbl.TableName, ")")
 		if tbl.WriterService != "" {
 			g.P("# writer_service: ", tbl.WriterService)
@@ -245,7 +565,6 @@ func generatePostgresHCLFile(gen *protogen.Plugin, file *protogen.File, tables [
 		}
 		g.P(hcl)
 	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +604,32 @@ func effectiveColPostgresType(c PostgresColumnDescriptor) string {
 	return strings.TrimSpace(c.SQLType)
 }
 
+func messageHasLakehouseTableMeta(meta *DorisTableMetaIR) bool {
+	if meta == nil {
+		return false
+	}
+	return meta.DatabaseScope != "" ||
+		meta.SyncTier != "" ||
+		len(meta.PartitionByColumns) > 0 ||
+		len(meta.NgramBfColumns) > 0 ||
+		meta.EmbeddingDimension > 0
+}
+
+func resolvePostgresTableCollisionSchema(isLakehouse bool, meta *DorisTableMetaIR) string {
+	if !isLakehouse || meta == nil {
+		return "public"
+	}
+	schemaName, ok := resolvePostgresSchemaName(meta.DatabaseScope, "${TENANT_SLUG}")
+	if !ok {
+		return "public"
+	}
+	return schemaName
+}
+
+func postgresResolvedSchemaTableKey(schemaName, tableName string) string {
+	return strings.ToLower(strings.TrimSpace(schemaName)) + "\x00" + strings.ToLower(strings.TrimSpace(tableName))
+}
+
 func fileHasLakehousePostgresTables(file *protogen.File) bool {
 	if file == nil {
 		return false
@@ -293,15 +638,7 @@ func fileHasLakehousePostgresTables(file *protogen.File) bool {
 		if isMessageSkipped(msg) {
 			continue
 		}
-		meta := extractDorisTableMeta(msg)
-		if meta == nil {
-			continue
-		}
-		if meta.DatabaseScope != "" ||
-			meta.SyncTier != "" ||
-			len(meta.PartitionByColumns) > 0 ||
-			len(meta.NgramBfColumns) > 0 ||
-			meta.EmbeddingDimension > 0 {
+		if messageHasLakehouseTableMeta(extractDorisTableMeta(msg)) {
 			return true
 		}
 	}
@@ -344,11 +681,26 @@ func isValidPostgresDatabaseScope(scope string) bool {
 	}
 }
 
+func postgresSyntheticGinIndexName(tableName, colName string) string {
+	return compactPostgresIdentifier("idx", tableName+"_"+colName)
+}
+
+func postgresSyntheticNgramIndexName(tableName, colName string) string {
+	return compactPostgresIdentifier("idx_ngram", tableName+"_"+colName)
+}
+
+func postgresSyntheticHnswIndexName(colName string) string {
+	return compactPostgresIdentifier("idx", colName+"_hnsw")
+}
+
 func validatePostgresDescriptor(t PostgresTableDescriptor) bool {
 	if !isValidSQLIdentifier(t.TableName) || !isValidPostgresDatabaseScope(t.DatabaseScope) {
 		return false
 	}
 	if t.EmbeddingDimension < 0 {
+		return false
+	}
+	if t.IsSingleton && len(effectivePostgresPartitionCols(t)) > 0 {
 		return false
 	}
 	colSet := make(map[string]bool, len(t.Columns))
@@ -360,13 +712,13 @@ func validatePostgresDescriptor(t PostgresTableDescriptor) bool {
 		if colType == "" || !isValidPostgresTypeSyntax(colType) || IsForbiddenPostgresColumnType(colType) {
 			return false
 		}
-		if c.DefaultValue != "" && (!isValidDorisDefaultValue(c.DefaultValue) || validatePostgresDefaultValue(colType, c.DefaultValue) != nil) {
+		if (c.HasDefaultValue || c.DefaultValue != "") && ((c.DefaultValue != "" && !isValidDorisDefaultValue(c.DefaultValue)) || validatePostgresColumnDefault(colType, c.DefaultValue, c.HasDefaultValue) != nil) {
 			return false
 		}
 		if !isValidPostgresServerDefault(c.ServerDefault) {
 			return false
 		}
-		if c.Identity && (!isPostgresIdentityEligibleSQLType(colType) || c.Nullable || c.DefaultValue != "" || c.ServerDefault != "") {
+		if c.Identity && (!isPostgresIdentityEligibleSQLType(colType) || c.Nullable || c.HasDefaultValue || c.DefaultValue != "" || c.ServerDefault != "") {
 			return false
 		}
 		colSet[c.ColumnName] = true
@@ -381,12 +733,57 @@ func validatePostgresDescriptor(t PostgresTableDescriptor) bool {
 			return false
 		}
 	}
-	for _, idx := range t.Indexes {
-		if idx.Name != "" && !isValidSQLIdentifier(idx.Name) {
+	for _, inv := range t.InvertedIndexColumns {
+		if !isValidSQLIdentifier(inv) || len(inv) > maxPostgresIdentifierBytes || !colSet[inv] {
 			return false
+		}
+	}
+	for _, ng := range t.NgramBfColumns {
+		if !isValidSQLIdentifier(ng) || len(ng) > maxPostgresIdentifierBytes || !colSet[ng] {
+			return false
+		}
+	}
+	for _, idx := range t.Indexes {
+		if idx.Name != "" && (!isValidSQLIdentifier(idx.Name) || len(idx.Name) > maxPostgresIdentifierBytes) {
+			return false
+		}
+		if !isValidPostgresIndexMethod(idx.Using) {
+			return false
+		}
+		isImplicitOrBTree := isPostgresOrderedIndexMethod(idx.Using)
+		if !isImplicitOrBTree && postgresIndexHasDesc(idx) {
+			return false
+		}
+		if idx.Ops != "" && (!isValidSQLIdentifier(idx.Ops) || len(idx.Ops) > maxPostgresIdentifierBytes) {
+			return false
+		}
+		if isImplicitOrBTree && isPostgresBTreeIncompatibleOpclass(idx.Ops) {
+			return false
+		}
+		for _, col := range idx.Columns {
+			if !isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes || !colSet[col] {
+				return false
+			}
 		}
 		for _, expr := range idx.Expressions {
 			if !isValidPostgresCheckExpr(expr) {
+				return false
+			}
+		}
+		for _, p := range idx.Parts {
+			if (p.Column != "") == (p.Expr != "") {
+				return false
+			}
+			if p.Column != "" && (!isValidSQLIdentifier(p.Column) || len(p.Column) > maxPostgresIdentifierBytes || !colSet[p.Column]) {
+				return false
+			}
+			if p.Expr != "" && !isValidPostgresCheckExpr(p.Expr) {
+				return false
+			}
+			if p.Opclass != "" && (!isValidSQLIdentifier(p.Opclass) || len(p.Opclass) > maxPostgresIdentifierBytes) {
+				return false
+			}
+			if isImplicitOrBTree && isPostgresBTreeIncompatibleOpclass(p.Opclass) {
 				return false
 			}
 		}
@@ -395,14 +792,35 @@ func validatePostgresDescriptor(t PostgresTableDescriptor) bool {
 		}
 	}
 	for _, fk := range t.ForeignKeys {
-		if fk.Name != "" && !isValidSQLIdentifier(fk.Name) {
+		if fk.Name != "" && (!isValidSQLIdentifier(fk.Name) || len(fk.Name) > maxPostgresIdentifierBytes) {
 			return false
 		}
-		if fk.RefTable != "" && !isValidSQLIdentifier(fk.RefTable) {
+		if fk.RefTable != "" && (!isValidSQLIdentifier(fk.RefTable) || len(fk.RefTable) > maxPostgresIdentifierBytes) {
 			return false
+		}
+		for _, col := range fk.Columns {
+			if !isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes || !colSet[col] {
+				return false
+			}
 		}
 		refCols := fk.EffectiveRefColumns()
+		for _, rc := range refCols {
+			if !isValidSQLIdentifier(rc) || len(rc) > maxPostgresIdentifierBytes {
+				return false
+			}
+		}
 		if len(fk.Columns) > 0 && len(refCols) != len(fk.Columns) {
+			return false
+		}
+		if _, _, ok := isValidForeignKeyAction(fk.OnDelete); !ok {
+			return false
+		}
+		if _, _, ok := isValidForeignKeyAction(fk.OnUpdate); !ok {
+			return false
+		}
+	}
+	for _, chk := range t.Checks {
+		if !isValidSQLIdentifier(chk.Name) || len(chk.Name) > maxPostgresIdentifierBytes || !isValidPostgresCheckExpr(chk.Expr) {
 			return false
 		}
 	}
@@ -661,7 +1079,7 @@ func messageHasAnnotatedPostgresColumns(msg *protogen.Message, visited map[proto
 	return false
 }
 
-func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgresTableIR, error) {
+func collectLakehouseInlineTargetMsgs(files []*protogen.File) map[protoreflect.FullName]bool {
 	inlineTargetMsgs := make(map[protoreflect.FullName]bool)
 	var collectInlineTargets func(msg *protogen.Message, visited map[protoreflect.FullName]bool)
 	collectInlineTargets = func(msg *protogen.Message, visited map[protoreflect.FullName]bool) {
@@ -680,12 +1098,31 @@ func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgres
 			}
 		}
 	}
-	for _, msg := range file.Messages {
-		if !isMessageSkipped(msg) {
+	var walkFileMsgs func(msgs []*protogen.Message)
+	walkFileMsgs = func(msgs []*protogen.Message) {
+		for _, msg := range msgs {
+			if isMessageSkipped(msg) {
+				continue
+			}
 			collectInlineTargets(msg, make(map[protoreflect.FullName]bool))
+			walkFileMsgs(msg.Messages)
 		}
 	}
+	for _, file := range files {
+		if file == nil {
+			continue
+		}
+		walkFileMsgs(file.Messages)
+	}
+	return inlineTargetMsgs
+}
 
+func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgresTableIR, error) {
+	inlineTargetMsgs := collectLakehouseInlineTargetMsgs([]*protogen.File{file})
+	return buildPostgresTablesForFileWithInlineTargets(file, inlineTargetMsgs, opts)
+}
+
+func buildPostgresTablesForFileWithInlineTargets(file *protogen.File, inlineTargetMsgs map[protoreflect.FullName]bool, opts *Options) ([]*postgresTableIR, error) {
 	var tables []*postgresTableIR
 	seenTables := make(map[string]protoreflect.FullName)
 	for _, msg := range file.Messages {
@@ -714,7 +1151,8 @@ func buildPostgresTablesForFile(file *protogen.File, opts *Options) ([]*postgres
 		if len(tbl.Descriptor.Columns) == 0 {
 			continue
 		}
-		id := postgresScopeTableIdentity(tbl.Descriptor)
+		schemaName := resolvePostgresTableCollisionSchema(true, meta)
+		id := postgresResolvedSchemaTableKey(schemaName, tbl.Descriptor.TableName)
 		if prev, exists := seenTables[id]; exists {
 			return nil, fmt.Errorf("message %s: duplicate PostgreSQL table identity %q (already declared by %s)", msg.Desc.FullName(), meta.TableName, prev)
 		}
@@ -875,8 +1313,8 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 			if err != nil {
 				return err
 			}
-			if colMeta != nil && colMeta.DefaultValue != "" {
-				if err := validatePostgresDefaultValue(pgType, colMeta.DefaultValue); err != nil {
+			if colMeta != nil && (colMeta.HasDefaultValue || colMeta.DefaultValue != "") {
+				if err := validatePostgresColumnDefault(pgType, colMeta.DefaultValue, colMeta.HasDefaultValue); err != nil {
 					return fmt.Errorf("field %s: %w", field.Desc.FullName(), err)
 				}
 			}
@@ -888,7 +1326,7 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 				if colMeta.Nullable != nil && *colMeta.Nullable {
 					return fmt.Errorf("field %s: identity column cannot be nullable", field.Desc.FullName())
 				}
-				if colMeta.DefaultValue != "" || isServerTimestamp(field) {
+				if colMeta.HasDefaultValue || colMeta.DefaultValue != "" || isServerTimestamp(field) {
 					return fmt.Errorf("field %s: identity column cannot specify default_value or server_timestamp", field.Desc.FullName())
 				}
 			}
@@ -904,8 +1342,10 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 			}
 
 			defVal := ""
-			if colMeta != nil && colMeta.DefaultValue != "" {
+			hasDefVal := false
+			if colMeta != nil && (colMeta.HasDefaultValue || colMeta.DefaultValue != "") {
 				defVal = colMeta.DefaultValue
+				hasDefVal = true
 			} else if !nullable && !isIdentity {
 				upperType := strings.ToUpper(strings.TrimSpace(pgType))
 				if strings.HasSuffix(upperType, "[]") {
@@ -924,14 +1364,14 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 
 			if colMeta != nil && colMeta.Unique {
 				indexes = append(indexes, PostgresIndexDescriptor{
-					Name:    fmt.Sprintf("idx_%s_%s_key", meta.TableName, colName),
+					Name:    compactPostgresIdentifier("idx", fmt.Sprintf("%s_%s_key", meta.TableName, colName)),
 					Columns: []string{colName},
 					Unique:  true,
 					Using:   "BTREE",
 				})
 			} else if colMeta != nil && colMeta.Index && !isPK {
 				indexes = append(indexes, PostgresIndexDescriptor{
-					Name:    fmt.Sprintf("idx_%s_%s", meta.TableName, colName),
+					Name:    compactPostgresIdentifier("idx", fmt.Sprintf("%s_%s", meta.TableName, colName)),
 					Columns: []string{colName},
 					Using:   "BTREE",
 				})
@@ -943,33 +1383,43 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 				if refCol == "" {
 					refCol = "id"
 				}
-				if !isValidSQLIdentifier(refTable) || !isValidSQLIdentifier(refCol) {
+				if !isValidSQLIdentifier(refTable) || len(refTable) > maxPostgresIdentifierBytes ||
+					!isValidSQLIdentifier(refCol) || len(refCol) > maxPostgresIdentifierBytes {
 					return fmt.Errorf("field %s: invalid foreign_key reference %q.%q", field.Desc.FullName(), refTable, refCol)
 				}
+				onDel := strings.TrimSpace(colMeta.ForeignKey.OnDelete)
+				onUpd := strings.TrimSpace(colMeta.ForeignKey.OnUpdate)
+				if _, _, ok := isValidForeignKeyAction(onDel); !ok {
+					return fmt.Errorf("field %s: invalid foreign_key on_delete %q", field.Desc.FullName(), colMeta.ForeignKey.OnDelete)
+				}
+				if _, _, ok := isValidForeignKeyAction(onUpd); !ok {
+					return fmt.Errorf("field %s: invalid foreign_key on_update %q", field.Desc.FullName(), colMeta.ForeignKey.OnUpdate)
+				}
 				fks = append(fks, PostgresForeignKeyDescriptor{
-					Name:      fmt.Sprintf("fk_%s_%s", meta.TableName, colName),
+					Name:      compactPostgresIdentifier("fk", fmt.Sprintf("%s_%s", meta.TableName, colName)),
 					Columns:   []string{colName},
 					RefTable:  refTable,
 					RefColumn: refCol,
-					OnDelete:  strings.TrimSpace(colMeta.ForeignKey.OnDelete),
-					OnUpdate:  strings.TrimSpace(colMeta.ForeignKey.OnUpdate),
+					OnDelete:  onDel,
+					OnUpdate:  onUpd,
 				})
 			}
 
 			cols = append(cols, PostgresColumnDescriptor{
-				ColumnName:     colName,
-				ProtoFieldName: protoFieldName,
-				SQLType:        pgType,
-				PostgresType:   pgType,
-				HCLType:        strings.ToLower(pgType),
-				Nullable:       nullable,
-				IsPrimaryKey:   isPK,
-				IsPartitionKey: isPart,
-				InvertedIndex:  colMeta != nil && colMeta.InvertedIndex,
-				Identity:       isIdentity,
-				DefaultValue:   defVal,
-				ServerDefault:  srvDef,
-				Comment:        cleanComment(string(field.Comments.Leading)),
+				ColumnName:      colName,
+				ProtoFieldName:  protoFieldName,
+				SQLType:         pgType,
+				PostgresType:    pgType,
+				HCLType:         strings.ToLower(pgType),
+				Nullable:        nullable,
+				IsPrimaryKey:    isPK,
+				IsPartitionKey:  isPart,
+				InvertedIndex:   colMeta != nil && colMeta.InvertedIndex,
+				Identity:        isIdentity,
+				DefaultValue:    defVal,
+				HasDefaultValue: hasDefVal,
+				ServerDefault:   srvDef,
+				Comment:         cleanComment(string(field.Comments.Leading)),
 			})
 		}
 		return nil
@@ -1008,13 +1458,17 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 	}
 	if len(pks) == 0 && len(meta.DuplicateKeyColumns) > 0 {
 		indexes = append(indexes, PostgresIndexDescriptor{
-			Name:    fmt.Sprintf("idx_%s_dup_key", meta.TableName),
+			Name:    compactPostgresIdentifier("idx", fmt.Sprintf("%s_dup_key", meta.TableName)),
 			Columns: dedupDorisColumnList(meta.DuplicateKeyColumns),
 			Using:   "BTREE",
 		})
 	}
 	for _, idxIR := range meta.Indexes {
 		idxCols := dedupDorisColumnList(idxIR.Columns)
+		idxName := strings.TrimSpace(idxIR.Name)
+		if idxName != "" && (!isValidSQLIdentifier(idxName) || len(idxName) > maxPostgresIdentifierBytes) {
+			return nil, fmt.Errorf("message %s: invalid index name %q", msg.Desc.FullName(), idxIR.Name)
+		}
 		var cleanExprs []string
 		for _, rawExpr := range idxIR.Expressions {
 			expr := strings.TrimSpace(rawExpr)
@@ -1023,60 +1477,136 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 			}
 			cleanExprs = append(cleanExprs, expr)
 		}
-		if len(idxCols) == 0 && len(cleanExprs) == 0 {
-			continue
+		whereExpr := strings.TrimSpace(idxIR.Where)
+		if whereExpr != "" && !isValidPostgresCheckExpr(whereExpr) {
+			return nil, fmt.Errorf("message %s: invalid index where expression %q", msg.Desc.FullName(), idxIR.Where)
 		}
-		idxName := strings.TrimSpace(idxIR.Name)
-		if idxName == "" {
-			suffix := postgresIndexExprSuffix(idxCols, cleanExprs)
-			if idxIR.Unique {
-				idxName = fmt.Sprintf("idx_%s_%s_key", meta.TableName, suffix)
-			} else {
-				idxName = fmt.Sprintf("idx_%s_%s", meta.TableName, suffix)
+		var parts []PostgresIndexPartDescriptor
+		if len(idxIR.Parts) > 0 {
+			if len(idxCols) > 0 || len(cleanExprs) > 0 || len(idxIR.DescColumns) > 0 {
+				return nil, fmt.Errorf("message %s: index %q cannot combine parts with columns, desc_columns, or expressions", msg.Desc.FullName(), idxIR.Name)
+			}
+			for _, p := range idxIR.Parts {
+				col := strings.TrimSpace(p.Column)
+				expr := strings.TrimSpace(p.Expr)
+				opclass := strings.TrimSpace(p.Opclass)
+				if (col != "") == (expr != "") {
+					return nil, fmt.Errorf("message %s: index %q part must specify exactly one of column or expr", msg.Desc.FullName(), idxIR.Name)
+				}
+				if col != "" && (!isValidSQLIdentifier(col) || len(col) > maxPostgresIdentifierBytes) {
+					return nil, fmt.Errorf("message %s: invalid index column %q", msg.Desc.FullName(), col)
+				}
+				if expr != "" && !isValidPostgresCheckExpr(expr) {
+					return nil, fmt.Errorf("message %s: invalid index expression %q", msg.Desc.FullName(), expr)
+				}
+				if opclass != "" && (!isValidSQLIdentifier(opclass) || len(opclass) > maxPostgresIdentifierBytes) {
+					return nil, fmt.Errorf("message %s: invalid index opclass %q", msg.Desc.FullName(), opclass)
+				}
+				if isPostgresBTreeIncompatibleOpclass(opclass) {
+					return nil, fmt.Errorf("message %s: index %q operator class %q is incompatible with BTREE (specify a compatible USING method)", msg.Desc.FullName(), idxIR.Name, opclass)
+				}
+				parts = append(parts, PostgresIndexPartDescriptor{
+					Column:  col,
+					Expr:    expr,
+					Opclass: opclass,
+					Desc:    p.Desc,
+				})
 			}
 		}
-		indexes = append(indexes, PostgresIndexDescriptor{
+		if len(parts) == 0 && len(idxCols) == 0 && len(cleanExprs) == 0 {
+			continue
+		}
+		idxDesc := PostgresIndexDescriptor{
 			Name:        idxName,
 			Columns:     idxCols,
 			Unique:      idxIR.Unique,
 			Using:       "BTREE",
 			DescColumns: idxIR.DescColumns,
-			Where:       idxIR.Where,
+			Where:       whereExpr,
 			Expressions: cleanExprs,
-		})
+			Parts:       parts,
+		}
+		if !isValidPostgresIndexMethod(idxDesc.Using) {
+			return nil, fmt.Errorf("message %s: invalid index method %q for index %q", msg.Desc.FullName(), idxDesc.Using, idxDesc.Name)
+		}
+		if !isPostgresOrderedIndexMethod(idxDesc.Using) && postgresIndexHasDesc(idxDesc) {
+			return nil, fmt.Errorf("message %s: index %q DESC ordering is only supported for BTREE indexes (got %s)", msg.Desc.FullName(), idxDesc.Name, idxDesc.Using)
+		}
+		if idxDesc.Name == "" {
+			suffix := postgresIndexSuffix(idxDesc)
+			if idxIR.Unique {
+				idxDesc.Name = compactPostgresIdentifier("idx", fmt.Sprintf("%s_%s_key", meta.TableName, suffix))
+			} else {
+				idxDesc.Name = compactPostgresIdentifier("idx", fmt.Sprintf("%s_%s", meta.TableName, suffix))
+			}
+		}
+		indexes = append(indexes, idxDesc)
 	}
 	for _, fkIR := range meta.ForeignKeys {
 		cols := dedupDorisColumnList(fkIR.Columns)
 		if len(cols) == 0 || fkIR.RefTable == "" {
 			continue
 		}
+		refTable := strings.TrimSpace(fkIR.RefTable)
+		if !isValidSQLIdentifier(refTable) || len(refTable) > maxPostgresIdentifierBytes {
+			return nil, fmt.Errorf("message %s: invalid foreign_key ref_table %q", msg.Desc.FullName(), fkIR.RefTable)
+		}
 		refCols := dedupDorisColumnList(fkIR.RefColumns)
 		if len(refCols) == 0 {
 			refCols = []string{"id"}
 		}
+		for _, rc := range refCols {
+			if !isValidSQLIdentifier(rc) || len(rc) > maxPostgresIdentifierBytes {
+				return nil, fmt.Errorf("message %s: invalid foreign_key ref_column %q", msg.Desc.FullName(), rc)
+			}
+		}
+		if len(cols) != len(refCols) {
+			return nil, fmt.Errorf("message %s: foreign_key columns count (%d) does not match ref_columns count (%d)",
+				msg.Desc.FullName(), len(cols), len(refCols))
+		}
 		fkName := strings.TrimSpace(fkIR.Name)
 		if fkName == "" {
-			fkName = fmt.Sprintf("fk_%s_%s", meta.TableName, strings.Join(cols, "_"))
+			fkName = compactPostgresIdentifier("fk", fmt.Sprintf("%s_%s", meta.TableName, strings.Join(cols, "_")))
+		}
+		if !isValidSQLIdentifier(fkName) || len(fkName) > maxPostgresIdentifierBytes {
+			return nil, fmt.Errorf("message %s: invalid foreign_key name %q", msg.Desc.FullName(), fkName)
+		}
+		onDel := strings.TrimSpace(fkIR.OnDelete)
+		onUpd := strings.TrimSpace(fkIR.OnUpdate)
+		if _, _, ok := isValidForeignKeyAction(onDel); !ok {
+			return nil, fmt.Errorf("message %s: invalid foreign_key on_delete %q", msg.Desc.FullName(), fkIR.OnDelete)
+		}
+		if _, _, ok := isValidForeignKeyAction(onUpd); !ok {
+			return nil, fmt.Errorf("message %s: invalid foreign_key on_update %q", msg.Desc.FullName(), fkIR.OnUpdate)
 		}
 		fks = append(fks, PostgresForeignKeyDescriptor{
 			Name:       fkName,
 			Columns:    cols,
-			RefTable:   fkIR.RefTable,
+			RefTable:   refTable,
 			RefColumn:  refCols[0],
 			RefColumns: refCols,
-			OnDelete:   fkIR.OnDelete,
-			OnUpdate:   fkIR.OnUpdate,
+			OnDelete:   onDel,
+			OnUpdate:   onUpd,
 		})
+	}
+
+	if !meta.IsSingleton && (meta.SingletonCheckName != "" || meta.SingletonCheckExpr != "") {
+		return nil, fmt.Errorf("message %s: singleton_check_name/singleton_check_expr requires is_singleton=true", msg.Desc.FullName())
 	}
 
 	var checks []PostgresCheckDescriptor
 	if meta.IsSingleton {
 		hasSingletonCol := false
-		for _, c := range cols {
-			if c.ColumnName == "singleton" {
-				if c.DefaultValue != "" && (strings.EqualFold(c.DefaultValue, "false") || c.DefaultValue == "0") {
+		for i := range cols {
+			if cols[i].ColumnName == "singleton" {
+				if effType := effectiveColPostgresType(cols[i]); !isPostgresBooleanSQLType(effType) {
+					return nil, fmt.Errorf("message %s: existing singleton column must have BOOLEAN type (got %q)", msg.Desc.FullName(), effType)
+				}
+				if cols[i].DefaultValue != "" && (strings.EqualFold(cols[i].DefaultValue, "false") || cols[i].DefaultValue == "0") {
 					return nil, fmt.Errorf("message %s: singleton table cannot have singleton column with default false", msg.Desc.FullName())
 				}
+				cols[i].Nullable = false
+				cols[i].IsPrimaryKey = true
 				hasSingletonCol = true
 				break
 			}
@@ -1091,11 +1621,26 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 				DefaultValue: "true",
 				IsPrimaryKey: true,
 			}}, cols...)
+			usedColNames["singleton"] = true
 		}
 		pks = []string{"singleton"}
+		chkName := meta.SingletonCheckName
+		if chkName == "" {
+			chkName = compactPostgresIdentifier("chk", meta.TableName+"_singleton")
+		}
+		chkExpr := meta.SingletonCheckExpr
+		if chkExpr == "" {
+			chkExpr = "(singleton = true)"
+		}
+		if !isValidSQLIdentifier(chkName) || len(chkName) > maxPostgresIdentifierBytes {
+			return nil, fmt.Errorf("message %s: invalid singleton check constraint name %q", msg.Desc.FullName(), chkName)
+		}
+		if !isValidPostgresCheckExpr(chkExpr) {
+			return nil, fmt.Errorf("message %s: invalid singleton check constraint expression %q", msg.Desc.FullName(), chkExpr)
+		}
 		checks = append(checks, PostgresCheckDescriptor{
-			Name: compactPostgresIdentifier("chk", meta.TableName+"_singleton"),
-			Expr: "(singleton = true)",
+			Name: chkName,
+			Expr: chkExpr,
 		})
 	}
 	seenChk := make(map[string]bool)
@@ -1133,6 +1678,9 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 			}
 		}
 		partCols = dedupDorisColumnList(partCols)
+	}
+	if meta.IsSingleton && len(partCols) > 0 {
+		return nil, fmt.Errorf("message %s: is_singleton=true cannot be combined with partition_by_columns", msg.Desc.FullName())
 	}
 	if len(pks) > 0 && len(partCols) > 0 {
 		pkMap := make(map[string]bool, len(pks))
@@ -1190,6 +1738,16 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 		if err := checkColExists("indexes", idx.Columns); err != nil {
 			return nil, err
 		}
+		for _, p := range idx.Parts {
+			if p.Column != "" && !usedColNames[p.Column] {
+				return nil, fmt.Errorf("message %s: indexes part references unknown column %q", msg.Desc.FullName(), p.Column)
+			}
+		}
+	}
+	for _, fk := range fks {
+		if err := checkColExists("foreign_keys", fk.Columns); err != nil {
+			return nil, err
+		}
 	}
 
 	desc := PostgresTableDescriptor{
@@ -1236,6 +1794,47 @@ func resolvePostgresSchemaName(scope, tenantSlug string) (string, bool) {
 	}
 }
 
+func normPostgresIndexUsing(using string) string {
+	u := strings.ToUpper(strings.TrimSpace(using))
+	if u == "" {
+		return "BTREE"
+	}
+	return u
+}
+
+func postgresIndexesEffectivelyEqual(a, b PostgresIndexDescriptor) bool {
+	if a.Unique != b.Unique {
+		return false
+	}
+	usingA := normPostgresIndexUsing(a.Using)
+	usingB := normPostgresIndexUsing(b.Using)
+	if usingA != usingB {
+		return false
+	}
+	if strings.TrimSpace(a.Where) != strings.TrimSpace(b.Where) {
+		return false
+	}
+	partsA, opsA := canonicalPostgresIndexPartsWithOps(a)
+	partsB, opsB := canonicalPostgresIndexPartsWithOps(b)
+	if !postgresIndexPartsEqual(partsA, partsB) {
+		return false
+	}
+	return opsA == opsB
+}
+
+func effectivePostgresColumnDefaultClause(pgType string, c PostgresColumnDescriptor) (string, bool) {
+	if c.Identity {
+		return "", false
+	}
+	if strings.TrimSpace(c.ServerDefault) != "" {
+		return strings.ToUpper(strings.TrimSpace(c.ServerDefault)), true
+	}
+	if c.HasDefaultValue || c.DefaultValue != "" {
+		return formatPostgresDefaultLiteral(pgType, c.DefaultValue), true
+	}
+	return "", false
+}
+
 func formatPostgresDefaultLiteral(pgType, defVal string) string {
 	upper := strings.ToUpper(strings.TrimSpace(pgType))
 	trimmed := strings.TrimSpace(defVal)
@@ -1243,9 +1842,6 @@ func formatPostgresDefaultLiteral(pgType, defVal string) string {
 		return "'{}'"
 	}
 	if strings.HasSuffix(upper, "[]") {
-		if strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'") {
-			return trimmed
-		}
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(trimmed, "'", "''"))
 	}
 	if isPostgresBooleanSQLType(upper) && validatePostgresDefaultValue(upper, trimmed) == nil {
@@ -1254,12 +1850,13 @@ func formatPostgresDefaultLiteral(pgType, defVal string) string {
 	if isPostgresNumericSQLType(upper) && validatePostgresDefaultValue(upper, trimmed) == nil {
 		return trimmed
 	}
-	return fmt.Sprintf("'%s'", strings.ReplaceAll(trimmed, "'", "''"))
+	return fmt.Sprintf("'%s'", strings.ReplaceAll(defVal, "'", "''"))
 }
 
-// BuildPostgresCreateTableSQL renders a deterministic PostgreSQL CREATE TABLE statement
-// (plus any secondary GIN or pgvector HNSW CREATE INDEX statements) for this descriptor.
-func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) string {
+// BuildPostgresCreateTableWithoutForeignKeysSQL renders a deterministic PostgreSQL CREATE TABLE
+// statement (plus any secondary CREATE INDEX statements, without foreign key constraints)
+// for this descriptor.
+func (t PostgresTableDescriptor) BuildPostgresCreateTableWithoutForeignKeysSQL(tenantSlug string) string {
 	if !validatePostgresDescriptor(t) || len(t.Columns) == 0 {
 		return ""
 	}
@@ -1276,15 +1873,7 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 		}
 		pks = dedupDorisColumnList(pks)
 	}
-	partCols := dedupDorisColumnList(t.PartitionByColumns)
-	if len(partCols) == 0 {
-		for _, c := range t.Columns {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
+	partCols := effectivePostgresPartitionCols(t)
 	if len(pks) > 0 && len(partCols) > 0 {
 		pkMap := make(map[string]bool, len(pks))
 		for _, k := range pks {
@@ -1309,10 +1898,8 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 		}
 		if c.Identity {
 			line += " GENERATED ALWAYS AS IDENTITY"
-		} else if c.DefaultValue != "" {
-			line += " DEFAULT " + formatPostgresDefaultLiteral(upperType, c.DefaultValue)
-		} else if c.ServerDefault != "" {
-			line += " DEFAULT " + strings.ToUpper(strings.TrimSpace(c.ServerDefault))
+		} else if defClause, hasDef := effectivePostgresColumnDefaultClause(upperType, c); hasDef {
+			line += " DEFAULT " + defClause
 		}
 		colLines = append(colLines, line)
 	}
@@ -1349,7 +1936,7 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 			seedCols = append(seedCols, c.ColumnName)
 			if c.ColumnName == "singleton" {
 				seedVals = append(seedVals, "true")
-			} else if c.DefaultValue != "" {
+			} else if c.ServerDefault == "" && (c.HasDefaultValue || c.DefaultValue != "") {
 				upperType := strings.ToUpper(effectiveColPostgresType(c))
 				seedVals = append(seedVals, formatPostgresDefaultLiteral(upperType, c.DefaultValue))
 			} else {
@@ -1376,24 +1963,24 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 		}
 	}
 	for _, idxCol := range invCols {
-		idxName := fmt.Sprintf("idx_%s_%s", t.TableName, idxCol)
+		idxName := postgresSyntheticGinIndexName(t.TableName, idxCol)
 		emittedIdx[idxName] = true
 		fmt.Fprintf(&b, "\nCREATE INDEX IF NOT EXISTS %s ON %s.%s USING gin (%s);", idxName, schemaName, t.TableName, idxCol)
 	}
 	for _, ngCol := range dedupDorisColumnList(t.NgramBfColumns) {
-		idxName := fmt.Sprintf("idx_ngram_%s_%s", t.TableName, ngCol)
+		idxName := postgresSyntheticNgramIndexName(t.TableName, ngCol)
 		emittedIdx[idxName] = true
 		fmt.Fprintf(&b, "\nCREATE INDEX IF NOT EXISTS %s ON %s.%s USING gin (%s);", idxName, schemaName, t.TableName, ngCol)
 	}
 	for _, c := range t.Columns {
 		if strings.HasPrefix(colTypes[c.ColumnName], "VECTOR(") {
-			idxName := fmt.Sprintf("idx_%s_hnsw", c.ColumnName)
+			idxName := postgresSyntheticHnswIndexName(c.ColumnName)
 			emittedIdx[idxName] = true
 			fmt.Fprintf(&b, "\nCREATE INDEX IF NOT EXISTS %s ON %s.%s USING hnsw (%s vector_l2_ops);", idxName, schemaName, t.TableName, c.ColumnName)
 		}
 	}
 	for _, idx := range t.Indexes {
-		if idx.Name == "" || emittedIdx[idx.Name] || (len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
+		if idx.Name == "" || emittedIdx[idx.Name] || (len(idx.Parts) == 0 && len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
 			continue
 		}
 		emittedIdx[idx.Name] = true
@@ -1401,17 +1988,7 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 		if idx.Unique {
 			uniqueKw = "UNIQUE "
 		}
-		var colParts []string
-		for _, col := range idx.Columns {
-			part := col
-			if idx.IsDesc(col) {
-				part += " DESC"
-			}
-			colParts = append(colParts, part)
-		}
-		for _, expr := range idx.Expressions {
-			colParts = append(colParts, formatPostgresIndexExprSQL(expr))
-		}
+		colParts := formatPostgresIndexPartsSQL(idx, false)
 		using := strings.ToLower(strings.TrimSpace(idx.Using))
 		whereClause := ""
 		if idx.Where != "" {
@@ -1419,18 +1996,30 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 		}
 		if using == "" || using == "btree" {
 			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s)%s;", uniqueKw, idx.Name, schemaName, t.TableName, strings.Join(colParts, ", "), whereClause)
-		} else if idx.Ops != "" && len(colParts) == 1 {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s %s)%s;", uniqueKw, idx.Name, schemaName, t.TableName, using, colParts[0], idx.Ops, whereClause)
 		} else {
 			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s)%s;", uniqueKw, idx.Name, schemaName, t.TableName, using, strings.Join(colParts, ", "), whereClause)
 		}
 	}
+	return b.String()
+}
+
+// BuildPostgresForeignKeysSQL renders ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY
+// statements for this descriptor so foreign keys can be emitted after all tables exist.
+func (t PostgresTableDescriptor) BuildPostgresForeignKeysSQL(tenantSlug string) string {
+	if !validatePostgresDescriptor(t) || len(t.Columns) == 0 || len(t.ForeignKeys) == 0 {
+		return ""
+	}
+	schemaName, ok := resolvePostgresSchemaName(t.DatabaseScope, tenantSlug)
+	if !ok {
+		return ""
+	}
+	var lines []string
 	for _, fk := range t.ForeignKeys {
 		if fk.Name == "" || fk.RefTable == "" || len(fk.Columns) == 0 {
 			continue
 		}
 		refCols := fk.EffectiveRefColumns()
-		clause := fmt.Sprintf("\nALTER TABLE %s.%s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s.%s (%s)",
+		clause := fmt.Sprintf("ALTER TABLE %s.%s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s.%s (%s)",
 			schemaName, t.TableName, fk.Name, strings.Join(fk.Columns, ", "), schemaName, fk.RefTable, strings.Join(refCols, ", "))
 		if _, delSQL, ok := isValidForeignKeyAction(fk.OnDelete); ok && delSQL != "" {
 			clause += " ON DELETE " + delSQL
@@ -1438,9 +2027,22 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) 
 		if _, updSQL, ok := isValidForeignKeyAction(fk.OnUpdate); ok && updSQL != "" {
 			clause += " ON UPDATE " + updSQL
 		}
-		b.WriteString(clause + ";")
+		lines = append(lines, clause+";")
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
+}
+
+// BuildPostgresCreateTableSQL renders a deterministic PostgreSQL CREATE TABLE statement
+// (plus any secondary GIN or pgvector HNSW CREATE INDEX and FOREIGN KEY statements) for this descriptor.
+func (t PostgresTableDescriptor) BuildPostgresCreateTableSQL(tenantSlug string) string {
+	base := t.BuildPostgresCreateTableWithoutForeignKeysSQL(tenantSlug)
+	if base == "" {
+		return ""
+	}
+	if fks := t.BuildPostgresForeignKeysSQL(tenantSlug); fks != "" {
+		return base + "\n" + fks
+	}
+	return base
 }
 
 func postgresTypeToAtlasHCLType(pgType string) string {
@@ -1451,11 +2053,11 @@ func postgresTypeToAtlasHCLType(pgType string) string {
 	lower := strings.ToLower(pt)
 	lower = strings.ReplaceAll(lower, ", ", ",")
 	lower = strings.ReplaceAll(lower, ",", ", ")
-	if strings.HasPrefix(lower, "vector(") {
-		return fmt.Sprintf("sql(%q)", lower)
-	}
 	if lower == "double precision" {
 		return "double_precision"
+	}
+	if strings.HasPrefix(lower, "vector(") || strings.HasSuffix(lower, "[]") || strings.Contains(lower, " ") {
+		return fmt.Sprintf("sql(%s)", quoteHCLString(lower))
 	}
 	return lower
 }
@@ -1466,8 +2068,12 @@ func hclAttrTypeToPostgresType(rawType string) string {
 		t = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(t, "sql("), ")"))
 	}
 	t = unquoteHCLString(t)
-	upper := strings.ToUpper(strings.TrimSpace(t))
+	upper := strings.ToUpper(strings.Join(strings.Fields(t), " "))
 	upper = strings.ReplaceAll(upper, "DOUBLE_PRECISION", "DOUBLE PRECISION")
+	upper = hclParenOpenSpaceRe.ReplaceAllString(upper, "(")
+	upper = hclParenCloseSpaceRe.ReplaceAllString(upper, ")")
+	upper = hclSpaceBeforeOpenRe.ReplaceAllString(upper, "(")
+	upper = strings.ReplaceAll(upper, " ,", ",")
 	upper = strings.ReplaceAll(upper, ", ", ",")
 	upper = strings.ReplaceAll(upper, ",", ", ")
 	return upper
@@ -1499,15 +2105,7 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 		}
 		pks = dedupDorisColumnList(pks)
 	}
-	partCols := dedupDorisColumnList(t.PartitionByColumns)
-	if len(partCols) == 0 {
-		for _, c := range t.Columns {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
+	partCols := effectivePostgresPartitionCols(t)
 	if len(pks) > 0 && len(partCols) > 0 {
 		pkMap := make(map[string]bool, len(pks))
 		for _, k := range pks {
@@ -1536,13 +2134,20 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 			b.WriteString("    identity {\n")
 			b.WriteString("      generated = ALWAYS\n")
 			b.WriteString("    }\n")
-		} else if c.DefaultValue != "" {
-			fmt.Fprintf(&b, "    default = %q\n", c.DefaultValue)
-		} else if c.ServerDefault != "" {
-			fmt.Fprintf(&b, "    default = sql(%q)\n", strings.ToLower(strings.TrimSpace(c.ServerDefault)))
+		} else {
+			normCol := c
+			if normCol.SQLType == "" {
+				normCol.SQLType = colType
+			}
+			if normCol.HCLType == "" {
+				normCol.HCLType = strings.ToLower(colType)
+			}
+			if def := formatPostgresHCLDefaultValue(normCol); def != "" {
+				fmt.Fprintf(&b, "    default = %s\n", def)
+			}
 		}
 		if c.Comment != "" {
-			fmt.Fprintf(&b, "    comment = %q\n", c.Comment)
+			fmt.Fprintf(&b, "    comment = %s\n", quoteHCLString(c.Comment))
 		}
 		b.WriteString("  }\n")
 	}
@@ -1578,7 +2183,7 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 		}
 	}
 	for _, idxCol := range invCols {
-		idxName := fmt.Sprintf("idx_%s_%s", t.TableName, idxCol)
+		idxName := postgresSyntheticGinIndexName(t.TableName, idxCol)
 		emittedIdx[idxName] = true
 		fmt.Fprintf(&b, "  index %q {\n", idxName)
 		fmt.Fprintf(&b, "    columns = [column.%s]\n", idxCol)
@@ -1586,7 +2191,7 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 		b.WriteString("  }\n")
 	}
 	for _, ngCol := range dedupDorisColumnList(t.NgramBfColumns) {
-		idxName := fmt.Sprintf("idx_ngram_%s_%s", t.TableName, ngCol)
+		idxName := postgresSyntheticNgramIndexName(t.TableName, ngCol)
 		emittedIdx[idxName] = true
 		fmt.Fprintf(&b, "  index %q {\n", idxName)
 		fmt.Fprintf(&b, "    columns = [column.%s]\n", ngCol)
@@ -1595,7 +2200,7 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 	}
 	for _, c := range t.Columns {
 		if strings.HasPrefix(colTypes[c.ColumnName], "VECTOR(") {
-			idxName := fmt.Sprintf("idx_%s_hnsw", c.ColumnName)
+			idxName := postgresSyntheticHnswIndexName(c.ColumnName)
 			emittedIdx[idxName] = true
 			fmt.Fprintf(&b, "  index %q {\n", idxName)
 			fmt.Fprintf(&b, "    columns = [column.%s]\n", c.ColumnName)
@@ -1605,7 +2210,7 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 		}
 	}
 	for _, idx := range t.Indexes {
-		if idx.Name == "" || emittedIdx[idx.Name] || (len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
+		if idx.Name == "" || emittedIdx[idx.Name] || (len(idx.Parts) == 0 && len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
 			continue
 		}
 		emittedIdx[idx.Name] = true
@@ -1617,29 +2222,13 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 		if idx.Unique {
 			b.WriteString("    unique = true\n")
 		}
-		if len(idx.DescColumns) > 0 || len(idx.Expressions) > 0 {
-			for _, col := range idx.Columns {
-				b.WriteString("    on {\n")
-				if idx.IsDesc(col) {
-					b.WriteString("      desc   = true\n")
-				}
-				fmt.Fprintf(&b, "      column = column.%s\n", col)
-				b.WriteString("    }\n")
-			}
-			for _, expr := range idx.Expressions {
-				b.WriteString("    on {\n")
-				fmt.Fprintf(&b, "      expr = %q\n", strings.TrimSpace(expr))
-				b.WriteString("    }\n")
-			}
-		} else {
-			fmt.Fprintf(&b, "    columns = %s\n", formatAtlasHCLColRefList(idx.Columns))
-		}
+		emitPostgresAtlasIndexOnBlocks(&b, idx)
 		fmt.Fprintf(&b, "    type = %q\n", using)
 		if idx.Ops != "" {
-			fmt.Fprintf(&b, "    ops = %q\n", idx.Ops)
+			fmt.Fprintf(&b, "    ops = %s\n", formatPostgresAtlasHCLOpclass(idx.Ops))
 		}
 		if idx.Where != "" {
-			fmt.Fprintf(&b, "    where = %q\n", idx.Where)
+			fmt.Fprintf(&b, "    where = %s\n", quoteHCLString(idx.Where))
 		}
 		b.WriteString("  }\n")
 	}
@@ -1665,7 +2254,7 @@ func (t PostgresTableDescriptor) BuildPostgresAtlasHCL(tenantSlug string) string
 	}
 	for _, chk := range t.Checks {
 		fmt.Fprintf(&b, "  check %q {\n", chk.Name)
-		fmt.Fprintf(&b, "    expr = %q\n", chk.Expr)
+		fmt.Fprintf(&b, "    expr = %s\n", quoteHCLString(chk.Expr))
 		b.WriteString("  }\n")
 	}
 	b.WriteString("}")
@@ -1794,11 +2383,38 @@ func parsePostgresAtlasTableBlock(tableName, body string) (PostgresTableDescript
 
 	pkSet := make(map[string]bool, len(desc.PrimaryKeyColumns))
 	for _, pk := range desc.PrimaryKeyColumns {
+		if _, exists := colMap[pk]; !exists {
+			return desc, fmt.Errorf("primary_key references unknown column %q", pk)
+		}
 		pkSet[pk] = true
 	}
 	partSet := make(map[string]bool, len(desc.PartitionByColumns))
 	for _, pk := range desc.PartitionByColumns {
+		if _, exists := colMap[pk]; !exists {
+			return desc, fmt.Errorf("partition references unknown column %q", pk)
+		}
 		partSet[pk] = true
+	}
+	for _, idx := range desc.Indexes {
+		for _, c := range idx.Columns {
+			if _, exists := colMap[c]; !exists {
+				return desc, fmt.Errorf("index %q references unknown column %q", idx.Name, c)
+			}
+		}
+		for _, p := range idx.Parts {
+			if p.Column != "" {
+				if _, exists := colMap[p.Column]; !exists {
+					return desc, fmt.Errorf("index %q on block references unknown column %q", idx.Name, p.Column)
+				}
+			}
+		}
+	}
+	for _, fk := range desc.ForeignKeys {
+		for _, c := range fk.Columns {
+			if _, exists := colMap[c]; !exists {
+				return desc, fmt.Errorf("foreign_key %q references unknown column %q", fk.Name, c)
+			}
+		}
 	}
 	invSet := make(map[string]bool, len(desc.InvertedIndexColumns))
 	for _, ic := range desc.InvertedIndexColumns {
@@ -1942,6 +2558,9 @@ func applyPostgresAtlasSubBlock(
 		if IsForbiddenPostgresColumnType(pgType) {
 			return fmt.Errorf("column %q uses forbidden non-relational type %q", colName, pgType)
 		}
+		if !isValidPostgresTypeSyntax(pgType) {
+			return fmt.Errorf("column %q has unsupported PostgreSQL type %q", colName, pgType)
+		}
 		nullable := false
 		if nullStr, hasNull := kv["null"]; hasNull {
 			parsedNull, bErr := strconv.ParseBool(unquoteHCLString(nullStr))
@@ -1951,14 +2570,22 @@ func applyPostgresAtlasSubBlock(
 			nullable = parsedNull
 		}
 		defVal := ""
+		hasDefVal := false
 		srvDef := ""
 		if rawDef, hasDef := kv["default"]; hasDef {
 			trimmedDef := strings.TrimSpace(rawDef)
 			if strings.HasPrefix(trimmedDef, "sql(") && strings.HasSuffix(trimmedDef, ")") {
 				inner := unquoteHCLString(strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmedDef, "sql("), ")")))
-				srvDef = strings.ToUpper(inner)
+				parsedDefVal, parsedHasDefVal, parsedSrvDef, ok := parsePostgresHCLSQLDefault(inner, pgType)
+				if !ok {
+					return fmt.Errorf("column %q invalid sql() default %q", colName, rawDef)
+				}
+				defVal = parsedDefVal
+				hasDefVal = parsedHasDefVal
+				srvDef = parsedSrvDef
 			} else {
 				defVal = unquoteHCLString(rawDef)
+				hasDefVal = true
 			}
 		}
 		if hasIdentity {
@@ -1968,7 +2595,7 @@ func applyPostgresAtlasSubBlock(
 			if nullable {
 				return fmt.Errorf("column %q identity column cannot be nullable", colName)
 			}
-			if defVal != "" || srvDef != "" {
+			if hasDefVal || defVal != "" || srvDef != "" {
 				return fmt.Errorf("column %q identity column cannot specify default", colName)
 			}
 		}
@@ -1978,16 +2605,17 @@ func applyPostgresAtlasSubBlock(
 		}
 		*colOrder = append(*colOrder, colName)
 		colMap[colName] = PostgresColumnDescriptor{
-			ColumnName:     colName,
-			ProtoFieldName: colName,
-			SQLType:        pgType,
-			PostgresType:   pgType,
-			HCLType:        strings.ToLower(pgType),
-			Nullable:       nullable,
-			Identity:       hasIdentity,
-			DefaultValue:   defVal,
-			ServerDefault:  srvDef,
-			Comment:        comment,
+			ColumnName:      colName,
+			ProtoFieldName:  colName,
+			SQLType:         pgType,
+			PostgresType:    pgType,
+			HCLType:         strings.ToLower(pgType),
+			Nullable:        nullable,
+			Identity:        hasIdentity,
+			DefaultValue:    defVal,
+			HasDefaultValue: hasDefVal,
+			ServerDefault:   srvDef,
+			Comment:         comment,
 		}
 		return nil
 
@@ -2023,12 +2651,13 @@ func applyPostgresAtlasSubBlock(
 
 	case strings.HasPrefix(header, "index "):
 		idxName := unquoteHCLString(strings.TrimSpace(strings.TrimPrefix(header, "index")))
-		if !isValidSQLIdentifier(idxName) {
+		if !isValidSQLIdentifier(idxName) || len(idxName) > maxPostgresIdentifierBytes {
 			return fmt.Errorf("invalid index name %q", idxName)
 		}
 		var cols []string
 		var descCols []string
 		var exprs []string
+		var parts []PostgresIndexPartDescriptor
 		kv := make(map[string]string)
 
 		pos := 0
@@ -2076,43 +2705,62 @@ func applyPostgresAtlasSubBlock(
 				if hasExpr && hasCol {
 					return fmt.Errorf("index %q on block cannot specify both column and expr", idxName)
 				}
+				if !hasExpr && !hasCol {
+					return fmt.Errorf("index %q on block missing column or expr attribute", idxName)
+				}
+				var part PostgresIndexPartDescriptor
 				if hasExpr {
 					exprVal := strings.TrimSpace(unquoteHCLString(rawExpr))
 					if !isValidPostgresCheckExpr(exprVal) {
 						return fmt.Errorf("index %q on block invalid expr %q", idxName, exprVal)
 					}
+					part.Expr = exprVal
 					exprs = append(exprs, exprVal)
-				} else if hasCol {
+				} else {
 					rawCol = unquoteHCLString(rawCol)
 					colRef := strings.TrimPrefix(rawCol, "column.")
-					if _, ok := colMap[colRef]; colRef == "" || !ok {
-						return fmt.Errorf("index %q on block references unknown column %q", idxName, colRef)
+					if colRef == "" || !isValidSQLIdentifier(colRef) || len(colRef) > maxPostgresIdentifierBytes {
+						return fmt.Errorf("index %q on block references invalid column %q", idxName, colRef)
 					}
+					part.Column = colRef
 					cols = append(cols, colRef)
-					if dRaw, ok := subKV["desc"]; ok {
-						isDesc, err := strconv.ParseBool(unquoteHCLString(dRaw))
-						if err != nil {
-							return fmt.Errorf("index %q on block invalid desc value %q: %w", idxName, dRaw, err)
-						}
-						if isDesc {
-							descCols = append(descCols, colRef)
-						}
-					}
-				} else {
-					return fmt.Errorf("index %q on block missing column or expr attribute", idxName)
 				}
+				if dRaw, ok := subKV["desc"]; ok {
+					isDesc, err := strconv.ParseBool(unquoteHCLString(dRaw))
+					if err != nil {
+						return fmt.Errorf("index %q on block invalid desc value %q: %w", idxName, dRaw, err)
+					}
+					part.Desc = isDesc
+					if isDesc && part.Column != "" {
+						descCols = append(descCols, part.Column)
+					}
+				}
+				rawOps, hasOps := subKV["ops"]
+				if !hasOps {
+					rawOps, hasOps = subKV["opclass"]
+				}
+				if hasOps {
+					opVal := strings.TrimSpace(unquoteHCLString(rawOps))
+					if opVal == "" || !isValidSQLIdentifier(opVal) || len(opVal) > maxPostgresIdentifierBytes {
+						return fmt.Errorf("index %q on block invalid ops value %q", idxName, rawOps)
+					}
+					part.Opclass = opVal
+				}
+				parts = append(parts, part)
+			} else {
+				return fmt.Errorf("index %q unsupported sub-block %q", idxName, subHdr)
 			}
 		}
 
-		if colsRaw, ok := kv["columns"]; ok && len(cols) == 0 {
+		if colsRaw, ok := kv["columns"]; ok && len(cols) == 0 && len(parts) == 0 {
 			var err error
 			cols, err = parseHCLColumnRefList(colsRaw)
 			if err != nil {
 				return fmt.Errorf("index %q: %w", idxName, err)
 			}
 		}
-		if len(cols) == 0 && len(exprs) == 0 {
-			return fmt.Errorf("index %q must specify columns or expressions", idxName)
+		if len(parts) == 0 && len(cols) == 0 && len(exprs) == 0 {
+			return fmt.Errorf("index %q must specify columns, expressions, or on blocks", idxName)
 		}
 		whereExpr := ""
 		if wRaw, hasWhere := kv["where"]; hasWhere {
@@ -2132,7 +2780,25 @@ func applyPostgresAtlasSubBlock(
 		if using == "" {
 			using = "BTREE"
 		}
-		ops := unquoteHCLString(kv["ops"])
+		if !isValidPostgresIndexMethod(using) {
+			return fmt.Errorf("index %q: invalid index method %q", idxName, using)
+		}
+		ops := strings.TrimSpace(unquoteHCLString(kv["ops"]))
+		if ops != "" && (!isValidSQLIdentifier(ops) || len(ops) > maxPostgresIdentifierBytes) {
+			return fmt.Errorf("index %q: invalid ops %q", idxName, ops)
+		}
+		if isPostgresOrderedIndexMethod(using) {
+			if isPostgresBTreeIncompatibleOpclass(ops) {
+				return fmt.Errorf("index %q: operator class %q is incompatible with BTREE (specify a compatible type/using method)", idxName, ops)
+			}
+			for _, p := range parts {
+				if isPostgresBTreeIncompatibleOpclass(p.Opclass) {
+					return fmt.Errorf("index %q: operator class %q is incompatible with BTREE (specify a compatible type/using method)", idxName, p.Opclass)
+				}
+			}
+		} else if postgresIndexHasDesc(PostgresIndexDescriptor{DescColumns: descCols, Parts: parts}) {
+			return fmt.Errorf("index %q: DESC ordering is only supported for BTREE indexes (got %s)", idxName, using)
+		}
 		desc.Indexes = append(desc.Indexes, PostgresIndexDescriptor{
 			Name:        idxName,
 			Columns:     cols,
@@ -2142,11 +2808,12 @@ func applyPostgresAtlasSubBlock(
 			DescColumns: descCols,
 			Where:       whereExpr,
 			Expressions: exprs,
+			Parts:       parts,
 		})
-		if using == "GIN" {
-			if strings.HasPrefix(idxName, "idx_ngram_") {
+		if using == "GIN" && !unique && len(parts) == 0 && len(exprs) == 0 && len(cols) == 1 && whereExpr == "" && ops == "" {
+			if idxName == postgresSyntheticNgramIndexName(desc.TableName, cols[0]) {
 				desc.NgramBfColumns = dedupDorisColumnList(append(desc.NgramBfColumns, cols...))
-			} else {
+			} else if idxName == postgresSyntheticGinIndexName(desc.TableName, cols[0]) {
 				desc.InvertedIndexColumns = dedupDorisColumnList(append(desc.InvertedIndexColumns, cols...))
 			}
 		}
@@ -2154,7 +2821,7 @@ func applyPostgresAtlasSubBlock(
 
 	case strings.HasPrefix(header, "foreign_key "):
 		fkName := unquoteHCLString(strings.TrimSpace(strings.TrimPrefix(header, "foreign_key")))
-		if !isValidSQLIdentifier(fkName) {
+		if !isValidSQLIdentifier(fkName) || len(fkName) > maxPostgresIdentifierBytes {
 			return fmt.Errorf("invalid foreign_key name %q", fkName)
 		}
 		kv, err := parseHCLKeyValueAssignments(blockBody)
@@ -2176,6 +2843,14 @@ func applyPostgresAtlasSubBlock(
 			if err != nil {
 				return fmt.Errorf("foreign_key %q: %w", fkName, err)
 			}
+			if len(refTable) > maxPostgresIdentifierBytes {
+				return fmt.Errorf("foreign_key %q ref_table %q exceeds identifier limit", fkName, refTable)
+			}
+			for _, rc := range refCols {
+				if len(rc) > maxPostgresIdentifierBytes {
+					return fmt.Errorf("foreign_key %q ref_column %q exceeds identifier limit", fkName, rc)
+				}
+			}
 			if len(refCols) > 0 {
 				refCol = refCols[0]
 			}
@@ -2184,20 +2859,28 @@ func applyPostgresAtlasSubBlock(
 			return fmt.Errorf("foreign_key %q: columns count (%d) does not match ref_columns count (%d)",
 				fkName, len(cols), len(refCols))
 		}
+		onDelete := strings.TrimSpace(unquoteHCLString(kv["on_delete"]))
+		if _, _, ok := isValidForeignKeyAction(onDelete); !ok {
+			return fmt.Errorf("foreign_key %q invalid on_delete %q", fkName, onDelete)
+		}
+		onUpdate := strings.TrimSpace(unquoteHCLString(kv["on_update"]))
+		if _, _, ok := isValidForeignKeyAction(onUpdate); !ok {
+			return fmt.Errorf("foreign_key %q invalid on_update %q", fkName, onUpdate)
+		}
 		desc.ForeignKeys = append(desc.ForeignKeys, PostgresForeignKeyDescriptor{
 			Name:       fkName,
 			Columns:    cols,
 			RefTable:   refTable,
 			RefColumn:  refCol,
 			RefColumns: refCols,
-			OnDelete:   unquoteHCLString(kv["on_delete"]),
-			OnUpdate:   unquoteHCLString(kv["on_update"]),
+			OnDelete:   onDelete,
+			OnUpdate:   onUpdate,
 		})
 		return nil
 
 	case strings.HasPrefix(header, "check "):
 		chkName := unquoteHCLString(strings.TrimSpace(strings.TrimPrefix(header, "check")))
-		if !isValidSQLIdentifier(chkName) {
+		if !isValidSQLIdentifier(chkName) || len(chkName) > maxPostgresIdentifierBytes {
 			return fmt.Errorf("invalid check constraint name %q", chkName)
 		}
 		kv, err := parseHCLKeyValueAssignments(blockBody)
@@ -2432,7 +3115,7 @@ func LintPostgresTableEvolution(before, after PostgresTableDescriptor) []Postgre
 		}
 		acType := effectiveColPostgresType(ac)
 		if !ac.Nullable && !ac.Identity && !strings.HasSuffix(strings.ToUpper(acType), "[]") &&
-			!IsForbiddenPostgresColumnType(acType) && strings.TrimSpace(ac.DefaultValue) == "" && strings.TrimSpace(ac.ServerDefault) == "" {
+			!IsForbiddenPostgresColumnType(acType) && !ac.HasDefaultValue && strings.TrimSpace(ac.DefaultValue) == "" && strings.TrimSpace(ac.ServerDefault) == "" {
 			violations = append(violations, PostgresEvolutionViolation{
 				Rule:       PG005_NON_NULL_SCALAR_DEFAULT,
 				TableName:  tableName,
@@ -2611,12 +3294,12 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 		if bc.Identity && !ac.Identity {
 			stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP IDENTITY IF EXISTS;", fullTableName, ac.ColumnName))
 		}
-		if bc.DefaultValue != ac.DefaultValue || bc.ServerDefault != ac.ServerDefault {
-			if ac.DefaultValue != "" {
-				stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;", fullTableName, ac.ColumnName, formatPostgresDefaultLiteral(afterType, ac.DefaultValue)))
-			} else if ac.ServerDefault != "" {
-				stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;", fullTableName, ac.ColumnName, strings.ToUpper(strings.TrimSpace(ac.ServerDefault))))
-			} else {
+		beforeDef, beforeHasDef := effectivePostgresColumnDefaultClause(beforeType, bc)
+		afterDef, afterHasDef := effectivePostgresColumnDefaultClause(afterType, ac)
+		if beforeHasDef != afterHasDef || beforeDef != afterDef {
+			if afterHasDef && !ac.Identity {
+				stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;", fullTableName, ac.ColumnName, afterDef))
+			} else if beforeHasDef {
 				stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;", fullTableName, ac.ColumnName))
 			}
 		}
@@ -2638,52 +3321,78 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 		}
 		if ac.Identity {
 			clause += " GENERATED ALWAYS AS IDENTITY"
-		} else if ac.DefaultValue != "" {
-			clause += " DEFAULT " + formatPostgresDefaultLiteral(afterType, ac.DefaultValue)
-		} else if ac.ServerDefault != "" {
-			clause += " DEFAULT " + strings.ToUpper(strings.TrimSpace(ac.ServerDefault))
+		} else if defClause, hasDef := effectivePostgresColumnDefaultClause(afterType, ac); hasDef {
+			clause += " DEFAULT " + defClause
 		}
 		stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", fullTableName, clause))
 	}
-	beforeIdx := make(map[string]bool)
+	beforeIdxByName := make(map[string]PostgresIndexDescriptor)
 	for _, c := range before.Columns {
 		if c.InvertedIndex {
-			beforeIdx[fmt.Sprintf("idx_%s_%s", before.TableName, c.ColumnName)] = true
+			idxName := postgresSyntheticGinIndexName(before.TableName, c.ColumnName)
+			beforeIdxByName[idxName] = PostgresIndexDescriptor{
+				Name:    idxName,
+				Columns: []string{c.ColumnName},
+				Using:   "GIN",
+			}
 		}
 	}
 	for _, ic := range before.InvertedIndexColumns {
 		if ic != "" {
-			beforeIdx[fmt.Sprintf("idx_%s_%s", before.TableName, ic)] = true
+			idxName := postgresSyntheticGinIndexName(before.TableName, ic)
+			beforeIdxByName[idxName] = PostgresIndexDescriptor{
+				Name:    idxName,
+				Columns: []string{ic},
+				Using:   "GIN",
+			}
 		}
 	}
 	for _, ngCol := range dedupDorisColumnList(before.NgramBfColumns) {
-		beforeIdx[fmt.Sprintf("idx_ngram_%s_%s", before.TableName, ngCol)] = true
+		idxName := postgresSyntheticNgramIndexName(before.TableName, ngCol)
+		beforeIdxByName[idxName] = PostgresIndexDescriptor{
+			Name:    idxName,
+			Columns: []string{ngCol},
+			Using:   "GIN",
+		}
 	}
 	for _, idx := range before.Indexes {
 		if idx.Name != "" {
-			beforeIdx[idx.Name] = true
+			beforeIdxByName[idx.Name] = idx
 		}
 	}
 	for _, idx := range after.Indexes {
-		if idx.Name == "" || beforeIdx[idx.Name] || (len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
+		if idx.Name == "" || (len(idx.Parts) == 0 && len(idx.Columns) == 0 && len(idx.Expressions) == 0) {
 			continue
 		}
-		beforeIdx[idx.Name] = true
+		if !isValidPostgresIndexMethod(idx.Using) {
+			return nil, fmt.Errorf("index %q has invalid index method %q", idx.Name, idx.Using)
+		}
+		isOrdered := isPostgresOrderedIndexMethod(idx.Using)
+		if !isOrdered && postgresIndexHasDesc(idx) {
+			return nil, fmt.Errorf("index %q DESC ordering is only supported for BTREE indexes (got %s)", idx.Name, idx.Using)
+		}
+		if isOrdered {
+			if isPostgresBTreeIncompatibleOpclass(idx.Ops) {
+				return nil, fmt.Errorf("index %q operator class %q is incompatible with BTREE (specify a compatible USING method)", idx.Name, idx.Ops)
+			}
+			for _, p := range idx.Parts {
+				if isPostgresBTreeIncompatibleOpclass(p.Opclass) {
+					return nil, fmt.Errorf("index %q operator class %q is incompatible with BTREE (specify a compatible USING method)", idx.Name, p.Opclass)
+				}
+			}
+		}
+		if prev, exists := beforeIdxByName[idx.Name]; exists {
+			if postgresIndexesEffectivelyEqual(prev, idx) {
+				continue
+			}
+			stmts = append(stmts, fmt.Sprintf("DROP INDEX IF EXISTS %s.%s;", schemaName, idx.Name))
+		}
+		beforeIdxByName[idx.Name] = idx
 		uniqueKw := ""
 		if idx.Unique {
 			uniqueKw = "UNIQUE "
 		}
-		var idxParts []string
-		for _, col := range idx.Columns {
-			part := col
-			if idx.IsDesc(col) {
-				part += " DESC"
-			}
-			idxParts = append(idxParts, part)
-		}
-		for _, expr := range idx.Expressions {
-			idxParts = append(idxParts, formatPostgresIndexExprSQL(expr))
-		}
+		idxParts := formatPostgresIndexPartsSQL(idx, false)
 		using := strings.ToLower(strings.TrimSpace(idx.Using))
 		whereClause := ""
 		if idx.Where != "" {
@@ -2691,8 +3400,6 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 		}
 		if using == "" || using == "btree" {
 			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s)%s;", uniqueKw, idx.Name, fullTableName, strings.Join(idxParts, ", "), whereClause))
-		} else if idx.Ops != "" && len(idxParts) == 1 {
-			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s %s)%s;", uniqueKw, idx.Name, fullTableName, using, idxParts[0], idx.Ops, whereClause))
 		} else {
 			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s)%s;", uniqueKw, idx.Name, fullTableName, using, strings.Join(idxParts, ", "), whereClause))
 		}
@@ -2893,19 +3600,51 @@ func generateLakehousePostgresDDLFile(gen *protogen.Plugin, file *protogen.File,
 	if len(tables) == 0 {
 		return nil
 	}
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_postgres.sql")
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	filename, err := resolveOutputFilename(file.GeneratedFilenamePrefix, "_postgres.sql", outOverride)
 	if err != nil {
 		return err
 	}
 	g := gen.NewGeneratedFile(filename, "")
+	writeLakehousePostgresDDLDocument(g, file.Desc.Path(), tables)
+	return nil
+}
+
+func generateConsolidatedLakehousePostgresDDLFile(gen *protogen.Plugin, files []*protogen.File, tables []*postgresTableIR, outputFile string) error {
+	if len(tables) == 0 {
+		return nil
+	}
+	filename, err := resolveOutputFilename("", "_postgres.sql", outputFile)
+	if err != nil {
+		return err
+	}
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
+	g := gen.NewGeneratedFile(filename, "")
+	writeLakehousePostgresDDLDocument(g, strings.Join(sources, ", "), tables)
+	return nil
+}
+
+func writeLakehousePostgresDDLDocument(g *protogen.GeneratedFile, sourceDesc string, tables []*postgresTableIR) {
 	g.P("-- Code generated by proto2type. DO NOT EDIT.")
-	g.P("-- source: ", file.Desc.Path())
+	g.P("-- source: ", sourceDesc)
 	g.P("-- backend: postgres")
 	g.P()
-	for i, tbl := range tables {
-		if i > 0 {
+	emitted := 0
+	for _, tbl := range tables {
+		sql := tbl.Descriptor.BuildPostgresCreateTableWithoutForeignKeysSQL("${TENANT_SLUG}")
+		if sql == "" {
+			continue
+		}
+		if emitted > 0 {
 			g.P()
 		}
+		emitted++
 		g.P("-- ", tbl.GoName, " (", tbl.Descriptor.TableName, ")")
 		if tbl.Descriptor.WriterService != "" {
 			g.P("-- writer_service: ", tbl.Descriptor.WriterService)
@@ -2913,9 +3652,20 @@ func generateLakehousePostgresDDLFile(gen *protogen.Plugin, file *protogen.File,
 		if len(tbl.Descriptor.ReaderServices) > 0 {
 			g.P("-- reader_services: ", strings.Join(tbl.Descriptor.ReaderServices, ", "))
 		}
-		g.P(tbl.Descriptor.BuildPostgresCreateTableSQL("${TENANT_SLUG}"))
+		g.P(sql)
 	}
-	return nil
+
+	var fkBlocks []string
+	for _, tbl := range tables {
+		if fkSQL := tbl.Descriptor.BuildPostgresForeignKeysSQL("${TENANT_SLUG}"); fkSQL != "" {
+			fkBlocks = append(fkBlocks, fkSQL)
+		}
+	}
+	if len(fkBlocks) > 0 {
+		g.P()
+		g.P("-- Foreign key constraints")
+		g.P(strings.Join(fkBlocks, "\n"))
+	}
 }
 
 func generateLakehousePostgresHCLFile(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
@@ -2926,13 +3676,39 @@ func generateLakehousePostgresHCLFile(gen *protogen.Plugin, file *protogen.File,
 	if len(tables) == 0 {
 		return nil
 	}
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_postgres.hcl")
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	filename, err := resolveOutputFilename(file.GeneratedFilenamePrefix, "_postgres.hcl", outOverride)
 	if err != nil {
 		return err
 	}
 	g := gen.NewGeneratedFile(filename, "")
+	writeLakehousePostgresHCLDocument(g, file.Desc.Path(), tables)
+	return nil
+}
+
+func generateConsolidatedLakehousePostgresHCLFile(gen *protogen.Plugin, files []*protogen.File, tables []*postgresTableIR, outputFile string) error {
+	if len(tables) == 0 {
+		return nil
+	}
+	filename, err := resolveOutputFilename("", "_postgres.hcl", outputFile)
+	if err != nil {
+		return err
+	}
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
+	g := gen.NewGeneratedFile(filename, "")
+	writeLakehousePostgresHCLDocument(g, strings.Join(sources, ", "), tables)
+	return nil
+}
+
+func writeLakehousePostgresHCLDocument(g *protogen.GeneratedFile, sourceDesc string, tables []*postgresTableIR) {
 	g.P("# Code generated by proto2type. DO NOT EDIT.")
-	g.P("# source: ", file.Desc.Path())
+	g.P("# source: ", sourceDesc)
 	g.P("# backend: postgres (hcl)")
 
 	seenSchemas := make(map[string]bool)
@@ -2961,17 +3737,31 @@ func generateLakehousePostgresHCLFile(gen *protogen.Plugin, file *protogen.File,
 		}
 		g.P(tbl.Descriptor.BuildPostgresAtlasHCL("${TENANT_SLUG}"))
 	}
-	return nil
 }
 
-func generatePostgresSearchIndexDDLFile(gen *protogen.Plugin, file *protogen.File) error {
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_search_index.sql")
+func generatePostgresSearchIndexDDLFile(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	return generateConsolidatedPostgresSearchIndexDDLFile(gen, []*protogen.File{file}, outOverride)
+}
+
+func generateConsolidatedPostgresSearchIndexDDLFile(gen *protogen.Plugin, files []*protogen.File, outputFile string) error {
+	if len(files) == 0 {
+		return nil
+	}
+	filename, err := resolveOutputFilename(files[0].GeneratedFilenamePrefix, "_search_index.sql", outputFile)
 	if err != nil {
 		return err
 	}
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
 	g := gen.NewGeneratedFile(filename, "")
 	g.P("-- Code generated by proto2type. DO NOT EDIT.")
-	g.P("-- source: ", file.Desc.Path())
+	g.P("-- source: ", strings.Join(sources, ", "))
 	g.P("-- backend: postgres")
 	g.P("-- mode: search_index")
 	g.P()
@@ -2985,14 +3775,29 @@ func generatePostgresSearchIndexDDLFile(gen *protogen.Plugin, file *protogen.Fil
 	return nil
 }
 
-func generatePostgresSearchIndexHCLFile(gen *protogen.Plugin, file *protogen.File) error {
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_search_index.hcl")
+func generatePostgresSearchIndexHCLFile(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	return generateConsolidatedPostgresSearchIndexHCLFile(gen, []*protogen.File{file}, outOverride)
+}
+
+func generateConsolidatedPostgresSearchIndexHCLFile(gen *protogen.Plugin, files []*protogen.File, outputFile string) error {
+	if len(files) == 0 {
+		return nil
+	}
+	filename, err := resolveOutputFilename(files[0].GeneratedFilenamePrefix, "_search_index.hcl", outputFile)
 	if err != nil {
 		return err
 	}
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
 	g := gen.NewGeneratedFile(filename, "")
 	g.P("# Code generated by proto2type. DO NOT EDIT.")
-	g.P("# source: ", file.Desc.Path())
+	g.P("# source: ", strings.Join(sources, ", "))
 	g.P("# backend: postgres (hcl)")
 	g.P("# mode: search_index")
 	g.P()

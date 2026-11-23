@@ -13,6 +13,29 @@ class OptionalBool(str, Enum):
     false = 'false'
 
 
+class IndexDefIndexPart(BaseModel):
+    """IndexPart defines a single column or expression entry in an ordered index definition."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    column: str = ''
+    expr: str = ''
+    opclass: str = ''
+    desc: bool = False
+
+
+def apply_field_mask_index_def_index_part(dst: IndexDefIndexPart, src: IndexDefIndexPart, paths: list[str]) -> None:
+    """Copies fields from src to dst based on the given paths."""
+    import copy
+    for path in paths:
+        if path == "column":
+            dst.column = src.column
+        elif path == "expr":
+            dst.expr = src.expr
+        elif path == "opclass":
+            dst.opclass = src.opclass
+        elif path == "desc":
+            dst.desc = src.desc
+
 class IndexDef(BaseModel):
     """IndexDef defines a single or composite relational index on a table."""
     model_config = ConfigDict(populate_by_name=True)
@@ -22,7 +45,8 @@ class IndexDef(BaseModel):
     unique: bool = False
     desc_columns: list[str] = Field(default_factory=list, description='Column names that should be indexed in descending (DESC) order.')
     where: str = Field(default='', description="Partial index filter predicate (e.g. \"(status <> \'TERMINATED\')\").")
-    expressions: list[str] = Field(default_factory=list, description='SQL index expressions (e.g. \"lower(btrim(name))\") for functional/expression indexes in PostgreSQL. Expressions are always rendered after `columns`, in declaration order. Interleaving columns and expressions is not supported.')
+    expressions: list[str] = Field(default_factory=list, description='SQL index expressions (e.g. \"lower(btrim(name))\") for functional/expression indexes in PostgreSQL. Expressions are always rendered after `columns`, in declaration order. Interleaving columns and expressions is not supported when using `columns`/`expressions`; use `parts` to specify an arbitrary interleaved order.')
+    parts: list[IndexDefIndexPart] = Field(default_factory=list, description='Ordered index parts supporting interleaved columns, SQL expressions, and per-part DESC ordering.')
 
 
 def apply_field_mask_index_def(dst: IndexDef, src: IndexDef, paths: list[str]) -> None:
@@ -41,6 +65,8 @@ def apply_field_mask_index_def(dst: IndexDef, src: IndexDef, paths: list[str]) -
             dst.where = src.where
         elif path == "expressions":
             dst.expressions = copy.deepcopy(src.expressions)
+        elif path == "parts":
+            dst.parts = copy.deepcopy(src.parts)
 
 class CheckDef(BaseModel):
     """CheckDef defines a SQL check constraint on a table."""
@@ -116,6 +142,8 @@ metadata on a message. Wire-compatible with legacy table metadata extension 5020
     checks: list[CheckDef] = Field(default_factory=list, description='Explicit check constraints for relational (PostgreSQL) tables.')
     is_singleton: bool = Field(default=False, description='Mark table as a single-row singleton table (generates singleton boolean PK and CHECK).')
     foreign_keys: list[ForeignKeyDef] = Field(default_factory=list, description='Explicit table-level or composite foreign keys for relational (PostgreSQL) tables.')
+    singleton_check_name: str | None = Field(default=None, description='Optional override for the singleton table CHECK constraint name (default: chk_<table>_singleton).')
+    singleton_check_expr: str | None = Field(default=None, description='Optional override for the singleton table CHECK constraint expression (default: (singleton = true)).')
 
 
 def apply_field_mask_table_options(dst: TableOptions, src: TableOptions, paths: list[str]) -> None:
@@ -168,6 +196,10 @@ def apply_field_mask_table_options(dst: TableOptions, src: TableOptions, paths: 
             dst.is_singleton = src.is_singleton
         elif path == "foreign_keys":
             dst.foreign_keys = copy.deepcopy(src.foreign_keys)
+        elif path == "singleton_check_name":
+            dst.singleton_check_name = src.singleton_check_name
+        elif path == "singleton_check_expr":
+            dst.singleton_check_expr = src.singleton_check_expr
 
 class MessageOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -240,7 +272,7 @@ metadata on a field. Wire-compatible with legacy column metadata extension 50200
     is_partition_key: bool = False
     strip_enum_prefix: bool = False
     column_name: str = ''
-    default_value: str = ''
+    default_value: str | None = None
     sql_type: str = Field(default='', description='Explicit PostgreSQL SQL type override (e.g. \"VARCHAR(64)\", \"NUMERIC(10,2)\", \"UUID\").')
     jsonb: bool = Field(default=False, description='DEPRECATED/FORBIDDEN: JSONB column types are forbidden in relational PostgreSQL schemas.')
     length: int = Field(default=0, description='Maximum character length for VARCHAR(N) in PostgreSQL.')
@@ -251,6 +283,7 @@ metadata on a field. Wire-compatible with legacy column metadata extension 50200
     foreign_key: ForeignKey | None = Field(default=None, description='Relational foreign key reference for this column in PostgreSQL.')
     postgres_type: str = Field(default='', description='Alias for sql_type: explicit PostgreSQL SQL type override (e.g. \"VARCHAR(64)\", \"NUMERIC(18, 4)\").')
     identity: bool = Field(default=False, description='Generate column as a SQL-standard PostgreSQL identity column (GENERATED ALWAYS AS IDENTITY).')
+    doris_nullable: bool | None = Field(default=None, description='Override column nullability in Apache Doris / Iceberg (default: inferred from proto optional/oneof/WKT).')
 
 
 def apply_field_mask_column_options(dst: ColumnOptions, src: ColumnOptions, paths: list[str]) -> None:
@@ -297,6 +330,8 @@ def apply_field_mask_column_options(dst: ColumnOptions, src: ColumnOptions, path
             dst.postgres_type = src.postgres_type
         elif path == "identity":
             dst.identity = src.identity
+        elif path == "doris_nullable":
+            dst.doris_nullable = src.doris_nullable
 
 class FieldOptions(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -351,6 +386,7 @@ def apply_field_mask_field_options(dst: FieldOptions, src: FieldOptions, paths: 
             dst.foreign_key = copy.deepcopy(src.foreign_key)
 
 
+IndexDefIndexPart.model_rebuild()
 IndexDef.model_rebuild()
 CheckDef.model_rebuild()
 ForeignKeyDef.model_rebuild()
@@ -369,6 +405,7 @@ __all__ = [
     'ForeignKey',
     'ForeignKeyDef',
     'IndexDef',
+    'IndexDefIndexPart',
     'MessageOptions',
     'OptionalBool',
     'TableOptions',

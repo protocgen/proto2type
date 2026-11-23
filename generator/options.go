@@ -343,6 +343,119 @@ func splitModeTokens(raw string) []string {
 	return out
 }
 
+// willEmitDomain reports whether Go/target domain types will be emitted for opts,
+// matching generateGo's backend-specific domain suppression rules.
+func willEmitDomain(opts *Options) bool {
+	if opts == nil || !opts.Domain {
+		return false
+	}
+	if opts.Lang != "" && opts.Lang != "go" {
+		return true
+	}
+	isLakehouseBackend := opts.Backend == "doris" || opts.Backend == "starrocks"
+	if isLakehouseBackend {
+		isLakehouseSchemaOnly := false
+		if dt, err := opts.ParseDorisMode(); err == nil && !dt.EmitGo {
+			isLakehouseSchemaOnly = true
+		}
+		if opts.GoPackage == "" || isLakehouseSchemaOnly {
+			return false
+		}
+	}
+	if opts.Backend == "postgres" {
+		isPostgresSchemaOnly := false
+		if pt, err := opts.ParsePostgresMode(); err == nil && !pt.EmitTypes && !pt.EmitSearchIndexGo {
+			isPostgresSchemaOnly = true
+		}
+		if isPostgresSchemaOnly && opts.GoPackage == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func validateLangBackendOptions(opts *Options) error {
+	if opts == nil {
+		return nil
+	}
+	if opts.Lang == "rust" && opts.Backend == "postgres" {
+		pgTargets, err := opts.ParsePostgresMode()
+		if err != nil {
+			return err
+		}
+		if pgTargets.EmitSearchIndexGo {
+			return fmt.Errorf("proto2type: postgres_mode=%q (Go search_index) is not supported for lang=%q", opts.PostgresMode, opts.Lang)
+		}
+	}
+	return nil
+}
+
+// ValidateOutputFileOptions checks that opts.OutputFile is safe and compatible
+// with the configured domain/backend/mode options and input file count.
+func ValidateOutputFileOptions(opts *Options, generatedFileCount int) error {
+	if opts == nil || opts.OutputFile == "" {
+		return nil
+	}
+	if _, err := validateOutputFile(opts.OutputFile); err != nil {
+		return err
+	}
+	if err := validateLangBackendOptions(opts); err != nil {
+		return err
+	}
+	emitDomain := willEmitDomain(opts)
+	if emitDomain && opts.Backend != "" {
+		return fmt.Errorf("output_file cannot be used when both domain=true and backend=%q are enabled", opts.Backend)
+	}
+	if !emitDomain && opts.Backend == "postgres" {
+		pgTargets, err := opts.ParsePostgresMode()
+		if err != nil {
+			return err
+		}
+		targetCount := boolToInt(pgTargets.EmitTypes) +
+			boolToInt(pgTargets.EmitDDL) +
+			boolToInt(pgTargets.EmitHCL) +
+			boolToInt(pgTargets.EmitSearchIndexGo) +
+			boolToInt(pgTargets.EmitSearchIndexDDL) +
+			boolToInt(pgTargets.EmitSearchIndexHCL)
+		if targetCount > 1 {
+			return fmt.Errorf("output_file cannot be used with multi-file postgres_mode=%q", opts.PostgresMode)
+		}
+		if opts.Lang != "" && opts.Lang != "go" && generatedFileCount > 1 {
+			return fmt.Errorf("output_file cannot be used with multiple proto files for lang=%q", opts.Lang)
+		}
+		return nil
+	}
+	if !emitDomain && (opts.Backend == "doris" || opts.Backend == "starrocks") {
+		dorisTargets, err := opts.ParseDorisMode()
+		if err != nil {
+			return err
+		}
+		targetCount := boolToInt(dorisTargets.EmitGo) +
+			boolToInt(dorisTargets.EmitDorisDDL) +
+			boolToInt(dorisTargets.EmitDorisHCL) +
+			boolToInt(dorisTargets.EmitStarRocksDDL) +
+			boolToInt(dorisTargets.EmitStarRocksHCL)
+		if targetCount > 1 {
+			return fmt.Errorf("output_file cannot be used with multi-file doris_mode=%q", opts.DorisMode)
+		}
+		if opts.Lang != "" && opts.Lang != "go" && generatedFileCount > 1 {
+			return fmt.Errorf("output_file cannot be used with multiple proto files for lang=%q", opts.Lang)
+		}
+		return nil
+	}
+	if generatedFileCount > 1 {
+		return fmt.Errorf("output_file cannot be used with multiple proto files")
+	}
+	return nil
+}
+
+func boolToInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
 // TableMetaConfig is an alias for DorisTableMetaIR, representing table-level metadata
 // extracted from (proto2type.message).table (extension 1307) or legacy table_meta (extension 50201).
 type TableMetaConfig = DorisTableMetaIR

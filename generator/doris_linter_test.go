@@ -512,7 +512,7 @@ func TestBuildDorisAlterTableSQL_AllDialects(t *testing.T) {
 
 	iceAfter := baseLinterTestTable()
 	iceAfter.Columns[1].DorisType = "VARCHAR(128)" // criterion_id: VARCHAR(64) -> VARCHAR(128)
-	iceAfter.Columns[2].DorisType = "INT"          // display_order: SMALLINT -> INT
+	iceAfter.Columns[2].DorisType = "INT"          // display_order: SMALLINT -> INT (identical on Iceberg, so no MODIFY emitted)
 	iceAfter.Columns = append(iceAfter.Columns,
 		DorisColumnDescriptor{ColumnName: "optional_note", DorisType: "VARCHAR(256)", IcebergType: "STRING", Nullable: true},
 		DorisColumnDescriptor{ColumnName: "tags", DorisType: "ARRAY<VARCHAR(64)>", IcebergType: "LIST<STRING>", Nullable: false},
@@ -523,7 +523,6 @@ func TestBuildDorisAlterTableSQL_AllDialects(t *testing.T) {
 	}
 	wantIce := []string{
 		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results MODIFY COLUMN criterion_id VARCHAR(128) NOT NULL;`,
-		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results MODIFY COLUMN display_order INT NOT NULL;`,
 		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results ADD COLUMN optional_note VARCHAR(256);`,
 		`ALTER TABLE iceberg.tenant_acme.eligibility_criterion_results ADD COLUMN tags ARRAY<VARCHAR(64)> NOT NULL;`,
 	}

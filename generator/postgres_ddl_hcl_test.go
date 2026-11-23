@@ -751,7 +751,7 @@ func TestPostgresIdentityAndExpressionIndexes_EvolutionAndValidation(t *testing.
 	runProtoErrCase("identity nullable true", nil, descriptorpb.FieldDescriptorProto_TYPE_INT64, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL,
 		idOpts(&proto2typepb.ColumnOptions{Identity: true, Nullable: proto2typepb.OptionalBool_OPTIONAL_BOOL_TRUE}), "identity column cannot be nullable")
 	runProtoErrCase("identity with default_value", nil, descriptorpb.FieldDescriptorProto_TYPE_INT64, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL,
-		idOpts(&proto2typepb.ColumnOptions{Identity: true, DefaultValue: "1"}), "identity column cannot specify default_value")
+		idOpts(&proto2typepb.ColumnOptions{Identity: true, DefaultValue: proto.String("1")}), "identity column cannot specify default_value")
 	runProtoErrCase("index empty columns and expressions", tblIdxOpts(&proto2typepb.IndexDef{Name: "empty_idx", Unique: true}),
 		descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL, nil, "has no columns")
 	runProtoErrCase("index SQL injection in expression", tblIdxOpts(&proto2typepb.IndexDef{Name: "inj_idx", Expressions: []string{"lower(col)); DROP TABLE bad_tbl; --"}}),

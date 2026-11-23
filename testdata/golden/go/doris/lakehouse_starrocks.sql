@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS internal.tenant_${TENANT_SLUG}.eligibility_criterion_
     INDEX idx_ngram_eligibility_criterion_results_criterion_id (criterion_id) USING NGRAMBF ("gram_num" = "3", "bloom_filter_fpp" = "0.05")
 )
 PRIMARY KEY(patient_id, criterion_id)
-PARTITION BY RANGE(event_month) ()
 DISTRIBUTED BY HASH(patient_id) BUCKETS ${TENANT_BUCKETS}
 PROPERTIES (
     "storage_volume" = "lakehouse_vault",

@@ -19,8 +19,79 @@ func NewRunner() *Runner {
 	}
 }
 
+// Generate processes all marked proto files in gen, consolidating output into a
+// single file when opts.OutputFile specifies a valid single-file target.
+func (r *Runner) Generate(gen *protogen.Plugin, opts *Options) error {
+	r.goGen = newGoGenerator()
+	defer func() {
+		r.goGen = newGoGenerator()
+	}()
+	if opts == nil {
+		opts = &Options{}
+	}
+	if err := validateLangBackendOptions(opts); err != nil {
+		return err
+	}
+	var genFiles []*protogen.File
+	for _, f := range gen.Files {
+		if f.Generate {
+			genFiles = append(genFiles, f)
+		}
+	}
+	if err := ValidateOutputFileOptions(opts, len(genFiles)); err != nil {
+		return err
+	}
+	if opts.OutputFile == "" || len(genFiles) <= 1 {
+		for _, f := range genFiles {
+			if err := r.GenerateFile(gen, f, opts); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for _, f := range genFiles {
+		if len(f.Messages) == 0 && len(f.Enums) == 0 {
+			continue
+		}
+		if f.Desc.Syntax() == protoreflect.Proto2 {
+			return fmt.Errorf("proto2type: %s uses proto2 syntax, only proto3 (and editions) are supported", f.Desc.Path())
+		}
+	}
+
+	if !willEmitDomain(opts) && (opts.Lang == "go" || opts.Lang == "") {
+		switch opts.Backend {
+		case "postgres":
+			return r.goGen.generateGoPostgresConsolidated(gen, genFiles, opts)
+		case "doris", "starrocks":
+			return r.goGen.generateGoDorisConsolidated(gen, genFiles, opts)
+		}
+	}
+
+	for _, f := range genFiles {
+		if err := r.GenerateFile(gen, f, opts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GenerateFile generates output files for a single proto file.
 func (r *Runner) GenerateFile(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+	if opts == nil {
+		opts = &Options{}
+	}
+	if r.goGen == nil {
+		r.goGen = newGoGenerator()
+	}
+	if err := validateLangBackendOptions(opts); err != nil {
+		return err
+	}
+	if opts.OutputFile != "" {
+		if err := ValidateOutputFileOptions(opts, 1); err != nil {
+			return err
+		}
+	}
 	if len(file.Messages) == 0 && len(file.Enums) == 0 {
 		return nil
 	}

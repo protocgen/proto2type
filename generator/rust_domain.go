@@ -9,6 +9,9 @@ import (
 
 // generateRust generates Rust output files for a proto file.
 func generateRust(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
+	if err := validateLangBackendOptions(opts); err != nil {
+		return err
+	}
 	// Generate domain types if requested.
 	if opts.Domain {
 		if err := generateRustDomain(gen, file, opts); err != nil {
@@ -53,24 +56,24 @@ func generateRust(gen *protogen.Plugin, file *protogen.File, opts *Options) erro
 						return err
 					}
 					if pgTargets.EmitDDL {
-						if err := generatePostgresDDLFile(gen, file, tables); err != nil {
+						if err := generatePostgresDDLFileWithOpts(gen, file, tables, opts); err != nil {
 							return err
 						}
 					}
 					if pgTargets.EmitHCL {
-						if err := generatePostgresHCLFile(gen, file, tables); err != nil {
+						if err := generatePostgresHCLFileWithOpts(gen, file, tables, opts); err != nil {
 							return err
 						}
 					}
 				}
 			}
 			if pgTargets.EmitSearchIndexDDL {
-				if err := generatePostgresSearchIndexDDLFile(gen, file); err != nil {
+				if err := generatePostgresSearchIndexDDLFile(gen, file, opts); err != nil {
 					return err
 				}
 			}
 			if pgTargets.EmitSearchIndexHCL {
-				if err := generatePostgresSearchIndexHCLFile(gen, file); err != nil {
+				if err := generatePostgresSearchIndexHCLFile(gen, file, opts); err != nil {
 					return err
 				}
 			}
@@ -89,7 +92,11 @@ func generateRust(gen *protogen.Plugin, file *protogen.File, opts *Options) erro
 
 // generateRustDomain generates a Rust domain type file for a proto file.
 func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, ".type.rs")
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	filename, err := resolveOutputFilename(file.GeneratedFilenamePrefix, ".type.rs", outOverride)
 	if err != nil {
 		return err
 	}

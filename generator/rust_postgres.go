@@ -9,7 +9,11 @@ import (
 
 // generateRustPostgres generates a Rust PostgreSQL storage type file for a proto file.
 func generateRustPostgres(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_postgres.type.rs")
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	filename, err := resolveOutputFilename(file.GeneratedFilenamePrefix, "_postgres.type.rs", outOverride)
 	if err != nil {
 		return err
 	}

@@ -28,10 +28,13 @@ func dorisTypeToAtlasHCLType(dorisType string) string {
 // canonical Atlas HCL column type for an Apache Iceberg table, preserving the
 // JSON/JSONB/VARIANT -> string type mapping.
 func dorisColumnIcebergHCLType(dorisType, icebergType string) string {
-	dt := strings.ToUpper(strings.TrimSpace(dorisType))
-	switch dt {
-	case "JSON", "JSONB", "VARIANT", "STRING", "TEXT":
-		return "string"
+	upperIT := strings.ToUpper(strings.TrimSpace(icebergType))
+	if upperIT == "" || isAbstractIcebergSpecType(upperIT) {
+		dt := strings.ToUpper(strings.TrimSpace(dorisType))
+		switch dt {
+		case "JSON", "JSONB", "VARIANT", "STRING", "TEXT":
+			return "string"
+		}
 	}
 	ddlType := dorisColumnIcebergDDLType(dorisType, icebergType)
 	lower := strings.ToLower(strings.TrimSpace(ddlType))
@@ -130,7 +133,7 @@ func formatAtlasHCLPropKey(k string) string {
 //
 // If tenantSlug is empty, "${TENANT_SLUG}" is interpolated for TENANT-scoped
 // tables. If buckets <= 0, the descriptor's Buckets/AutoBuckets or scope-appropriate
-// default ("auto" for TENANT, 1 for GLOBAL_TERMINOLOGY, 8 for RAG/TELEMETRY) is used.
+// default ("${TENANT_BUCKETS}" for TENANT, 1 for GLOBAL_TERMINOLOGY, 8 for RAG/TELEMETRY) is used.
 // Returns an empty string if SyncTier == "ICEBERG_ONLY" or identifier validation fails.
 func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int) string {
 	if !validateDescriptorIdentifiers(t) || t.SyncTier == "ICEBERG_ONLY" {
@@ -240,7 +243,7 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 		case "GLOBAL_TERMINOLOGY_RAG", "GLOBAL_TELEMETRY":
 			bucketsExpr = "8"
 		default:
-			bucketsExpr = `"auto"`
+			bucketsExpr = `"${TENANT_BUCKETS}"`
 		}
 	}
 
@@ -266,10 +269,10 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 		fmt.Fprintf(&b, "    type = %s\n", dorisTypeToAtlasHCLType(c.DorisType))
 		fmt.Fprintf(&b, "    null = %t\n", c.Nullable)
 		if defVal, hasDef := resolveDorisColumnDefaultValue(c); hasDef {
-			fmt.Fprintf(&b, "    default = %q\n", defVal)
+			fmt.Fprintf(&b, "    default = %s\n", quoteHCLString(defVal))
 		}
 		if c.Comment != "" {
-			fmt.Fprintf(&b, "    comment = %q\n", c.Comment)
+			fmt.Fprintf(&b, "    comment = %s\n", quoteHCLString(c.Comment))
 		}
 		b.WriteString("  }\n")
 	}
@@ -302,17 +305,7 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 		b.WriteString("  }\n")
 	}
 
-	var partCols []string
-	if len(t.PartitionByColumns) > 0 {
-		partCols = dedupDorisColumnList(t.PartitionByColumns)
-	} else {
-		for _, c := range orderedCols {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
+	partCols := effectiveDorisPhysicalPartitionCols(t)
 	if len(partCols) > 0 {
 		partBlock := "partition_by_list"
 		if strings.HasPrefix(colTypes[partCols[0]], "DATE") {
@@ -456,7 +449,7 @@ func (t DorisTableDescriptor) BuildDorisAtlasHCL(tenantSlug string, buckets int)
 //
 // If tenantSlug is empty, "${TENANT_SLUG}" is interpolated for TENANT-scoped
 // tables. If buckets <= 0, the descriptor's Buckets/AutoBuckets or scope-appropriate
-// default ("auto" for TENANT, 1 for GLOBAL_TERMINOLOGY, 8 for RAG/TELEMETRY) is used.
+// default ("${TENANT_BUCKETS}" for TENANT, 1 for GLOBAL_TERMINOLOGY, 8 for RAG/TELEMETRY) is used.
 // Returns an empty string if SyncTier == "ICEBERG_ONLY" or identifier validation fails.
 func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets int) string {
 	if !validateDescriptorIdentifiers(t) || t.SyncTier == "ICEBERG_ONLY" {
@@ -566,7 +559,7 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 		case "GLOBAL_TERMINOLOGY_RAG", "GLOBAL_TELEMETRY":
 			bucketsExpr = "8"
 		default:
-			bucketsExpr = `"auto"`
+			bucketsExpr = `"${TENANT_BUCKETS}"`
 		}
 	}
 
@@ -592,10 +585,10 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 		fmt.Fprintf(&b, "    type = %s\n", dorisColumnStarRocksHCLType(c.DorisType, c.IcebergType))
 		fmt.Fprintf(&b, "    null = %t\n", c.Nullable)
 		if defVal, hasDef := resolveDorisColumnDefaultValue(c); hasDef {
-			fmt.Fprintf(&b, "    default = %q\n", defVal)
+			fmt.Fprintf(&b, "    default = %s\n", quoteHCLString(defVal))
 		}
 		if c.Comment != "" {
-			fmt.Fprintf(&b, "    comment = %q\n", c.Comment)
+			fmt.Fprintf(&b, "    comment = %s\n", quoteHCLString(c.Comment))
 		}
 		b.WriteString("  }\n")
 	}
@@ -626,17 +619,7 @@ func (t DorisTableDescriptor) BuildStarRocksAtlasHCL(tenantSlug string, buckets 
 		b.WriteString("  }\n")
 	}
 
-	var partCols []string
-	if len(t.PartitionByColumns) > 0 {
-		partCols = dedupDorisColumnList(t.PartitionByColumns)
-	} else {
-		for _, c := range orderedCols {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
+	partCols := effectiveDorisPhysicalPartitionCols(t)
 	if len(partCols) > 0 {
 		partBlock := "partition_by_list"
 		if strings.HasPrefix(colTypes[partCols[0]], "DATE") {
@@ -842,33 +825,7 @@ func (t DorisTableDescriptor) BuildIcebergAtlasHCL(tenantSlug string) string {
 		}
 	}
 
-	var partCols []string
-	if len(t.PartitionByColumns) > 0 {
-		partCols = dedupDorisColumnList(t.PartitionByColumns)
-	} else {
-		for _, c := range orderedCols {
-			if c.IsPartitionKey {
-				partCols = append(partCols, c.ColumnName)
-			}
-		}
-		partCols = dedupDorisColumnList(partCols)
-	}
-	if len(partCols) == 0 && t.SyncTier == "MONTHLY_PARTITIONED" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "event_month" {
-				partCols = append(partCols, "event_month")
-				break
-			}
-		}
-	}
-	if len(partCols) == 0 && t.SyncTier == "RELEASE_PARTITIONED" {
-		for _, c := range orderedCols {
-			if c.ColumnName == "release_id" {
-				partCols = append(partCols, "release_id")
-				break
-			}
-		}
-	}
+	partCols := effectiveDorisPartitionCols(t)
 	partSpec := strings.TrimSpace(t.IcebergPartitionSpec)
 	if partSpec == "" && len(partCols) > 0 {
 		partSpec = strings.Join(partCols, ", ")
@@ -884,7 +841,7 @@ func (t DorisTableDescriptor) BuildIcebergAtlasHCL(tenantSlug string) string {
 		fmt.Fprintf(&b, "    type = %s\n", dorisColumnIcebergHCLType(c.DorisType, c.IcebergType))
 		fmt.Fprintf(&b, "    null = %t\n", c.Nullable)
 		if c.Comment != "" {
-			fmt.Fprintf(&b, "    comment = %q\n", c.Comment)
+			fmt.Fprintf(&b, "    comment = %s\n", quoteHCLString(c.Comment))
 		}
 		b.WriteString("  }\n")
 	}
@@ -1028,14 +985,17 @@ func findMatchingHCLBrace(s string, openIdx int) (int, error) {
 	return -1, fmt.Errorf("unbalanced '{' in Atlas HCL")
 }
 
-// unquoteHCLString unquotes a double-quoted HCL string literal or trims whitespace.
+// unquoteHCLString unquotes a double-quoted HCL string literal (unescaping
+// raw HCL template sequences $${ -> ${ and %%{ -> %{ before character unquoting)
+// or trims whitespace.
 func unquoteHCLString(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		if unq, err := strconv.Unquote(s); err == nil {
+		decoded := strings.NewReplacer("$${", "${", "%%{", "%{").Replace(s[1 : len(s)-1])
+		if unq, err := strconv.Unquote(`"` + decoded + `"`); err == nil {
 			return unq
 		}
-		return s[1 : len(s)-1]
+		return decoded
 	}
 	return s
 }
@@ -1444,6 +1404,9 @@ func applyDorisAtlasSubBlock(
 			if strings.EqualFold(bVal, "auto") {
 				desc.AutoBuckets = true
 				desc.Buckets = 0
+			} else if bVal == "${TENANT_BUCKETS}" {
+				desc.AutoBuckets = false
+				desc.Buckets = 0
 			} else {
 				n, nErr := strconv.Atoi(bVal)
 				if nErr != nil || n <= 0 {
@@ -1622,8 +1585,19 @@ func parseDorisAtlasIndexBlock(idxName, body string) (DorisIndexDescriptor, erro
 }
 
 // generateDorisHCLFiles emits <prefix>_doris.hcl and <prefix>_iceberg.hcl
-// for all Doris/Iceberg tables in the proto file when doris_mode is "hcl" or "all".
-func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, tables []*dorisTableIR) error {
+// for all Doris/Iceberg tables in the proto file (or consolidates to opts.OutputFile if valid).
+func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, opts *Options, tables []*dorisTableIR) error {
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	return generateConsolidatedDorisHCLFiles(gen, []*protogen.File{file}, tables, outOverride)
+}
+
+func generateConsolidatedDorisHCLFiles(gen *protogen.Plugin, files []*protogen.File, tables []*dorisTableIR, outputFile string) error {
+	if len(files) == 0 || len(tables) == 0 {
+		return nil
+	}
 	var dorisBlocks []ddlBlock
 	var icebergBlocks []ddlBlock
 
@@ -1648,63 +1622,68 @@ func generateDorisHCLFiles(gen *protogen.Plugin, file *protogen.File, tables []*
 		}
 	}
 
+	if outputFile != "" && len(dorisBlocks) > 0 && len(icebergBlocks) > 0 {
+		return fmt.Errorf("output_file %q cannot consolidate both Doris and Iceberg HCL outputs", outputFile)
+	}
+
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
+	sourceDesc := strings.Join(sources, ", ")
+
+	writeHCL := func(defaultSuffix, backendLabel string, blocks []ddlBlock) error {
+		filename, err := resolveOutputFilename(files[0].GeneratedFilenamePrefix, defaultSuffix, outputFile)
+		if err != nil {
+			return err
+		}
+		g := gen.NewGeneratedFile(filename, "")
+		g.P("# Code generated by proto2type. DO NOT EDIT.")
+		g.P("# source: ", sourceDesc)
+		g.P("# backend: ", backendLabel, " (hcl)")
+		g.P()
+		for i, blk := range blocks {
+			if i > 0 {
+				g.P()
+			}
+			g.P("# ", blk.goName, " (", blk.tableName, ")")
+			if blk.writerService != "" {
+				g.P("# writer_service: ", blk.writerService)
+			}
+			if len(blk.readerServices) > 0 {
+				g.P("# reader_services: ", strings.Join(blk.readerServices, ", "))
+			}
+			g.P(blk.sql)
+		}
+		return nil
+	}
+
 	if len(dorisBlocks) > 0 {
-		dorisFilename, err := outputFilename(file.GeneratedFilenamePrefix, "_doris.hcl")
-		if err != nil {
+		if err := writeHCL("_doris.hcl", "doris", dorisBlocks); err != nil {
 			return err
 		}
-		dg := gen.NewGeneratedFile(dorisFilename, "")
-		dg.P("# Code generated by proto2type. DO NOT EDIT.")
-		dg.P("# source: ", file.Desc.Path())
-		dg.P("# backend: doris (hcl)")
-		dg.P()
-
-		for i, blk := range dorisBlocks {
-			if i > 0 {
-				dg.P()
-			}
-			dg.P("# ", blk.goName, " (", blk.tableName, ")")
-			if blk.writerService != "" {
-				dg.P("# writer_service: ", blk.writerService)
-			}
-			if len(blk.readerServices) > 0 {
-				dg.P("# reader_services: ", strings.Join(blk.readerServices, ", "))
-			}
-			dg.P(blk.sql)
-		}
 	}
-
 	if len(icebergBlocks) > 0 {
-		icebergFilename, err := outputFilename(file.GeneratedFilenamePrefix, "_iceberg.hcl")
-		if err != nil {
+		if err := writeHCL("_iceberg.hcl", "iceberg", icebergBlocks); err != nil {
 			return err
 		}
-		ig := gen.NewGeneratedFile(icebergFilename, "")
-		ig.P("# Code generated by proto2type. DO NOT EDIT.")
-		ig.P("# source: ", file.Desc.Path())
-		ig.P("# backend: iceberg (hcl)")
-		ig.P()
-
-		for i, blk := range icebergBlocks {
-			if i > 0 {
-				ig.P()
-			}
-			ig.P("# ", blk.goName, " (", blk.tableName, ")")
-			if blk.writerService != "" {
-				ig.P("# writer_service: ", blk.writerService)
-			}
-			if len(blk.readerServices) > 0 {
-				ig.P("# reader_services: ", strings.Join(blk.readerServices, ", "))
-			}
-			ig.P(blk.sql)
-		}
 	}
-
 	return nil
 }
 
 // generateStarRocksHCLFile emits <prefix>_starrocks.hcl for all StarRocks tables in the proto file.
-func generateStarRocksHCLFile(gen *protogen.Plugin, file *protogen.File, tables []*dorisTableIR) error {
+func generateStarRocksHCLFile(gen *protogen.Plugin, file *protogen.File, opts *Options, tables []*dorisTableIR) error {
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	return generateConsolidatedStarRocksHCLFile(gen, []*protogen.File{file}, tables, outOverride)
+}
+
+func generateConsolidatedStarRocksHCLFile(gen *protogen.Plugin, files []*protogen.File, tables []*dorisTableIR, outputFile string) error {
+	if len(files) == 0 {
+		return nil
+	}
 	var srBlocks []ddlBlock
 	for _, tbl := range tables {
 		if hcl := tbl.Descriptor.BuildStarRocksAtlasHCL("", 0); hcl != "" {
@@ -1720,13 +1699,17 @@ func generateStarRocksHCLFile(gen *protogen.Plugin, file *protogen.File, tables 
 	if len(srBlocks) == 0 {
 		return nil
 	}
-	srFilename, err := outputFilename(file.GeneratedFilenamePrefix, "_starrocks.hcl")
+	srFilename, err := resolveOutputFilename(files[0].GeneratedFilenamePrefix, "_starrocks.hcl", outputFile)
 	if err != nil {
 		return err
 	}
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
 	sg := gen.NewGeneratedFile(srFilename, "")
 	sg.P("# Code generated by proto2type. DO NOT EDIT.")
-	sg.P("# source: ", file.Desc.Path())
+	sg.P("# source: ", strings.Join(sources, ", "))
 	sg.P("# backend: starrocks (hcl)")
 	sg.P()
 
@@ -1757,6 +1740,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	strconvItoa := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strconv", GoName: "Itoa"})
 	strconvParseBool := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strconv", GoName: "ParseBool"})
 	strconvParseInt := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strconv", GoName: "ParseInt"})
+	strconvQuote := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strconv", GoName: "Quote"})
 	strconvUnquote := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strconv", GoName: "Unquote"})
 	stringsBuilder := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "Builder"})
 	stringsEqualFold := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "EqualFold"})
@@ -1764,6 +1748,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	stringsHasSuffix := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "HasSuffix"})
 	stringsIndexByte := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "IndexByte"})
 	stringsJoin := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "Join"})
+	stringsNewReplacer := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "NewReplacer"})
 	stringsReplaceAll := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "ReplaceAll"})
 	stringsSplit := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "Split"})
 	stringsToLower := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "ToLower"})
@@ -1771,6 +1756,11 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	stringsTrimPrefix := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "TrimPrefix"})
 	stringsTrimSpace := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "TrimSpace"})
 	stringsTrimSuffix := g.QualifiedGoIdent(protogen.GoIdent{GoImportPath: "strings", GoName: "TrimSuffix"})
+
+	g.P("func quoteDorisHCLString(s string) string {")
+	g.P("\treturn ", strconvQuote, "(", stringsNewReplacer, "(\"${\", \"$${\", \"%{\", \"%%{\").Replace(s))")
+	g.P("}")
+	g.P()
 
 	g.P("func dorisTypeToAtlasHCLType(dorisType string) string {")
 	g.P("\tdt := ", stringsTrimSpace, "(dorisType)")
@@ -1785,10 +1775,13 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P()
 
 	g.P("func dorisColumnIcebergHCLType(dorisType, icebergType string) string {")
-	g.P("\tdt := ", stringsToUpper, "(", stringsTrimSpace, "(dorisType))")
-	g.P("\tswitch dt {")
-	g.P("\tcase \"JSON\", \"JSONB\", \"VARIANT\", \"STRING\", \"TEXT\":")
-	g.P("\t\treturn \"string\"")
+	g.P("\tupperIT := ", stringsToUpper, "(", stringsTrimSpace, "(icebergType))")
+	g.P("\tif upperIT == \"\" || isDorisAbstractIcebergSpecType(upperIT) {")
+	g.P("\t\tdt := ", stringsToUpper, "(", stringsTrimSpace, "(dorisType))")
+	g.P("\t\tswitch dt {")
+	g.P("\t\tcase \"JSON\", \"JSONB\", \"VARIANT\", \"STRING\", \"TEXT\":")
+	g.P("\t\t\treturn \"string\"")
+	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tddlType := dorisColumnIcebergDDLType(dorisType, icebergType)")
 	g.P("\tlower := ", stringsToLower, "(", stringsTrimSpace, "(ddlType))")
@@ -1963,7 +1956,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tcase \"GLOBAL_TERMINOLOGY_RAG\", \"GLOBAL_TELEMETRY\":")
 	g.P("\t\t\tbucketsExpr = \"8\"")
 	g.P("\t\tdefault:")
-	g.P("\t\t\tbucketsExpr = `\"auto\"`")
+	g.P("\t\t\tbucketsExpr = `\"${TENANT_BUCKETS}\"`")
 	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tseqCol := ", stringsTrimSpace, "(t.SequenceCol)")
@@ -1986,10 +1979,10 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    type = %s\\n\", dorisTypeToAtlasHCLType(c.DorisType)))")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    null = %t\\n\", c.Nullable))")
 	g.P("\t\tif defVal, hasDef := resolveDorisColumnDefaultValue(c); hasDef {")
-	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    default = %q\\n\", defVal))")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    default = %s\\n\", quoteDorisHCLString(defVal)))")
 	g.P("\t\t}")
 	g.P("\t\tif c.Comment != \"\" {")
-	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    comment = %q\\n\", c.Comment))")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    comment = %s\\n\", quoteDorisHCLString(c.Comment)))")
 	g.P("\t\t}")
 	g.P("\t\tb.WriteString(\"  }\\n\")")
 	g.P("\t}")
@@ -2018,17 +2011,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    buckets = %s\\n\", bucketsExpr))")
 	g.P("\t\tb.WriteString(\"  }\\n\")")
 	g.P("\t}")
-	g.P("\tvar partCols []string")
-	g.P("\tif len(t.PartitionByColumns) > 0 {")
-	g.P("\t\tpartCols = dedupDorisColumnList(t.PartitionByColumns)")
-	g.P("\t} else {")
-	g.P("\t\tfor _, c := range orderedCols {")
-	g.P("\t\t\tif c.IsPartitionKey {")
-	g.P("\t\t\t\tpartCols = append(partCols, c.ColumnName)")
-	g.P("\t\t\t}")
-	g.P("\t\t}")
-	g.P("\t\tpartCols = dedupDorisColumnList(partCols)")
-	g.P("\t}")
+	g.P("\tpartCols := effectiveDorisPhysicalPartitionCols(t)")
 	g.P("\tif len(partCols) > 0 {")
 	g.P("\t\tpartBlock := \"partition_by_list\"")
 	g.P("\t\tif ", stringsHasPrefix, "(colTypes[partCols[0]], \"DATE\") {")
@@ -2269,7 +2252,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tcase \"GLOBAL_TERMINOLOGY_RAG\", \"GLOBAL_TELEMETRY\":")
 	g.P("\t\t\tbucketsExpr = \"8\"")
 	g.P("\t\tdefault:")
-	g.P("\t\t\tbucketsExpr = `\"auto\"`")
+	g.P("\t\t\tbucketsExpr = `\"${TENANT_BUCKETS}\"`")
 	g.P("\t\t}")
 	g.P("\t}")
 	g.P("\tseqCol := ", stringsTrimSpace, "(t.SequenceCol)")
@@ -2292,10 +2275,10 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    type = %s\\n\", dorisColumnStarRocksHCLType(c.DorisType, c.IcebergType)))")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    null = %t\\n\", c.Nullable))")
 	g.P("\t\tif defVal, hasDef := resolveDorisColumnDefaultValue(c); hasDef {")
-	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    default = %q\\n\", defVal))")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    default = %s\\n\", quoteDorisHCLString(defVal)))")
 	g.P("\t\t}")
 	g.P("\t\tif c.Comment != \"\" {")
-	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    comment = %q\\n\", c.Comment))")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    comment = %s\\n\", quoteDorisHCLString(c.Comment)))")
 	g.P("\t\t}")
 	g.P("\t\tb.WriteString(\"  }\\n\")")
 	g.P("\t}")
@@ -2323,17 +2306,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    buckets = %s\\n\", bucketsExpr))")
 	g.P("\t\tb.WriteString(\"  }\\n\")")
 	g.P("\t}")
-	g.P("\tvar partCols []string")
-	g.P("\tif len(t.PartitionByColumns) > 0 {")
-	g.P("\t\tpartCols = dedupDorisColumnList(t.PartitionByColumns)")
-	g.P("\t} else {")
-	g.P("\t\tfor _, c := range orderedCols {")
-	g.P("\t\t\tif c.IsPartitionKey {")
-	g.P("\t\t\t\tpartCols = append(partCols, c.ColumnName)")
-	g.P("\t\t\t}")
-	g.P("\t\t}")
-	g.P("\t\tpartCols = dedupDorisColumnList(partCols)")
-	g.P("\t}")
+	g.P("\tpartCols := effectiveDorisPhysicalPartitionCols(t)")
 	g.P("\tif len(partCols) > 0 {")
 	g.P("\t\tpartBlock := \"partition_by_list\"")
 	g.P("\t\tif ", stringsHasPrefix, "(colTypes[partCols[0]], \"DATE\") {")
@@ -2533,33 +2506,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t\tschemaRef = \"schema.tenant_\" + slug")
 	g.P("\t\t}")
 	g.P("\t}")
-	g.P("\tvar partCols []string")
-	g.P("\tif len(t.PartitionByColumns) > 0 {")
-	g.P("\t\tpartCols = dedupDorisColumnList(t.PartitionByColumns)")
-	g.P("\t} else {")
-	g.P("\t\tfor _, c := range orderedCols {")
-	g.P("\t\t\tif c.IsPartitionKey {")
-	g.P("\t\t\t\tpartCols = append(partCols, c.ColumnName)")
-	g.P("\t\t\t}")
-	g.P("\t\t}")
-	g.P("\t\tpartCols = dedupDorisColumnList(partCols)")
-	g.P("\t}")
-	g.P("\tif len(partCols) == 0 && t.SyncTier == \"MONTHLY_PARTITIONED\" {")
-	g.P("\t\tfor _, c := range orderedCols {")
-	g.P("\t\t\tif c.ColumnName == \"event_month\" {")
-	g.P("\t\t\t\tpartCols = append(partCols, \"event_month\")")
-	g.P("\t\t\t\tbreak")
-	g.P("\t\t\t}")
-	g.P("\t\t}")
-	g.P("\t}")
-	g.P("\tif len(partCols) == 0 && t.SyncTier == \"RELEASE_PARTITIONED\" {")
-	g.P("\t\tfor _, c := range orderedCols {")
-	g.P("\t\t\tif c.ColumnName == \"release_id\" {")
-	g.P("\t\t\t\tpartCols = append(partCols, \"release_id\")")
-	g.P("\t\t\t\tbreak")
-	g.P("\t\t\t}")
-	g.P("\t\t}")
-	g.P("\t}")
+	g.P("\tpartCols := effectiveDorisPartitionCols(t)")
 	g.P("\tpartSpec := ", stringsTrimSpace, "(t.IcebergPartitionSpec)")
 	g.P("\tif partSpec == \"\" && len(partCols) > 0 {")
 	g.P("\t\tpartSpec = ", stringsJoin, "(partCols, \", \")")
@@ -2573,7 +2520,7 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    type = %s\\n\", dorisColumnIcebergHCLType(c.DorisType, c.IcebergType)))")
 	g.P("\t\tb.WriteString(", fmtSprintf, "(\"    null = %t\\n\", c.Nullable))")
 	g.P("\t\tif c.Comment != \"\" {")
-	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    comment = %q\\n\", c.Comment))")
+	g.P("\t\t\tb.WriteString(", fmtSprintf, "(\"    comment = %s\\n\", quoteDorisHCLString(c.Comment)))")
 	g.P("\t\t}")
 	g.P("\t\tb.WriteString(\"  }\\n\")")
 	g.P("\t}")
@@ -2735,10 +2682,11 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("func unquoteHCLString(s string) string {")
 	g.P("\ts = ", stringsTrimSpace, "(s)")
 	g.P("\tif len(s) >= 2 && s[0] == '\"' && s[len(s)-1] == '\"' {")
-	g.P("\t\tif unq, err := ", strconvUnquote, "(s); err == nil {")
+	g.P("\t\tdecoded := ", stringsNewReplacer, "(\"$${\", \"${\", \"%%{\", \"%{\").Replace(s[1 : len(s)-1])")
+	g.P("\t\tif unq, err := ", strconvUnquote, "(`\"` + decoded + `\"`); err == nil {")
 	g.P("\t\t\treturn unq")
 	g.P("\t\t}")
-	g.P("\t\treturn s[1 : len(s)-1]")
+	g.P("\t\treturn decoded")
 	g.P("\t}")
 	g.P("\treturn s")
 	g.P("}")
@@ -3106,6 +3054,9 @@ func emitDorisAtlasHCLRuntimeHelpers(g *protogen.GeneratedFile) {
 	g.P("\t\t\tbVal := unquoteHCLString(bRaw)")
 	g.P("\t\t\tif ", stringsEqualFold, "(bVal, \"auto\") {")
 	g.P("\t\t\t\tdesc.AutoBuckets = true")
+	g.P("\t\t\t\tdesc.Buckets = 0")
+	g.P("\t\t\t} else if bVal == \"${TENANT_BUCKETS}\" {")
+	g.P("\t\t\t\tdesc.AutoBuckets = false")
 	g.P("\t\t\t\tdesc.Buckets = 0")
 	g.P("\t\t\t} else {")
 	g.P("\t\t\t\tn, nErr := ", strconvAtoi, "(bVal)")

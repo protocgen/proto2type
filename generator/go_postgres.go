@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -28,8 +29,8 @@ func domainMessagesHaveTableMeta(msgs []*DomainMessage) bool {
 }
 
 // validateDomainMessagesTableMeta validates table metadata, table name syntax, 63-byte
-// identifier length, and table name uniqueness across messages.
-func validateDomainMessagesTableMeta(msgs []*DomainMessage, seenTables map[string]string) error {
+// identifier length, and table name uniqueness within each resolved schema across messages.
+func validateDomainMessagesTableMeta(msgs []*DomainMessage, seenTables map[string]string, isLakehouse bool) error {
 	for _, m := range msgs {
 		if m.Skip {
 			continue
@@ -48,16 +49,18 @@ func validateDomainMessagesTableMeta(msgs []*DomainMessage, seenTables map[strin
 					m.FullName, tableName, maxPostgresIdentifierBytes, len(tableName))
 			}
 			if seenTables != nil {
-				if prev, exists := seenTables[tableName]; exists && prev != m.FullName {
-					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q (already resolved by %s)", m.FullName, tableName, prev)
+				schemaName := resolvePostgresTableCollisionSchema(isLakehouse, meta)
+				key := postgresResolvedSchemaTableKey(schemaName, tableName)
+				if prev, exists := seenTables[key]; exists && prev != m.FullName {
+					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q in schema %q (already resolved by %s)", m.FullName, tableName, schemaName, prev)
 				}
-				seenTables[tableName] = m.FullName
+				seenTables[key] = m.FullName
 			}
 		} else if len(tableName) > maxPostgresIdentifierBytes {
 			return fmt.Errorf("message %s: PostgreSQL table name %q exceeds %d-byte identifier limit (%d bytes)",
 				m.FullName, tableName, maxPostgresIdentifierBytes, len(tableName))
 		}
-		if err := validateDomainMessagesTableMeta(m.NestedMessages, seenTables); err != nil {
+		if err := validateDomainMessagesTableMeta(m.NestedMessages, seenTables, isLakehouse); err != nil {
 			return err
 		}
 	}
@@ -65,13 +68,14 @@ func validateDomainMessagesTableMeta(msgs []*DomainMessage, seenTables map[strin
 }
 
 // validatePostgresTableNamesAcrossPlugin scans all generated files in gen to detect
-// cross-file PostgreSQL table name collisions before emitting ORM, HCL, or DDL files.
+// cross-file PostgreSQL table name collisions within the same resolved schema before
+// emitting ORM, HCL, or DDL files.
 func (gg *goGenerator) validatePostgresTableNamesAcrossPlugin(gen *protogen.Plugin) error {
 	if gen == nil {
 		return nil
 	}
-	var walkMsgs func(msgs []*protogen.Message) error
-	walkMsgs = func(msgs []*protogen.Message) error {
+	var walkMsgs func(msgs []*protogen.Message, isLakehouse bool) error
+	walkMsgs = func(msgs []*protogen.Message, isLakehouse bool) error {
 		for _, msg := range msgs {
 			if msg.Desc.IsMapEntry() || isMessageSkipped(msg) {
 				continue
@@ -80,12 +84,14 @@ func (gg *goGenerator) validatePostgresTableNamesAcrossPlugin(gen *protogen.Plug
 			fullName := string(msg.Desc.FullName())
 			if meta != nil {
 				tableName := resolvePostgresTableName(msg, meta)
-				if prev, exists := gg.seenPostgresTables[tableName]; exists && prev != fullName {
-					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q (already resolved by %s)", fullName, tableName, prev)
+				schemaName := resolvePostgresTableCollisionSchema(isLakehouse, meta)
+				key := postgresResolvedSchemaTableKey(schemaName, tableName)
+				if prev, exists := gg.seenPostgresTables[key]; exists && prev != fullName {
+					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q in schema %q (already resolved by %s)", fullName, tableName, schemaName, prev)
 				}
-				gg.seenPostgresTables[tableName] = fullName
+				gg.seenPostgresTables[key] = fullName
 			}
-			if err := walkMsgs(msg.Messages); err != nil {
+			if err := walkMsgs(msg.Messages, isLakehouse); err != nil {
 				return err
 			}
 		}
@@ -95,7 +101,8 @@ func (gg *goGenerator) validatePostgresTableNamesAcrossPlugin(gen *protogen.Plug
 		if !f.Generate {
 			continue
 		}
-		if err := walkMsgs(f.Messages); err != nil {
+		isLakehouse := fileHasLakehousePostgresTables(f)
+		if err := walkMsgs(f.Messages, isLakehouse); err != nil {
 			return err
 		}
 	}
@@ -124,12 +131,12 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 		}
 	}
 	if pgTargets.EmitSearchIndexDDL {
-		if err := generatePostgresSearchIndexDDLFile(gen, file); err != nil {
+		if err := generatePostgresSearchIndexDDLFile(gen, file, effectiveOpts); err != nil {
 			return err
 		}
 	}
 	if pgTargets.EmitSearchIndexHCL {
-		if err := generatePostgresSearchIndexHCLFile(gen, file); err != nil {
+		if err := generatePostgresSearchIndexHCLFile(gen, file, effectiveOpts); err != nil {
 			return err
 		}
 	}
@@ -146,7 +153,8 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 	if err != nil {
 		return err
 	}
-	if err := validateDomainMessagesTableMeta(df.Messages, gg.seenPostgresTables); err != nil {
+	isLakehouseFile := fileHasLakehousePostgresTables(file)
+	if err := validateDomainMessagesTableMeta(df.Messages, gg.seenPostgresTables, isLakehouseFile); err != nil {
 		return err
 	}
 
@@ -156,7 +164,7 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 		}
 	}
 	if pgTargets.EmitHCL || pgTargets.EmitDDL {
-		if fileHasLakehousePostgresTables(file) {
+		if isLakehouseFile {
 			if pgTargets.EmitHCL {
 				if err := generateLakehousePostgresHCLFile(gen, file, effectiveOpts); err != nil {
 					return err
@@ -178,18 +186,19 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 			if tbl.FullName != "" {
 				owner = tbl.FullName
 			}
-			if prev, exists := gg.seenPostgresTables[tbl.TableName]; exists && prev != owner {
-				return fmt.Errorf("message %s: duplicate PostgreSQL table name %q (already resolved by %s)", owner, tbl.TableName, prev)
+			key := postgresResolvedSchemaTableKey("public", tbl.TableName)
+			if prev, exists := gg.seenPostgresTables[key]; exists && prev != owner {
+				return fmt.Errorf("message %s: duplicate PostgreSQL table name %q in schema %q (already resolved by %s)", owner, tbl.TableName, "public", prev)
 			}
-			gg.seenPostgresTables[tbl.TableName] = owner
+			gg.seenPostgresTables[key] = owner
 		}
 		if pgTargets.EmitHCL {
-			if err := generatePostgresHCLFile(gen, file, tables); err != nil {
+			if err := generatePostgresHCLFileWithOpts(gen, file, tables, effectiveOpts); err != nil {
 				return err
 			}
 		}
 		if pgTargets.EmitDDL {
-			if err := generatePostgresDDLFile(gen, file, tables); err != nil {
+			if err := generatePostgresDDLFileWithOpts(gen, file, tables, effectiveOpts); err != nil {
 				return err
 			}
 		}
@@ -197,41 +206,263 @@ func (gg *goGenerator) generateGoPostgresDispatch(gen *protogen.Plugin, file *pr
 	return nil
 }
 
+// generateGoPostgresConsolidated emits a single consolidated PostgreSQL output file
+// (HCL, DDL, Go ORM, or search_index) across multiple proto files when opts.OutputFile is set.
+func (gg *goGenerator) generateGoPostgresConsolidated(gen *protogen.Plugin, files []*protogen.File, opts *Options) error {
+	effectiveOpts := opts
+	if effectiveOpts == nil {
+		effectiveOpts = &Options{}
+	}
+	pgTargets, err := effectiveOpts.ParsePostgresMode()
+	if err != nil {
+		return fmt.Errorf("proto2type: %w", err)
+	}
+	if !pgTargets.EmitTypes && !pgTargets.EmitDDL && !pgTargets.EmitHCL &&
+		!pgTargets.EmitSearchIndexGo && !pgTargets.EmitSearchIndexDDL && !pgTargets.EmitSearchIndexHCL {
+		return nil
+	}
+	if len(files) == 0 {
+		return nil
+	}
+
+	var nonEmptyFiles []*protogen.File
+	for _, f := range files {
+		if len(f.Messages) == 0 && len(f.Enums) == 0 {
+			continue
+		}
+		nonEmptyFiles = append(nonEmptyFiles, f)
+	}
+	if len(nonEmptyFiles) == 0 {
+		return nil
+	}
+
+	if pgTargets.EmitSearchIndexGo {
+		return gg.generateGoPostgresSearchIndexFiles(gen, nonEmptyFiles, effectiveOpts)
+	}
+	if pgTargets.EmitSearchIndexDDL {
+		return generateConsolidatedPostgresSearchIndexDDLFile(gen, nonEmptyFiles, effectiveOpts.OutputFile)
+	}
+	if pgTargets.EmitSearchIndexHCL {
+		return generateConsolidatedPostgresSearchIndexHCLFile(gen, nonEmptyFiles, effectiveOpts.OutputFile)
+	}
+
+	if err := gg.validatePostgresTableNamesAcrossPlugin(gen); err != nil {
+		return err
+	}
+
+	dfs := make([]*DomainFile, 0, len(nonEmptyFiles))
+	fileIsLakehouse := make([]bool, len(nonEmptyFiles))
+	for i, f := range nonEmptyFiles {
+		df, err := BuildDomainFile(f, effectiveOpts)
+		if err != nil {
+			return err
+		}
+		isLH := fileHasLakehousePostgresTables(f)
+		fileIsLakehouse[i] = isLH
+		if err := validateDomainMessagesTableMeta(df.Messages, gg.seenPostgresTables, isLH); err != nil {
+			return err
+		}
+		dfs = append(dfs, df)
+	}
+
+	if pgTargets.EmitTypes {
+		// Consolidated postgres_mode=go emits ToDomain/FromDomain methods referencing
+		// domain structs that must already exist in the target go_package, so
+		// ValidateOutputFileOptions and Runner.Generate require domain=false.
+		if willEmitDomain(effectiveOpts) {
+			return fmt.Errorf("output_file %q cannot be used when both domain=true and backend=%q are enabled", effectiveOpts.OutputFile, effectiveOpts.Backend)
+		}
+		return gg.generateConsolidatedGoPostgresORMFile(gen, nonEmptyFiles, dfs, effectiveOpts)
+	}
+
+	if pgTargets.EmitHCL || pgTargets.EmitDDL {
+		var lakehouseFiles []*protogen.File
+		var lakehouseDFs []*DomainFile
+		var relationalDFs []*DomainFile
+		for i, f := range nonEmptyFiles {
+			if fileIsLakehouse[i] {
+				lakehouseFiles = append(lakehouseFiles, f)
+				lakehouseDFs = append(lakehouseDFs, dfs[i])
+			} else {
+				relationalDFs = append(relationalDFs, dfs[i])
+			}
+		}
+
+		// Collect cross-file inline message targets across all selected lakehouse files
+		// BEFORE building tables so unannotated embedded targets in another file are
+		// excluded from standalone public.<msg> generation while keeping explicit TableOptions.
+		lakehouseInlineTargets := collectLakehouseInlineTargetMsgs(lakehouseFiles)
+		var lakehouseTables []*postgresTableIR
+		seenTables := make(map[string]protoreflect.FullName)
+		for _, f := range lakehouseFiles {
+			tbls, err := buildPostgresTablesForFileWithInlineTargets(f, lakehouseInlineTargets, effectiveOpts)
+			if err != nil {
+				return err
+			}
+			for _, tbl := range tbls {
+				schemaName, ok := resolvePostgresSchemaName(tbl.Descriptor.DatabaseScope, "${TENANT_SLUG}")
+				if !ok {
+					schemaName = "public"
+				}
+				id := postgresResolvedSchemaTableKey(schemaName, tbl.Descriptor.TableName)
+				if prev, exists := seenTables[id]; exists && prev != tbl.Msg.Desc.FullName() {
+					return fmt.Errorf("message %s: duplicate PostgreSQL table identity %q in schema %q (already declared by %s)", tbl.Msg.Desc.FullName(), tbl.Descriptor.TableName, schemaName, prev)
+				}
+				seenTables[id] = tbl.Msg.Desc.FullName()
+				lakehouseTables = append(lakehouseTables, tbl)
+			}
+		}
+
+		lakehouseEmbedded := make(map[string]bool)
+		if len(lakehouseDFs) > 0 {
+			markDomainMessagesEmbedded(lakehouseDFs, lakehouseEmbedded)
+		}
+
+		var relTables []*PostgresTableSchemaDescriptor
+		if len(relationalDFs) > 0 {
+			relTables, err = collectPostgresTableSchemasMultiWithEmbedded(relationalDFs, lakehouseEmbedded, effectiveOpts)
+			if err != nil {
+				return err
+			}
+			for _, tbl := range relTables {
+				owner := tbl.GoName
+				if tbl.FullName != "" {
+					owner = tbl.FullName
+				}
+				key := postgresResolvedSchemaTableKey("public", tbl.TableName)
+				if prev, exists := gg.seenPostgresTables[key]; exists && prev != owner {
+					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q in schema %q (already resolved by %s)", owner, tbl.TableName, "public", prev)
+				}
+				gg.seenPostgresTables[key] = owner
+			}
+		}
+
+		if len(lakehouseTables) > 0 && len(relTables) > 0 {
+			return fmt.Errorf("output_file %q cannot consolidate mixed lakehouse and relational PostgreSQL tables", effectiveOpts.OutputFile)
+		}
+		if len(lakehouseTables) > 0 {
+			if pgTargets.EmitHCL {
+				return generateConsolidatedLakehousePostgresHCLFile(gen, nonEmptyFiles, lakehouseTables, effectiveOpts.OutputFile)
+			}
+			return generateConsolidatedLakehousePostgresDDLFile(gen, nonEmptyFiles, lakehouseTables, effectiveOpts.OutputFile)
+		}
+		if pgTargets.EmitHCL {
+			return generateConsolidatedPostgresHCLFile(gen, nonEmptyFiles, relTables, effectiveOpts.OutputFile)
+		}
+		return generateConsolidatedPostgresDDLFile(gen, nonEmptyFiles, relTables, effectiveOpts.OutputFile)
+	}
+
+	return nil
+}
+
 // generateGoPostgresORMFile generates a Go PostgreSQL storage type file (<prefix>_postgres.type.go).
 // Each message gets a `<Name>Postgres` struct with `db:"..."` tags
 // suitable for use with sqlx, pgx/v5, or similar Go database libraries.
 func (gg *goGenerator) generateGoPostgresORMFile(gen *protogen.Plugin, file *protogen.File, df *DomainFile, opts *Options) error {
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_postgres.type.go")
+	return gg.generateConsolidatedGoPostgresORMFile(gen, []*protogen.File{file}, []*DomainFile{df}, opts)
+}
+
+// generateConsolidatedGoPostgresORMFile emits a consolidated Go PostgreSQL ORM file
+// (<output_file>) across one or more proto files. Because generated <Name>Postgres
+// structs emit ToDomain/FromDomain methods referencing domain structs in the same Go
+// package, consolidated postgres_mode=go requires domain=false (with domain types
+// generated separately into the same go_package).
+func (gg *goGenerator) generateConsolidatedGoPostgresORMFile(gen *protogen.Plugin, files []*protogen.File, dfs []*DomainFile, opts *Options) error {
+	if len(files) == 0 || len(dfs) == 0 {
+		return nil
+	}
+	firstFile := files[0]
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	filename, err := resolveOutputFilename(firstFile.GeneratedFilenamePrefix, "_postgres.type.go", outOverride)
 	if err != nil {
 		return err
 	}
 
-	goImportPath := file.GoImportPath
-	goPackageName := file.GoPackageName
-	if opts.GoPackage != "" {
+	goImportPath := firstFile.GoImportPath
+	goPackageName := firstFile.GoPackageName
+	if opts != nil && opts.GoPackage != "" {
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
-		filename = adjustSubdirFilename(filename, string(file.GoImportPath), importPath)
+		if outOverride == "" {
+			filename = adjustSubdirFilename(filename, string(firstFile.GoImportPath), importPath)
+		}
+	} else {
+		for _, f := range files[1:] {
+			if f.GoImportPath != goImportPath || f.GoPackageName != goPackageName {
+				return fmt.Errorf("output_file %q cannot consolidate proto files with different Go packages (%q vs %q)", outOverride, goImportPath, f.GoImportPath)
+			}
+		}
 	}
-	g := gen.NewGeneratedFile(filename, goImportPath)
+	msgByName := make(map[string]*DomainMessage)
+	needsTime := false
+	hasTableMeta := false
+	sources := make([]string, 0, len(files))
+	for _, f := range files {
+		sources = append(sources, f.Desc.Path())
+	}
+	for _, df := range dfs {
+		for k, v := range indexDomainMessagesByFullName(df.Messages) {
+			msgByName[k] = v
+		}
+		if irNeedsTime(df.Messages) {
+			needsTime = true
+		}
+		if domainMessagesHaveTableMeta(df.Messages) {
+			hasTableMeta = true
+		}
+	}
 
-	msgByName := indexDomainMessages(df.Messages)
+	seenGoSymbols := make(map[string]string)
+	if hasTableMeta {
+		seenGoSymbols["PostgresTableDescriptor"] = "shared runtime type"
+	}
+	var checkMsgCollisions func(msgs []*DomainMessage, srcPath string) error
+	checkMsgCollisions = func(msgs []*DomainMessage, srcPath string) error {
+		for _, dm := range msgs {
+			if dm.Skip {
+				continue
+			}
+			owner := domainMessageKey(dm)
+			if owner == "" {
+				owner = srcPath + ":" + dm.Name
+			}
+			typeName := dm.Name + "Postgres"
+			if prev, exists := seenGoSymbols[typeName]; exists {
+				return fmt.Errorf("output_file %q: duplicate Go type %q declared by %s (already declared by %s)", outOverride, typeName, owner, prev)
+			}
+			seenGoSymbols[typeName] = owner
+			if err := checkMsgCollisions(dm.NestedMessages, srcPath); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, df := range dfs {
+		if err := checkMsgCollisions(df.Messages, df.SourcePath); err != nil {
+			return err
+		}
+	}
+
+	g := gen.NewGeneratedFile(filename, goImportPath)
 
 	// Header
 	g.P("// Code generated by proto2type. DO NOT EDIT.")
-	g.P("// source: ", file.Desc.Path())
+	g.P("// source: ", strings.Join(sources, ", "))
 	g.P("// backend: postgres")
 	g.P()
 	g.P("package ", goPackageName)
 	g.P()
 
-	if irNeedsTime(df.Messages) {
+	if needsTime {
 		g.P(`import "time"`)
 		g.P()
 	}
 
-	if domainMessagesHaveTableMeta(df.Messages) && !gg.emittedPostgresTypes[goImportPath] {
+	if hasTableMeta && !gg.emittedPostgresTypes[goImportPath] {
 		gg.emittedPostgresTypes[goImportPath] = true
 		g.P("// PostgresTableDescriptor describes a PostgreSQL table and its owning writer/reader services.")
 		g.P("type PostgresTableDescriptor struct {")
@@ -242,11 +473,87 @@ func (gg *goGenerator) generateGoPostgresORMFile(gen *protogen.Plugin, file *pro
 		g.P()
 	}
 
-	for _, dm := range df.Messages {
-		generateGoPostgresMessage(gen, g, dm, msgByName, opts)
+	for _, df := range dfs {
+		for _, dm := range df.Messages {
+			generateGoPostgresMessage(gen, g, dm, msgByName, opts)
+		}
 	}
 
 	return nil
+}
+
+func domainMessageKey(m *DomainMessage) string {
+	if m == nil {
+		return ""
+	}
+	if m.FullName != "" {
+		return m.FullName
+	}
+	return m.Name
+}
+
+func domainFieldMessageKey(f *DomainField) string {
+	if f == nil {
+		return ""
+	}
+	if f.ProtoField != nil && f.ProtoField.Desc != nil {
+		if md := f.ProtoField.Desc.Message(); md != nil {
+			return string(md.FullName())
+		}
+	}
+	return f.MessageTypeName
+}
+
+func markDomainMessagesEmbedded(dfs []*DomainFile, embeddedMsgs map[string]bool) {
+	var walk func(msgs []*DomainMessage)
+	walk = func(msgs []*DomainMessage) {
+		for _, m := range msgs {
+			for _, f := range m.Fields {
+				if f.Kind == FieldKindMessage && !f.IsMap {
+					if key := domainFieldMessageKey(f); key != "" {
+						embeddedMsgs[key] = true
+					}
+				}
+				if f.IsMap && f.MapValue != nil && f.MapValue.Kind == FieldKindMessage {
+					var key string
+					if f.ProtoField != nil && f.ProtoField.Desc != nil && f.ProtoField.Desc.IsMap() {
+						if md := f.ProtoField.Desc.MapValue().Message(); md != nil {
+							key = string(md.FullName())
+						}
+					}
+					if key == "" {
+						key = f.MapValue.MessageTypeName
+					}
+					if key != "" {
+						embeddedMsgs[key] = true
+					}
+				}
+				if f.IsOneof {
+					oneof := findOneof(m, f.OneofTypeName)
+					for _, v := range oneof.Variants {
+						if v.Kind == FieldKindMessage {
+							var key string
+							if v.ProtoField != nil && v.ProtoField.Desc != nil {
+								if md := v.ProtoField.Desc.Message(); md != nil {
+									key = string(md.FullName())
+								}
+							}
+							if key == "" {
+								key = v.TypeName
+							}
+							if key != "" {
+								embeddedMsgs[key] = true
+							}
+						}
+					}
+				}
+			}
+			walk(m.NestedMessages)
+		}
+	}
+	for _, df := range dfs {
+		walk(df.Messages)
+	}
 }
 
 func indexDomainMessages(msgs []*DomainMessage) map[string]*DomainMessage {
@@ -254,7 +561,24 @@ func indexDomainMessages(msgs []*DomainMessage) map[string]*DomainMessage {
 	var walk func(list []*DomainMessage)
 	walk = func(list []*DomainMessage) {
 		for _, m := range list {
-			out[m.Name] = m
+			if m.Name != "" {
+				out[m.Name] = m
+			}
+			walk(m.NestedMessages)
+		}
+	}
+	walk(msgs)
+	return out
+}
+
+func indexDomainMessagesByFullName(msgs []*DomainMessage) map[string]*DomainMessage {
+	out := make(map[string]*DomainMessage)
+	var walk func(list []*DomainMessage)
+	walk = func(list []*DomainMessage) {
+		for _, m := range list {
+			if key := domainMessageKey(m); key != "" {
+				out[key] = m
+			}
 			walk(m.NestedMessages)
 		}
 	}
@@ -275,7 +599,7 @@ func isDomainFieldInlineNested(f *DomainField) bool {
 }
 
 func cloneDomainMessageWithFlattenedInline(dm *DomainMessage, msgByName map[string]*DomainMessage) (*DomainMessage, bool) {
-	visited := map[string]bool{dm.Name: true}
+	visited := map[string]bool{domainMessageKey(dm): true}
 	flatFields, flattened := flattenInlineDomainFields(dm.Fields, "", "", msgByName, visited)
 	if !flattened {
 		return dm, false
@@ -299,7 +623,7 @@ func flattenInlineDomainFields(
 			continue
 		}
 		if isDomainFieldInlineNested(f) && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
-			if nested := msgByName[f.MessageTypeName]; nested != nil && !visited[nested.Name] {
+			if nested := msgByName[domainFieldMessageKey(f)]; nested != nil && !visited[domainMessageKey(nested)] {
 				flattened = true
 				fieldSnake := storageFieldName(f.Name)
 				if f.NameOverride != "" {
@@ -313,7 +637,7 @@ func flattenInlineDomainFields(
 				for k, v := range visited {
 					nextVisited[k] = v
 				}
-				nextVisited[nested.Name] = true
+				nextVisited[domainMessageKey(nested)] = true
 				childFields, _ := flattenInlineDomainFields(nested.Fields, pascalPrefix+f.PascalName, nextSnake, msgByName, nextVisited)
 				flatFields = append(flatFields, childFields...)
 				continue
@@ -504,13 +828,13 @@ func generateFlattenedInlinePostgresConverters(g *protogen.GeneratedFile, dm *Do
 				continue
 			}
 			if isDomainFieldInlineNested(f) && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
-				if nested := msgByName[f.MessageTypeName]; nested != nil && !visited[nested.Name] {
+				if nested := msgByName[domainFieldMessageKey(f)]; nested != nil && !visited[domainMessageKey(nested)] {
 					g.P("\t", domainPath, ".", f.PascalName, " = &", nested.Name, "{}")
 					nextVisited := make(map[string]bool, len(visited)+1)
 					for k, v := range visited {
 						nextVisited[k] = v
 					}
-					nextVisited[nested.Name] = true
+					nextVisited[domainMessageKey(nested)] = true
 					emitToDomainFields(nested, domainPath+"."+f.PascalName, pascalPrefix+f.PascalName, nextVisited)
 					continue
 				}
@@ -581,12 +905,12 @@ func generateFlattenedInlinePostgresConverters(g *protogen.GeneratedFile, dm *Do
 				continue
 			}
 			if isDomainFieldInlineNested(cf) && cf.Kind == FieldKindMessage && !cf.Repeated && !cf.IsMap {
-				if nested := msgByName[cf.MessageTypeName]; nested != nil && !visited[nested.Name] {
+				if nested := msgByName[domainFieldMessageKey(cf)]; nested != nil && !visited[domainMessageKey(nested)] {
 					nextVisited := make(map[string]bool, len(visited)+1)
 					for k, v := range visited {
 						nextVisited[k] = v
 					}
-					nextVisited[nested.Name] = true
+					nextVisited[domainMessageKey(nested)] = true
 					emitZeroFlattenedFields(nested, pascalPrefix+cf.PascalName, nextVisited, indent)
 					continue
 				}
@@ -624,12 +948,12 @@ func generateFlattenedInlinePostgresConverters(g *protogen.GeneratedFile, dm *Do
 				continue
 			}
 			if isDomainFieldInlineNested(f) && f.Kind == FieldKindMessage && !f.Repeated && !f.IsMap {
-				if nested := msgByName[f.MessageTypeName]; nested != nil && !visited[nested.Name] {
+				if nested := msgByName[domainFieldMessageKey(f)]; nested != nil && !visited[domainMessageKey(nested)] {
 					nextVisited := make(map[string]bool, len(visited)+1)
 					for k, v := range visited {
 						nextVisited[k] = v
 					}
-					nextVisited[nested.Name] = true
+					nextVisited[domainMessageKey(nested)] = true
 					g.P(indent, "if ", domainPath, ".", f.PascalName, " != nil {")
 					emitFromDomainFields(nested, domainPath+"."+f.PascalName, pascalPrefix+f.PascalName, nextVisited, indent+"\t")
 					g.P(indent, "} else {")
@@ -703,7 +1027,7 @@ func generateFlattenedInlinePostgresConverters(g *protogen.GeneratedFile, dm *Do
 	g.P("\t\treturn nil")
 	g.P("\t}")
 	g.P("\td := &", dm.Name, "{}")
-	emitToDomainFields(dm, "d", "", map[string]bool{dm.Name: true})
+	emitToDomainFields(dm, "d", "", map[string]bool{domainMessageKey(dm): true})
 	g.P("\treturn d")
 	g.P("}")
 	g.P()
@@ -714,7 +1038,7 @@ func generateFlattenedInlinePostgresConverters(g *protogen.GeneratedFile, dm *Do
 	g.P("\tif d == nil {")
 	g.P("\t\treturn")
 	g.P("\t}")
-	emitFromDomainFields(dm, "d", "", map[string]bool{dm.Name: true}, "\t")
+	emitFromDomainFields(dm, "d", "", map[string]bool{domainMessageKey(dm): true}, "\t")
 	g.P("}")
 	g.P()
 }

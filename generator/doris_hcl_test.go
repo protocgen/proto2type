@@ -21,7 +21,7 @@ func TestBuildDorisAtlasHCL_UniqueKeyMoWAndIndexes(t *testing.T) {
 		MessageName:          "PatientNoteChunk",
 		DatabaseScope:        "TENANT",
 		SyncTier:             "MONTHLY_PARTITIONED",
-		UniqueKeyColumns:     []string{"tenant_id", "patient_id", "chunk_id"},
+		UniqueKeyColumns:     []string{"tenant_id", "patient_id", "chunk_id", "event_month"},
 		PartitionByColumns:   []string{"event_month"},
 		ColocateGroup:        "patient_group",
 		SequenceCol:          "updated_at",
@@ -52,7 +52,7 @@ func TestBuildDorisAtlasHCL_UniqueKeyMoWAndIndexes(t *testing.T) {
 		`schema = schema.tenant_acme_health`,
 		`comment = "Tenant identifier"`,
 		`unique_key {`,
-		`columns = [column.tenant_id, column.patient_id, column.chunk_id]`,
+		`columns = [column.tenant_id, column.patient_id, column.chunk_id, column.event_month]`,
 		`merge_on_write = true`,
 		`sequence_col = column.updated_at`,
 		`distributed_by_hash {`,
@@ -78,10 +78,26 @@ func TestBuildDorisAtlasHCL_UniqueKeyMoWAndIndexes(t *testing.T) {
 		}
 	}
 
-	// Verify auto buckets when buckets <= 0 on TENANT scope.
-	autoHCL := desc.BuildDorisAtlasHCL("", 0)
+	// Verify ${TENANT_BUCKETS} placeholder when buckets <= 0 on TENANT scope unless AutoBuckets is set.
+	placeholderHCL := desc.BuildDorisAtlasHCL("", 0)
+	if !strings.Contains(placeholderHCL, `buckets = "${TENANT_BUCKETS}"`) {
+		t.Errorf("expected buckets = \"${TENANT_BUCKETS}\" when buckets=0 on TENANT table, got:\n%s", placeholderHCL)
+	}
+	autoDesc := desc
+	autoDesc.AutoBuckets = true
+	autoHCL := autoDesc.BuildDorisAtlasHCL("", 0)
 	if !strings.Contains(autoHCL, `buckets = "auto"`) {
-		t.Errorf("expected buckets = \"auto\" when buckets=0 on TENANT table, got:\n%s", autoHCL)
+		t.Errorf("expected buckets = \"auto\" when AutoBuckets=true on TENANT table, got:\n%s", autoHCL)
+	}
+	// Verify partition_by_list/partition_by_range are omitted on UNIQUE KEY tables when partition columns are not in unique_key_columns.
+	nonSubsetDesc := desc
+	nonSubsetDesc.UniqueKeyColumns = []string{"tenant_id", "patient_id", "chunk_id"}
+	nonSubsetHCL := nonSubsetDesc.BuildDorisAtlasHCL("acme-health", 16)
+	if !strings.Contains(nonSubsetHCL, `table "patient_note_chunks" {`) {
+		t.Fatalf("expected nonSubsetHCL to render table block, got:\n%s", nonSubsetHCL)
+	}
+	if strings.Contains(nonSubsetHCL, "partition_by_list") || strings.Contains(nonSubsetHCL, "partition_by_range") {
+		t.Errorf("expected partition_by_list and partition_by_range to be omitted when event_month is not in unique_key_columns, got:\n%s", nonSubsetHCL)
 	}
 }
 
@@ -204,6 +220,7 @@ func TestBuildIcebergAtlasHCL_TypeMappingsAndPartitions(t *testing.T) {
 func TestParseDorisAtlasHCL_RoundTripAndEvolutionLinting(t *testing.T) {
 	t1 := baseLinterTestTable()
 	t1.StorageVaultName = "azra_lakehouse_vault"
+	t1.UniqueKeyColumns = append(append([]string(nil), t1.UniqueKeyColumns...), "event_month")
 	t1.Columns = append(t1.Columns, DorisColumnDescriptor{
 		ColumnName:     "event_month",
 		DorisType:      "VARCHAR(7)",
@@ -241,7 +258,7 @@ func TestParseDorisAtlasHCL_RoundTripAndEvolutionLinting(t *testing.T) {
 	if p1.TableName != "eligibility_criterion_results" ||
 		p1.DatabaseScope != "TENANT" ||
 		p1.SyncTier != "MONTHLY_PARTITIONED" ||
-		!reflect.DeepEqual(p1.UniqueKeyColumns, []string{"patient_id", "criterion_id"}) ||
+		!reflect.DeepEqual(p1.UniqueKeyColumns, []string{"patient_id", "criterion_id", "event_month"}) ||
 		!reflect.DeepEqual(p1.DistributionColumns, []string{"patient_id"}) ||
 		p1.DistributedByColumn != "patient_id" ||
 		p1.Buckets != 16 ||

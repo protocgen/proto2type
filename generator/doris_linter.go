@@ -379,6 +379,19 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 		return false
 	}
 
+	if strings.HasPrefix(bt, "MAP<") && strings.HasSuffix(bt, ">") {
+		if strings.HasPrefix(at, "MAP<") && strings.HasSuffix(at, ">") {
+			innerB := strings.TrimSuffix(strings.TrimPrefix(bt, "MAP<"), ">")
+			innerA := strings.TrimSuffix(strings.TrimPrefix(at, "MAP<"), ">")
+			kB, vB, okB := splitIcebergTopLevelComma(innerB)
+			kA, vA, okA := splitIcebergTopLevelComma(innerA)
+			if okB && okA {
+				return IsSafeDorisTypeEvolution(kB, kA) && IsSafeDorisTypeEvolution(kA, kB) && IsSafeDorisTypeEvolution(vB, vA)
+			}
+		}
+		return false
+	}
+
 	if p1, okB := parseDorisDatetimePrecision(bt); okB {
 		if p2, okA := parseDorisDatetimePrecision(at); okA {
 			return p2 >= p1
@@ -408,13 +421,13 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 
 	switch canonBefore {
 	case "TINYINT":
-		return canonAfter == "SMALLINT" || canonAfter == "INT" || canonAfter == "BIGINT" || canonAfter == "LARGEINT"
+		return canonAfter == "SMALLINT" || canonAfter == "INT" || canonAfter == "BIGINT" || canonAfter == "LARGEINT" || canonAfter == "DECIMAL(38, 0)"
 	case "SMALLINT":
-		return canonAfter == "INT" || canonAfter == "BIGINT" || canonAfter == "LARGEINT"
+		return canonAfter == "INT" || canonAfter == "BIGINT" || canonAfter == "LARGEINT" || canonAfter == "DECIMAL(38, 0)"
 	case "INT":
-		return canonAfter == "BIGINT" || canonAfter == "LARGEINT"
+		return canonAfter == "BIGINT" || canonAfter == "LARGEINT" || canonAfter == "DECIMAL(38, 0)"
 	case "BIGINT":
-		return canonAfter == "LARGEINT"
+		return canonAfter == "LARGEINT" || canonAfter == "DECIMAL(38, 0)"
 	case "FLOAT":
 		return canonAfter == "DOUBLE"
 	case "DATE":
@@ -689,6 +702,16 @@ func effectiveDorisPartitionCols(t DorisTableDescriptor) []string {
 	return cols
 }
 
+// effectiveDorisPhysicalPartitionCols resolves the physical Doris partition columns,
+// omitting partitions on UNIQUE KEY tables when partition columns are not a subset of unique keys.
+func effectiveDorisPhysicalPartitionCols(t DorisTableDescriptor) []string {
+	parts := effectiveDorisPartitionCols(t)
+	if !shouldEmitDorisPartitionBy(effectiveDorisUniqueKeys(t), parts) {
+		return nil
+	}
+	return parts
+}
+
 // BuildDorisAlterTableSQL validates evolving this table descriptor (before) into after
 // and renders deterministic Apache Doris 4.x ALTER TABLE statements (MODIFY COLUMN for
 // safe type widenings followed by ADD COLUMN for newly added columns).
@@ -734,8 +757,8 @@ func BuildDorisAlterTableSQL(before, after DorisTableDescriptor, tenantSlug stri
 	if beforeHasDoris != afterHasDoris {
 		return nil, fmt.Errorf("cannot generate Doris ALTER TABLE across sync_tier target transition (%q -> %q) for table %q", before.SyncTier, after.SyncTier, after.TableName)
 	}
-	beforeParts := effectiveDorisPartitionCols(before)
-	afterParts := effectiveDorisPartitionCols(after)
+	beforeParts := effectiveDorisPhysicalPartitionCols(before)
+	afterParts := effectiveDorisPhysicalPartitionCols(after)
 	if !dorisStringSlicesEqual(beforeParts, afterParts) {
 		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
 	}
@@ -802,8 +825,8 @@ func BuildStarRocksAlterTableSQL(before, after DorisTableDescriptor, tenantSlug 
 	if beforeHasSR != afterHasSR {
 		return nil, fmt.Errorf("cannot generate StarRocks ALTER TABLE across sync_tier target transition (%q -> %q) for table %q", before.SyncTier, after.SyncTier, after.TableName)
 	}
-	beforeParts := effectiveDorisPartitionCols(before)
-	afterParts := effectiveDorisPartitionCols(after)
+	beforeParts := effectiveDorisPhysicalPartitionCols(before)
+	afterParts := effectiveDorisPhysicalPartitionCols(after)
 	if !dorisStringSlicesEqual(beforeParts, afterParts) {
 		return nil, fmt.Errorf("cannot mutate partition_by_columns on existing table %q (before=%v, after=%v)", after.TableName, beforeParts, afterParts)
 	}
@@ -896,6 +919,14 @@ func BuildIcebergAlterTableSQL(before, after DorisTableDescriptor, tenantSlug st
 		afterIce := dorisColumnIcebergDDLType(ac.DorisType, ac.IcebergType)
 		if beforeIce == "" || afterIce == "" {
 			return nil, fmt.Errorf("column %q in table %q has empty DorisType and IcebergType", ac.ColumnName, after.TableName)
+		}
+		if beforeIce != afterIce && !IsSafeDorisTypeEvolution(beforeIce, afterIce) {
+			return nil, DorisEvolutionViolation{
+				Rule:       DORIS006_SAFE_TYPE_EVOLUTION,
+				TableName:  after.TableName,
+				ColumnName: ac.ColumnName,
+				Message:    fmt.Sprintf("unsafe Iceberg type evolution on column %q from %q to %q", ac.ColumnName, beforeIce, afterIce),
+			}
 		}
 		if beforeIce != afterIce || bc.Nullable != ac.Nullable {
 			stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s;", fullTableName, formatDorisAlterColumnClause(ac, afterIce, false)))

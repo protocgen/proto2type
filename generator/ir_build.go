@@ -628,30 +628,46 @@ func detectNameCollisions(df *DomainFile) error {
 	}
 
 	seenTables := make(map[string]*DomainMessage)
-	if err := collectPostgresTableNames(df.Messages, seenTables); err != nil {
+	isLakehouse := domainMessagesHaveLakehouseMeta(df.Messages)
+	if err := collectPostgresTableNames(df.Messages, seenTables, isLakehouse); err != nil {
 		return err
 	}
 	return nil
 }
 
+func domainMessagesHaveLakehouseMeta(msgs []*DomainMessage) bool {
+	for _, msg := range msgs {
+		if msg.Skip {
+			continue
+		}
+		if messageHasLakehouseTableMeta(extractDorisTableMeta(msg.ProtoMsg)) {
+			return true
+		}
+	}
+	return false
+}
+
 // collectPostgresTableNames recursively checks that no two messages in msgs resolve
-// to the same physical PostgreSQL table name when table metadata is present.
-func collectPostgresTableNames(msgs []*DomainMessage, seen map[string]*DomainMessage) error {
+// to the same physical PostgreSQL table name within the same schema when table metadata is present.
+func collectPostgresTableNames(msgs []*DomainMessage, seen map[string]*DomainMessage, isLakehouse bool) error {
 	for _, msg := range msgs {
 		if msg.Skip {
 			continue
 		}
 		if msg.PostgresTableName != "" {
-			if prev, ok := seen[msg.PostgresTableName]; ok && prev.FullName != msg.FullName {
-				if extractTableMeta(msg.ProtoMsg) != nil || extractTableMeta(prev.ProtoMsg) != nil {
-					return fmt.Errorf("proto2type: PostgreSQL table name collision — %q and %q both resolve to %q",
-						msg.FullName, prev.FullName, msg.PostgresTableName)
+			meta := extractTableMeta(msg.ProtoMsg)
+			schemaName := resolvePostgresTableCollisionSchema(isLakehouse, meta)
+			key := postgresResolvedSchemaTableKey(schemaName, msg.PostgresTableName)
+			if prev, ok := seen[key]; ok && prev.FullName != msg.FullName {
+				if meta != nil || extractTableMeta(prev.ProtoMsg) != nil {
+					return fmt.Errorf("proto2type: PostgreSQL table name collision in schema %q — %q and %q both resolve to %q",
+						schemaName, msg.FullName, prev.FullName, msg.PostgresTableName)
 				}
 			} else {
-				seen[msg.PostgresTableName] = msg
+				seen[key] = msg
 			}
 		}
-		if err := collectPostgresTableNames(msg.NestedMessages, seen); err != nil {
+		if err := collectPostgresTableNames(msg.NestedMessages, seen, isLakehouse); err != nil {
 			return err
 		}
 	}
