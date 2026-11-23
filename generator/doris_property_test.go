@@ -9,6 +9,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"hegel.dev/go/hegel"
+
+	proto2typepb "github.com/protocgen/proto2type/proto/proto2type"
 )
 
 // encodeFullTableMetaWire encodes all 13 fields of DorisTableMetaIR into extension extNum.
@@ -216,9 +218,18 @@ func TestProperty_DorisWireOptions_RoundTrip(t *testing.T) {
 		}
 		colWire := buildAzraColumnMetaWire(cm)
 		gotCM := parseDorisColumnMetaFromOptionsWire(colWire)
-		if cm.isAllEmpty() {
+		_, _, tagLen := protowire.ConsumeTag(colWire)
+		var innerWire []byte
+		var bytesLen int
+		if tagLen >= 0 {
+			innerWire, bytesLen = protowire.ConsumeBytes(colWire[tagLen:])
+		}
+		if tagLen < 0 || bytesLen < 0 {
+			ht.Fatalf("malformed test wire %x", colWire)
+		}
+		if len(innerWire) == 0 {
 			if gotCM != nil {
-				ht.Fatalf("expected nil for empty DorisColumnMetaIR, got %+v", gotCM)
+				ht.Fatalf("expected nil for empty column options wire, got %+v", gotCM)
 			}
 		} else {
 			if gotCM == nil || !reflect.DeepEqual(*gotCM, cm) {
@@ -226,6 +237,39 @@ func TestProperty_DorisWireOptions_RoundTrip(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestDorisColumnMetaOptionsWire_EmptyVsField10EmptyDefault(t *testing.T) {
+	if got := parseDorisColumnMetaFromOptionsWire(nil); got != nil {
+		t.Fatalf("expected nil for nil wire, got %+v", got)
+	}
+	if got := parseDorisColumnMetaFromOptionsWire([]byte{}); got != nil {
+		t.Fatalf("expected nil for empty wire, got %+v", got)
+	}
+
+	emptyDefWire := buildAzraColumnMetaWire(DorisColumnMetaIR{HasDefaultValue: true, DefaultValue: ""})
+	if len(emptyDefWire) == 0 {
+		t.Fatal("expected non-empty wire when HasDefaultValue=true and DefaultValue=\"\"")
+	}
+	gotLegacy := parseDorisColumnMetaFromOptionsWire(emptyDefWire)
+	if gotLegacy == nil || !gotLegacy.HasDefaultValue || gotLegacy.DefaultValue != "" {
+		t.Fatalf("expected legacy field 10 empty default round-trip, got %+v", gotLegacy)
+	}
+
+	fo := &descriptorpb.FieldOptions{}
+	proto.SetExtension(fo, proto2typepb.E_Field, &proto2typepb.FieldOptions{
+		Column: &proto2typepb.ColumnOptions{
+			DefaultValue: proto.String(""),
+		},
+	})
+	extWire, err := proto.Marshal(fo)
+	if err != nil {
+		t.Fatalf("marshal FieldOptions: %v", err)
+	}
+	gotExt := parseDorisColumnMetaFromOptionsWire(extWire)
+	if gotExt == nil || !gotExt.HasDefaultValue || gotExt.DefaultValue != "" {
+		t.Fatalf("expected ext 1307 field 10 empty default round-trip, got %+v", gotExt)
+	}
 }
 
 // Property: SQL identifier, type syntax, default value, and tenant slug validators

@@ -106,6 +106,9 @@ func canonicalPostgresSQLCastType(s string) string {
 	t = strings.Join(strings.Fields(t), " ")
 	t = strings.ReplaceAll(t, ", ", ",")
 	t = strings.ReplaceAll(t, ",", ", ")
+	t = strings.ReplaceAll(t, " (", "(")
+	t = strings.ReplaceAll(t, "( ", "(")
+	t = strings.ReplaceAll(t, " )", ")")
 	switch {
 	case t == "int" || t == "int4":
 		t = "integer"
@@ -121,12 +124,24 @@ func canonicalPostgresSQLCastType(s string) string {
 		t = "double precision"
 	case t == "timestamp with time zone":
 		t = "timestamptz"
+	case strings.HasPrefix(t, "timestamp(") && strings.HasSuffix(t, ") with time zone"):
+		prec := strings.TrimSuffix(strings.TrimPrefix(t, "timestamp("), ") with time zone")
+		t = "timestamptz(" + prec + ")"
 	case t == "timestamp without time zone":
 		t = "timestamp"
+	case strings.HasPrefix(t, "timestamp(") && strings.HasSuffix(t, ") without time zone"):
+		prec := strings.TrimSuffix(strings.TrimPrefix(t, "timestamp("), ") without time zone")
+		t = "timestamp(" + prec + ")"
 	case t == "time with time zone":
 		t = "timetz"
+	case strings.HasPrefix(t, "time(") && strings.HasSuffix(t, ") with time zone"):
+		prec := strings.TrimSuffix(strings.TrimPrefix(t, "time("), ") with time zone")
+		t = "timetz(" + prec + ")"
 	case t == "time without time zone":
 		t = "time"
+	case strings.HasPrefix(t, "time(") && strings.HasSuffix(t, ") without time zone"):
+		prec := strings.TrimSuffix(strings.TrimPrefix(t, "time("), ") without time zone")
+		t = "time(" + prec + ")"
 	case t == "character varying":
 		t = "varchar"
 	case strings.HasPrefix(t, "character varying("):
@@ -173,11 +188,12 @@ func parsePostgresHCLSQLDefault(inner, columnType string) (defVal string, hasDef
 		return "", false, "", false
 	}
 	castType := strings.TrimSpace(strings.TrimPrefix(rest, "::"))
-	if castType == "" || (!isValidPostgresSQLTypeSyntax(castType) && !isValidPostgresTypeSyntax(castType)) {
+	canonCast := canonicalPostgresSQLCastType(castType)
+	if castType == "" || (!isValidPostgresSQLTypeSyntax(castType) && !isValidPostgresTypeSyntax(castType) && (canonCast == "" || (!isValidPostgresSQLTypeSyntax(canonCast) && !isValidPostgresTypeSyntax(canonCast)))) {
 		return "", false, "", false
 	}
 	if canonCol := canonicalPostgresSQLCastType(columnType); canonCol != "" {
-		if canonicalPostgresSQLCastType(castType) != canonCol {
+		if canonCast != canonCol {
 			return "", false, "", false
 		}
 	}
@@ -232,42 +248,41 @@ func emitPostgresAtlasIndexOnBlocks(b *strings.Builder, idx PostgresIndexDescrip
 }
 
 // formatPostgresIndexPartsSQL renders ordered index key items for CREATE INDEX statements.
-func formatPostgresIndexPartsSQL(idx PostgresIndexDescriptor, quoteCol bool) []string {
-	var parts []string
-	if len(idx.Parts) > 0 {
-		for _, p := range idx.Parts {
-			var elem string
-			if p.Column != "" {
-				if quoteCol {
-					elem = fmt.Sprintf("%q", p.Column)
-				} else {
-					elem = p.Column
-				}
-			} else {
-				elem = formatPostgresIndexExprSQL(p.Expr)
-			}
-			if p.Opclass != "" {
-				elem += " " + p.Opclass
-			}
-			if p.Desc {
-				elem += " DESC"
-			}
-			parts = append(parts, elem)
+func canonicalPostgresIndexPartsWithOps(idx PostgresIndexDescriptor) ([]PostgresIndexPartDescriptor, string) {
+	parts := canonicalPostgresIndexParts(idx)
+	ops := strings.TrimSpace(idx.Ops)
+	if len(parts) == 1 {
+		if parts[0].Opclass == "" && ops != "" {
+			parts[0].Opclass = ops
+			ops = ""
+		} else if parts[0].Opclass != "" && ops == parts[0].Opclass {
+			ops = ""
 		}
-		return parts
 	}
-	for _, col := range idx.Columns {
-		elem := col
-		if quoteCol {
-			elem = fmt.Sprintf("%q", col)
+	return parts, ops
+}
+
+func formatPostgresIndexPartsSQL(idx PostgresIndexDescriptor, quoteCol bool) []string {
+	canon, _ := canonicalPostgresIndexPartsWithOps(idx)
+	parts := make([]string, 0, len(canon))
+	for _, p := range canon {
+		var elem string
+		if p.Column != "" {
+			if quoteCol {
+				elem = fmt.Sprintf("%q", p.Column)
+			} else {
+				elem = p.Column
+			}
+		} else {
+			elem = formatPostgresIndexExprSQL(p.Expr)
 		}
-		if idx.IsDesc(col) {
+		if p.Opclass != "" {
+			elem += " " + p.Opclass
+		}
+		if p.Desc {
 			elem += " DESC"
 		}
 		parts = append(parts, elem)
-	}
-	for _, expr := range idx.Expressions {
-		parts = append(parts, formatPostgresIndexExprSQL(expr))
 	}
 	return parts
 }
@@ -572,7 +587,7 @@ func resolvePostgresTableCollisionSchema(isLakehouse bool, meta *DorisTableMetaI
 }
 
 func postgresResolvedSchemaTableKey(schemaName, tableName string) string {
-	return schemaName + "\x00" + tableName
+	return strings.ToLower(strings.TrimSpace(schemaName)) + "\x00" + strings.ToLower(strings.TrimSpace(tableName))
 }
 
 func fileHasLakehousePostgresTables(file *protogen.File) bool {
@@ -1535,6 +1550,9 @@ func buildPostgresTableIR(msg *protogen.Message, meta *DorisTableMetaIR, strictT
 		hasSingletonCol := false
 		for i := range cols {
 			if cols[i].ColumnName == "singleton" {
+				if effType := effectiveColPostgresType(cols[i]); !isPostgresBooleanSQLType(effType) {
+					return nil, fmt.Errorf("message %s: existing singleton column must have BOOLEAN type (got %q)", msg.Desc.FullName(), effType)
+				}
 				if cols[i].DefaultValue != "" && (strings.EqualFold(cols[i].DefaultValue, "false") || cols[i].DefaultValue == "0") {
 					return nil, fmt.Errorf("message %s: singleton table cannot have singleton column with default false", msg.Desc.FullName())
 				}
@@ -1747,22 +1765,8 @@ func postgresIndexesEffectivelyEqual(a, b PostgresIndexDescriptor) bool {
 	if strings.TrimSpace(a.Where) != strings.TrimSpace(b.Where) {
 		return false
 	}
-	partsA := canonicalPostgresIndexParts(a)
-	partsB := canonicalPostgresIndexParts(b)
-	opsA := strings.TrimSpace(a.Ops)
-	opsB := strings.TrimSpace(b.Ops)
-	if usingA != "BTREE" && opsA != "" && len(partsA) == 1 && partsA[0].Opclass == "" {
-		partsA[0].Opclass = opsA
-		opsA = ""
-	} else if len(partsA) == 1 && partsA[0].Opclass != "" && opsA == partsA[0].Opclass {
-		opsA = ""
-	}
-	if usingB != "BTREE" && opsB != "" && len(partsB) == 1 && partsB[0].Opclass == "" {
-		partsB[0].Opclass = opsB
-		opsB = ""
-	} else if len(partsB) == 1 && partsB[0].Opclass != "" && opsB == partsB[0].Opclass {
-		opsB = ""
-	}
+	partsA, opsA := canonicalPostgresIndexPartsWithOps(a)
+	partsB, opsB := canonicalPostgresIndexPartsWithOps(b)
 	if !postgresIndexPartsEqual(partsA, partsB) {
 		return false
 	}
@@ -1943,8 +1947,6 @@ func (t PostgresTableDescriptor) BuildPostgresCreateTableWithoutForeignKeysSQL(t
 		}
 		if using == "" || using == "btree" {
 			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s (%s)%s;", uniqueKw, idx.Name, schemaName, t.TableName, strings.Join(colParts, ", "), whereClause)
-		} else if idx.Ops != "" && len(colParts) == 1 && (len(idx.Parts) != 1 || idx.Parts[0].Opclass == "") {
-			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s %s)%s;", uniqueKw, idx.Name, schemaName, t.TableName, using, colParts[0], idx.Ops, whereClause)
 		} else {
 			fmt.Fprintf(&b, "\nCREATE %sINDEX IF NOT EXISTS %s ON %s.%s USING %s (%s)%s;", uniqueKw, idx.Name, schemaName, t.TableName, using, strings.Join(colParts, ", "), whereClause)
 		}
@@ -3331,8 +3333,6 @@ func BuildPostgresAlterTableSQL(before, after PostgresTableDescriptor, tenantSlu
 				}
 			}
 			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s (%s)%s;", uniqueKw, idx.Name, fullTableName, strings.Join(idxParts, ", "), whereClause))
-		} else if idx.Ops != "" && len(idxParts) == 1 && (len(idx.Parts) != 1 || idx.Parts[0].Opclass == "") {
-			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s %s)%s;", uniqueKw, idx.Name, fullTableName, using, idxParts[0], idx.Ops, whereClause))
 		} else {
 			stmts = append(stmts, fmt.Sprintf("CREATE %sINDEX IF NOT EXISTS %s ON %s USING %s (%s)%s;", uniqueKw, idx.Name, fullTableName, using, strings.Join(idxParts, ", "), whereClause))
 		}

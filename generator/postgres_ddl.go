@@ -457,7 +457,7 @@ func isPostgresBTreeIncompatibleOpclass(opclass string) bool {
 		return true
 	}
 	switch op {
-	case "array_ops", "jsonb_path_ops", "bit_hamming_ops", "bit_jaccard_ops":
+	case "jsonb_path_ops", "bit_hamming_ops", "bit_jaccard_ops":
 		return true
 	}
 	return false
@@ -818,13 +818,14 @@ func derivePostgresValidationChecks(tableName string, fields []*DomainField, see
 		if !isValidPostgresCheckExpr(expr) {
 			return fmt.Errorf("field %s in table %s: invalid generated CHECK constraint expression %q", colName, tableName, expr)
 		}
-		if !seenCheckNames[chkName] {
-			seenCheckNames[chkName] = true
-			checks = append(checks, PostgresCheckDescriptor{
-				Name: chkName,
-				Expr: expr,
-			})
+		if seenCheckNames[chkName] {
+			return fmt.Errorf("field %s in table %s: generated CHECK constraint name %q conflicts with an existing CHECK constraint", colName, tableName, chkName)
 		}
+		seenCheckNames[chkName] = true
+		checks = append(checks, PostgresCheckDescriptor{
+			Name: chkName,
+			Expr: expr,
+		})
 		return nil
 	}
 	for _, f := range fields {
@@ -1189,6 +1190,9 @@ func buildPostgresTableSchema(dm *DomainMessage, msgByName map[string]*DomainMes
 		hasSingletonCol := false
 		for i := range cols {
 			if cols[i].ColumnName == "singleton" {
+				if !isPostgresBooleanSQLType(cols[i].SQLType) {
+					return nil, fmt.Errorf("message %s: existing singleton column must have BOOLEAN type (got %q)", dm.FullName, cols[i].SQLType)
+				}
 				if cols[i].DefaultValue != "" && (strings.EqualFold(cols[i].DefaultValue, "false") || cols[i].DefaultValue == "0") {
 					return nil, fmt.Errorf("message %s: singleton table cannot have singleton column with default false", dm.FullName)
 				}
@@ -1652,10 +1656,11 @@ func collectPostgresTableSchemasMultiWithEmbedded(dfs []*DomainFile, extraEmbedd
 				if owner == "" {
 					owner = dm.Name
 				}
-				if prev, exists := seenTables[tbl.TableName]; exists && prev != owner {
+				tableKey := strings.ToLower(strings.TrimSpace(tbl.TableName))
+				if prev, exists := seenTables[tableKey]; exists && prev != owner {
 					return fmt.Errorf("message %s: duplicate PostgreSQL table name %q (already resolved by %s)", owner, tbl.TableName, prev)
 				}
-				seenTables[tbl.TableName] = owner
+				seenTables[tableKey] = owner
 				byResolvedName[tbl.TableName] = tbl.TableName
 				addAlias(byUnprefixedSnake, toSnakeCase(dm.Name), tbl.TableName)
 				if dm.ProtoMsg != nil {
@@ -1855,35 +1860,7 @@ func (t PostgresTableSchemaDescriptor) BuildPostgresCreateTableWithoutForeignKey
 		if idx.Where != "" && !isValidPostgresCheckExpr(idx.Where) {
 			return ""
 		}
-		var colParts []string
-		if len(idx.Parts) > 0 {
-			for _, p := range idx.Parts {
-				var part string
-				if p.Column != "" {
-					part = fmt.Sprintf("%q", p.Column)
-				} else {
-					part = formatPostgresIndexExprSQL(p.Expr)
-				}
-				if p.Opclass != "" {
-					part += " " + p.Opclass
-				}
-				if p.Desc {
-					part += " DESC"
-				}
-				colParts = append(colParts, part)
-			}
-		} else {
-			for _, col := range idx.Columns {
-				part := fmt.Sprintf("%q", col)
-				if idx.IsDesc(col) {
-					part += " DESC"
-				}
-				colParts = append(colParts, part)
-			}
-			for _, expr := range idx.Expressions {
-				colParts = append(colParts, formatPostgresIndexExprSQL(expr))
-			}
-		}
+		colParts := formatPostgresIndexPartsSQL(idx, true)
 		whereClause := ""
 		if idx.Where != "" {
 			whereClause = " WHERE " + idx.Where

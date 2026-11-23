@@ -202,6 +202,17 @@ func isAbstractIcebergSpecType(upperIT string) bool {
 	return false
 }
 
+// dorisColumnIcebergElementDDLType normalizes a nested element type inside an
+// Iceberg ARRAY<...> or MAP<k, v> definition without re-converting concrete "STRING"
+// element types into VARCHAR(256).
+func dorisColumnIcebergElementDDLType(elem string) string {
+	e := strings.ToUpper(strings.TrimSpace(elem))
+	if e == "STRING" {
+		return "STRING"
+	}
+	return dorisColumnIcebergDDLType("", e)
+}
+
 // dorisColumnIcebergDDLType maps a column's Doris/Iceberg type metadata to the
 // SQL column type used in Doris's Iceberg catalog CREATE TABLE DDL.
 func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
@@ -254,16 +265,16 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 		}
 		if strings.HasPrefix(upperIT, "ARRAY<") && strings.HasSuffix(upperIT, ">") {
 			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "ARRAY<"), ">")
-			return "ARRAY<" + dorisColumnIcebergDDLType("", inner) + ">"
+			return "ARRAY<" + dorisColumnIcebergElementDDLType(inner) + ">"
 		}
 		if strings.HasPrefix(upperIT, "LIST<") && strings.HasSuffix(upperIT, ">") {
 			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "LIST<"), ">")
-			return "ARRAY<" + dorisColumnIcebergDDLType("", inner) + ">"
+			return "ARRAY<" + dorisColumnIcebergElementDDLType(inner) + ">"
 		}
 		if strings.HasPrefix(upperIT, "MAP<") && strings.HasSuffix(upperIT, ">") {
 			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "MAP<"), ">")
 			if k, v, ok := splitIcebergTopLevelComma(inner); ok {
-				return "MAP<" + dorisColumnIcebergDDLType("", k) + ", " + dorisColumnIcebergDDLType("", v) + ">"
+				return "MAP<" + dorisColumnIcebergElementDDLType(k) + ", " + dorisColumnIcebergElementDDLType(v) + ">"
 			}
 		}
 		return upperIT

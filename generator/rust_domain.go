@@ -92,7 +92,11 @@ func generateRust(gen *protogen.Plugin, file *protogen.File, opts *Options) erro
 
 // generateRustDomain generates a Rust domain type file for a proto file.
 func generateRustDomain(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, ".type.rs")
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	filename, err := resolveOutputFilename(file.GeneratedFilenamePrefix, ".type.rs", outOverride)
 	if err != nil {
 		return err
 	}

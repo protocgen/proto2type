@@ -8,18 +8,24 @@ import (
 
 // generateGoFirestore generates a Go Firestore storage type file.
 func (gg *goGenerator) generateGoFirestore(gen *protogen.Plugin, file *protogen.File, opts *Options) error {
-	filename, err := outputFilename(file.GeneratedFilenamePrefix, "_firestore.type.go")
+	outOverride := ""
+	if opts != nil {
+		outOverride = opts.OutputFile
+	}
+	filename, err := resolveOutputFilename(file.GeneratedFilenamePrefix, "_firestore.type.go", outOverride)
 	if err != nil {
 		return err
 	}
 
 	goImportPath := file.GoImportPath
 	goPackageName := file.GoPackageName
-	if opts.GoPackage != "" {
+	if opts != nil && opts.GoPackage != "" {
 		importPath, pkgName := parseGoPackage(opts.GoPackage)
 		goImportPath = protogen.GoImportPath(importPath)
 		goPackageName = protogen.GoPackageName(pkgName)
-		filename = adjustSubdirFilename(filename, string(file.GoImportPath), importPath)
+		if outOverride == "" {
+			filename = adjustSubdirFilename(filename, string(file.GoImportPath), importPath)
+		}
 	}
 	g := gen.NewGeneratedFile(filename, goImportPath)
 

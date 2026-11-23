@@ -1028,6 +1028,14 @@ func isDorisAbstractIcebergSpecType(upperIT string) bool {
 	return false
 }
 
+func dorisColumnIcebergElementDDLType(elem string) string {
+	e := strings.ToUpper(strings.TrimSpace(elem))
+	if e == "STRING" {
+		return "STRING"
+	}
+	return dorisColumnIcebergDDLType("", e)
+}
+
 func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 	dt := strings.ToUpper(strings.TrimSpace(dorisType))
 	it := strings.TrimSpace(icebergType)
@@ -1078,16 +1086,16 @@ func dorisColumnIcebergDDLType(dorisType, icebergType string) string {
 		}
 		if strings.HasPrefix(upperIT, "ARRAY<") && strings.HasSuffix(upperIT, ">") {
 			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "ARRAY<"), ">")
-			return "ARRAY<" + dorisColumnIcebergDDLType("", inner) + ">"
+			return "ARRAY<" + dorisColumnIcebergElementDDLType(inner) + ">"
 		}
 		if strings.HasPrefix(upperIT, "LIST<") && strings.HasSuffix(upperIT, ">") {
 			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "LIST<"), ">")
-			return "ARRAY<" + dorisColumnIcebergDDLType("", inner) + ">"
+			return "ARRAY<" + dorisColumnIcebergElementDDLType(inner) + ">"
 		}
 		if strings.HasPrefix(upperIT, "MAP<") && strings.HasSuffix(upperIT, ">") {
 			inner := strings.TrimSuffix(strings.TrimPrefix(upperIT, "MAP<"), ">")
 			if k, v, ok := dorisSplitIcebergTopLevelComma(inner); ok {
-				return "MAP<" + dorisColumnIcebergDDLType("", k) + ", " + dorisColumnIcebergDDLType("", v) + ">"
+				return "MAP<" + dorisColumnIcebergElementDDLType(k) + ", " + dorisColumnIcebergElementDDLType(v) + ">"
 			}
 		}
 		return upperIT
@@ -4349,7 +4357,7 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 			kB, vB, okB := dorisSplitIcebergTopLevelComma(innerB)
 			kA, vA, okA := dorisSplitIcebergTopLevelComma(innerA)
 			if okB && okA {
-				return IsSafeDorisTypeEvolution(kB, kA) && IsSafeDorisTypeEvolution(vB, vA)
+				return IsSafeDorisTypeEvolution(kB, kA) && IsSafeDorisTypeEvolution(kA, kB) && IsSafeDorisTypeEvolution(vB, vA)
 			}
 		}
 		return false

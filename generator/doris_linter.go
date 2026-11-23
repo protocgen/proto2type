@@ -386,7 +386,7 @@ func IsSafeDorisTypeEvolution(beforeType, afterType string) bool {
 			kB, vB, okB := splitIcebergTopLevelComma(innerB)
 			kA, vA, okA := splitIcebergTopLevelComma(innerA)
 			if okB && okA {
-				return IsSafeDorisTypeEvolution(kB, kA) && IsSafeDorisTypeEvolution(vB, vA)
+				return IsSafeDorisTypeEvolution(kB, kA) && IsSafeDorisTypeEvolution(kA, kB) && IsSafeDorisTypeEvolution(vB, vA)
 			}
 		}
 		return false
